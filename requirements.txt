@@ -1,0 +1,5 @@
+boto3
+hypothesis
+pytest
+pytest-mock
+moto[ec2,rds,elbv2]
