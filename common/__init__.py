@@ -11,10 +11,16 @@ from typing import TypedDict
 # ──────────────────────────────────────────────
 
 # 시스템 하드코딩 기본값 (최종 폴백) - Requirements 2.5
+# Disk_* 계열은 'Disk' 단일 키로 폴백
 HARDCODED_DEFAULTS: dict[str, float] = {
     "CPU": 80.0,
     "Memory": 80.0,
     "Connections": 100.0,
+    "FreeMemoryGB": 2.0,
+    "FreeStorageGB": 10.0,
+    "Disk": 85.0,
+    "RequestCount": 10000.0,
+    "HealthyHostCount": 1.0,
 }
 
 # 지원하는 AWS 리소스 유형 - Requirements 6.1
