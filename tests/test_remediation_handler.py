@@ -11,9 +11,9 @@ import pytest
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
-from remediation_handler.handler import (
+from remediation_handler.lambda_handler import (
     ParsedEvent,
-    handler,
+    lambda_handler,
     parse_cloudtrail_event,
     perform_remediation,
 )
@@ -70,9 +70,9 @@ def test_property_9_no_monitoring_tag_skips_remediation(resource_id, resource_ty
     """Feature: aws-monitoring-engine, Property 9: Monitoring 태그 없으면 remediation 미수행"""
     parsed = _make_parsed("ModifyInstanceAttribute", resource_id, resource_type, "MODIFY")
 
-    with patch("remediation_handler.handler.get_resource_tags", return_value={}), \
-         patch("remediation_handler.handler._execute_remediation") as mock_exec:
-        from remediation_handler.handler import _handle_modify
+    with patch("remediation_handler.lambda_handler.get_resource_tags", return_value={}), \
+         patch("remediation_handler.lambda_handler._execute_remediation") as mock_exec:
+        from remediation_handler.lambda_handler import _handle_modify
         _handle_modify(parsed)
 
     mock_exec.assert_not_called()
@@ -89,12 +89,12 @@ def test_property_9_monitoring_tag_triggers_remediation(resource_id, resource_ty
     """Feature: aws-monitoring-engine, Property 9: Monitoring=on 태그 있으면 remediation 수행"""
     parsed = _make_parsed("ModifyInstanceAttribute", resource_id, resource_type, "MODIFY")
 
-    with patch("remediation_handler.handler.get_resource_tags",
+    with patch("remediation_handler.lambda_handler.get_resource_tags",
                return_value={"Monitoring": "on"}), \
-         patch("remediation_handler.handler._execute_remediation",
+         patch("remediation_handler.lambda_handler._execute_remediation",
                return_value="STOPPED") as mock_exec, \
-         patch("remediation_handler.handler.send_remediation_alert"):
-        from remediation_handler.handler import _handle_modify
+         patch("remediation_handler.lambda_handler.send_remediation_alert"):
+        from remediation_handler.lambda_handler import _handle_modify
         _handle_modify(parsed)
 
     mock_exec.assert_called_once_with(resource_type, resource_id)
@@ -114,8 +114,8 @@ def test_property_9_monitoring_tag_triggers_remediation(resource_id, resource_ty
 def test_property_10_ec2_remediation_calls_stop(resource_id):
     """Feature: aws-monitoring-engine, Property 10: EC2 → stop_instances"""
     mock_ec2 = MagicMock()
-    with patch("remediation_handler.handler.boto3.client", return_value=mock_ec2):
-        from remediation_handler.handler import _execute_remediation
+    with patch("remediation_handler.lambda_handler.boto3.client", return_value=mock_ec2):
+        from remediation_handler.lambda_handler import _execute_remediation
         result = _execute_remediation("EC2", resource_id)
 
     mock_ec2.stop_instances.assert_called_once_with(InstanceIds=[resource_id])
@@ -131,8 +131,8 @@ def test_property_10_ec2_remediation_calls_stop(resource_id):
 def test_property_10_rds_remediation_calls_stop(resource_id):
     """Feature: aws-monitoring-engine, Property 10: RDS → stop_db_instance"""
     mock_rds = MagicMock()
-    with patch("remediation_handler.handler.boto3.client", return_value=mock_rds):
-        from remediation_handler.handler import _execute_remediation
+    with patch("remediation_handler.lambda_handler.boto3.client", return_value=mock_rds):
+        from remediation_handler.lambda_handler import _execute_remediation
         result = _execute_remediation("RDS", resource_id)
 
     mock_rds.stop_db_instance.assert_called_once_with(DBInstanceIdentifier=resource_id)
@@ -148,8 +148,8 @@ def test_property_10_rds_remediation_calls_stop(resource_id):
 def test_property_10_elb_remediation_calls_delete(resource_id):
     """Feature: aws-monitoring-engine, Property 10: ELB → delete_load_balancer"""
     mock_elb = MagicMock()
-    with patch("remediation_handler.handler.boto3.client", return_value=mock_elb):
-        from remediation_handler.handler import _execute_remediation
+    with patch("remediation_handler.lambda_handler.boto3.client", return_value=mock_elb):
+        from remediation_handler.lambda_handler import _execute_remediation
         result = _execute_remediation("ELB", resource_id)
 
     mock_elb.delete_load_balancer.assert_called_once_with(LoadBalancerArn=resource_id)
@@ -169,10 +169,10 @@ def test_property_12_pre_log_before_remediation_action(caplog):
         call_order.append("execute")
         return "STOPPED"
 
-    with caplog.at_level(logging.WARNING, logger="remediation_handler.handler"), \
-         patch("remediation_handler.handler._execute_remediation",
+    with caplog.at_level(logging.WARNING, logger="remediation_handler.lambda_handler"), \
+         patch("remediation_handler.lambda_handler._execute_remediation",
                side_effect=fake_execute), \
-         patch("remediation_handler.handler.send_remediation_alert"):
+         patch("remediation_handler.lambda_handler.send_remediation_alert"):
         perform_remediation("EC2", "i-001", "ModifyInstanceAttribute on EC2 i-001")
 
     # 로그에 PRE-LOG 포함 확인
@@ -198,10 +198,10 @@ def test_property_14_delete_with_monitoring_tag_sends_alert(resource_id, resourc
     """Feature: aws-monitoring-engine, Property 14: Monitoring=on 리소스 삭제 시 SNS 알림"""
     parsed = _make_parsed("TerminateInstances", resource_id, resource_type, "DELETE")
 
-    with patch("remediation_handler.handler.get_resource_tags",
+    with patch("remediation_handler.lambda_handler.get_resource_tags",
                return_value={"Monitoring": "on"}), \
-         patch("remediation_handler.handler.send_lifecycle_alert") as mock_alert:
-        from remediation_handler.handler import _handle_delete
+         patch("remediation_handler.lambda_handler.send_lifecycle_alert") as mock_alert:
+        from remediation_handler.lambda_handler import _handle_delete
         _handle_delete(parsed)
 
     mock_alert.assert_called_once()
@@ -221,9 +221,9 @@ def test_property_14_delete_without_monitoring_tag_no_alert(resource_id, resourc
     """Feature: aws-monitoring-engine, Property 14: Monitoring 태그 없는 리소스 삭제 시 알림 없음"""
     parsed = _make_parsed("TerminateInstances", resource_id, resource_type, "DELETE")
 
-    with patch("remediation_handler.handler.get_resource_tags", return_value={}), \
-         patch("remediation_handler.handler.send_lifecycle_alert") as mock_alert:
-        from remediation_handler.handler import _handle_delete
+    with patch("remediation_handler.lambda_handler.get_resource_tags", return_value={}), \
+         patch("remediation_handler.lambda_handler.send_lifecycle_alert") as mock_alert:
+        from remediation_handler.lambda_handler import _handle_delete
         _handle_delete(parsed)
 
     mock_alert.assert_not_called()
@@ -251,8 +251,8 @@ def test_property_15_delete_monitoring_tag_sends_alert(resource_id):
         request_params={"tagSet": {"items": [{"key": "Monitoring"}]}},
     )
 
-    with patch("remediation_handler.handler.send_lifecycle_alert") as mock_alert:
-        from remediation_handler.handler import _handle_tag_change
+    with patch("remediation_handler.lambda_handler.send_lifecycle_alert") as mock_alert:
+        from remediation_handler.lambda_handler import _handle_tag_change
         _handle_tag_change(parsed)
 
     mock_alert.assert_called_once()
@@ -282,9 +282,9 @@ def test_property_16_create_monitoring_tag_logs_no_alert(resource_id, caplog):
         request_params={"tagSet": {"items": [{"key": "Monitoring", "value": "on"}]}},
     )
 
-    with caplog.at_level(logging.INFO, logger="remediation_handler.handler"), \
-         patch("remediation_handler.handler.send_lifecycle_alert") as mock_alert:
-        from remediation_handler.handler import _handle_tag_change
+    with caplog.at_level(logging.INFO, logger="remediation_handler.lambda_handler"), \
+         patch("remediation_handler.lambda_handler.send_lifecycle_alert") as mock_alert:
+        from remediation_handler.lambda_handler import _handle_tag_change
         _handle_tag_change(parsed)
 
     # SNS 알림 없음
@@ -358,9 +358,9 @@ class TestHandlerRouting:
     def test_modify_event_calls_handle_modify(self):
         """MODIFY 이벤트 → _handle_modify 호출"""
         event = _make_event("ModifyInstanceAttribute", "i-001")
-        with patch("remediation_handler.handler.get_resource_tags", return_value={}), \
-             patch("remediation_handler.handler._execute_remediation") as mock_exec:
-            result = handler(event, MagicMock())
+        with patch("remediation_handler.lambda_handler.get_resource_tags", return_value={}), \
+             patch("remediation_handler.lambda_handler._execute_remediation") as mock_exec:
+            result = lambda_handler(event, MagicMock())
 
         assert result["status"] == "ok"
         mock_exec.assert_not_called()  # Monitoring 태그 없으므로 실행 안 됨
@@ -368,18 +368,18 @@ class TestHandlerRouting:
     def test_delete_event_with_monitoring_tag(self):
         """DELETE 이벤트 + Monitoring=on → lifecycle 알림"""
         event = _make_event("TerminateInstances", "i-001")
-        with patch("remediation_handler.handler.get_resource_tags",
+        with patch("remediation_handler.lambda_handler.get_resource_tags",
                    return_value={"Monitoring": "on"}), \
-             patch("remediation_handler.handler.send_lifecycle_alert") as mock_alert:
-            result = handler(event, MagicMock())
+             patch("remediation_handler.lambda_handler.send_lifecycle_alert") as mock_alert:
+            result = lambda_handler(event, MagicMock())
 
         assert result["status"] == "ok"
         mock_alert.assert_called_once()
 
     def test_parse_error_sends_error_alert(self):
         """파싱 오류 시 SNS 오류 알림 발송 - Requirements 4.4"""
-        with patch("remediation_handler.handler.send_error_alert") as mock_err:
-            result = handler({"detail": {}}, MagicMock())
+        with patch("remediation_handler.lambda_handler.send_error_alert") as mock_err:
+            result = lambda_handler({"detail": {}}, MagicMock())
 
         assert result["status"] == "parse_error"
         mock_err.assert_called_once()
@@ -387,12 +387,12 @@ class TestHandlerRouting:
     def test_remediation_failure_sends_error_alert(self):
         """Remediation 실패 시 SNS 즉시 알림 - Requirements 5.3"""
         event = _make_event("ModifyInstanceAttribute", "i-001")
-        with patch("remediation_handler.handler.get_resource_tags",
+        with patch("remediation_handler.lambda_handler.get_resource_tags",
                    return_value={"Monitoring": "on"}), \
-             patch("remediation_handler.handler._execute_remediation",
+             patch("remediation_handler.lambda_handler._execute_remediation",
                    side_effect=Exception("stop failed")), \
-             patch("remediation_handler.handler.send_error_alert") as mock_err:
-            result = handler(event, MagicMock())
+             patch("remediation_handler.lambda_handler.send_error_alert") as mock_err:
+            result = lambda_handler(event, MagicMock())
 
         assert result["status"] == "error"
         mock_err.assert_called_once()
@@ -408,8 +408,8 @@ class TestHandlerRouting:
                 },
             }
         }
-        with patch("remediation_handler.handler.send_lifecycle_alert") as mock_alert:
-            result = handler(event, MagicMock())
+        with patch("remediation_handler.lambda_handler.send_lifecycle_alert") as mock_alert:
+            result = lambda_handler(event, MagicMock())
 
         assert result["status"] == "ok"
         mock_alert.assert_called_once()
@@ -426,8 +426,8 @@ class TestHandlerRouting:
                 },
             }
         }
-        with patch("remediation_handler.handler.send_lifecycle_alert") as mock_alert:
-            result = handler(event, MagicMock())
+        with patch("remediation_handler.lambda_handler.send_lifecycle_alert") as mock_alert:
+            result = lambda_handler(event, MagicMock())
 
         assert result["status"] == "ok"
         mock_alert.assert_not_called()
@@ -443,9 +443,9 @@ class TestHandlerRouting:
                 },
             }
         }
-        with patch("remediation_handler.handler.send_lifecycle_alert") as mock_alert, \
-             patch("remediation_handler.handler.send_error_alert") as mock_err:
-            result = handler(event, MagicMock())
+        with patch("remediation_handler.lambda_handler.send_lifecycle_alert") as mock_alert, \
+             patch("remediation_handler.lambda_handler.send_error_alert") as mock_err:
+            result = lambda_handler(event, MagicMock())
 
         assert result["status"] == "ok"
         mock_alert.assert_not_called()

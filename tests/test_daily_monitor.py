@@ -11,7 +11,7 @@ import pytest
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
-from daily_monitor.handler import handler
+from daily_monitor.lambda_handler import lambda_handler as handler
 
 
 # ──────────────────────────────────────────────
@@ -30,11 +30,11 @@ def _make_resource(resource_id, resource_type="EC2", tags=None):
 def _patch_all_collectors(ec2_resources=None, rds_resources=None, elb_resources=None):
     """세 collector 모두 패치하는 컨텍스트 매니저 반환."""
     return (
-        patch("daily_monitor.handler.ec2_collector.collect_monitored_resources",
+        patch("daily_monitor.lambda_handler.ec2_collector.collect_monitored_resources",
               return_value=ec2_resources or []),
-        patch("daily_monitor.handler.rds_collector.collect_monitored_resources",
+        patch("daily_monitor.lambda_handler.rds_collector.collect_monitored_resources",
               return_value=rds_resources or []),
-        patch("daily_monitor.handler.elb_collector.collect_monitored_resources",
+        patch("daily_monitor.lambda_handler.elb_collector.collect_monitored_resources",
               return_value=elb_resources or []),
     )# ──────────────────────────────────────────────
 # Property 6: InsufficientData 메트릭 알림 건너뛰기
@@ -57,7 +57,7 @@ def test_property_6_insufficient_data_no_alert(resource_ids):
     p1, p2, p3 = _patch_all_collectors(ec2_resources=resources)
     with p1, p2, p3, \
          patch("common.collectors.ec2.get_metrics", return_value=None), \
-         patch("daily_monitor.handler.send_alert") as mock_alert:
+         patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
         result = handler({}, MagicMock())
 
     # 메트릭 데이터 없으면 알림 0건
@@ -87,8 +87,8 @@ def test_property_8_multiple_resources_individual_alerts(cpu_values):
     p1, p2, p3 = _patch_all_collectors(ec2_resources=resources)
     with p1, p2, p3, \
          patch("common.collectors.ec2.get_metrics", side_effect=metrics_list), \
-         patch("daily_monitor.handler.send_alert") as mock_alert, \
-         patch("daily_monitor.handler.get_threshold", return_value=80.0):
+         patch("daily_monitor.lambda_handler.send_alert") as mock_alert, \
+         patch("daily_monitor.lambda_handler.get_threshold", return_value=80.0):
         result = handler({}, MagicMock())
 
     # N개 리소스 → N개 알림
@@ -106,7 +106,7 @@ class TestDailyMonitorHandler:
         """수집 대상 0개 시 알림 미발송 - Requirements 1.3"""
         p1, p2, p3 = _patch_all_collectors()
         with p1, p2, p3, \
-             patch("daily_monitor.handler.send_alert") as mock_alert:
+             patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
             result = handler({}, MagicMock())
 
         mock_alert.assert_not_called()
@@ -120,8 +120,8 @@ class TestDailyMonitorHandler:
         with p1, p2, p3, \
              patch("common.collectors.ec2.get_metrics",
                    return_value={"CPU": 95.0}), \
-             patch("daily_monitor.handler.get_threshold", return_value=80.0), \
-             patch("daily_monitor.handler.send_alert") as mock_alert:
+             patch("daily_monitor.lambda_handler.get_threshold", return_value=80.0), \
+             patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
             result = handler({}, MagicMock())
 
         mock_alert.assert_called_once_with(
@@ -140,8 +140,8 @@ class TestDailyMonitorHandler:
         with p1, p2, p3, \
              patch("common.collectors.ec2.get_metrics",
                    return_value={"CPU": 50.0}), \
-             patch("daily_monitor.handler.get_threshold", return_value=80.0), \
-             patch("daily_monitor.handler.send_alert") as mock_alert:
+             patch("daily_monitor.lambda_handler.get_threshold", return_value=80.0), \
+             patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
             result = handler({}, MagicMock())
 
         mock_alert.assert_not_called()
@@ -151,17 +151,17 @@ class TestDailyMonitorHandler:
         """Collector 오류 시 SNS 오류 알림 발송 후 다음 collector 계속 - Requirements 1.4"""
         rds_resources = [_make_resource("db-001", "RDS")]
 
-        with patch("daily_monitor.handler.ec2_collector.collect_monitored_resources",
+        with patch("daily_monitor.lambda_handler.ec2_collector.collect_monitored_resources",
                    side_effect=Exception("EC2 API error")), \
-             patch("daily_monitor.handler.rds_collector.collect_monitored_resources",
+             patch("daily_monitor.lambda_handler.rds_collector.collect_monitored_resources",
                    return_value=rds_resources), \
-             patch("daily_monitor.handler.elb_collector.collect_monitored_resources",
+             patch("daily_monitor.lambda_handler.elb_collector.collect_monitored_resources",
                    return_value=[]), \
              patch("common.collectors.rds.get_metrics",
                    return_value={"CPU": 50.0}), \
-             patch("daily_monitor.handler.get_threshold", return_value=80.0), \
-             patch("daily_monitor.handler.send_error_alert") as mock_err, \
-             patch("daily_monitor.handler.send_alert") as mock_alert:
+             patch("daily_monitor.lambda_handler.get_threshold", return_value=80.0), \
+             patch("daily_monitor.lambda_handler.send_error_alert") as mock_err, \
+             patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
             result = handler({}, MagicMock())
 
         # EC2 오류 알림 1건만 발송
@@ -189,9 +189,9 @@ class TestDailyMonitorHandler:
         with p1, p2, p3, \
              patch("common.collectors.ec2.get_metrics",
                    side_effect=get_metrics_side_effect), \
-             patch("daily_monitor.handler.get_threshold", return_value=80.0), \
-             patch("daily_monitor.handler.send_error_alert") as mock_err, \
-             patch("daily_monitor.handler.send_alert"):
+             patch("daily_monitor.lambda_handler.get_threshold", return_value=80.0), \
+             patch("daily_monitor.lambda_handler.send_error_alert") as mock_err, \
+             patch("daily_monitor.lambda_handler.send_alert"):
             result = handler({}, MagicMock())
 
         # i-001 오류 알림 1건만 발송
@@ -206,8 +206,8 @@ class TestDailyMonitorHandler:
         with p1, p2, p3, \
              patch("common.collectors.rds.get_metrics",
                    return_value={"FreeMemoryGB": 1.0}), \
-             patch("daily_monitor.handler.get_threshold", return_value=2.0), \
-             patch("daily_monitor.handler.send_alert") as mock_alert:
+             patch("daily_monitor.lambda_handler.get_threshold", return_value=2.0), \
+             patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
             result = handler({}, MagicMock())
 
         mock_alert.assert_called_once_with(
@@ -226,8 +226,8 @@ class TestDailyMonitorHandler:
         with p1, p2, p3, \
              patch("common.collectors.rds.get_metrics",
                    return_value={"FreeMemoryGB": 5.0}), \
-             patch("daily_monitor.handler.get_threshold", return_value=2.0), \
-             patch("daily_monitor.handler.send_alert") as mock_alert:
+             patch("daily_monitor.lambda_handler.get_threshold", return_value=2.0), \
+             patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
             result = handler({}, MagicMock())
 
         mock_alert.assert_not_called()

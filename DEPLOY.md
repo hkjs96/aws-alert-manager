@@ -48,7 +48,7 @@ zip -r common_layer.zip python/ -x "**/__pycache__/*" "**/*.pyc"
 
 ```bash
 mkdir -p /tmp/daily_monitor
-cp daily_monitor/handler.py /tmp/daily_monitor/
+cp daily_monitor/lambda_handler.py /tmp/daily_monitor/
 cd /tmp/daily_monitor
 zip -r daily_monitor.zip .
 ```
@@ -57,7 +57,7 @@ zip -r daily_monitor.zip .
 
 ```bash
 mkdir -p /tmp/remediation_handler
-cp remediation_handler/handler.py /tmp/remediation_handler/
+cp remediation_handler/lambda_handler.py /tmp/remediation_handler/
 cd /tmp/remediation_handler
 zip -r remediation_handler.zip .
 ```

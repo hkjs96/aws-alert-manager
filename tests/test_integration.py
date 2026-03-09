@@ -5,17 +5,17 @@ Requirements: 1.1, 3.1, 4.1, 5.1, 8.1
 
 패치 경로 원칙:
 - sns_notifier 함수는 각 핸들러가 임포트한 위치에서 패치
-  (daily_monitor.handler.send_alert, remediation_handler.handler.send_lifecycle_alert 등)
-- boto3.client는 remediation_handler.handler.boto3.client 로 패치
-- get_resource_tags는 remediation_handler.handler.get_resource_tags 로 패치
+  (daily_monitor.lambda_handler.send_alert, remediation_handler.lambda_handler.send_lifecycle_alert 등)
+- boto3.client는 remediation_handler.lambda_handler.boto3.client 로 패치
+- get_resource_tags는 remediation_handler.lambda_handler.get_resource_tags 로 패치
 - collector.get_metrics는 common.collectors.{ec2|rds|elb}.get_metrics 로 패치
 """
 
 from unittest.mock import MagicMock, patch
 import pytest
 
-from daily_monitor.handler import handler as daily_handler
-from remediation_handler.handler import handler as remediation_handler
+from daily_monitor.lambda_handler import lambda_handler as daily_handler
+from remediation_handler.lambda_handler import lambda_handler as remediation_handler
 
 
 # ──────────────────────────────────────────────
@@ -34,7 +34,7 @@ class TestDailyMonitorIntegration:
              patch("common.collectors.elb.collect_monitored_resources", return_value=[]), \
              patch("common.collectors.ec2.get_metrics", return_value={"CPU": 95.0}), \
              patch("common.tag_resolver.get_threshold", return_value=80.0), \
-             patch("daily_monitor.handler.send_alert") as mock_alert:
+             patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
 
             result = daily_handler({}, MagicMock())
 
@@ -61,7 +61,7 @@ class TestDailyMonitorIntegration:
              patch("common.collectors.elb.collect_monitored_resources", return_value=[]), \
              patch("common.collectors.rds.get_metrics", return_value={"CPU": 90.0, "Connections": 150.0}), \
              patch("common.tag_resolver.get_threshold", side_effect=mock_threshold), \
-             patch("daily_monitor.handler.send_alert") as mock_alert:
+             patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
 
             result = daily_handler({}, MagicMock())
 
@@ -78,7 +78,7 @@ class TestDailyMonitorIntegration:
              patch("common.collectors.elb.collect_monitored_resources", return_value=[]), \
              patch("common.collectors.ec2.get_metrics", return_value={"CPU": 50.0}), \
              patch("common.tag_resolver.get_threshold", return_value=80.0), \
-             patch("daily_monitor.handler.send_alert") as mock_alert:
+             patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
 
             result = daily_handler({}, MagicMock())
 
@@ -94,7 +94,7 @@ class TestDailyMonitorIntegration:
              patch("common.collectors.rds.collect_monitored_resources", return_value=[]), \
              patch("common.collectors.elb.collect_monitored_resources", return_value=[]), \
              patch("common.collectors.ec2.get_metrics", return_value=None), \
-             patch("daily_monitor.handler.send_alert") as mock_alert:
+             patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
 
             result = daily_handler({}, MagicMock())
 
@@ -111,8 +111,8 @@ class TestDailyMonitorIntegration:
              patch("common.collectors.elb.collect_monitored_resources", return_value=[]), \
              patch("common.collectors.rds.get_metrics", return_value={"CPU": 50.0}), \
              patch("common.tag_resolver.get_threshold", return_value=80.0), \
-             patch("daily_monitor.handler.send_error_alert") as mock_err, \
-             patch("daily_monitor.handler.send_alert"):
+             patch("daily_monitor.lambda_handler.send_error_alert") as mock_err, \
+             patch("daily_monitor.lambda_handler.send_alert"):
 
             result = daily_handler({}, MagicMock())
 
@@ -145,9 +145,9 @@ class TestRemediationHandlerIntegration:
         event = self._make_cloudtrail_event("ModifyInstanceAttribute", "i-001")
         mock_ec2_client = MagicMock()
 
-        with patch("remediation_handler.handler.get_resource_tags", return_value={"Monitoring": "on"}), \
-             patch("remediation_handler.handler.boto3.client", return_value=mock_ec2_client), \
-             patch("remediation_handler.handler.send_remediation_alert") as mock_alert:
+        with patch("remediation_handler.lambda_handler.get_resource_tags", return_value={"Monitoring": "on"}), \
+             patch("remediation_handler.lambda_handler.boto3.client", return_value=mock_ec2_client), \
+             patch("remediation_handler.lambda_handler.send_remediation_alert") as mock_alert:
 
             result = remediation_handler(event, MagicMock())
 
@@ -162,9 +162,9 @@ class TestRemediationHandlerIntegration:
         """EC2 Modify 이벤트 + Monitoring 태그 없음 → remediation 미수행 - Requirements 4.2"""
         event = self._make_cloudtrail_event("ModifyInstanceAttribute", "i-002")
 
-        with patch("remediation_handler.handler.get_resource_tags", return_value={}), \
-             patch("remediation_handler.handler._execute_remediation") as mock_exec, \
-             patch("remediation_handler.handler.send_remediation_alert") as mock_alert:
+        with patch("remediation_handler.lambda_handler.get_resource_tags", return_value={}), \
+             patch("remediation_handler.lambda_handler._execute_remediation") as mock_exec, \
+             patch("remediation_handler.lambda_handler.send_remediation_alert") as mock_alert:
 
             result = remediation_handler(event, MagicMock())
 
@@ -177,9 +177,9 @@ class TestRemediationHandlerIntegration:
         event = self._make_cloudtrail_event("ModifyDBInstance", "db-prod")
         mock_rds_client = MagicMock()
 
-        with patch("remediation_handler.handler.get_resource_tags", return_value={"Monitoring": "on"}), \
-             patch("remediation_handler.handler.boto3.client", return_value=mock_rds_client), \
-             patch("remediation_handler.handler.send_remediation_alert"):
+        with patch("remediation_handler.lambda_handler.get_resource_tags", return_value={"Monitoring": "on"}), \
+             patch("remediation_handler.lambda_handler.boto3.client", return_value=mock_rds_client), \
+             patch("remediation_handler.lambda_handler.send_remediation_alert"):
 
             result = remediation_handler(event, MagicMock())
 
@@ -192,9 +192,9 @@ class TestRemediationHandlerIntegration:
         event = self._make_cloudtrail_event("ModifyLoadBalancerAttributes", arn)
         mock_elb_client = MagicMock()
 
-        with patch("remediation_handler.handler.get_resource_tags", return_value={"Monitoring": "on"}), \
-             patch("remediation_handler.handler.boto3.client", return_value=mock_elb_client), \
-             patch("remediation_handler.handler.send_remediation_alert"):
+        with patch("remediation_handler.lambda_handler.get_resource_tags", return_value={"Monitoring": "on"}), \
+             patch("remediation_handler.lambda_handler.boto3.client", return_value=mock_elb_client), \
+             patch("remediation_handler.lambda_handler.send_remediation_alert"):
 
             result = remediation_handler(event, MagicMock())
 
@@ -205,8 +205,8 @@ class TestRemediationHandlerIntegration:
         """EC2 삭제 이벤트 + Monitoring=on → lifecycle SNS 알림 - Requirements 8.1, 8.2"""
         event = self._make_cloudtrail_event("TerminateInstances", "i-003")
 
-        with patch("remediation_handler.handler.get_resource_tags", return_value={"Monitoring": "on"}), \
-             patch("remediation_handler.handler.send_lifecycle_alert") as mock_alert:
+        with patch("remediation_handler.lambda_handler.get_resource_tags", return_value={"Monitoring": "on"}), \
+             patch("remediation_handler.lambda_handler.send_lifecycle_alert") as mock_alert:
 
             result = remediation_handler(event, MagicMock())
 
@@ -218,8 +218,8 @@ class TestRemediationHandlerIntegration:
         """EC2 삭제 이벤트 + Monitoring 태그 없음 → 알림 없음 - Requirements 8.3"""
         event = self._make_cloudtrail_event("TerminateInstances", "i-004")
 
-        with patch("remediation_handler.handler.get_resource_tags", return_value={}), \
-             patch("remediation_handler.handler.send_lifecycle_alert") as mock_alert:
+        with patch("remediation_handler.lambda_handler.get_resource_tags", return_value={}), \
+             patch("remediation_handler.lambda_handler.send_lifecycle_alert") as mock_alert:
 
             result = remediation_handler(event, MagicMock())
 
@@ -238,7 +238,7 @@ class TestRemediationHandlerIntegration:
             }
         }
 
-        with patch("remediation_handler.handler.send_lifecycle_alert") as mock_alert:
+        with patch("remediation_handler.lambda_handler.send_lifecycle_alert") as mock_alert:
             result = remediation_handler(event, MagicMock())
 
         assert result["status"] == "ok"
@@ -257,8 +257,8 @@ class TestRemediationHandlerIntegration:
             }
         }
 
-        with patch("remediation_handler.handler.send_lifecycle_alert") as mock_alert, \
-             patch("remediation_handler.handler.send_error_alert") as mock_err:
+        with patch("remediation_handler.lambda_handler.send_lifecycle_alert") as mock_alert, \
+             patch("remediation_handler.lambda_handler.send_error_alert") as mock_err:
 
             result = remediation_handler(event, MagicMock())
 
@@ -268,7 +268,7 @@ class TestRemediationHandlerIntegration:
 
     def test_invalid_event_returns_parse_error(self):
         """잘못된 이벤트 → parse_error 반환 + SNS 오류 알림 - Requirements 4.4"""
-        with patch("remediation_handler.handler.send_error_alert") as mock_err:
+        with patch("remediation_handler.lambda_handler.send_error_alert") as mock_err:
             result = remediation_handler({"detail": {}}, MagicMock())
 
         assert result["status"] == "parse_error"
@@ -280,9 +280,9 @@ class TestRemediationHandlerIntegration:
         mock_ec2_client = MagicMock()
         mock_ec2_client.stop_instances.side_effect = Exception("InsufficientInstanceCapacity")
 
-        with patch("remediation_handler.handler.get_resource_tags", return_value={"Monitoring": "on"}), \
-             patch("remediation_handler.handler.boto3.client", return_value=mock_ec2_client), \
-             patch("remediation_handler.handler.send_error_alert") as mock_err:
+        with patch("remediation_handler.lambda_handler.get_resource_tags", return_value={"Monitoring": "on"}), \
+             patch("remediation_handler.lambda_handler.boto3.client", return_value=mock_ec2_client), \
+             patch("remediation_handler.lambda_handler.send_error_alert") as mock_err:
 
             result = remediation_handler(event, MagicMock())
 

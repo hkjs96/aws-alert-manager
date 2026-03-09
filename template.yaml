@@ -95,7 +95,7 @@ Resources:
       Runtime: !FindInMap [LambdaConfig, Settings, Runtime]
       Timeout: !FindInMap [LambdaConfig, Settings, Timeout]
       MemorySize: !FindInMap [LambdaConfig, Settings, MemorySize]
-      Handler: handler.handler
+      Handler: lambda_handler.lambda_handler
       Role: !GetAtt MonitoringEngineRole.Arn
       Layers:
         - !Ref CommonLayer
@@ -128,7 +128,7 @@ Resources:
       Runtime: !FindInMap [LambdaConfig, Settings, Runtime]
       Timeout: !FindInMap [LambdaConfig, Settings, Timeout]
       MemorySize: !FindInMap [LambdaConfig, Settings, MemorySize]
-      Handler: handler.handler
+      Handler: lambda_handler.lambda_handler
       Role: !GetAtt RemediationHandlerRole.Arn
       Layers:
         - !Ref CommonLayer
