@@ -315,6 +315,9 @@ Resources:
                 Action:
                   - cloudwatch:GetMetricStatistics
                   - cloudwatch:GetMetricData
+                  - cloudwatch:PutMetricAlarm
+                  - cloudwatch:DeleteAlarms
+                  - cloudwatch:DescribeAlarms
                 Resource: "*"
               - Effect: Allow
                 Action:
@@ -361,6 +364,12 @@ Resources:
                   - elasticloadbalancing:DescribeTags
                   - elasticloadbalancing:DescribeLoadBalancers
                   - elasticloadbalancing:DeleteLoadBalancer
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - cloudwatch:PutMetricAlarm
+                  - cloudwatch:DeleteAlarms
+                  - cloudwatch:DescribeAlarms
                 Resource: "*"
               - Effect: Allow
                 Action:
