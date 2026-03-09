@@ -1,8 +1,8 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >
-  AWS Monitoring Engine - EC2/RDS/ELB 리소스 모니터링 자동화 엔진
-  Daily_Monitor(일일 메트릭 점검) + Remediation_Handler(CloudTrail 이벤트 기반 자동 조치)
-  순수 CloudFormation (SAM 없음) - deploy.sh 로 S3 업로드 후 배포
+  AWS Monitoring Engine - EC2/RDS/ELB resource monitoring automation engine.
+  Daily_Monitor (daily metric check) + Remediation_Handler (CloudTrail event-based auto remediation).
+  Pure CloudFormation, no SAM. Upload zips to S3 then deploy via console.
 
 # ──────────────────────────────────────────────
 # 파라미터
@@ -10,54 +10,54 @@ Description: >
 Parameters:
   DeploymentBucket:
     Type: String
-    Description: Lambda 코드 zip 파일이 업로드된 S3 버킷 이름
+    Description: S3 bucket name where Lambda zip files are uploaded
 
   CodeVersion:
     Type: String
     Default: latest
-    Description: S3 오브젝트 키 prefix (deploy.sh 가 생성하는 타임스탬프 또는 'latest')
+    Description: S3 object key prefix (e.g. v20260306 or latest)
 
   DefaultCpuThreshold:
     Type: Number
     Default: 80
-    Description: CPU 사용률 기본 임계치 (%)
+    Description: Default CPU utilization threshold (%)
 
   DefaultMemoryThreshold:
     Type: Number
     Default: 80
-    Description: Memory 사용률 기본 임계치 (%)
+    Description: Default memory utilization threshold (%)
 
   DefaultConnectionsThreshold:
     Type: Number
     Default: 100
-    Description: DB 연결 수 기본 임계치
+    Description: Default DB connection count threshold
 
   DefaultFreeMemoryGBThreshold:
     Type: Number
     Default: 2
-    Description: 여유 메모리 기본 임계치 (GB, 이 값 미만이면 알림)
+    Description: Default free memory threshold in GB (alert when below this value)
 
   DefaultFreeStorageGBThreshold:
     Type: Number
     Default: 10
-    Description: 여유 스토리지 기본 임계치 (GB, 이 값 미만이면 알림)
+    Description: Default free storage threshold in GB (alert when below this value)
 
   DefaultDiskThreshold:
     Type: Number
     Default: 85
-    Description: 디스크 사용률 기본 임계치 (%)
+    Description: Default disk utilization threshold (%)
 
   Environment:
     Type: String
     Default: prod
     AllowedValues: [dev, staging, prod]
-    Description: 배포 환경
+    Description: Deployment environment
 
 # ──────────────────────────────────────────────
 # 공통 환경 변수 (Lambda 두 개가 공유)
 # ──────────────────────────────────────────────
-# CloudFormation Globals 는 SAM 전용이므로 각 Function 에 직접 기재합니다.
-# 유지보수 편의를 위해 Mappings 로 분리합니다.
+# CloudFormation Globals is SAM-only. Specify settings per function.
+# Use Mappings for maintainability.
 Mappings:
   LambdaConfig:
     Settings:
@@ -65,17 +65,14 @@ Mappings:
       Timeout: 300
       MemorySize: 256
 
-# ──────────────────────────────────────────────
-# 리소스
-# ──────────────────────────────────────────────
 Resources:
 
-  # ── Lambda Layer: common 모듈 ──────────────
+  # ── Lambda Layer: common module ────────────
   CommonLayer:
     Type: AWS::Lambda::LayerVersion
     Properties:
       LayerName: !Sub aws-monitoring-engine-common-${Environment}
-      Description: AWS Monitoring Engine 공통 모듈 (tag_resolver, sns_notifier, collectors)
+      Description: AWS Monitoring Engine common modules (tag_resolver, sns_notifier, collectors)
       Content:
         S3Bucket: !Ref DeploymentBucket
         S3Key: !Sub ${CodeVersion}/common_layer.zip
@@ -87,7 +84,7 @@ Resources:
     Type: AWS::Lambda::Function
     Properties:
       FunctionName: !Sub aws-monitoring-engine-daily-monitor-${Environment}
-      Description: EC2/RDS/ELB 메트릭 일일 점검 및 임계치 초과 알림
+      Description: EC2/RDS/ELB daily metric check and threshold alert
       Runtime: !FindInMap [LambdaConfig, Settings, Runtime]
       Timeout: !FindInMap [LambdaConfig, Settings, Timeout]
       MemorySize: !FindInMap [LambdaConfig, Settings, MemorySize]
@@ -118,7 +115,7 @@ Resources:
     Type: AWS::Lambda::Function
     Properties:
       FunctionName: !Sub aws-monitoring-engine-remediation-handler-${Environment}
-      Description: CloudTrail 이벤트 기반 자동 조치 및 생명주기 알림
+      Description: CloudTrail event-based auto remediation and lifecycle alerts
       Runtime: !FindInMap [LambdaConfig, Settings, Runtime]
       Timeout: !FindInMap [LambdaConfig, Settings, Timeout]
       MemorySize: !FindInMap [LambdaConfig, Settings, MemorySize]
@@ -149,7 +146,7 @@ Resources:
     Type: AWS::Scheduler::Schedule
     Properties:
       Name: !Sub daily-monitor-schedule-${Environment}
-      Description: 매일 오전 9시(KST) Daily Monitor 실행
+      Description: Run Daily Monitor every day at 09:00 KST (00:00 UTC)
       ScheduleExpression: "cron(0 0 * * ? *)"
       ScheduleExpressionTimezone: UTC
       State: ENABLED
@@ -168,12 +165,12 @@ Resources:
       Principal: scheduler.amazonaws.com
       SourceArn: !GetAtt DailyMonitorSchedule.Arn
 
-  # ── EventBridge Rule: CloudTrail 이벤트 ───
+  # ── EventBridge Rule: CloudTrail events ───
   CloudTrailModifyRule:
     Type: AWS::Events::Rule
     Properties:
       Name: !Sub cloudtrail-modify-events-${Environment}
-      Description: EC2/RDS/ELB CloudTrail 변경/삭제/태그 이벤트 감지
+      Description: Detect EC2/RDS/ELB modify, delete, and tag change events via CloudTrail
       State: ENABLED
       EventPattern:
         source:
@@ -207,32 +204,32 @@ Resources:
       Principal: events.amazonaws.com
       SourceArn: !GetAtt CloudTrailModifyRule.Arn
 
-  # ── SNS 토픽 ──────────────────────────────
+  # ── SNS Topics ────────────────────────────
   MonitoringAlertTopic:
     Type: AWS::SNS::Topic
     Properties:
       TopicName: !Sub aws-monitoring-engine-alert-${Environment}
-      DisplayName: AWS Monitoring Engine - 임계치 초과 알림
+      DisplayName: AWS Monitoring Engine - Threshold Alert
 
   RemediationAlertTopic:
     Type: AWS::SNS::Topic
     Properties:
       TopicName: !Sub aws-monitoring-engine-remediation-${Environment}
-      DisplayName: AWS Monitoring Engine - Auto-Remediation 완료 알림
+      DisplayName: AWS Monitoring Engine - Auto-Remediation Complete
 
   LifecycleAlertTopic:
     Type: AWS::SNS::Topic
     Properties:
       TopicName: !Sub aws-monitoring-engine-lifecycle-${Environment}
-      DisplayName: AWS Monitoring Engine - 리소스 생명주기 알림
+      DisplayName: AWS Monitoring Engine - Resource Lifecycle Alert
 
   ErrorAlertTopic:
     Type: AWS::SNS::Topic
     Properties:
       TopicName: !Sub aws-monitoring-engine-error-${Environment}
-      DisplayName: AWS Monitoring Engine - 오류 알림
+      DisplayName: AWS Monitoring Engine - Error Alert
 
-  # ── IAM 역할: EventBridge Scheduler ───────
+  # ── IAM Role: EventBridge Scheduler ───────
   SchedulerInvokeRole:
     Type: AWS::IAM::Role
     Properties:
@@ -253,7 +250,7 @@ Resources:
                 Action: lambda:InvokeFunction
                 Resource: !GetAtt DailyMonitorFunction.Arn
 
-  # ── IAM 역할: Daily Monitor ────────────────
+  # ── IAM Role: Daily Monitor ───────────────
   MonitoringEngineRole:
     Type: AWS::IAM::Role
     Properties:
@@ -301,7 +298,7 @@ Resources:
                   - !Ref MonitoringAlertTopic
                   - !Ref ErrorAlertTopic
 
-  # ── IAM 역할: Remediation Handler ─────────
+  # ── IAM Role: Remediation Handler ─────────
   RemediationHandlerRole:
     Type: AWS::IAM::Role
     Properties:
@@ -359,17 +356,17 @@ Outputs:
     Value: !GetAtt RemediationHandlerFunction.Arn
 
   MonitoringAlertTopicArn:
-    Description: 임계치 초과 알림 SNS 토픽 ARN
+    Description: Threshold alert SNS topic ARN
     Value: !Ref MonitoringAlertTopic
 
   RemediationAlertTopicArn:
-    Description: Auto-Remediation 완료 알림 SNS 토픽 ARN
+    Description: Auto-Remediation complete SNS topic ARN
     Value: !Ref RemediationAlertTopic
 
   LifecycleAlertTopicArn:
-    Description: 리소스 생명주기 알림 SNS 토픽 ARN
+    Description: Resource lifecycle alert SNS topic ARN
     Value: !Ref LifecycleAlertTopic
 
   ErrorAlertTopicArn:
-    Description: 오류 알림 SNS 토픽 ARN
+    Description: Error alert SNS topic ARN
     Value: !Ref ErrorAlertTopic
