@@ -4,9 +4,6 @@ Description: >
   Daily_Monitor (daily metric check) + Remediation_Handler (CloudTrail event-based auto remediation).
   Pure CloudFormation, no SAM. Upload zips to S3 then deploy via console.
 
-# ──────────────────────────────────────────────
-# 파라미터
-# ──────────────────────────────────────────────
 Parameters:
   DeploymentBucket:
     Type: String
@@ -49,21 +46,24 @@ Parameters:
 
   Environment:
     Type: String
-    Default: prod
-    AllowedValues: [dev, staging, prod]
-    Description: Deployment environment
+    Default: production
+    AllowedValues: [development, staging, production]
+    Description: Deployment environment (development / staging / production)
 
-# ──────────────────────────────────────────────
-# 공통 환경 변수 (Lambda 두 개가 공유)
-# ──────────────────────────────────────────────
-# CloudFormation Globals is SAM-only. Specify settings per function.
-# Use Mappings for maintainability.
 Mappings:
   LambdaConfig:
     Settings:
       Runtime: python3.12
       Timeout: 300
       MemorySize: 256
+  # Full name → short abbreviation for resource naming
+  EnvShortName:
+    development:
+      short: dev
+    staging:
+      short: stg
+    production:
+      short: prod
 
 Resources:
 
@@ -71,7 +71,9 @@ Resources:
   CommonLayer:
     Type: AWS::Lambda::LayerVersion
     Properties:
-      LayerName: !Sub aws-monitoring-engine-common-${Environment}
+      LayerName: !Sub
+        - aws-monitoring-engine-common-${EnvShort}
+        - EnvShort: !FindInMap [EnvShortName, !Ref Environment, short]
       Description: AWS Monitoring Engine common modules (tag_resolver, sns_notifier, collectors)
       Content:
         S3Bucket: !Ref DeploymentBucket
@@ -83,7 +85,9 @@ Resources:
   DailyMonitorFunction:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub aws-monitoring-engine-daily-monitor-${Environment}
+      FunctionName: !Sub
+        - aws-monitoring-engine-daily-monitor-${EnvShort}
+        - EnvShort: !FindInMap [EnvShortName, !Ref Environment, short]
       Description: EC2/RDS/ELB daily metric check and threshold alert
       Runtime: !FindInMap [LambdaConfig, Settings, Runtime]
       Timeout: !FindInMap [LambdaConfig, Settings, Timeout]
@@ -108,13 +112,15 @@ Resources:
           DEFAULT_FREE_MEMORY_GB_THRESHOLD: !Ref DefaultFreeMemoryGBThreshold
           DEFAULT_FREE_STORAGE_GB_THRESHOLD: !Ref DefaultFreeStorageGBThreshold
           DEFAULT_DISK_THRESHOLD: !Ref DefaultDiskThreshold
-          ENVIRONMENT: !Ref Environment
+          ENVIRONMENT: !FindInMap [EnvShortName, !Ref Environment, short]
 
   # ── Remediation Handler Lambda ─────────────
   RemediationHandlerFunction:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub aws-monitoring-engine-remediation-handler-${Environment}
+      FunctionName: !Sub
+        - aws-monitoring-engine-remediation-handler-${EnvShort}
+        - EnvShort: !FindInMap [EnvShortName, !Ref Environment, short]
       Description: CloudTrail event-based auto remediation and lifecycle alerts
       Runtime: !FindInMap [LambdaConfig, Settings, Runtime]
       Timeout: !FindInMap [LambdaConfig, Settings, Timeout]
@@ -139,13 +145,15 @@ Resources:
           DEFAULT_FREE_MEMORY_GB_THRESHOLD: !Ref DefaultFreeMemoryGBThreshold
           DEFAULT_FREE_STORAGE_GB_THRESHOLD: !Ref DefaultFreeStorageGBThreshold
           DEFAULT_DISK_THRESHOLD: !Ref DefaultDiskThreshold
-          ENVIRONMENT: !Ref Environment
+          ENVIRONMENT: !FindInMap [EnvShortName, !Ref Environment, short]
 
   # ── EventBridge Scheduler: Daily Monitor ──
   DailyMonitorSchedule:
     Type: AWS::Scheduler::Schedule
     Properties:
-      Name: !Sub daily-monitor-schedule-${Environment}
+      Name: !Sub
+        - daily-monitor-schedule-${EnvShort}
+        - EnvShort: !FindInMap [EnvShortName, !Ref Environment, short]
       Description: Run Daily Monitor every day at 09:00 KST (00:00 UTC)
       ScheduleExpression: "cron(0 0 * * ? *)"
       ScheduleExpressionTimezone: UTC
@@ -169,7 +177,9 @@ Resources:
   CloudTrailModifyRule:
     Type: AWS::Events::Rule
     Properties:
-      Name: !Sub cloudtrail-modify-events-${Environment}
+      Name: !Sub
+        - cloudtrail-modify-events-${EnvShort}
+        - EnvShort: !FindInMap [EnvShortName, !Ref Environment, short]
       Description: Detect EC2/RDS/ELB modify, delete, and tag change events via CloudTrail
       State: ENABLED
       EventPattern:
@@ -208,32 +218,42 @@ Resources:
   MonitoringAlertTopic:
     Type: AWS::SNS::Topic
     Properties:
-      TopicName: !Sub aws-monitoring-engine-alert-${Environment}
+      TopicName: !Sub
+        - aws-monitoring-engine-alert-${EnvShort}
+        - EnvShort: !FindInMap [EnvShortName, !Ref Environment, short]
       DisplayName: AWS Monitoring Engine - Threshold Alert
 
   RemediationAlertTopic:
     Type: AWS::SNS::Topic
     Properties:
-      TopicName: !Sub aws-monitoring-engine-remediation-${Environment}
+      TopicName: !Sub
+        - aws-monitoring-engine-remediation-${EnvShort}
+        - EnvShort: !FindInMap [EnvShortName, !Ref Environment, short]
       DisplayName: AWS Monitoring Engine - Auto-Remediation Complete
 
   LifecycleAlertTopic:
     Type: AWS::SNS::Topic
     Properties:
-      TopicName: !Sub aws-monitoring-engine-lifecycle-${Environment}
+      TopicName: !Sub
+        - aws-monitoring-engine-lifecycle-${EnvShort}
+        - EnvShort: !FindInMap [EnvShortName, !Ref Environment, short]
       DisplayName: AWS Monitoring Engine - Resource Lifecycle Alert
 
   ErrorAlertTopic:
     Type: AWS::SNS::Topic
     Properties:
-      TopicName: !Sub aws-monitoring-engine-error-${Environment}
+      TopicName: !Sub
+        - aws-monitoring-engine-error-${EnvShort}
+        - EnvShort: !FindInMap [EnvShortName, !Ref Environment, short]
       DisplayName: AWS Monitoring Engine - Error Alert
 
   # ── IAM Role: EventBridge Scheduler ───────
   SchedulerInvokeRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub aws-monitoring-engine-scheduler-role-${Environment}
+      RoleName: !Sub
+        - aws-monitoring-engine-scheduler-role-${EnvShort}
+        - EnvShort: !FindInMap [EnvShortName, !Ref Environment, short]
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -254,7 +274,9 @@ Resources:
   MonitoringEngineRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub aws-monitoring-engine-daily-monitor-role-${Environment}
+      RoleName: !Sub
+        - aws-monitoring-engine-daily-monitor-role-${EnvShort}
+        - EnvShort: !FindInMap [EnvShortName, !Ref Environment, short]
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -302,7 +324,9 @@ Resources:
   RemediationHandlerRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub aws-monitoring-engine-remediation-role-${Environment}
+      RoleName: !Sub
+        - aws-monitoring-engine-remediation-role-${EnvShort}
+        - EnvShort: !FindInMap [EnvShortName, !Ref Environment, short]
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -343,9 +367,6 @@ Resources:
                   - !Ref LifecycleAlertTopic
                   - !Ref ErrorAlertTopic
 
-# ──────────────────────────────────────────────
-# 출력
-# ──────────────────────────────────────────────
 Outputs:
   DailyMonitorFunctionArn:
     Description: Daily Monitor Lambda ARN
