@@ -18,7 +18,7 @@ HARDCODED_DEFAULTS: dict[str, float] = {
     "Connections": 100.0,
     "FreeMemoryGB": 2.0,
     "FreeStorageGB": 10.0,
-    "Disk": 85.0,
+    "Disk": 80.0,
     "RequestCount": 10000.0,
     "HealthyHostCount": 1.0,
 }

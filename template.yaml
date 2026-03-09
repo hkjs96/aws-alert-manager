@@ -44,7 +44,7 @@ Parameters:
 
   DefaultDiskThreshold:
     Type: Number
-    Default: 85
+    Default: 80
     Description: Default disk utilization threshold (%)
 
   Environment:
