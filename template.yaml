@@ -7,11 +7,14 @@ Description: >
 Parameters:
   DeploymentBucket:
     Type: String
+    MinLength: 3
+    MaxLength: 63
     Description: S3 bucket name where Lambda zip files are uploaded
 
   CodeVersion:
     Type: String
     Default: latest
+    MinLength: 1
     Description: S3 object key prefix (e.g. v20260306 or latest)
 
   DefaultCpuThreshold:
