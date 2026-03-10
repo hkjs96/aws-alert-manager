@@ -46,7 +46,8 @@ def _alarm_name(resource_id: str, metric: str) -> str:
 # 리소스 유형별 알람 정의
 # ──────────────────────────────────────────────
 
-# EC2 기본 알람 (CWAgent 메트릭은 태그 기반으로 추가)
+# EC2 알람 (CPU: AWS/EC2, Memory/Disk: CWAgent)
+# CWAgent 미설치 시 Memory/Disk 알람은 INSUFFICIENT_DATA 상태로 대기
 _EC2_ALARMS = [
     {
         "metric": "CPU",
@@ -57,6 +58,30 @@ _EC2_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
+    },
+    {
+        "metric": "Memory",
+        "namespace": "CWAgent",
+        "metric_name": "mem_used_percent",
+        "dimension_key": "InstanceId",
+        "stat": "Average",
+        "comparison": "GreaterThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+    },
+    {
+        "metric": "Disk",
+        "namespace": "CWAgent",
+        "metric_name": "disk_used_percent",
+        "dimension_key": "InstanceId",
+        "stat": "Average",
+        "comparison": "GreaterThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+        "extra_dimensions": [
+            {"Name": "path", "Value": "/"},
+            {"Name": "fstype", "Value": "xfs"},
+        ],
     },
 ]
 
@@ -168,6 +193,11 @@ def create_alarms_for_resource(
         else:
             dim_value = resource_id
 
+        dimensions = [{"Name": alarm_def["dimension_key"], "Value": dim_value}]
+        # CWAgent 메트릭 등 추가 dimension이 필요한 경우
+        extra_dims = alarm_def.get("extra_dimensions", [])
+        dimensions.extend(extra_dims)
+
         name = _alarm_name(resource_id, metric)
 
         try:
@@ -176,10 +206,7 @@ def create_alarms_for_resource(
                 AlarmDescription=f"Auto-created by AWS Monitoring Engine for {resource_type} {resource_id}",
                 Namespace=alarm_def["namespace"],
                 MetricName=alarm_def["metric_name"],
-                Dimensions=[{
-                    "Name": alarm_def["dimension_key"],
-                    "Value": dim_value,
-                }],
+                Dimensions=dimensions,
                 Statistic=alarm_def["stat"],
                 Period=alarm_def["period"],
                 EvaluationPeriods=alarm_def["evaluation_periods"],

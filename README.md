@@ -106,6 +106,40 @@ Threshold_FreeStorageGB   = 20
 | `aws-monitoring-engine-lifecycle-{env}` | 리소스 삭제 / 모니터링 해제 |
 | `aws-monitoring-engine-error-{env}` | 시스템 오류 |
 
+> **⚠️ 이메일 구독 확인 시 주의사항 (회사 메일 사용 시 필독)**
+>
+> 일부 회사 메일 서버(Gmail 기반 등)는 스팸 필터링을 위해 메일 본문의 링크에 자동으로 접속합니다.
+> 이 과정에서 SNS 구독 확인(confirm) 링크뿐 아니라 구독 취소(unsubscribe) 링크까지 자동 클릭되어
+> **구독이 즉시 취소되는 현상**이 발생할 수 있습니다.
+>
+> **이메일에서 확인 링크를 직접 클릭하지 마세요.** 아래 방법으로 구독을 확인하세요:
+>
+> 1. 수신된 구독 확인 이메일에서 **확인 링크(URL)를 복사** (클릭 금지)
+> 2. AWS Management Console → **Amazon SNS → 구독** 이동
+> 3. 해당 구독 선택 → **"구독 확인"** 버튼 클릭
+> 4. 복사한 URL을 **"구독 확인 URL"** 입력 필드에 붙여넣기
+> 5. 확인 버튼으로 구독 승인 처리
+
+### AWS User Notifications로 알림 받기 (테스트 추천)
+
+이메일 구독 대신 AWS 콘솔 내장 알림(벨 아이콘)으로 받을 수 있습니다.
+코드 변경 없이 콘솔에서만 설정하면 되고, 테스트 후 삭제도 간편합니다.
+
+1. AWS Console → **User Notifications** 검색하여 이동
+2. **Create notification configuration** 클릭
+3. 설정:
+   - Name: `monitoring-engine-alerts` (자유)
+   - Event source: **SNS**
+   - Region: 스택 배포 리전 선택
+   - SNS topic: `aws-monitoring-engine-alert-{env}` 선택
+4. Delivery channels:
+   - **AWS Console** (콘솔 우측 상단 🔔 벨 아이콘으로 수신)
+   - 필요 시 이메일 추가 가능 (AWS 자체 발송이라 회사 메일 서버 스팸 필터 문제 없음)
+5. **Create** 클릭
+
+나머지 토픽(`remediation`, `lifecycle`, `error`)도 동일하게 추가하거나,
+하나의 configuration에 여러 토픽을 묶을 수 있습니다.
+
 ---
 
 ## Auto-Remediation 동작

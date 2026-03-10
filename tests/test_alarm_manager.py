@@ -57,8 +57,9 @@ class TestHelpers:
 
     def test_get_alarm_defs_ec2(self):
         defs = _get_alarm_defs("EC2")
-        assert len(defs) == 1
-        assert defs[0]["metric"] == "CPU"
+        assert len(defs) == 3
+        metrics = {d["metric"] for d in defs}
+        assert metrics == {"CPU", "Memory", "Disk"}
 
     def test_get_alarm_defs_rds(self):
         defs = _get_alarm_defs("RDS")
@@ -81,18 +82,16 @@ class TestHelpers:
 
 class TestCreateAlarms:
 
-    def test_ec2_creates_cpu_alarm(self):
+    def test_ec2_creates_cpu_memory_disk_alarms(self):
         mock_cw = MagicMock()
         with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
             created = create_alarms_for_resource("i-001", "EC2", {"Monitoring": "on"})
 
-        assert created == ["i-001-CPU-prod"]
-        mock_cw.put_metric_alarm.assert_called_once()
-        kwargs = mock_cw.put_metric_alarm.call_args.kwargs
-        assert kwargs["AlarmName"] == "i-001-CPU-prod"
-        assert kwargs["Namespace"] == "AWS/EC2"
-        assert kwargs["MetricName"] == "CPUUtilization"
-        assert kwargs["Threshold"] == 80.0  # default
+        assert len(created) == 3
+        assert "i-001-CPU-prod" in created
+        assert "i-001-Memory-prod" in created
+        assert "i-001-Disk-prod" in created
+        assert mock_cw.put_metric_alarm.call_count == 3
 
     def test_ec2_custom_threshold_from_tag(self):
         mock_cw = MagicMock()
@@ -100,8 +99,10 @@ class TestCreateAlarms:
         with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
             create_alarms_for_resource("i-001", "EC2", tags)
 
-        kwargs = mock_cw.put_metric_alarm.call_args.kwargs
-        assert kwargs["Threshold"] == 90.0
+        # CPU alarm should use tag threshold
+        calls = mock_cw.put_metric_alarm.call_args_list
+        cpu_call = [c for c in calls if c.kwargs["MetricName"] == "CPUUtilization"][0]
+        assert cpu_call.kwargs["Threshold"] == 90.0
 
     def test_rds_creates_four_alarms(self):
         mock_cw = MagicMock()
@@ -139,7 +140,8 @@ class TestCreateAlarms:
         with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
             create_alarms_for_resource("i-001", "EC2", {})
 
-        kwargs = mock_cw.put_metric_alarm.call_args.kwargs
+        # Check first call (CPU)
+        kwargs = mock_cw.put_metric_alarm.call_args_list[0].kwargs
         assert kwargs["AlarmActions"] == ["arn:aws:sns:us-east-1:123:alert-topic"]
         assert kwargs["OKActions"] == ["arn:aws:sns:us-east-1:123:alert-topic"]
 
@@ -149,7 +151,7 @@ class TestCreateAlarms:
         with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
             create_alarms_for_resource("i-001", "EC2", {})
 
-        kwargs = mock_cw.put_metric_alarm.call_args.kwargs
+        kwargs = mock_cw.put_metric_alarm.call_args_list[0].kwargs
         assert kwargs["AlarmActions"] == []
 
     def test_client_error_logged_and_skipped(self):
@@ -167,6 +169,19 @@ class TestCreateAlarms:
         created = create_alarms_for_resource("x-001", "UNKNOWN", {})
         assert created == []
 
+    def test_ec2_disk_alarm_has_extra_dimensions(self):
+        mock_cw = MagicMock()
+        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+            create_alarms_for_resource("i-001", "EC2", {})
+
+        calls = mock_cw.put_metric_alarm.call_args_list
+        disk_call = [c for c in calls if c.kwargs["MetricName"] == "disk_used_percent"][0]
+        dims = disk_call.kwargs["Dimensions"]
+        dim_names = {d["Name"] for d in dims}
+        assert "InstanceId" in dim_names
+        assert "path" in dim_names
+        assert "fstype" in dim_names
+
 
 # ──────────────────────────────────────────────
 # delete_alarms_for_resource
@@ -174,13 +189,16 @@ class TestCreateAlarms:
 
 class TestDeleteAlarms:
 
-    def test_ec2_deletes_one_alarm(self):
+    def test_ec2_deletes_three_alarms(self):
         mock_cw = MagicMock()
         with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
             deleted = delete_alarms_for_resource("i-001", "EC2")
 
-        assert deleted == ["i-001-CPU-prod"]
-        mock_cw.delete_alarms.assert_called_once_with(AlarmNames=["i-001-CPU-prod"])
+        assert len(deleted) == 3
+        assert "i-001-CPU-prod" in deleted
+        assert "i-001-Memory-prod" in deleted
+        assert "i-001-Disk-prod" in deleted
+        mock_cw.delete_alarms.assert_called_once()
 
     def test_rds_deletes_four_alarms(self):
         mock_cw = MagicMock()
@@ -230,7 +248,7 @@ class TestSyncAlarms:
         with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
             result = sync_alarms_for_resource("i-001", "EC2", {})
 
-        assert result["ok"] == ["i-001-CPU-prod"]
+        assert len(result["ok"]) == 3
         assert result["created"] == []
         assert result["updated"] == []
 
