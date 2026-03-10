@@ -379,6 +379,121 @@ Resources:
                   - !Ref LifecycleAlertTopic
                   - !Ref ErrorAlertTopic
 
+  # ── SNS Log Subscriber (test) ──────────────
+  # All 4 SNS topics -> Lambda -> CloudWatch Logs
+  # Check logs at: /aws/lambda/aws-monitoring-engine-sns-logger-{env}
+  SnsLoggerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub
+        - aws-monitoring-engine-sns-logger-role-${EnvShort}
+        - EnvShort: !FindInMap [EnvShortName, !Ref Environment, short]
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+
+  SnsLoggerFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub
+        - aws-monitoring-engine-sns-logger-${EnvShort}
+        - EnvShort: !FindInMap [EnvShortName, !Ref Environment, short]
+      Description: Test subscriber - logs all SNS messages to CloudWatch Logs
+      Runtime: !FindInMap [LambdaConfig, Settings, Runtime]
+      Timeout: 10
+      MemorySize: 128
+      Handler: index.handler
+      Role: !GetAtt SnsLoggerRole.Arn
+      Code:
+        ZipFile: |
+          import json
+          import logging
+          logger = logging.getLogger()
+          logger.setLevel(logging.INFO)
+          def handler(event, context):
+              for record in event.get("Records", []):
+                  sns = record.get("Sns", {})
+                  topic_arn = sns.get("TopicArn", "")
+                  subject = sns.get("Subject", "(no subject)")
+                  message = sns.get("Message", "")
+                  logger.info("=== SNS MESSAGE RECEIVED ===")
+                  logger.info("TopicArn: %s", topic_arn)
+                  logger.info("Subject: %s", subject)
+                  try:
+                      body = json.loads(message)
+                      logger.info("Message (JSON): %s", json.dumps(body, indent=2, ensure_ascii=False))
+                  except Exception:
+                      logger.info("Message (raw): %s", message)
+              return {"status": "ok", "records": len(event.get("Records", []))}
+
+  # Subscribe to all 4 SNS topics
+  SnsLoggerAlertSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      TopicArn: !Ref MonitoringAlertTopic
+      Protocol: lambda
+      Endpoint: !GetAtt SnsLoggerFunction.Arn
+
+  SnsLoggerRemediationSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      TopicArn: !Ref RemediationAlertTopic
+      Protocol: lambda
+      Endpoint: !GetAtt SnsLoggerFunction.Arn
+
+  SnsLoggerLifecycleSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      TopicArn: !Ref LifecycleAlertTopic
+      Protocol: lambda
+      Endpoint: !GetAtt SnsLoggerFunction.Arn
+
+  SnsLoggerErrorSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      TopicArn: !Ref ErrorAlertTopic
+      Protocol: lambda
+      Endpoint: !GetAtt SnsLoggerFunction.Arn
+
+  # Lambda permissions for SNS to invoke
+  SnsLoggerAlertPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt SnsLoggerFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: sns.amazonaws.com
+      SourceArn: !Ref MonitoringAlertTopic
+
+  SnsLoggerRemediationPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt SnsLoggerFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: sns.amazonaws.com
+      SourceArn: !Ref RemediationAlertTopic
+
+  SnsLoggerLifecyclePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt SnsLoggerFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: sns.amazonaws.com
+      SourceArn: !Ref LifecycleAlertTopic
+
+  SnsLoggerErrorPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt SnsLoggerFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: sns.amazonaws.com
+      SourceArn: !Ref ErrorAlertTopic
+
 Outputs:
   DailyMonitorFunctionArn:
     Description: Daily Monitor Lambda ARN
@@ -403,3 +518,7 @@ Outputs:
   ErrorAlertTopicArn:
     Description: Error alert SNS topic ARN
     Value: !Ref ErrorAlertTopic
+
+  SnsLoggerFunctionArn:
+    Description: SNS Logger Lambda ARN (test subscriber)
+    Value: !GetAtt SnsLoggerFunction.Arn
