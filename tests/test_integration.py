@@ -206,7 +206,8 @@ class TestRemediationHandlerIntegration:
         event = self._make_cloudtrail_event("TerminateInstances", "i-003")
 
         with patch("remediation_handler.lambda_handler.get_resource_tags", return_value={"Monitoring": "on"}), \
-             patch("remediation_handler.lambda_handler.send_lifecycle_alert") as mock_alert:
+             patch("remediation_handler.lambda_handler.send_lifecycle_alert") as mock_alert, \
+             patch("common.alarm_manager.delete_alarms_for_resource", return_value=[]):
 
             result = remediation_handler(event, MagicMock())
 

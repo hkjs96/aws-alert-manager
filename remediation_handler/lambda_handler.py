@@ -541,6 +541,12 @@ def _handle_delete(parsed: ParsedEvent) -> None:
 
     logger.info("Resource deleted with Monitoring=on: %s %s", parsed.resource_type, parsed.resource_id)
 
+    # 리소스 삭제 시 관련 CloudWatch Alarm도 정리
+    from common.alarm_manager import delete_alarms_for_resource
+    deleted = delete_alarms_for_resource(parsed.resource_id, parsed.resource_type)
+    if deleted:
+        logger.info("Deleted alarms for terminated resource: %s", deleted)
+
     send_lifecycle_alert(
 
         resource_id=parsed.resource_id,
