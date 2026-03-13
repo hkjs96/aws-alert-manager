@@ -43,6 +43,10 @@ MONITORED_API_EVENTS: dict[str, list[str]] = {
     "TAG_CHANGE": [
         "CreateTags",
         "DeleteTags",
+        "AddTagsToResource",       # RDS
+        "RemoveTagsFromResource",  # RDS
+        "AddTags",                 # ELB
+        "RemoveTags",              # ELB
     ],
 }
 

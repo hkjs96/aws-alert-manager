@@ -200,10 +200,14 @@ def _get_tags(elbv2_client, resource_arn: str) -> dict:
 def _arn_to_suffix(arn: str) -> str:
     """
     ARN에서 CloudWatch Dimension 값으로 사용할 suffix 추출.
-    예: arn:aws:elasticloadbalancing:...:loadbalancer/app/my-alb/abc123
-        → app/my-alb/abc123
+
+    ALB:  arn:...:loadbalancer/app/my-alb/abc123  → app/my-alb/abc123
+    TG:   arn:...:targetgroup/my-tg/abc123        → targetgroup/my-tg/abc123
     """
-    parts = arn.split(":")
-    if len(parts) >= 6:
-        return "/".join(parts[-1].split("/")[1:]) if "/" in parts[-1] else parts[-1]
-    return arn
+    # ARN 마지막 콜론 이후 부분에서 첫 번째 슬래시 앞 prefix 제거
+    # loadbalancer/app/... → app/...
+    # targetgroup/... → targetgroup/...
+    resource_part = arn.split(":")[-1]  # e.g. "loadbalancer/app/my-alb/id"
+    if resource_part.startswith("loadbalancer/"):
+        return resource_part[len("loadbalancer/"):]
+    return resource_part

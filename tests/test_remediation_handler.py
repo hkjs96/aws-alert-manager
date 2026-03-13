@@ -38,6 +38,12 @@ def _make_event(event_name: str, resource_id: str, extra_params: dict = None) ->
         params.setdefault("loadBalancerArn", resource_id)
     elif event_name in ("CreateTags", "DeleteTags"):
         params.setdefault("resourcesSet", {"items": [{"resourceId": resource_id}]})
+    elif event_name in ("AddTagsToResource", "RemoveTagsFromResource"):
+        # RDS 태그 API: resourceName은 ARN 형태
+        params.setdefault("resourceName", f"arn:aws:rds:us-east-1:123456789012:db:{resource_id}")
+    elif event_name in ("AddTags", "RemoveTags"):
+        # ELB 태그 API: resourceArns 리스트
+        params.setdefault("resourceArns", [resource_id])
 
     return {"detail": {"eventName": event_name, "requestParameters": params}}
 
@@ -195,16 +201,17 @@ def test_property_12_pre_log_before_remediation_action(caplog):
     resource_type=st.sampled_from(["EC2", "RDS", "ELB"]),
 )
 def test_property_14_delete_with_monitoring_tag_sends_alert(resource_id, resource_type):
-    """Feature: aws-monitoring-engine, Property 14: Monitoring=on 리소스 삭제 시 SNS 알림"""
+    """Feature: aws-monitoring-engine, Property 14: Monitoring=on 리소스 삭제 시 알람 삭제 + SNS 알림"""
     parsed = _make_parsed("TerminateInstances", resource_id, resource_type, "DELETE")
 
     with patch("remediation_handler.lambda_handler.get_resource_tags",
                return_value={"Monitoring": "on"}), \
          patch("remediation_handler.lambda_handler.send_lifecycle_alert") as mock_alert, \
-         patch("common.alarm_manager.delete_alarms_for_resource", return_value=[]):
+         patch("common.alarm_manager.delete_alarms_for_resource", return_value=["alarm1"]) as mock_delete:
         from remediation_handler.lambda_handler import _handle_delete
         _handle_delete(parsed)
 
+    mock_delete.assert_called_once_with(resource_id, resource_type)
     mock_alert.assert_called_once()
     call_kwargs = mock_alert.call_args.kwargs
     assert call_kwargs["event_type"] == "RESOURCE_DELETED"
@@ -219,14 +226,19 @@ def test_property_14_delete_with_monitoring_tag_sends_alert(resource_id, resourc
     resource_type=st.sampled_from(["EC2", "RDS", "ELB"]),
 )
 def test_property_14_delete_without_monitoring_tag_no_alert(resource_id, resource_type):
-    """Feature: aws-monitoring-engine, Property 14: Monitoring 태그 없는 리소스 삭제 시 알림 없음"""
+    """Feature: aws-monitoring-engine, Property 14: 모니터링 대상 아닌 리소스 삭제 시 알람 삭제 시도 + 알림 없음"""
     parsed = _make_parsed("TerminateInstances", resource_id, resource_type, "DELETE")
 
+    # 태그 없고 알람도 없는 경우 → lifecycle 알림 없음
     with patch("remediation_handler.lambda_handler.get_resource_tags", return_value={}), \
-         patch("remediation_handler.lambda_handler.send_lifecycle_alert") as mock_alert:
+         patch("remediation_handler.lambda_handler.send_lifecycle_alert") as mock_alert, \
+         patch("common.alarm_manager.delete_alarms_for_resource", return_value=[]) as mock_delete:
         from remediation_handler.lambda_handler import _handle_delete
         _handle_delete(parsed)
 
+    # 알람 삭제는 항상 시도
+    mock_delete.assert_called_once_with(resource_id, resource_type)
+    # 모니터링 대상 아니었으면 lifecycle 알림 없음
     mock_alert.assert_not_called()
 
 
@@ -335,6 +347,40 @@ class TestParseCloudTrailEvent:
         event = _make_event("CreateTags", "i-001")
         parsed = parse_cloudtrail_event(event)
         assert parsed.resource_id == "i-001"
+        assert parsed.event_category == "TAG_CHANGE"
+
+    def test_parse_rds_add_tags(self):
+        """RDS AddTagsToResource 파싱"""
+        event = _make_event("AddTagsToResource", "my-rds-db")
+        parsed = parse_cloudtrail_event(event)
+        assert parsed.resource_id == "my-rds-db"
+        assert parsed.resource_type == "RDS"
+        assert parsed.event_category == "TAG_CHANGE"
+
+    def test_parse_rds_remove_tags(self):
+        """RDS RemoveTagsFromResource 파싱"""
+        event = _make_event("RemoveTagsFromResource", "my-rds-db")
+        parsed = parse_cloudtrail_event(event)
+        assert parsed.resource_id == "my-rds-db"
+        assert parsed.resource_type == "RDS"
+        assert parsed.event_category == "TAG_CHANGE"
+
+    def test_parse_elb_add_tags(self):
+        """ELB AddTags 파싱"""
+        arn = "arn:aws:elasticloadbalancing:us-east-1:123:loadbalancer/app/my-alb/abc"
+        event = _make_event("AddTags", arn)
+        parsed = parse_cloudtrail_event(event)
+        assert parsed.resource_id == arn
+        assert parsed.resource_type == "ELB"
+        assert parsed.event_category == "TAG_CHANGE"
+
+    def test_parse_elb_remove_tags(self):
+        """ELB RemoveTags 파싱"""
+        arn = "arn:aws:elasticloadbalancing:us-east-1:123:loadbalancer/app/my-alb/abc"
+        event = _make_event("RemoveTags", arn)
+        parsed = parse_cloudtrail_event(event)
+        assert parsed.resource_id == arn
+        assert parsed.resource_type == "ELB"
         assert parsed.event_category == "TAG_CHANGE"
 
     def test_missing_event_name_raises(self):
@@ -448,6 +494,119 @@ class TestHandlerRouting:
                 "requestParameters": {
                     "resourcesSet": {"items": [{"resourceId": "i-001"}]},
                     "tagSet": {"items": [{"key": "Environment", "value": "prod"}]},
+                },
+            }
+        }
+        with patch("remediation_handler.lambda_handler.send_lifecycle_alert") as mock_alert, \
+             patch("remediation_handler.lambda_handler.send_error_alert") as mock_err:
+            result = lambda_handler(event, MagicMock())
+
+        assert result["status"] == "ok"
+        mock_alert.assert_not_called()
+        mock_err.assert_not_called()
+
+
+class TestRdsElbTagEvents:
+    """RDS/ELB 태그 이벤트 감지 테스트"""
+
+    def test_rds_add_monitoring_tag_creates_alarms(self):
+        """RDS AddTagsToResource + Monitoring=on → 알람 생성"""
+        event = {
+            "detail": {
+                "eventName": "AddTagsToResource",
+                "requestParameters": {
+                    "resourceName": "arn:aws:rds:us-east-1:123456789012:db:my-rds",
+                    "tags": [{"key": "Monitoring", "value": "on"}],
+                },
+            }
+        }
+        with patch("remediation_handler.lambda_handler.get_resource_tags",
+                   return_value={"Monitoring": "on"}), \
+             patch("common.alarm_manager.create_alarms_for_resource",
+                   return_value=["alarm1"]) as mock_create:
+            result = lambda_handler(event, MagicMock())
+
+        assert result["status"] == "ok"
+        mock_create.assert_called_once()
+        args = mock_create.call_args
+        assert args[0][0] == "my-rds"
+        assert args[0][1] == "RDS"
+
+    def test_rds_remove_monitoring_tag_deletes_alarms(self):
+        """RDS RemoveTagsFromResource + Monitoring → 알람 삭제 + lifecycle 알림"""
+        event = {
+            "detail": {
+                "eventName": "RemoveTagsFromResource",
+                "requestParameters": {
+                    "resourceName": "arn:aws:rds:us-east-1:123456789012:db:my-rds",
+                    "tags": [{"key": "Monitoring"}],
+                },
+            }
+        }
+        with patch("remediation_handler.lambda_handler.send_lifecycle_alert") as mock_alert, \
+             patch("common.alarm_manager.delete_alarms_for_resource",
+                   return_value=[]) as mock_delete:
+            result = lambda_handler(event, MagicMock())
+
+        assert result["status"] == "ok"
+        mock_delete.assert_called_once_with("my-rds", "RDS")
+        mock_alert.assert_called_once()
+        assert mock_alert.call_args.kwargs["event_type"] == "MONITORING_REMOVED"
+
+    def test_elb_add_monitoring_tag_creates_alarms(self):
+        """ELB AddTags + Monitoring=on → 알람 생성"""
+        arn = "arn:aws:elasticloadbalancing:us-east-1:123:loadbalancer/app/my-alb/abc"
+        event = {
+            "detail": {
+                "eventName": "AddTags",
+                "requestParameters": {
+                    "resourceArns": [arn],
+                    "tags": [{"key": "Monitoring", "value": "on"}],
+                },
+            }
+        }
+        with patch("remediation_handler.lambda_handler.get_resource_tags",
+                   return_value={"Monitoring": "on"}), \
+             patch("common.alarm_manager.create_alarms_for_resource",
+                   return_value=["alarm1"]) as mock_create:
+            result = lambda_handler(event, MagicMock())
+
+        assert result["status"] == "ok"
+        mock_create.assert_called_once()
+        args = mock_create.call_args
+        assert args[0][0] == arn
+        assert args[0][1] == "ELB"
+
+    def test_elb_remove_monitoring_tag_deletes_alarms(self):
+        """ELB RemoveTags + Monitoring → 알람 삭제 + lifecycle 알림"""
+        arn = "arn:aws:elasticloadbalancing:us-east-1:123:loadbalancer/app/my-alb/abc"
+        event = {
+            "detail": {
+                "eventName": "RemoveTags",
+                "requestParameters": {
+                    "resourceArns": [arn],
+                    "tagKeys": ["Monitoring"],
+                },
+            }
+        }
+        with patch("remediation_handler.lambda_handler.send_lifecycle_alert") as mock_alert, \
+             patch("common.alarm_manager.delete_alarms_for_resource",
+                   return_value=[]) as mock_delete:
+            result = lambda_handler(event, MagicMock())
+
+        assert result["status"] == "ok"
+        mock_delete.assert_called_once_with(arn, "ELB")
+        mock_alert.assert_called_once()
+        assert mock_alert.call_args.kwargs["event_type"] == "MONITORING_REMOVED"
+
+    def test_rds_non_monitoring_tag_ignored(self):
+        """RDS 태그 변경이 Monitoring 아니면 무시"""
+        event = {
+            "detail": {
+                "eventName": "AddTagsToResource",
+                "requestParameters": {
+                    "resourceName": "arn:aws:rds:us-east-1:123456789012:db:my-rds",
+                    "tags": [{"key": "Environment", "value": "prod"}],
                 },
             }
         }

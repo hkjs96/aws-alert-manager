@@ -216,10 +216,11 @@ class TestRemediationHandlerIntegration:
         assert mock_alert.call_args.kwargs["event_type"] == "RESOURCE_DELETED"
 
     def test_delete_ec2_without_monitoring_tag_no_alert(self):
-        """EC2 삭제 이벤트 + Monitoring 태그 없음 → 알림 없음 - Requirements 8.3"""
+        """EC2 삭제 이벤트 + Monitoring 태그 없음 + 알람 없음 → 알림 없음 - Requirements 8.3"""
         event = self._make_cloudtrail_event("TerminateInstances", "i-004")
 
         with patch("remediation_handler.lambda_handler.get_resource_tags", return_value={}), \
+             patch("common.alarm_manager.delete_alarms_for_resource", return_value=[]), \
              patch("remediation_handler.lambda_handler.send_lifecycle_alert") as mock_alert:
 
             result = remediation_handler(event, MagicMock())

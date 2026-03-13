@@ -122,11 +122,76 @@ s3://my-deploy-bucket/v20260306/remediation_handler.zip
 
 ## 코드 업데이트 시
 
-1. 변경된 코드로 zip 재패키징 (1단계)
-2. S3에 새 버전 prefix로 업로드 (예: `v20260307`)
-3. CloudFormation → 해당 스택 → **업데이트** → 기존 템플릿 사용
-4. `CodeVersion` 파라미터만 새 prefix로 변경
-5. 업데이트 실행
+코드를 수정한 후 Lambda에 반영하는 절차입니다.
+
+### zip 파일 구조 이해
+
+S3에 올리는 zip은 **3개**이며 역할이 다릅니다:
+
+| 파일 | 대상 | 내용 |
+|------|------|------|
+| `common_layer.zip` | Lambda Layer | `common/` 전체 (tag_resolver, sns_notifier, collectors, alarm_manager 등) |
+| `daily_monitor.zip` | Daily Monitor Lambda | `daily_monitor/lambda_handler.py` |
+| `remediation_handler.zip` | Remediation Handler Lambda | `remediation_handler/lambda_handler.py` |
+
+두 Lambda 함수는 `common_layer.zip`을 **공유**합니다.
+`common/` 하위 파일을 수정했다면 반드시 `common_layer.zip`도 같이 올려야 합니다.
+
+### 업데이트 절차
+
+**1. zip 재패키징 (로컬)**
+
+```bash
+# Windows git bash 기준 (Python zipfile 사용)
+python -c "
+import zipfile, os
+
+def make_zip(zip_path, source_dir):
+    with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+        for root, dirs, files in os.walk(source_dir):
+            for f in files:
+                if f.endswith('.pyc') or '__pycache__' in root: continue
+                full = os.path.join(root, f)
+                zf.write(full, os.path.relpath(full, source_dir))
+
+os.makedirs('dist', exist_ok=True)
+make_zip('dist/daily_monitor.zip', 'daily_monitor')
+make_zip('dist/remediation_handler.zip', 'remediation_handler')
+
+with zipfile.ZipFile('dist/common_layer.zip', 'w', zipfile.ZIP_DEFLATED) as zf:
+    for root, dirs, files in os.walk('common'):
+        for f in files:
+            if f.endswith('.pyc') or '__pycache__' in root: continue
+            full = os.path.join(root, f)
+            zf.write(full, os.path.join('python', os.path.relpath(full, '.')))
+"
+```
+
+**2. S3 업로드**
+
+새 버전 prefix를 사용해서 업로드합니다 (날짜 기반 권장):
+
+```bash
+VERSION=v20260311   # 오늘 날짜로 변경
+
+aws s3 cp dist/common_layer.zip       s3://bjs-deploy-bucket/${VERSION}/common_layer.zip
+aws s3 cp dist/daily_monitor.zip      s3://bjs-deploy-bucket/${VERSION}/daily_monitor.zip
+aws s3 cp dist/remediation_handler.zip s3://bjs-deploy-bucket/${VERSION}/remediation_handler.zip
+```
+
+> 같은 키(`latest/...`)로 덮어쓰기 업로드해도 CloudFormation은 변경을 감지하지 못합니다.
+> 반드시 새 prefix를 사용하거나 아래 CFN 업데이트 절차를 따르세요.
+
+**3. CloudFormation 스택 업데이트**
+
+1. AWS 콘솔 → CloudFormation → 해당 스택 선택
+2. **업데이트** → "현재 템플릿 사용" 선택
+3. 파라미터에서 `CodeVersion`만 새 prefix로 변경 (예: `v20260311`)
+4. 나머지 파라미터는 그대로 유지
+5. IAM 변경 승인 체크 후 **업데이트 실행**
+6. 스택 상태가 `UPDATE_COMPLETE`가 되면 완료
+
+> `CodeVersion` 파라미터 변경이 핵심입니다. 이 값이 바뀌어야 CFN이 새 S3 경로에서 코드를 가져옵니다.
 
 ---
 
@@ -144,3 +209,70 @@ s3://my-deploy-bucket/v20260306/remediation_handler.zip
 | `aws-monitoring-engine-remediation-prod` | Auto-Remediation 완료 알림 |
 | `aws-monitoring-engine-lifecycle-prod` | 리소스 생명주기 알림 |
 | `aws-monitoring-engine-error-prod` | 오류 알림 |
+
+---
+
+## AWS CLI SSO 설정 (로컬 배포 자동화용)
+
+AWS CLI로 S3 업로드 / Lambda 업데이트를 자동화하려면 SSO 로그인이 필요합니다.
+
+### 최초 1회: SSO 프로필 설정
+
+```bash
+aws configure sso --profile bjs
+```
+
+프롬프트 입력값:
+
+| 항목 | 값 |
+|------|-----|
+| SSO session name | `bjs` |
+| SSO start URL | `https://d-9b67040fbd.awsapps.com/start` |
+| SSO region | `ap-northeast-2` |
+| SSO registration scopes | (엔터, 기본값) |
+| CLI default client Region | `ap-northeast-2` |
+| CLI default output format | `json` |
+| CLI profile name | `bjs` |
+
+설정 완료 후 브라우저가 열리면 SSO 로그인 승인.
+
+### 매번 사용 전: SSO 로그인
+
+세션이 만료되면 다시 로그인 필요 (보통 8~12시간):
+
+```bash
+aws sso login --profile bjs
+```
+
+### 프로필 지정해서 명령어 실행
+
+```bash
+# 확인
+aws sts get-caller-identity --profile bjs
+
+# S3 업로드
+aws s3 cp dist/remediation_handler.zip s3://bjs-deploy-bucket/v20260311/remediation_handler.zip --profile bjs
+
+# Lambda 코드 업데이트 (CFN 없이 직접)
+aws lambda update-function-code \
+  --function-name aws-monitoring-engine-remediation-handler-dev \
+  --s3-bucket bjs-deploy-bucket \
+  --s3-key v20260311/remediation_handler.zip \
+  --profile bjs
+```
+
+### 기본 프로필로 설정 (매번 --profile 생략하려면)
+
+```bash
+export AWS_PROFILE=bjs
+```
+
+이후 `--profile bjs` 없이 그냥 `aws s3 cp ...` 사용 가능.
+
+### 트러블슈팅
+
+| 에러 | 원인 | 해결 |
+|------|------|------|
+| `InvalidRequestException` on `StartDeviceAuthorization` | SSO region 오류 | region을 `ap-northeast-2`로 변경 |
+| `Token has expired` | 세션 만료 | `aws sso login --profile bjs` 재실행 |
+| `Unable to locate credentials` | 로그인 안 됨 | `aws sso login --profile bjs` 실행 |

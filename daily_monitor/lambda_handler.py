@@ -29,12 +29,20 @@ def lambda_handler(event, context):
     """
     Lambda 핸들러 진입점.
 
+    0단계: 고아 알람 정리 (terminated 인스턴스 알람 삭제)
     1단계: 알람 동기화 (누락/불일치 점검)
     2단계: 메트릭 조회 → 임계치 비교 → 알림 발송
 
     Returns:
         {"status": "ok", "processed": N, "alerts": M, "alarms_synced": {...}}
     """
+    # 0단계: 고아 알람 정리
+    try:
+        orphaned = _cleanup_orphan_alarms()
+        if orphaned:
+            logger.info("Cleaned up orphan alarms: %s", orphaned)
+    except Exception as e:
+        logger.error("Failed to cleanup orphan alarms: %s", e)
     total_processed = 0
     total_alerts = 0
     alarms_synced = {"created": 0, "updated": 0, "ok": 0}
@@ -103,6 +111,96 @@ def lambda_handler(event, context):
         "alerts": total_alerts,
         "alarms_synced": alarms_synced,
     }
+
+
+def _cleanup_orphan_alarms() -> list[str]:
+    """
+    존재하지 않는 EC2 인스턴스의 알람을 찾아 삭제.
+
+    알람 이름 패턴: {instance_id}-{metric}-{env}
+    i- 로 시작하는 알람에서 인스턴스 ID 추출 후 EC2 존재 여부 확인.
+
+    Returns:
+        삭제된 알람 이름 목록
+    """
+    import boto3
+    from botocore.exceptions import ClientError
+
+    cw = boto3.client("cloudwatch")
+    ec2 = boto3.client("ec2")
+
+    # 모든 알람 조회 (페이지네이션)
+    alarm_names = []
+    paginator = cw.get_paginator("describe_alarms")
+    for page in paginator.paginate(AlarmTypes=["MetricAlarm"]):
+        for alarm in page.get("MetricAlarms", []):
+            name = alarm["AlarmName"]
+            # i-로 시작하는 알람만 대상
+            if name.startswith("i-"):
+                alarm_names.append(name)
+
+    if not alarm_names:
+        return []
+
+    # 알람 이름에서 인스턴스 ID 추출 (i-xxxxxxxxxxxxxxxxx 패턴)
+    import re
+    instance_ids = set()
+    alarm_by_instance: dict[str, list[str]] = {}
+    for name in alarm_names:
+        m = re.match(r"^(i-[0-9a-f]+)-", name)
+        if m:
+            iid = m.group(1)
+            instance_ids.add(iid)
+            alarm_by_instance.setdefault(iid, []).append(name)
+
+    if not instance_ids:
+        return []
+
+    # EC2 존재 여부 확인 (terminated/없는 인스턴스 찾기)
+    alive = set()
+    # 최대 1000개씩 배치 처리
+    id_list = list(instance_ids)
+    for i in range(0, len(id_list), 200):
+        batch = id_list[i:i+200]
+        try:
+            resp = ec2.describe_instances(InstanceIds=batch)
+            for res in resp.get("Reservations", []):
+                for inst in res.get("Instances", []):
+                    state = inst.get("State", {}).get("Name", "")
+                    if state not in ("terminated", "shutting-down"):
+                        alive.add(inst["InstanceId"])
+        except ClientError as e:
+            code = e.response["Error"]["Code"]
+            if code == "InvalidInstanceID.NotFound":
+                # 일부 ID가 완전히 없음 - 개별 확인
+                for iid in batch:
+                    try:
+                        r2 = ec2.describe_instances(InstanceIds=[iid])
+                        for res in r2.get("Reservations", []):
+                            for inst in res.get("Instances", []):
+                                state = inst.get("State", {}).get("Name", "")
+                                if state not in ("terminated", "shutting-down"):
+                                    alive.add(inst["InstanceId"])
+                    except ClientError:
+                        pass  # 완전히 없는 인스턴스 → alive에 추가 안 함
+            else:
+                logger.error("describe_instances failed: %s", e)
+                return []
+
+    # 존재하지 않거나 terminated된 인스턴스의 알람 삭제
+    to_delete = []
+    for iid in instance_ids:
+        if iid not in alive:
+            to_delete.extend(alarm_by_instance[iid])
+
+    if not to_delete:
+        return []
+
+    # CloudWatch delete_alarms는 최대 100개씩
+    for i in range(0, len(to_delete), 100):
+        cw.delete_alarms(AlarmNames=to_delete[i:i+100])
+    logger.info("Deleted orphan alarms for non-existent instances: %s", to_delete)
+    return to_delete
 
 
 def _process_resource(

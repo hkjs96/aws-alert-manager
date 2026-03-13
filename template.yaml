@@ -204,6 +204,10 @@ Resources:
             - DeleteLoadBalancer
             - CreateTags
             - DeleteTags
+            - AddTagsToResource
+            - RemoveTagsFromResource
+            - AddTags
+            - RemoveTags
       Targets:
         - Id: RemediationHandlerTarget
           Arn: !GetAtt RemediationHandlerFunction.Arn
@@ -318,6 +322,7 @@ Resources:
                   - cloudwatch:PutMetricAlarm
                   - cloudwatch:DeleteAlarms
                   - cloudwatch:DescribeAlarms
+                  - cloudwatch:ListMetrics
                 Resource: "*"
               - Effect: Allow
                 Action:
@@ -370,6 +375,7 @@ Resources:
                   - cloudwatch:PutMetricAlarm
                   - cloudwatch:DeleteAlarms
                   - cloudwatch:DescribeAlarms
+                  - cloudwatch:ListMetrics
                 Resource: "*"
               - Effect: Allow
                 Action:
@@ -378,6 +384,99 @@ Resources:
                   - !Ref RemediationAlertTopic
                   - !Ref LifecycleAlertTopic
                   - !Ref ErrorAlertTopic
+
+  # ── IAM Role: Initial Sync Lambda ────────
+  InitialSyncRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub
+        - aws-monitoring-engine-initial-sync-role-${EnvShort}
+        - EnvShort: !FindInMap [EnvShortName, !Ref Environment, short]
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: InvokeDailyMonitor
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: lambda:InvokeFunction
+                Resource: !GetAtt DailyMonitorFunction.Arn
+
+  # ── Custom Resource: Initial Alarm Sync ───
+  InitialSyncFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub
+        - aws-monitoring-engine-initial-sync-${EnvShort}
+        - EnvShort: !FindInMap [EnvShortName, !Ref Environment, short]
+      Description: CFN Custom Resource - triggers daily-monitor once on stack create/update
+      Runtime: python3.12
+      Timeout: 360
+      MemorySize: 128
+      Handler: index.handler
+      Role: !GetAtt InitialSyncRole.Arn
+      Code:
+        ZipFile: |
+          import boto3, json, logging, urllib.request
+          logger = logging.getLogger()
+          logger.setLevel(logging.INFO)
+
+          def handler(event, context):
+              logger.info("InitialSync event: %s", json.dumps(event))
+              request_type = event.get("RequestType")
+              response_url = event["ResponseURL"]
+              status = "SUCCESS"
+              reason = ""
+              try:
+                  if request_type in ("Create", "Update"):
+                      fn = event["ResourceProperties"]["DailyMonitorArn"]
+                      logger.info("Invoking daily-monitor: %s", fn)
+                      boto3.client("lambda").invoke(
+                          FunctionName=fn,
+                          InvocationType="Event",
+                      )
+                      logger.info("daily-monitor invoked successfully")
+                  else:
+                      logger.info("RequestType=%s, skipping invoke", request_type)
+              except Exception as e:
+                  logger.error("Failed to invoke daily-monitor: %s", e)
+                  status = "FAILED"
+                  reason = str(e)
+              response = {
+                  "Status": status,
+                  "Reason": reason,
+                  "StackId": event["StackId"],
+                  "RequestId": event["RequestId"],
+                  "LogicalResourceId": event["LogicalResourceId"],
+                  "PhysicalResourceId": "initial-alarm-sync",
+                  "Data": {},
+              }
+              body = json.dumps(response).encode()
+              logger.info("Sending CFN response: status=%s", status)
+              req = urllib.request.Request(
+                  response_url, data=body, method="PUT",
+                  headers={"Content-Type": "application/json"}
+              )
+              urllib.request.urlopen(req, timeout=10)
+              logger.info("CFN response sent")
+
+  InitialAlarmSync:
+    Type: AWS::CloudFormation::CustomResource
+    DependsOn:
+      - DailyMonitorFunction
+      - CommonLayer
+    Properties:
+      ServiceToken: !GetAtt InitialSyncFunction.Arn
+      DailyMonitorArn: !GetAtt DailyMonitorFunction.Arn
+      TriggerVersion: !Ref CodeVersion
 
 Outputs:
   DailyMonitorFunctionArn:

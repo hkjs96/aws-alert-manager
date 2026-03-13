@@ -23,8 +23,6 @@ from typing import Optional
 
 import boto3
 
-from botocore.exceptions import ClientError
-
 
 # Lambda 환경에서 root logger 레벨 설정 (모든 모듈에 적용)
 
@@ -115,6 +113,32 @@ def _extract_tag_resource_id(params: dict) -> Optional[str]:
 
 
 
+def _extract_rds_tag_resource_id(params: dict) -> Optional[str]:
+
+    """AddTagsToResource / RemoveTagsFromResource: resourceName에서 DB identifier 추출.
+
+    resourceName은 ARN 형태: arn:aws:rds:region:account:db:my-db-id"""
+
+    arn = params.get("resourceName", "")
+
+    if ":db:" in arn:
+
+        return arn.split(":db:")[-1]
+
+    return arn if arn else None
+
+
+
+def _extract_elb_tag_resource_id(params: dict) -> Optional[str]:
+
+    """AddTags / RemoveTags: resourceArns 첫 번째 항목"""
+
+    arns = params.get("resourceArns", [])
+
+    return arns[0] if arns else None
+
+
+
 _API_MAP: dict[str, tuple[str, callable]] = {
 
     # MODIFY
@@ -142,6 +166,14 @@ _API_MAP: dict[str, tuple[str, callable]] = {
     "CreateTags":                   ("EC2", _extract_tag_resource_id),
 
     "DeleteTags":                   ("EC2", _extract_tag_resource_id),
+
+    "AddTagsToResource":            ("RDS", _extract_rds_tag_resource_id),
+
+    "RemoveTagsFromResource":       ("RDS", _extract_rds_tag_resource_id),
+
+    "AddTags":                      ("ELB", _extract_elb_tag_resource_id),
+
+    "RemoveTags":                   ("ELB", _extract_elb_tag_resource_id),
 
 }
 
@@ -191,11 +223,9 @@ def lambda_handler(event, context):
 
 
     logger.info(
-
-        "Received %s event: resource=%s (%s) category=%s",
-
+        "Received %s event: resource=%s (%s) category=%s | request_params=%s",
         parsed.event_name, parsed.resource_id, parsed.resource_type, parsed.event_category,
-
+        str(parsed.request_params)[:500],
     )
 
 
@@ -511,52 +541,52 @@ def _execute_remediation(resource_type: str, resource_id: str) -> str:
 
 def _handle_delete(parsed: ParsedEvent) -> None:
     """
+    DELETE 이벤트: CloudWatch Alarm 삭제 + lifecycle SNS 알림.
 
-    DELETE 이벤트: Monitoring=on 태그 있으면 lifecycle SNS 알림.
+    NOTE: 리소스가 이미 삭제된 후에는 태그 조회가 불가능하므로
+    태그 확인 없이 무조건 알람 삭제를 시도한다.
+    알람이 없으면 delete_alarms는 조용히 성공한다.
 
     Requirements: 8.1, 8.2, 8.3
     """
+    from common.alarm_manager import delete_alarms_for_resource
 
-    tags = get_resource_tags(parsed.resource_id, parsed.resource_type)
-
-    if tags.get("Monitoring", "").lower() != "on":
-
+    # 태그 조회 없이 바로 알람 삭제 (삭제된 리소스는 태그 조회 불가)
+    deleted = delete_alarms_for_resource(parsed.resource_id, parsed.resource_type)
+    if deleted:
+        logger.info("Deleted alarms for terminated resource %s: %s", parsed.resource_id, deleted)
+    else:
         logger.info(
-
-            "Ignoring DELETE for %s %s: no Monitoring=on tag",
-
+            "No alarms found for deleted resource %s %s (already removed or never monitored)",
             parsed.resource_type, parsed.resource_id,
+        )
 
+    # Monitoring=on 태그가 있었는지 확인 (lifecycle 알림 여부 결정)
+    # 삭제 직전 태그 조회 시도 - 실패해도 알람 삭제는 이미 완료
+    try:
+        tags = get_resource_tags(parsed.resource_id, parsed.resource_type)
+        was_monitored = tags.get("Monitoring", "").lower() == "on"
+    except Exception:
+        # 리소스 삭제 후 태그 조회 실패 시, 알람이 있었다면 모니터링 대상이었던 것으로 간주
+        was_monitored = bool(deleted)
+
+    if not was_monitored and not deleted:
+        logger.info(
+            "Ignoring DELETE lifecycle alert for %s %s: not a monitored resource",
+            parsed.resource_type, parsed.resource_id,
         )
         return
 
-
     message = (
-
         f"{parsed.resource_type} 리소스 {parsed.resource_id}가 삭제되었습니다. "
-
         f"({parsed.event_name})"
-
     )
-
-    logger.info("Resource deleted with Monitoring=on: %s %s", parsed.resource_type, parsed.resource_id)
-
-    # 리소스 삭제 시 관련 CloudWatch Alarm도 정리
-    from common.alarm_manager import delete_alarms_for_resource
-    deleted = delete_alarms_for_resource(parsed.resource_id, parsed.resource_type)
-    if deleted:
-        logger.info("Deleted alarms for terminated resource: %s", deleted)
-
+    logger.info("Sending lifecycle alert for deleted resource: %s %s", parsed.resource_type, parsed.resource_id)
     send_lifecycle_alert(
-
         resource_id=parsed.resource_id,
-
         resource_type=parsed.resource_type,
-
         event_type="RESOURCE_DELETED",
-
         message_text=message,
-
     )
 
 
@@ -572,14 +602,20 @@ def _handle_tag_change(parsed: ParsedEvent) -> None:
     """
     TAG_CHANGE 이벤트 처리.
 
-    - CreateTags + Monitoring=on → CloudWatch Alarm 자동 생성 + 로그
-    - DeleteTags + Monitoring → CloudWatch Alarm 삭제 + SNS lifecycle 알림
-    - CreateTags + Monitoring!=on → CloudWatch Alarm 삭제 + SNS lifecycle 알림
+    EC2: CreateTags/DeleteTags
+    RDS: AddTagsToResource/RemoveTagsFromResource
+    ELB: AddTags/RemoveTags
+
+    - 태그 추가 + Monitoring=on → CloudWatch Alarm 자동 생성 + 로그
+    - 태그 삭제 + Monitoring → CloudWatch Alarm 삭제 + SNS lifecycle 알림
+    - 태그 추가 + Monitoring!=on → CloudWatch Alarm 삭제 + SNS lifecycle 알림
 
     Requirements: 8.4, 8.5, 8.6, 8.7
     """
     try:
-        tag_keys, tag_kvs = _extract_tags_from_params(parsed.request_params)
+        tag_keys, tag_kvs = _extract_tags_from_params(
+            parsed.request_params, parsed.event_name,
+        )
     except Exception as e:
         logger.error(
             "Failed to parse tag change params for %s %s: %s",
@@ -600,22 +636,29 @@ def _handle_tag_change(parsed: ParsedEvent) -> None:
         )
         return
 
-    if parsed.event_name == "CreateTags":
+    # 태그 추가 이벤트인지 삭제 이벤트인지 판별
+    is_add = parsed.event_name in ("CreateTags", "AddTagsToResource", "AddTags")
+
+    if is_add:
         monitoring_value = tag_kvs.get("Monitoring", "")
         if monitoring_value.lower() == "on":
             logger.info(
                 "Monitoring=on tag ADDED to %s %s: creating CloudWatch Alarms",
                 parsed.resource_type, parsed.resource_id,
             )
-            # 태그 조회 후 알람 생성
             tags = get_resource_tags(parsed.resource_id, parsed.resource_type)
+            if not tags:
+                logger.warning(
+                    "get_resource_tags returned empty for %s %s, using tags from CloudTrail event",
+                    parsed.resource_type, parsed.resource_id,
+                )
+                tags = tag_kvs
             from common.alarm_manager import create_alarms_for_resource
             created = create_alarms_for_resource(
                 parsed.resource_id, parsed.resource_type, tags,
             )
             logger.info("Created alarms: %s", created)
         else:
-            # Monitoring 태그가 on이 아닌 값으로 변경 → 알람 삭제
             logger.info(
                 "Monitoring tag set to %r (not 'on') on %s %s: deleting alarms",
                 monitoring_value, parsed.resource_type, parsed.resource_id,
@@ -632,8 +675,8 @@ def _handle_tag_change(parsed: ParsedEvent) -> None:
                 event_type="MONITORING_REMOVED",
                 message_text=message,
             )
-
-    elif parsed.event_name == "DeleteTags":
+    else:
+        # 태그 삭제 이벤트: DeleteTags, RemoveTagsFromResource, RemoveTags
         logger.info(
             "Monitoring tag REMOVED from %s %s: deleting CloudWatch Alarms",
             parsed.resource_type, parsed.resource_id,
@@ -654,27 +697,38 @@ def _handle_tag_change(parsed: ParsedEvent) -> None:
 
 
 
-def _extract_tags_from_params(params: dict) -> tuple[set[str], dict[str, str]]:
+def _extract_tags_from_params(
+    params: dict, event_name: str = "",
+) -> tuple[set[str], dict[str, str]]:
     """
-
     CloudTrail requestParameters에서 태그 키 집합과 키-값 딕셔너리 추출.
 
-
-    CreateTags 구조:
-
+    EC2 CreateTags/DeleteTags:
       tagSet.items: [{"key": "Monitoring", "value": "on"}, ...]
 
+    RDS AddTagsToResource/RemoveTagsFromResource:
+      tags: [{"key": "Monitoring", "value": "on"}, ...]
 
-    DeleteTags 구조:
-
-      tagSet.items: [{"key": "Monitoring"}, ...]
+    ELB AddTags/RemoveTags:
+      tags: [{"key": "Monitoring", "value": "on"}, ...]
     """
-
+    # EC2: tagSet.items 구조
     items = params.get("tagSet", {}).get("items", [])
 
+    # RDS/ELB: tags 리스트 구조 (tagSet이 없을 때)
+    if not items:
+        items = params.get("tags", [])
+
+    # ELB RemoveTags: tagKeys 리스트 (키만 있음)
+    if not items and event_name == "RemoveTags":
+        tag_keys_list = params.get("tagKeys", [])
+        tag_keys = set(tag_keys_list)
+        return tag_keys, {k: "" for k in tag_keys}
+
     tag_keys = {item["key"] for item in items if "key" in item}
-
-    tag_kvs = {item["key"]: item.get("value", "") for item in items if "key" in item}
-
+    tag_kvs = {
+        item["key"]: item.get("value", "")
+        for item in items if "key" in item
+    }
     return tag_keys, tag_kvs
 
