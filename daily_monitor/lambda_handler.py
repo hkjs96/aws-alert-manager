@@ -228,6 +228,7 @@ def _process_resource(
         )
         return 0
 
+    name_tag = resource_tags.get("Name", "")
     alerts_sent = 0
     for metric_name, current_value in metrics.items():
         threshold = get_threshold(resource_tags, metric_name)
@@ -249,6 +250,7 @@ def _process_resource(
                 metric_name=metric_name,
                 current_value=current_value,
                 threshold=threshold,
+                tag_name=name_tag,
             )
             alerts_sent += 1
         else:

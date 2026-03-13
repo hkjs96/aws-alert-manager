@@ -130,6 +130,7 @@ class TestDailyMonitorHandler:
             metric_name="CPU",
             current_value=95.0,
             threshold=80.0,
+            tag_name="",
         )
         assert result["alerts"] == 1
 
@@ -216,6 +217,7 @@ class TestDailyMonitorHandler:
             metric_name="FreeMemoryGB",
             current_value=1.0,
             threshold=2.0,
+            tag_name="",
         )
         assert result["alerts"] == 1
 

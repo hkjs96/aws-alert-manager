@@ -14,7 +14,7 @@ import os
 import boto3
 from botocore.exceptions import ClientError
 
-from common.tag_resolver import get_threshold
+from common.tag_resolver import disk_path_to_tag_suffix, get_threshold
 
 logger = logging.getLogger(__name__)
 
@@ -513,7 +513,12 @@ def sync_alarms_for_resource(
                 for alarm in resp.get("MetricAlarms", []):
                     name = alarm["AlarmName"]
                     existing_threshold = alarm.get("Threshold", 0)
-                    disk_threshold = get_threshold(resource_tags, "Disk")
+                    path = next(
+                        (d["Value"] for d in alarm.get("Dimensions", []) if d["Name"] == "path"),
+                        "/",
+                    )
+                    suffix = disk_path_to_tag_suffix(path)
+                    disk_threshold = get_threshold(resource_tags, f"Disk_{suffix}")
                     if abs(existing_threshold - disk_threshold) > 0.001:
                         needs_recreate = True
                         result["updated"].append(name)

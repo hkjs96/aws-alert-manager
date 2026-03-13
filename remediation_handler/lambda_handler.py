@@ -403,12 +403,13 @@ def _handle_modify(parsed: ParsedEvent) -> None:
         )
         return
 
+    name_tag = tags.get("Name", "")
 
-    perform_remediation(parsed.resource_type, parsed.resource_id, parsed.change_summary)
+    perform_remediation(parsed.resource_type, parsed.resource_id, parsed.change_summary, tag_name=name_tag)
 
 
 
-def perform_remediation(resource_type: str, resource_id: str, change_summary: str) -> None:
+def perform_remediation(resource_type: str, resource_id: str, change_summary: str, tag_name: str = "") -> None:
     """
 
     리소스 유형별 Auto-Remediation 수행.
@@ -478,6 +479,8 @@ def perform_remediation(resource_type: str, resource_id: str, change_summary: st
         change_summary=change_summary,
 
         action_taken=action_taken,
+
+        tag_name=tag_name,
 
     )
 
@@ -566,9 +569,11 @@ def _handle_delete(parsed: ParsedEvent) -> None:
     try:
         tags = get_resource_tags(parsed.resource_id, parsed.resource_type)
         was_monitored = tags.get("Monitoring", "").lower() == "on"
+        name_tag = tags.get("Name", "")
     except Exception:
         # 리소스 삭제 후 태그 조회 실패 시, 알람이 있었다면 모니터링 대상이었던 것으로 간주
         was_monitored = bool(deleted)
+        name_tag = ""
 
     if not was_monitored and not deleted:
         logger.info(
@@ -587,6 +592,7 @@ def _handle_delete(parsed: ParsedEvent) -> None:
         resource_type=parsed.resource_type,
         event_type="RESOURCE_DELETED",
         message_text=message,
+        tag_name=name_tag,
     )
 
 
@@ -665,6 +671,8 @@ def _handle_tag_change(parsed: ParsedEvent) -> None:
             )
             from common.alarm_manager import delete_alarms_for_resource
             delete_alarms_for_resource(parsed.resource_id, parsed.resource_type)
+            name_tags = get_resource_tags(parsed.resource_id, parsed.resource_type)
+            name_tag = name_tags.get("Name", "") if name_tags else ""
             message = (
                 f"{parsed.resource_type} 리소스 {parsed.resource_id}의 "
                 f"Monitoring 태그가 '{monitoring_value}'로 변경되어 모니터링 대상에서 제외되었습니다."
@@ -674,6 +682,7 @@ def _handle_tag_change(parsed: ParsedEvent) -> None:
                 resource_type=parsed.resource_type,
                 event_type="MONITORING_REMOVED",
                 message_text=message,
+                tag_name=name_tag,
             )
     else:
         # 태그 삭제 이벤트: DeleteTags, RemoveTagsFromResource, RemoveTags
@@ -683,6 +692,8 @@ def _handle_tag_change(parsed: ParsedEvent) -> None:
         )
         from common.alarm_manager import delete_alarms_for_resource
         delete_alarms_for_resource(parsed.resource_id, parsed.resource_type)
+        name_tags = get_resource_tags(parsed.resource_id, parsed.resource_type)
+        name_tag = name_tags.get("Name", "") if name_tags else ""
         message = (
             f"{parsed.resource_type} 리소스 {parsed.resource_id}의 "
             f"Monitoring 태그가 제거되어 모니터링 대상에서 제외되었습니다."
@@ -692,6 +703,7 @@ def _handle_tag_change(parsed: ParsedEvent) -> None:
             resource_type=parsed.resource_type,
             event_type="MONITORING_REMOVED",
             message_text=message,
+            tag_name=name_tag,
         )
 
 

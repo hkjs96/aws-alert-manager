@@ -47,6 +47,7 @@ class TestDailyMonitorIntegration:
             metric_name="CPU",
             current_value=95.0,
             threshold=80.0,
+            tag_name="",
         )
 
     def test_full_flow_rds_multiple_metrics(self):
