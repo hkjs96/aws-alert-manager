@@ -41,7 +41,7 @@ from common.sns_notifier import (
 
 )
 
-from common.tag_resolver import get_resource_tags
+from common.tag_resolver import get_resource_tags, has_monitoring_tag
 
 
 
@@ -634,12 +634,28 @@ def _handle_tag_change(parsed: ParsedEvent) -> None:
         return
 
     monitoring_involved = "Monitoring" in tag_keys
+    threshold_involved = any(k.startswith("Threshold_") for k in tag_keys)
 
     if not monitoring_involved:
-        logger.debug(
-            "TAG_CHANGE for %s %s does not involve Monitoring tag: skipping",
-            parsed.resource_type, parsed.resource_id,
-        )
+        if threshold_involved:
+            tags = get_resource_tags(parsed.resource_id, parsed.resource_type)
+            if has_monitoring_tag(tags):
+                logger.info(
+                    "Threshold tag changed on monitored %s %s: syncing alarms",
+                    parsed.resource_type, parsed.resource_id,
+                )
+                from common.alarm_manager import sync_alarms_for_resource
+                sync_alarms_for_resource(parsed.resource_id, parsed.resource_type, tags)
+            else:
+                logger.debug(
+                    "Threshold tag changed on %s %s but Monitoring=on not set: skipping",
+                    parsed.resource_type, parsed.resource_id,
+                )
+        else:
+            logger.debug(
+                "TAG_CHANGE for %s %s does not involve Monitoring or Threshold tags: skipping",
+                parsed.resource_type, parsed.resource_id,
+            )
         return
 
     # 태그 추가 이벤트인지 삭제 이벤트인지 판별
