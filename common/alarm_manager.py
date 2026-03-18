@@ -80,11 +80,11 @@ def _pretty_alarm_name(
     else:
         display_metric = display_name
 
-    # threshold 표시: 정수면 소수점 없이
+    # threshold 표시: 정수면 소수점 없이, 소수면 불필요한 0 제거
     if threshold == int(threshold):
         thr_str = str(int(threshold))
     else:
-        thr_str = f"{threshold:.1f}"
+        thr_str = f"{threshold:g}"
 
     label = resource_name or resource_id
     return f"[{resource_type}] {label} {display_metric} {direction}{thr_str}{unit} ({resource_id})"
@@ -690,6 +690,7 @@ def sync_alarms_for_resource(
             disk_alarms = [a for a in existing_alarms if display in a]
             if not disk_alarms:
                 needs_recreate = True
+                result["created"].append(metric)
                 continue
             # 임계치 확인
             try:
@@ -741,11 +742,17 @@ def sync_alarms_for_resource(
             logger.error("Failed to sync alarm for %s %s: %s", resource_id, metric, e)
 
     if needs_recreate:
-        # 변경된 알람만 개별 삭제·재생성 (result["ok"] 알람은 건드리지 않음)
-        for alarm_name in result["updated"]:
-            _recreate_alarm_by_name(alarm_name, resource_id, resource_type, resource_tags)
-        # 신규 알람만 생성 (전체 삭제 없이)
-        for metric in result["created"]:
-            _create_single_alarm(metric, resource_id, resource_type, resource_tags)
+        # disk 알람이 없거나 신규 메트릭이 있으면 전체 재생성
+        if "Disk" in result["created"] or not existing_alarms:
+            created = create_alarms_for_resource(resource_id, resource_type, resource_tags)
+            result["created"] = created
+        else:
+            # 변경된 알람만 개별 삭제·재생성 (result["ok"] 알람은 건드리지 않음)
+            for alarm_name in result["updated"]:
+                _recreate_alarm_by_name(alarm_name, resource_id, resource_type, resource_tags)
+            # 신규 알람만 생성 (전체 삭제 없이)
+            for metric in result["created"]:
+                if metric != "Disk":
+                    _create_single_alarm(metric, resource_id, resource_type, resource_tags)
 
     return result
