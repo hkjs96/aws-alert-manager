@@ -431,6 +431,190 @@ def _get_disk_dimensions(instance_id: str, extra_paths: set[str] | None = None) 
 
 
 # ──────────────────────────────────────────────
+# 개별 알람 재생성 헬퍼
+# ──────────────────────────────────────────────
+
+def _metric_name_to_key(metric_name: str) -> str:
+    """CloudWatch 메트릭 이름을 내부 메트릭 키로 변환.
+
+    CPUUtilization → CPU, mem_used_percent → Memory, disk_used_percent → Disk
+    """
+    mapping = {
+        "CPUUtilization": "CPU",
+        "mem_used_percent": "Memory",
+        "disk_used_percent": "Disk",
+        "FreeableMemory": "FreeMemoryGB",
+        "FreeStorageSpace": "FreeStorageGB",
+        "DatabaseConnections": "Connections",
+        "RequestCount": "RequestCount",
+        "HealthyHostCount": "HealthyHostCount",
+    }
+    return mapping.get(metric_name, metric_name)
+
+
+def _create_single_alarm(
+    metric: str,
+    resource_id: str,
+    resource_type: str,
+    resource_tags: dict,
+) -> None:
+    """전체 삭제 없이 단일 메트릭 알람만 생성 (result["created"] 처리용)."""
+    cw = _get_cw_client()
+    sns_arn = _get_sns_alert_arn()
+    alarm_defs = _get_alarm_defs(resource_type)
+    resource_name = resource_tags.get("Name", "")
+
+    alarm_def = next((d for d in alarm_defs if d["metric"] == metric), None)
+    if alarm_def is None:
+        logger.warning("No alarm definition found for metric %s", metric)
+        return
+
+    threshold = get_threshold(resource_tags, metric)
+    transform = alarm_def.get("transform_threshold")
+    cw_threshold = transform(threshold) if transform else threshold
+
+    if resource_type == "ELB" and alarm_def["dimension_key"] == "LoadBalancer":
+        dim_value = _extract_elb_dimension(resource_id)
+    else:
+        dim_value = resource_id
+
+    dimensions = [{"Name": alarm_def["dimension_key"], "Value": dim_value}]
+    dimensions.extend(alarm_def.get("extra_dimensions", []))
+
+    name = _pretty_alarm_name(resource_type, resource_id, resource_name, metric, threshold)
+    try:
+        cw.put_metric_alarm(
+            AlarmName=name,
+            AlarmDescription=f"Auto-created by AWS Monitoring Engine for {resource_type} {resource_id}",
+            Namespace=alarm_def["namespace"],
+            MetricName=alarm_def["metric_name"],
+            Dimensions=dimensions,
+            Statistic=alarm_def["stat"],
+            Period=alarm_def["period"],
+            EvaluationPeriods=alarm_def["evaluation_periods"],
+            Threshold=cw_threshold,
+            ComparisonOperator=alarm_def["comparison"],
+            ActionsEnabled=True,
+            AlarmActions=[sns_arn] if sns_arn else [],
+            OKActions=[sns_arn] if sns_arn else [],
+            TreatMissingData="missing",
+        )
+        logger.info("Created single alarm: %s (threshold=%.2f)", name, threshold)
+    except ClientError as e:
+        logger.error("Failed to create single alarm %s: %s", name, e)
+
+
+def _recreate_alarm_by_name(
+    alarm_name: str,
+    resource_id: str,
+    resource_type: str,
+    resource_tags: dict,
+) -> None:
+    """알람 이름에서 메트릭 타입을 파악하여 해당 알람만 삭제 후 재생성.
+
+    Disk 알람의 경우 기존 Dimensions(path, device, fstype 등)를 재사용한다.
+    """
+    cw = _get_cw_client()
+    sns_arn = _get_sns_alert_arn()
+    resource_name = resource_tags.get("Name", "")
+
+    # 1. 기존 알람 설정 조회 (Dimensions 재사용 목적)
+    try:
+        resp = cw.describe_alarms(AlarmNames=[alarm_name])
+        existing = resp.get("MetricAlarms", [])
+    except ClientError as e:
+        logger.error("Failed to describe alarm %s: %s", alarm_name, e)
+        return
+
+    if not existing:
+        logger.warning("Alarm %s not found, skipping recreate", alarm_name)
+        return
+
+    alarm_info = existing[0]
+    cw_metric_name = alarm_info.get("MetricName", "")
+    metric_key = _metric_name_to_key(cw_metric_name)
+    existing_dims = alarm_info.get("Dimensions", [])
+
+    # 2. 해당 알람만 삭제
+    try:
+        cw.delete_alarms(AlarmNames=[alarm_name])
+    except ClientError as e:
+        logger.error("Failed to delete alarm %s: %s", alarm_name, e)
+        return
+
+    # 3. put_metric_alarm으로 재생성
+    alarm_defs = _get_alarm_defs(resource_type)
+    alarm_def = next((d for d in alarm_defs if d["metric"] == metric_key), None)
+    if alarm_def is None:
+        logger.warning("No alarm definition found for metric key %s (alarm: %s)", metric_key, alarm_name)
+        return
+
+    if metric_key == "Disk":
+        # Disk 알람: 기존 Dimensions 재사용 (path, device, fstype 등)
+        path = next((d["Value"] for d in existing_dims if d["Name"] == "path"), "/")
+        suffix = disk_path_to_tag_suffix(path)
+        threshold = get_threshold(resource_tags, f"Disk_{suffix}")
+        disk_metric_label = f"Disk-{path.lstrip('/') or 'root'}"
+        name = _pretty_alarm_name(resource_type, resource_id, resource_name, disk_metric_label, threshold)
+        _DISK_DIM_KEYS = {"InstanceId", "device", "fstype", "path"}
+        clean_dims = [d for d in existing_dims if d["Name"] in _DISK_DIM_KEYS]
+        try:
+            cw.put_metric_alarm(
+                AlarmName=name,
+                AlarmDescription=f"Auto-created by AWS Monitoring Engine for EC2 {resource_id} disk {path}",
+                Namespace="CWAgent",
+                MetricName="disk_used_percent",
+                Dimensions=clean_dims,
+                Statistic=alarm_def["stat"],
+                Period=alarm_def["period"],
+                EvaluationPeriods=alarm_def["evaluation_periods"],
+                Threshold=threshold,
+                ComparisonOperator=alarm_def["comparison"],
+                ActionsEnabled=True,
+                AlarmActions=[sns_arn] if sns_arn else [],
+                OKActions=[sns_arn] if sns_arn else [],
+                TreatMissingData="missing",
+            )
+            logger.info("Recreated disk alarm: %s (path=%s, threshold=%.2f)", name, path, threshold)
+        except ClientError as e:
+            logger.error("Failed to recreate disk alarm %s: %s", name, e)
+    else:
+        threshold = get_threshold(resource_tags, metric_key)
+        transform = alarm_def.get("transform_threshold")
+        cw_threshold = transform(threshold) if transform else threshold
+
+        if resource_type == "ELB" and alarm_def["dimension_key"] == "LoadBalancer":
+            dim_value = _extract_elb_dimension(resource_id)
+        else:
+            dim_value = resource_id
+
+        dimensions = [{"Name": alarm_def["dimension_key"], "Value": dim_value}]
+        dimensions.extend(alarm_def.get("extra_dimensions", []))
+
+        name = _pretty_alarm_name(resource_type, resource_id, resource_name, metric_key, threshold)
+        try:
+            cw.put_metric_alarm(
+                AlarmName=name,
+                AlarmDescription=f"Auto-created by AWS Monitoring Engine for {resource_type} {resource_id}",
+                Namespace=alarm_def["namespace"],
+                MetricName=alarm_def["metric_name"],
+                Dimensions=dimensions,
+                Statistic=alarm_def["stat"],
+                Period=alarm_def["period"],
+                EvaluationPeriods=alarm_def["evaluation_periods"],
+                Threshold=cw_threshold,
+                ComparisonOperator=alarm_def["comparison"],
+                ActionsEnabled=True,
+                AlarmActions=[sns_arn] if sns_arn else [],
+                OKActions=[sns_arn] if sns_arn else [],
+                TreatMissingData="missing",
+            )
+            logger.info("Recreated alarm: %s (threshold=%.2f)", name, threshold)
+        except ClientError as e:
+            logger.error("Failed to recreate alarm %s: %s", name, e)
+
+
+# ──────────────────────────────────────────────
 # 알람 삭제
 # ──────────────────────────────────────────────
 
@@ -557,6 +741,11 @@ def sync_alarms_for_resource(
             logger.error("Failed to sync alarm for %s %s: %s", resource_id, metric, e)
 
     if needs_recreate:
-        create_alarms_for_resource(resource_id, resource_type, resource_tags)
+        # 변경된 알람만 개별 삭제·재생성 (result["ok"] 알람은 건드리지 않음)
+        for alarm_name in result["updated"]:
+            _recreate_alarm_by_name(alarm_name, resource_id, resource_type, resource_tags)
+        # 신규 알람만 생성 (전체 삭제 없이)
+        for metric in result["created"]:
+            _create_single_alarm(metric, resource_id, resource_type, resource_tags)
 
     return result
