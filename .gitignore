@@ -12,3 +12,6 @@ build/
 *.log
 .DS_Store
 .hypothesis/
+
+.orbitron/
+.orbitron.json
