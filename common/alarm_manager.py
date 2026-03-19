@@ -11,6 +11,7 @@ Monitoring=on 태그 감지 시 리소스 유형별 CloudWatch Alarm을 자동 �
 import functools
 import logging
 import os
+import re
 
 import boto3
 from botocore.exceptions import ClientError
@@ -248,6 +249,145 @@ def _get_alarm_defs(resource_type: str) -> list[dict]:
     return []
 
 
+# resource_type별 하드코딩 메트릭 키
+_HARDCODED_METRIC_KEYS: dict[str, set[str]] = {
+    "EC2": {"CPU", "Memory", "Disk"},
+    "RDS": {"CPU", "FreeMemoryGB", "FreeStorageGB", "Connections"},
+    "ELB": {"RequestCount"},
+}
+
+# resource_type별 CloudWatch 네임스페이스 목록
+_NAMESPACE_MAP: dict[str, list[str]] = {
+    "EC2": ["AWS/EC2", "CWAgent"],
+    "RDS": ["AWS/RDS"],
+    "ELB": ["AWS/ApplicationELB", "AWS/NetworkELB"],
+}
+
+# resource_type별 디멘션 키
+_DIMENSION_KEY_MAP: dict[str, str] = {
+    "EC2": "InstanceId",
+    "RDS": "DBInstanceIdentifier",
+    "ELB": "LoadBalancer",
+}
+
+# AWS 태그 허용 문자 패턴 (메트릭 이름 부분)
+_TAG_ALLOWED_CHARS = re.compile(
+    r'^[a-zA-Z0-9 _.:/=+\-@]+$'
+)
+
+
+def _parse_threshold_tags(
+    resource_tags: dict,
+    resource_type: str,
+) -> dict[str, float]:
+    """Threshold_* 태그에서 하드코딩 목록에 없는 동적 메트릭을 추출.
+
+    Args:
+        resource_tags: 리소스 태그 딕셔너리
+        resource_type: EC2 / RDS / ELB
+
+    Returns:
+        {metric_name: threshold_value} 딕셔너리 (동적 메트릭만)
+    """
+    hardcoded = _HARDCODED_METRIC_KEYS.get(resource_type, set())
+    result: dict[str, float] = {}
+
+    for key, value in resource_tags.items():
+        if not key.startswith("Threshold_"):
+            continue
+        # Threshold_Disk_* 패턴은 기존 Disk 로직에서 처리
+        if key.startswith("Threshold_Disk_"):
+            continue
+        metric_name = key[len("Threshold_"):]
+        # 메트릭 이름 최소 1자
+        if not metric_name:
+            continue
+        # 하드코딩 목록에 있으면 skip
+        if metric_name in hardcoded:
+            continue
+        # 태그 키 128자 제한
+        if len(key) > 128:
+            logger.warning(
+                "Skipping dynamic tag %s: key exceeds 128 chars",
+                key,
+            )
+            continue
+        # 태그 허용 문자 검증
+        if not _TAG_ALLOWED_CHARS.match(metric_name):
+            logger.warning(
+                "Skipping dynamic tag %s: invalid characters in metric name",
+                key,
+            )
+            continue
+        # 값 검증: 양의 숫자
+        try:
+            val = float(value)
+            if val <= 0:
+                logger.warning(
+                    "Skipping dynamic tag %s=%s: not a positive number",
+                    key, value,
+                )
+                continue
+            result[metric_name] = val
+        except (ValueError, TypeError):
+            logger.warning(
+                "Skipping dynamic tag %s=%s: non-numeric value",
+                key, value,
+            )
+
+    return result
+
+
+def _resolve_metric_dimensions(
+    resource_id: str,
+    metric_name: str,
+    resource_type: str,
+) -> tuple[str, list[dict]] | None:
+    """list_metrics API로 네임스페이스/디멘션 자동 해석.
+
+    Args:
+        resource_id: 리소스 ID
+        metric_name: CloudWatch 메트릭 이름
+        resource_type: EC2 / RDS / ELB
+
+    Returns:
+        (namespace, dimensions) 튜플 또는 None (미발견 시)
+    """
+    cw = _get_cw_client()
+    namespaces = _NAMESPACE_MAP.get(resource_type, [])
+    dim_key = _DIMENSION_KEY_MAP.get(resource_type, "")
+
+    # ELB는 ARN suffix를 디멘션 값으로 사용
+    if resource_type == "ELB":
+        dim_value = _extract_elb_dimension(resource_id)
+    else:
+        dim_value = resource_id
+
+    for namespace in namespaces:
+        try:
+            resp = cw.list_metrics(
+                Namespace=namespace,
+                MetricName=metric_name,
+                Dimensions=[
+                    {"Name": dim_key, "Value": dim_value},
+                ],
+            )
+            metrics = resp.get("Metrics", [])
+            if metrics:
+                return (namespace, metrics[0]["Dimensions"])
+        except ClientError as e:
+            logger.error(
+                "Failed to list_metrics for %s/%s (%s): %s",
+                namespace, metric_name, resource_id, e,
+            )
+
+    logger.warning(
+        "Metric %s not found in any namespace for %s (%s): skipping",
+        metric_name, resource_id, resource_type,
+    )
+    return None
+
+
 # ──────────────────────────────────────────────
 # 알람 생성
 # ──────────────────────────────────────────────
@@ -374,6 +514,14 @@ def create_alarms_for_resource(
         except ClientError as e:
             logger.error("Failed to create alarm %s: %s", name, e)
 
+    # 동적 태그 알람 생성 (하드코딩 목록 외 Threshold_* 태그)
+    dynamic_metrics = _parse_threshold_tags(resource_tags, resource_type)
+    for metric_name, threshold in dynamic_metrics.items():
+        _create_dynamic_alarm(
+            resource_id, resource_type, resource_name,
+            metric_name, threshold, cw, sns_arn, created,
+        )
+
     return created
 
 
@@ -387,6 +535,66 @@ def _extract_elb_dimension(elb_arn: str) -> str:
     if len(parts) == 2:
         return parts[1]
     return elb_arn
+
+
+def _create_dynamic_alarm(
+    resource_id: str,
+    resource_type: str,
+    resource_name: str,
+    metric_name: str,
+    threshold: float,
+    cw,
+    sns_arn: str,
+    created: list[str],
+) -> None:
+    """동적 태그 메트릭에 대한 알람 생성.
+
+    list_metrics API로 네임스페이스/디멘션을 해석하고 알람을 생성한다.
+    """
+    resolved = _resolve_metric_dimensions(
+        resource_id, metric_name, resource_type,
+    )
+    if resolved is None:
+        return
+
+    namespace, dimensions = resolved
+    thr_str = str(int(threshold)) if threshold == int(threshold) else f"{threshold:g}"
+    label = resource_name or resource_id
+    name = (
+        f"[{resource_type}] {label} {metric_name}"
+        f" >{thr_str} ({resource_id})"
+    )
+
+    try:
+        cw.put_metric_alarm(
+            AlarmName=name,
+            AlarmDescription=(
+                f"Auto-created dynamic alarm for"
+                f" {resource_type} {resource_id}"
+                f" metric={metric_name}"
+            ),
+            Namespace=namespace,
+            MetricName=metric_name,
+            Dimensions=dimensions,
+            Statistic="Average",
+            Period=300,
+            EvaluationPeriods=1,
+            Threshold=threshold,
+            ComparisonOperator="GreaterThanThreshold",
+            ActionsEnabled=True,
+            AlarmActions=[sns_arn] if sns_arn else [],
+            OKActions=[sns_arn] if sns_arn else [],
+            TreatMissingData="missing",
+        )
+        logger.info(
+            "Created dynamic alarm: %s (metric=%s, threshold=%.2f)",
+            name, metric_name, threshold,
+        )
+        created.append(name)
+    except ClientError as e:
+        logger.error(
+            "Failed to create dynamic alarm %s: %s", name, e,
+        )
 
 
 def _get_disk_dimensions(instance_id: str, extra_paths: set[str] | None = None) -> list[list[dict]]:

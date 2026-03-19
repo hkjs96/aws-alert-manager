@@ -58,13 +58,13 @@
     - _Bug_Condition: 변경 8 — Collector 공통 유틸리티 사용_
     - _Requirements: 1.10, 2.10_
 
-  - [-] 3.4 `common/tag_resolver.py` — boto3 클라이언트 `lru_cache` 전환
+  - [x] 3.4 `common/tag_resolver.py` — boto3 클라이언트 `lru_cache` 전환
     - `boto3.client()` 직접 생성 → `@functools.lru_cache` 싱글턴 패턴
     - 코딩 거버넌스 §1 준수
     - _Bug_Condition: 변경 10 — tag_resolver boto3 패턴 통일_
     - _Requirements: 1.8, 2.8_
 
-  - [~] 3.5 `remediation_handler/lambda_handler.py` — 지연 import 제거 + 중복 코드 추출
+  - [x] 3.5 `remediation_handler/lambda_handler.py` — 지연 import 제거 + 중복 코드 추출
     - `from common.alarm_manager import ...` 6건의 지연 import를 파일 상단으로 이동
     - `_remove_monitoring()` 헬퍼 추출: 알람 삭제 + lifecycle 알림 발송 공통 로직
     - 코딩 거버넌스 §2 (import 규칙), §10 (코드 중복 금지) 준수
@@ -73,7 +73,7 @@
 
 - [ ] 4. 핵심 기능 변경 (동적 파싱, 디멘션 해석, 메타데이터 매칭)
 
-  - [~] 4.1 `alarm_manager.py` — 태그 동적 파싱 + 디멘션 자동 해석
+  - [x] 4.1 `alarm_manager.py` — 태그 동적 파싱 + 디멘션 자동 해석
     - `_parse_threshold_tags(resource_tags, resource_type)` 헬퍼 추가: `Threshold_*` 태그에서 하드코딩 목록에 없는 메트릭 추출
     - 태그 키 유효성 검증: `Threshold_` + 1자 이상 메트릭 이름, 128자 이하, 태그 허용 문자만 포함
     - 태그 값 유효성 검증: 양의 숫자로 파싱 가능 (기존 `get_threshold()` 로직 재사용)
