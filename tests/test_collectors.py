@@ -52,11 +52,13 @@ def _make_cw_datapoint(value: float) -> dict:
 @settings(max_examples=100, suppress_health_check=[HealthCheck.too_slow], deadline=None)
 @given(
     monitored_ids=st.lists(
-        st.text(min_size=2, max_size=20, alphabet=st.characters(whitelist_categories=("Lu", "Ll", "Nd"), whitelist_characters="-")),
+        st.text(min_size=2, max_size=20, alphabet=st.characters(
+            whitelist_categories=("Lu", "Ll", "Nd"), whitelist_characters="-")),
         min_size=0, max_size=5, unique=True,
     ),
     unmonitored_ids=st.lists(
-        st.text(min_size=2, max_size=20, alphabet=st.characters(whitelist_categories=("Lu", "Ll", "Nd"), whitelist_characters="-")),
+        st.text(min_size=2, max_size=20, alphabet=st.characters(
+            whitelist_categories=("Lu", "Ll", "Nd"), whitelist_characters="-")),
         min_size=0, max_size=5, unique=True,
     ),
 )
@@ -66,12 +68,10 @@ def test_property_1_ec2_collection_filter(monitored_ids, unmonitored_ids):
     unmonitored_ids = [i for i in unmonitored_ids if i not in monitored_ids]
 
     monitored = [_make_ec2_instance(i, {"Monitoring": "on"}) for i in monitored_ids]
-    # unmonitored는 describe_instances 필터에 걸리지 않으므로 응답에 포함하지 않음
-    # (실제 AWS는 Filters=[tag:Monitoring=on]으로 이미 필터링해서 반환)
     mock_ec2 = MagicMock()
     mock_ec2.describe_instances.return_value = _make_ec2_response(monitored)
 
-    with patch("common.collectors.ec2.boto3.client", return_value=mock_ec2), \
+    with patch("common.collectors.ec2._get_ec2_client", return_value=mock_ec2), \
          patch("common.collectors.ec2.boto3.session.Session") as mock_session:
         mock_session.return_value.region_name = "us-east-1"
         from common.collectors.ec2 import collect_monitored_resources
@@ -79,11 +79,9 @@ def test_property_1_ec2_collection_filter(monitored_ids, unmonitored_ids):
 
     result_ids = {r["id"] for r in result}
 
-    # Monitoring=on 태그 있는 것만 포함
     for mid in monitored_ids:
         assert mid in result_ids, f"{mid} should be in result"
 
-    # unmonitored는 애초에 API 응답에 없으므로 결과에도 없어야 함
     for uid in unmonitored_ids:
         assert uid not in result_ids, f"{uid} should NOT be in result"
 
@@ -96,7 +94,8 @@ def test_property_1_ec2_collection_filter(monitored_ids, unmonitored_ids):
 @settings(max_examples=50, suppress_health_check=[HealthCheck.too_slow], deadline=None)
 @given(
     active_ids=st.lists(
-        st.text(min_size=2, max_size=15, alphabet=st.characters(whitelist_categories=("Lu", "Ll", "Nd"), whitelist_characters="-")),
+        st.text(min_size=2, max_size=15, alphabet=st.characters(
+            whitelist_categories=("Lu", "Ll", "Nd"), whitelist_characters="-")),
         min_size=0, max_size=3, unique=True,
     ),
     dead_state=st.sampled_from(["terminated", "shutting-down"]),
@@ -112,7 +111,7 @@ def test_property_5_terminated_instances_excluded(active_ids, dead_state):
     mock_ec2 = MagicMock()
     mock_ec2.describe_instances.return_value = _make_ec2_response(active + dead)
 
-    with patch("common.collectors.ec2.boto3.client", return_value=mock_ec2), \
+    with patch("common.collectors.ec2._get_ec2_client", return_value=mock_ec2), \
          patch("common.collectors.ec2.boto3.session.Session") as mock_session:
         mock_session.return_value.region_name = "us-east-1"
         from common.collectors.ec2 import collect_monitored_resources
@@ -146,7 +145,7 @@ class TestEC2Collector:
     def test_empty_result_when_no_monitored(self):
         """수집 대상 0개 시 빈 리스트 반환 - Requirements 1.3"""
         mock_ec2, mock_session = self._mock_boto3(_make_ec2_response([]))
-        with patch("common.collectors.ec2.boto3.client", return_value=mock_ec2), \
+        with patch("common.collectors.ec2._get_ec2_client", return_value=mock_ec2), \
              patch("common.collectors.ec2.boto3.session.Session", mock_session):
             result = self.module.collect_monitored_resources()
         assert result == []
@@ -156,9 +155,10 @@ class TestEC2Collector:
         from botocore.exceptions import ClientError
         mock_ec2 = MagicMock()
         mock_ec2.describe_instances.side_effect = ClientError(
-            {"Error": {"Code": "InvalidParameterValue", "Message": "error"}}, "describe_instances"
+            {"Error": {"Code": "InvalidParameterValue", "Message": "error"}},
+            "describe_instances",
         )
-        with patch("common.collectors.ec2.boto3.client", return_value=mock_ec2):
+        with patch("common.collectors.ec2._get_ec2_client", return_value=mock_ec2):
             with pytest.raises(ClientError):
                 self.module.collect_monitored_resources()
 
@@ -168,7 +168,7 @@ class TestEC2Collector:
         mock_cw.get_metric_statistics.return_value = {
             "Datapoints": [_make_cw_datapoint(75.0)]
         }
-        with patch("common.collectors.ec2.boto3.client", return_value=mock_cw):
+        with patch("common.collectors.base._get_cw_client", return_value=mock_cw):
             result = self.module.get_metrics("i-123", {})
         assert result is not None
         assert result["CPU"] == pytest.approx(75.0)
@@ -177,7 +177,7 @@ class TestEC2Collector:
         """CloudWatch 데이터 없을 때 None 반환 - Requirements 3.5"""
         mock_cw = MagicMock()
         mock_cw.get_metric_statistics.return_value = {"Datapoints": []}
-        with patch("common.collectors.ec2.boto3.client", return_value=mock_cw):
+        with patch("common.collectors.base._get_cw_client", return_value=mock_cw):
             result = self.module.get_metrics("i-123", {})
         assert result is None
 
@@ -187,7 +187,7 @@ class TestEC2Collector:
         mock_cw.get_metric_statistics.return_value = {
             "Datapoints": [_make_cw_datapoint(60.0)]
         }
-        with patch("common.collectors.ec2.boto3.client", return_value=mock_cw):
+        with patch("common.collectors.base._get_cw_client", return_value=mock_cw):
             result = self.module.get_metrics("i-123", {})  # 태그 없음
 
         # get_metric_statistics 호출 횟수: CPU만 (Memory 없음)
@@ -201,7 +201,7 @@ class TestEC2Collector:
         mock_cw.get_metric_statistics.return_value = {
             "Datapoints": [_make_cw_datapoint(55.0)]
         }
-        with patch("common.collectors.ec2.boto3.client", return_value=mock_cw):
+        with patch("common.collectors.base._get_cw_client", return_value=mock_cw):
             result = self.module.get_metrics("i-123", {"Threshold_Memory": "80"})
 
         assert mock_cw.get_metric_statistics.call_count == 2  # CPU + Memory
@@ -222,8 +222,14 @@ class TestRDSCollector:
         mock_rds.get_paginator.return_value = mock_paginator
         mock_paginator.paginate.return_value = [{
             "DBInstances": [
-                _make_rds_instance("db-monitored", "arn:aws:rds:us-east-1:123:db:db-monitored"),
-                _make_rds_instance("db-unmonitored", "arn:aws:rds:us-east-1:123:db:db-unmonitored"),
+                _make_rds_instance(
+                    "db-monitored",
+                    "arn:aws:rds:us-east-1:123:db:db-monitored",
+                ),
+                _make_rds_instance(
+                    "db-unmonitored",
+                    "arn:aws:rds:us-east-1:123:db:db-unmonitored",
+                ),
             ]
         }]
 
@@ -234,7 +240,7 @@ class TestRDSCollector:
 
         mock_rds.list_tags_for_resource.side_effect = mock_list_tags
 
-        with patch("common.collectors.rds.boto3.client", return_value=mock_rds), \
+        with patch("common.collectors.rds._get_rds_client", return_value=mock_rds), \
              patch("common.collectors.rds.boto3.session.Session") as mock_session:
             mock_session.return_value.region_name = "us-east-1"
             result = collect_monitored_resources()
@@ -253,7 +259,7 @@ class TestRDSCollector:
             "Datapoints": [{"Timestamp": datetime(2024, 1, 1, tzinfo=timezone.utc),
                             "Average": float(two_gb)}]
         }
-        with patch("common.collectors.rds.boto3.client", return_value=mock_cw):
+        with patch("common.collectors.base._get_cw_client", return_value=mock_cw):
             result = get_metrics("db-123")
 
         assert result["FreeMemoryGB"] == pytest.approx(2.0)
@@ -265,6 +271,6 @@ class TestRDSCollector:
 
         mock_cw = MagicMock()
         mock_cw.get_metric_statistics.return_value = {"Datapoints": []}
-        with patch("common.collectors.rds.boto3.client", return_value=mock_cw):
+        with patch("common.collectors.base._get_cw_client", return_value=mock_cw):
             result = get_metrics("db-123")
         assert result is None

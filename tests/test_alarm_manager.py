@@ -24,9 +24,9 @@ from common.alarm_manager import (
 def _reset_cw_client():
     """각 테스트마다 캐시된 CloudWatch 클라이언트 초기화."""
     import common.alarm_manager as am
-    am._cw_client = None
+    am._get_cw_client.cache_clear()
     yield
-    am._cw_client = None
+    am._get_cw_client.cache_clear()
 
 
 @pytest.fixture(autouse=True)

@@ -208,7 +208,7 @@ class TestRemediationHandlerIntegration:
 
         with patch("remediation_handler.lambda_handler.get_resource_tags", return_value={"Monitoring": "on"}), \
              patch("remediation_handler.lambda_handler.send_lifecycle_alert") as mock_alert, \
-             patch("common.alarm_manager.delete_alarms_for_resource", return_value=[]):
+             patch("remediation_handler.lambda_handler.delete_alarms_for_resource", return_value=[]):
 
             result = remediation_handler(event, MagicMock())
 
@@ -221,7 +221,7 @@ class TestRemediationHandlerIntegration:
         event = self._make_cloudtrail_event("TerminateInstances", "i-004")
 
         with patch("remediation_handler.lambda_handler.get_resource_tags", return_value={}), \
-             patch("common.alarm_manager.delete_alarms_for_resource", return_value=[]), \
+             patch("remediation_handler.lambda_handler.delete_alarms_for_resource", return_value=[]), \
              patch("remediation_handler.lambda_handler.send_lifecycle_alert") as mock_alert:
 
             result = remediation_handler(event, MagicMock())
@@ -242,7 +242,7 @@ class TestRemediationHandlerIntegration:
         }
 
         with patch("remediation_handler.lambda_handler.send_lifecycle_alert") as mock_alert, \
-             patch("common.alarm_manager.delete_alarms_for_resource", return_value=[]):
+             patch("remediation_handler.lambda_handler.delete_alarms_for_resource", return_value=[]):
             result = remediation_handler(event, MagicMock())
 
         assert result["status"] == "ok"
@@ -264,7 +264,7 @@ class TestRemediationHandlerIntegration:
         with patch("remediation_handler.lambda_handler.send_lifecycle_alert") as mock_alert, \
              patch("remediation_handler.lambda_handler.send_error_alert") as mock_err, \
              patch("remediation_handler.lambda_handler.get_resource_tags", return_value={"Monitoring": "on"}), \
-             patch("common.alarm_manager.create_alarms_for_resource", return_value=[]):
+             patch("remediation_handler.lambda_handler.create_alarms_for_resource", return_value=[]):
 
             result = remediation_handler(event, MagicMock())
 

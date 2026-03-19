@@ -5,6 +5,7 @@ Monitoring=on 태그가 있는 EC2 인스턴스 수집 및 CloudWatch 메트릭 
 CWAgent 메트릭(Memory, Disk)은 데이터 없으면 skip.
 """
 
+import functools
 import logging
 from datetime import datetime, timedelta, timezone
 
@@ -12,14 +13,26 @@ import boto3
 from botocore.exceptions import ClientError
 
 from common import ResourceInfo
+from common.collectors.base import query_metric, CW_LOOKBACK_MINUTES
 from common.tag_resolver import get_disk_thresholds
 
 logger = logging.getLogger(__name__)
 
-# CloudWatch 메트릭 조회 기간 (최근 5분, 1분 단위)
-_CW_PERIOD = 300
-_CW_STAT = "Average"
-_CW_LOOKBACK_MINUTES = 10
+
+# ──────────────────────────────────────────────
+# boto3 클라이언트 싱글턴 (코딩 거버넌스 §1)
+# ──────────────────────────────────────────────
+
+@functools.lru_cache(maxsize=None)
+def _get_ec2_client():
+    """EC2 클라이언트 싱글턴. 테스트 시 cache_clear()로 리셋."""
+    return boto3.client("ec2")
+
+
+@functools.lru_cache(maxsize=None)
+def _get_cw_client():
+    """CloudWatch 클라이언트 싱글턴 (disk list_metrics 용). 테스트 시 cache_clear()로 리셋."""
+    return boto3.client("cloudwatch")
 
 
 def collect_monitored_resources() -> list[ResourceInfo]:
@@ -31,7 +44,7 @@ def collect_monitored_resources() -> list[ResourceInfo]:
         ResourceInfo 딕셔너리 리스트
     """
     try:
-        ec2 = boto3.client("ec2")
+        ec2 = _get_ec2_client()
         response = ec2.describe_instances(
             Filters=[{"Name": "tag:Monitoring", "Values": ["on"]}]
         )
@@ -88,15 +101,14 @@ def get_metrics(instance_id: str, resource_tags: dict | None = None) -> dict[str
     if resource_tags is None:
         resource_tags = {}
 
-    cw = boto3.client("cloudwatch")
     end_time = datetime.now(timezone.utc)
-    start_time = end_time - timedelta(minutes=_CW_LOOKBACK_MINUTES)
+    start_time = end_time - timedelta(minutes=CW_LOOKBACK_MINUTES)
 
     metrics: dict[str, float] = {}
 
     # 1. CPUUtilization (기본 메트릭)
-    cpu = _query_metric(
-        cw, "AWS/EC2", "CPUUtilization",
+    cpu = query_metric(
+        "AWS/EC2", "CPUUtilization",
         [{"Name": "InstanceId", "Value": instance_id}],
         start_time, end_time,
     )
@@ -105,8 +117,8 @@ def get_metrics(instance_id: str, resource_tags: dict | None = None) -> dict[str
 
     # 2. mem_used_percent (CWAgent) - Threshold_Memory 태그 있을 때만
     if "Threshold_Memory" in resource_tags:
-        mem = _query_metric(
-            cw, "CWAgent", "mem_used_percent",
+        mem = query_metric(
+            "CWAgent", "mem_used_percent",
             [{"Name": "InstanceId", "Value": instance_id}],
             start_time, end_time,
         )
@@ -120,7 +132,7 @@ def get_metrics(instance_id: str, resource_tags: dict | None = None) -> dict[str
     # 3. disk_used_percent (CWAgent) - Threshold_Disk_* 태그 있을 때만
     disk_thresholds = get_disk_thresholds(resource_tags)
     for path in disk_thresholds:
-        disk = _query_disk_metric(cw, instance_id, path, start_time, end_time)
+        disk = _query_disk_metric(instance_id, path, start_time, end_time)
         if disk is not None:
             from common.tag_resolver import disk_path_to_tag_suffix
             suffix = disk_path_to_tag_suffix(path)
@@ -134,41 +146,7 @@ def get_metrics(instance_id: str, resource_tags: dict | None = None) -> dict[str
     return metrics if metrics else None
 
 
-def _query_metric(
-    cw,
-    namespace: str,
-    metric_name: str,
-    dimensions: list[dict],
-    start_time: datetime,
-    end_time: datetime,
-) -> float | None:
-    """CloudWatch 단일 메트릭 조회. 데이터 없으면 None 반환."""
-    try:
-        response = cw.get_metric_statistics(
-            Namespace=namespace,
-            MetricName=metric_name,
-            Dimensions=dimensions,
-            StartTime=start_time,
-            EndTime=end_time,
-            Period=_CW_PERIOD,
-            Statistics=[_CW_STAT],
-        )
-        datapoints = response.get("Datapoints", [])
-        if not datapoints:
-            return None
-        # 가장 최근 데이터포인트 반환
-        latest = max(datapoints, key=lambda d: d["Timestamp"])
-        return latest[_CW_STAT]
-    except ClientError as e:
-        logger.error(
-            "CloudWatch get_metric_statistics failed for %s/%s: %s",
-            namespace, metric_name, e,
-        )
-        return None
-
-
 def _query_disk_metric(
-    cw,
     instance_id: str,
     path: str,
     start_time: datetime,
@@ -176,6 +154,7 @@ def _query_disk_metric(
 ) -> float | None:
     """CWAgent disk_used_percent 메트릭 조회. path 기준으로 필터링."""
     try:
+        cw = _get_cw_client()
         # CWAgent disk 메트릭은 path, device, fstype Dimension이 필요하므로
         # list_metrics로 해당 인스턴스+경로의 실제 Dimension 조회 후 사용
         response = cw.list_metrics(
@@ -192,8 +171,8 @@ def _query_disk_metric(
 
         # 첫 번째 매칭 메트릭의 Dimension으로 조회
         dimensions = metric_list[0]["Dimensions"]
-        return _query_metric(
-            cw, "CWAgent", "disk_used_percent",
+        return query_metric(
+            "CWAgent", "disk_used_percent",
             dimensions, start_time, end_time,
         )
     except ClientError as e:

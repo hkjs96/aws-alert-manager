@@ -5,6 +5,7 @@ Tag_Resolver 모듈 - Requirements 2.1, 2.2, 2.3, 2.4, 2.5
 향후 DB 교체를 고려한 인터페이스 제공.
 """
 
+import functools
 import logging
 import os
 
@@ -185,9 +186,24 @@ def get_resource_tags(resource_id: str, resource_type: str) -> dict:
         return {}
 
 
+@functools.lru_cache(maxsize=None)
+def _get_ec2_client():
+    return boto3.client("ec2")
+
+
+@functools.lru_cache(maxsize=None)
+def _get_rds_client():
+    return boto3.client("rds")
+
+
+@functools.lru_cache(maxsize=None)
+def _get_elbv2_client():
+    return boto3.client("elbv2")
+
+
 def _get_ec2_tags(instance_id: str) -> dict:
     """EC2 인스턴스 태그 조회"""
-    ec2 = boto3.client("ec2")
+    ec2 = _get_ec2_client()
     response = ec2.describe_instances(InstanceIds=[instance_id])
     reservations = response.get("Reservations", [])
     if not reservations:
@@ -201,7 +217,7 @@ def _get_ec2_tags(instance_id: str) -> dict:
 
 def _get_rds_tags(db_instance_id: str) -> dict:
     """RDS DB 인스턴스 태그 조회"""
-    rds = boto3.client("rds")
+    rds = _get_rds_client()
     response = rds.describe_db_instances(DBInstanceIdentifier=db_instance_id)
     db_instances = response.get("DBInstances", [])
     if not db_instances:
@@ -216,7 +232,7 @@ def _get_rds_tags(db_instance_id: str) -> dict:
 
 def _get_elbv2_tags(resource_arn: str) -> dict:
     """ALB / TargetGroup 태그 조회 (ELBv2 공통)"""
-    elbv2 = boto3.client("elbv2")
+    elbv2 = _get_elbv2_client()
     response = elbv2.describe_tags(ResourceArns=[resource_arn])
     tag_descriptions = response.get("TagDescriptions", [])
     if not tag_descriptions:

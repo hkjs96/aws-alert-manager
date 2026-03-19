@@ -73,9 +73,9 @@ class TestMonitoringOnAddedPreservation:
 
         with patch("remediation_handler.lambda_handler.get_resource_tags",
                    return_value=current_tags), \
-             patch("common.alarm_manager.create_alarms_for_resource",
+             patch("remediation_handler.lambda_handler.create_alarms_for_resource",
                    return_value=["alarm1"]) as mock_create, \
-             patch("common.alarm_manager.sync_alarms_for_resource") as mock_sync, \
+             patch("remediation_handler.lambda_handler.sync_alarms_for_resource") as mock_sync, \
              patch("remediation_handler.lambda_handler.send_error_alert"):
 
             _handle_tag_change(parsed)
@@ -107,8 +107,8 @@ class TestMonitoringRemovedPreservation:
 
         with patch("remediation_handler.lambda_handler.get_resource_tags",
                    return_value=current_tags), \
-             patch("common.alarm_manager.delete_alarms_for_resource") as mock_delete, \
-             patch("common.alarm_manager.sync_alarms_for_resource") as mock_sync, \
+             patch("remediation_handler.lambda_handler.delete_alarms_for_resource") as mock_delete, \
+             patch("remediation_handler.lambda_handler.sync_alarms_for_resource") as mock_sync, \
              patch("remediation_handler.lambda_handler.send_lifecycle_alert") as mock_lifecycle, \
              patch("remediation_handler.lambda_handler.send_error_alert"):
 
@@ -134,8 +134,8 @@ class TestMonitoringRemovedPreservation:
 
         with patch("remediation_handler.lambda_handler.get_resource_tags",
                    return_value=current_tags), \
-             patch("common.alarm_manager.delete_alarms_for_resource") as mock_delete, \
-             patch("common.alarm_manager.sync_alarms_for_resource") as mock_sync, \
+             patch("remediation_handler.lambda_handler.delete_alarms_for_resource") as mock_delete, \
+             patch("remediation_handler.lambda_handler.sync_alarms_for_resource") as mock_sync, \
              patch("remediation_handler.lambda_handler.send_lifecycle_alert") as mock_lifecycle, \
              patch("remediation_handler.lambda_handler.send_error_alert"):
 
@@ -168,9 +168,9 @@ class TestNonMonitoringTagIgnoredPreservation:
         )
 
         with patch("remediation_handler.lambda_handler.get_resource_tags") as mock_get_tags, \
-             patch("common.alarm_manager.create_alarms_for_resource") as mock_create, \
-             patch("common.alarm_manager.sync_alarms_for_resource") as mock_sync, \
-             patch("common.alarm_manager.delete_alarms_for_resource") as mock_delete, \
+             patch("remediation_handler.lambda_handler.create_alarms_for_resource") as mock_create, \
+             patch("remediation_handler.lambda_handler.sync_alarms_for_resource") as mock_sync, \
+             patch("remediation_handler.lambda_handler.delete_alarms_for_resource") as mock_delete, \
              patch("remediation_handler.lambda_handler.send_error_alert"):
 
             _handle_tag_change(parsed)

@@ -1,6 +1,6 @@
 # 구현 계획
 
-- [ ] 1. 버그 조건 탐색 테스트 작성 (수정 전 코드에서 실행)
+- [x] 1. 버그 조건 탐색 테스트 작성 (수정 전 코드에서 실행)
   - **Property 1: Bug Condition** - 하드코딩 목록 외 Threshold 태그 알람 미생성
   - **CRITICAL**: 이 테스트는 수정 전 코드에서 반드시 FAIL해야 한다 — 실패가 버그 존재를 확인하는 것이다
   - **DO NOT**: 테스트가 실패할 때 테스트나 코드를 수정하지 말 것
@@ -17,7 +17,7 @@
   - 테스트 작성, 실행, 실패 문서화 완료 시 태스크 완료 처리
   - _Requirements: 1.1, 1.2, 2.1, 2.2_
 
-- [~] 2. 보존 속성 테스트 작성 (수정 전 코드에서 실행)
+- [x] 2. 보존 속성 테스트 작성 (수정 전 코드에서 실행)
   - **Property 2: Preservation** - 기존 하드코딩 메트릭 알람 생성 보존
   - **IMPORTANT**: 관찰 우선(observation-first) 방법론을 따른다
   - 테스트 파일: `tests/test_pbt_dynamic_alarm_preservation.py`
@@ -36,7 +36,7 @@
 
 - [ ] 3. 인프라/기반 변경 (base.py, boto3 패턴 통일)
 
-  - [~] 3.1 `common/collectors/base.py` 신규 생성 — CollectorProtocol + query_metric 공통화
+  - [x] 3.1 `common/collectors/base.py` 신규 생성 — CollectorProtocol + query_metric 공통화
     - `CollectorProtocol` (typing.Protocol) 정의: `collect_monitored_resources() -> list[ResourceInfo]`, `get_metrics(resource_id: str, resource_tags: dict) -> dict[str, float] | None`
     - `query_metric()` 공통 유틸리티: CloudWatch `get_metric_statistics` 래퍼 (기존 ec2/rds/elb의 `_query_metric` 통합)
     - `@functools.lru_cache(maxsize=None)` 기반 `_get_cw_client()` 포함
@@ -44,21 +44,21 @@
     - _Bug_Condition: 변경 7 — Collector 코드 중복 제거_
     - _Requirements: 1.10, 1.11, 2.10, 2.11_
 
-  - [~] 3.2 `common/alarm_manager.py` — boto3 클라이언트 `lru_cache` 전환
+  - [x] 3.2 `common/alarm_manager.py` — boto3 클라이언트 `lru_cache` 전환
     - `global _cw_client` + `global` statement 제거
     - `import functools` 추가, `@functools.lru_cache(maxsize=None)` 데코레이터 적용
     - 코딩 거버넌스 §1 (lru_cache boto3) 준수
     - _Bug_Condition: 변경 1 — boto3 클라이언트 패턴 통일_
     - _Requirements: 1.8, 2.8_
 
-  - [~] 3.3 Collector 모듈 공통 유틸리티 전환 (ec2.py, rds.py, elb.py)
+  - [x] 3.3 Collector 모듈 공통 유틸리티 전환 (ec2.py, rds.py, elb.py)
     - 각 모듈의 `_query_metric()` 삭제, `from common.collectors.base import query_metric` 사용
     - `boto3.client()` 직접 생성 → `@functools.lru_cache` 싱글턴 또는 `base._get_cw_client()` 사용
     - 코딩 거버넌스 §1, §2 (import 규칙), §5, §10 준수
     - _Bug_Condition: 변경 8 — Collector 공통 유틸리티 사용_
     - _Requirements: 1.10, 2.10_
 
-  - [~] 3.4 `common/tag_resolver.py` — boto3 클라이언트 `lru_cache` 전환
+  - [-] 3.4 `common/tag_resolver.py` — boto3 클라이언트 `lru_cache` 전환
     - `boto3.client()` 직접 생성 → `@functools.lru_cache` 싱글턴 패턴
     - 코딩 거버넌스 §1 준수
     - _Bug_Condition: 변경 10 — tag_resolver boto3 패턴 통일_

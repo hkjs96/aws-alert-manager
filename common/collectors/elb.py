@@ -6,6 +6,7 @@ ALB 레벨: RequestCount
 TG 레벨: RequestCount, HealthyHostCount (TG에 Monitoring=on 태그 있을 때만)
 """
 
+import functools
 import logging
 from datetime import datetime, timedelta, timezone
 
@@ -13,13 +14,24 @@ import boto3
 from botocore.exceptions import ClientError
 
 from common import ResourceInfo
+from common.collectors.base import (
+    query_metric,
+    CW_LOOKBACK_MINUTES,
+    CW_STAT_AVG,
+    CW_STAT_SUM,
+)
 
 logger = logging.getLogger(__name__)
 
-_CW_PERIOD = 300
-_CW_STAT_SUM = "Sum"
-_CW_STAT_AVG = "Average"
-_CW_LOOKBACK_MINUTES = 10
+
+# ──────────────────────────────────────────────
+# boto3 클라이언트 싱글턴 (코딩 거버넌스 §1)
+# ──────────────────────────────────────────────
+
+@functools.lru_cache(maxsize=None)
+def _get_elbv2_client():
+    """ELBv2 클라이언트 싱글턴. 테스트 시 cache_clear()로 리셋."""
+    return boto3.client("elbv2")
 
 
 def collect_monitored_resources() -> list[ResourceInfo]:
@@ -32,7 +44,7 @@ def collect_monitored_resources() -> list[ResourceInfo]:
         ALB + TG ResourceInfo 리스트. type은 'ELB' 또는 'TG'.
     """
     try:
-        elbv2 = boto3.client("elbv2")
+        elbv2 = _get_elbv2_client()
         paginator = elbv2.get_paginator("describe_load_balancers")
         pages = list(paginator.paginate())
     except ClientError as e:
@@ -94,9 +106,8 @@ def get_metrics(resource_id: str, resource_tags: dict | None = None,
     if resource_tags is None:
         resource_tags = {}
 
-    cw = boto3.client("cloudwatch")
     end_time = datetime.now(timezone.utc)
-    start_time = end_time - timedelta(minutes=_CW_LOOKBACK_MINUTES)
+    start_time = end_time - timedelta(minutes=CW_LOOKBACK_MINUTES)
 
     metrics: dict[str, float] = {}
     is_tg = resource_tags.get("_resource_subtype") == "TG" or lb_arn is not None
@@ -110,16 +121,16 @@ def get_metrics(resource_id: str, resource_tags: dict | None = None,
             {"Name": "TargetGroup", "Value": tg_suffix},
             {"Name": "LoadBalancer", "Value": lb_suffix},
         ]
-        _collect_metric(cw, "AWS/ApplicationELB", "RequestCount", dim_tg,
-                        start_time, end_time, "RequestCount", metrics, _CW_STAT_SUM)
-        _collect_metric(cw, "AWS/ApplicationELB", "HealthyHostCount", dim_tg,
-                        start_time, end_time, "HealthyHostCount", metrics, _CW_STAT_AVG)
+        _collect_metric("AWS/ApplicationELB", "RequestCount", dim_tg,
+                        start_time, end_time, "RequestCount", metrics, CW_STAT_SUM)
+        _collect_metric("AWS/ApplicationELB", "HealthyHostCount", dim_tg,
+                        start_time, end_time, "HealthyHostCount", metrics, CW_STAT_AVG)
     else:
         # ALB 레벨
         lb_suffix = _arn_to_suffix(resource_id)
         dim_lb = [{"Name": "LoadBalancer", "Value": lb_suffix}]
-        _collect_metric(cw, "AWS/ApplicationELB", "RequestCount", dim_lb,
-                        start_time, end_time, "RequestCount", metrics, _CW_STAT_SUM)
+        _collect_metric("AWS/ApplicationELB", "RequestCount", dim_lb,
+                        start_time, end_time, "RequestCount", metrics, CW_STAT_SUM)
 
     return metrics if metrics else None
 
@@ -154,35 +165,15 @@ def _collect_target_groups(elbv2, lb_arn: str, region: str) -> list[ResourceInfo
     return tg_resources
 
 
-def _collect_metric(cw, namespace, cw_metric_name, dimensions,
+def _collect_metric(namespace, cw_metric_name, dimensions,
                     start_time, end_time, result_key, metrics_dict, stat):
-    value = _query_metric(cw, namespace, cw_metric_name, dimensions, start_time, end_time, stat)
+    """단일 메트릭 조회 후 metrics_dict에 추가. 데이터 없으면 skip."""
+    value = query_metric(namespace, cw_metric_name, dimensions,
+                         start_time, end_time, stat)
     if value is not None:
         metrics_dict[result_key] = value
     else:
         logger.info("Skipping %s metric: no data (dimensions=%s)", result_key, dimensions)
-
-
-def _query_metric(cw, namespace, metric_name, dimensions,
-                  start_time, end_time, stat) -> float | None:
-    try:
-        response = cw.get_metric_statistics(
-            Namespace=namespace,
-            MetricName=metric_name,
-            Dimensions=dimensions,
-            StartTime=start_time,
-            EndTime=end_time,
-            Period=_CW_PERIOD,
-            Statistics=[stat],
-        )
-        datapoints = response.get("Datapoints", [])
-        if not datapoints:
-            return None
-        latest = max(datapoints, key=lambda d: d["Timestamp"])
-        return latest[stat]
-    except ClientError as e:
-        logger.error("CloudWatch query failed for %s/%s: %s", namespace, metric_name, e)
-        return None
 
 
 def _get_tags(elbv2_client, resource_arn: str) -> dict:
@@ -204,9 +195,6 @@ def _arn_to_suffix(arn: str) -> str:
     ALB:  arn:...:loadbalancer/app/my-alb/abc123  → app/my-alb/abc123
     TG:   arn:...:targetgroup/my-tg/abc123        → targetgroup/my-tg/abc123
     """
-    # ARN 마지막 콜론 이후 부분에서 첫 번째 슬래시 앞 prefix 제거
-    # loadbalancer/app/... → app/...
-    # targetgroup/... → targetgroup/...
     resource_part = arn.split(":")[-1]  # e.g. "loadbalancer/app/my-alb/id"
     if resource_part.startswith("loadbalancer/"):
         return resource_part[len("loadbalancer/"):]

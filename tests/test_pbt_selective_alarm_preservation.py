@@ -219,4 +219,4 @@ class TestCreateAlarmsForResourceUnchanged:
              patch.dict(os.environ, _ENV):
             create_alarms_for_resource(iid, "EC2", tags)
 
-        mock_delete_all.assert_called_once_with(iid)
+        mock_delete_all.assert_called_once_with(iid, "EC2")

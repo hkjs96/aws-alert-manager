@@ -1,47 +1,36 @@
 """
-
 Remediation_Handler Lambda Handler
 
 Requirements: 4.1, 4.2, 4.3, 4.4, 5.1, 5.2, 5.3, 5.4, 8.1~8.7, 6.3, 6.4
 
-
 CloudTrail 이벤트를 수신하여:
-
 - MODIFY  → Auto-Remediation (EC2 stop / RDS stop / ELB delete)
-
 - DELETE  → Monitoring=on 태그 있으면 lifecycle SNS 알림
-
 - TAG_CHANGE → Monitoring 태그 추가/제거 처리
 """
 
 import logging
-
 from dataclasses import dataclass
-
 from typing import Optional
-
 
 import boto3
 
-
-# Lambda 환경에서 root logger 레벨 설정 (모든 모듈에 적용)
-
-logging.getLogger().setLevel(logging.INFO)
-
-logger = logging.getLogger(__name__)
-
-
 from common import MONITORED_API_EVENTS
-
+from common.alarm_manager import (
+    create_alarms_for_resource,
+    delete_alarms_for_resource,
+    sync_alarms_for_resource,
+)
 from common.sns_notifier import (
     send_error_alert,
-
     send_lifecycle_alert,
     send_remediation_alert,
-
 )
-
 from common.tag_resolver import get_resource_tags, has_monitoring_tag
+
+# Lambda 환경에서 root logger 레벨 설정 (모든 모듈에 적용)
+logging.getLogger().setLevel(logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 
@@ -552,7 +541,6 @@ def _handle_delete(parsed: ParsedEvent) -> None:
 
     Requirements: 8.1, 8.2, 8.3
     """
-    from common.alarm_manager import delete_alarms_for_resource
 
     # 태그 조회 없이 바로 알람 삭제 (삭제된 리소스는 태그 조회 불가)
     deleted = delete_alarms_for_resource(parsed.resource_id, parsed.resource_type)
@@ -604,6 +592,24 @@ def _handle_delete(parsed: ParsedEvent) -> None:
 # ──────────────────────────────────────────────
 
 
+def _remove_monitoring_and_notify(
+    resource_id: str,
+    resource_type: str,
+    message_text: str,
+) -> None:
+    """알람 삭제 + MONITORING_REMOVED lifecycle 알림 발송 (공통 헬퍼)."""
+    delete_alarms_for_resource(resource_id, resource_type)
+    tags = get_resource_tags(resource_id, resource_type)
+    name_tag = tags.get("Name", "") if tags else ""
+    send_lifecycle_alert(
+        resource_id=resource_id,
+        resource_type=resource_type,
+        event_type="MONITORING_REMOVED",
+        message_text=message_text,
+        tag_name=name_tag,
+    )
+
+
 def _handle_tag_change(parsed: ParsedEvent) -> None:
     """
     TAG_CHANGE 이벤트 처리.
@@ -637,89 +643,80 @@ def _handle_tag_change(parsed: ParsedEvent) -> None:
     threshold_involved = any(k.startswith("Threshold_") for k in tag_keys)
 
     if not monitoring_involved:
-        if threshold_involved:
-            tags = get_resource_tags(parsed.resource_id, parsed.resource_type)
-            if has_monitoring_tag(tags):
-                logger.info(
-                    "Threshold tag changed on monitored %s %s: syncing alarms",
-                    parsed.resource_type, parsed.resource_id,
-                )
-                from common.alarm_manager import sync_alarms_for_resource
-                sync_alarms_for_resource(parsed.resource_id, parsed.resource_type, tags)
-            else:
-                logger.debug(
-                    "Threshold tag changed on %s %s but Monitoring=on not set: skipping",
-                    parsed.resource_type, parsed.resource_id,
-                )
-        else:
-            logger.debug(
-                "TAG_CHANGE for %s %s does not involve Monitoring or Threshold tags: skipping",
-                parsed.resource_type, parsed.resource_id,
-            )
+        _handle_threshold_only_change(parsed, threshold_involved)
         return
 
-    # 태그 추가 이벤트인지 삭제 이벤트인지 판별
     is_add = parsed.event_name in ("CreateTags", "AddTagsToResource", "AddTags")
-
     if is_add:
-        monitoring_value = tag_kvs.get("Monitoring", "")
-        if monitoring_value.lower() == "on":
-            logger.info(
-                "Monitoring=on tag ADDED to %s %s: creating CloudWatch Alarms",
-                parsed.resource_type, parsed.resource_id,
-            )
-            tags = get_resource_tags(parsed.resource_id, parsed.resource_type)
-            if not tags:
-                logger.warning(
-                    "get_resource_tags returned empty for %s %s, using tags from CloudTrail event",
-                    parsed.resource_type, parsed.resource_id,
-                )
-                tags = tag_kvs
-            from common.alarm_manager import create_alarms_for_resource
-            created = create_alarms_for_resource(
-                parsed.resource_id, parsed.resource_type, tags,
-            )
-            logger.info("Created alarms: %s", created)
-        else:
-            logger.info(
-                "Monitoring tag set to %r (not 'on') on %s %s: deleting alarms",
-                monitoring_value, parsed.resource_type, parsed.resource_id,
-            )
-            from common.alarm_manager import delete_alarms_for_resource
-            delete_alarms_for_resource(parsed.resource_id, parsed.resource_type)
-            name_tags = get_resource_tags(parsed.resource_id, parsed.resource_type)
-            name_tag = name_tags.get("Name", "") if name_tags else ""
-            message = (
-                f"{parsed.resource_type} 리소스 {parsed.resource_id}의 "
-                f"Monitoring 태그가 '{monitoring_value}'로 변경되어 모니터링 대상에서 제외되었습니다."
-            )
-            send_lifecycle_alert(
-                resource_id=parsed.resource_id,
-                resource_type=parsed.resource_type,
-                event_type="MONITORING_REMOVED",
-                message_text=message,
-                tag_name=name_tag,
-            )
+        _handle_monitoring_tag_add(parsed, tag_kvs)
     else:
-        # 태그 삭제 이벤트: DeleteTags, RemoveTagsFromResource, RemoveTags
         logger.info(
             "Monitoring tag REMOVED from %s %s: deleting CloudWatch Alarms",
             parsed.resource_type, parsed.resource_id,
         )
-        from common.alarm_manager import delete_alarms_for_resource
-        delete_alarms_for_resource(parsed.resource_id, parsed.resource_type)
-        name_tags = get_resource_tags(parsed.resource_id, parsed.resource_type)
-        name_tag = name_tags.get("Name", "") if name_tags else ""
-        message = (
+        _remove_monitoring_and_notify(
+            parsed.resource_id, parsed.resource_type,
             f"{parsed.resource_type} 리소스 {parsed.resource_id}의 "
-            f"Monitoring 태그가 제거되어 모니터링 대상에서 제외되었습니다."
+            f"Monitoring 태그가 제거되어 모니터링 대상에서 제외되었습니다.",
         )
-        send_lifecycle_alert(
-            resource_id=parsed.resource_id,
-            resource_type=parsed.resource_type,
-            event_type="MONITORING_REMOVED",
-            message_text=message,
-            tag_name=name_tag,
+
+
+def _handle_threshold_only_change(
+    parsed: ParsedEvent,
+    threshold_involved: bool,
+) -> None:
+    """Monitoring 태그 변경 없이 Threshold 태그만 변경된 경우 처리."""
+    if threshold_involved:
+        tags = get_resource_tags(parsed.resource_id, parsed.resource_type)
+        if has_monitoring_tag(tags):
+            logger.info(
+                "Threshold tag changed on monitored %s %s: syncing alarms",
+                parsed.resource_type, parsed.resource_id,
+            )
+            sync_alarms_for_resource(parsed.resource_id, parsed.resource_type, tags)
+        else:
+            logger.debug(
+                "Threshold tag changed on %s %s but Monitoring=on not set: skipping",
+                parsed.resource_type, parsed.resource_id,
+            )
+    else:
+        logger.debug(
+            "TAG_CHANGE for %s %s does not involve Monitoring or Threshold tags: skipping",
+            parsed.resource_type, parsed.resource_id,
+        )
+
+
+def _handle_monitoring_tag_add(
+    parsed: ParsedEvent,
+    tag_kvs: dict[str, str],
+) -> None:
+    """Monitoring 태그 추가 이벤트 처리."""
+    monitoring_value = tag_kvs.get("Monitoring", "")
+    if monitoring_value.lower() == "on":
+        logger.info(
+            "Monitoring=on tag ADDED to %s %s: creating CloudWatch Alarms",
+            parsed.resource_type, parsed.resource_id,
+        )
+        tags = get_resource_tags(parsed.resource_id, parsed.resource_type)
+        if not tags:
+            logger.warning(
+                "get_resource_tags returned empty for %s %s, using CloudTrail event tags",
+                parsed.resource_type, parsed.resource_id,
+            )
+            tags = tag_kvs
+        created = create_alarms_for_resource(
+            parsed.resource_id, parsed.resource_type, tags,
+        )
+        logger.info("Created alarms: %s", created)
+    else:
+        logger.info(
+            "Monitoring tag set to %r (not 'on') on %s %s: deleting alarms",
+            monitoring_value, parsed.resource_type, parsed.resource_id,
+        )
+        _remove_monitoring_and_notify(
+            parsed.resource_id, parsed.resource_type,
+            f"{parsed.resource_type} 리소스 {parsed.resource_id}의 "
+            f"Monitoring 태그가 '{monitoring_value}'로 변경되어 모니터링 대상에서 제외되었습니다.",
         )
 
 

@@ -5,6 +5,7 @@ Monitoring=on 태그가 있는 RDS 인스턴스 수집 및 CloudWatch 메트릭 
 FreeableMemory/FreeStorageSpace는 bytes → GB 변환 후 반환.
 """
 
+import functools
 import logging
 from datetime import datetime, timedelta, timezone
 
@@ -12,13 +13,21 @@ import boto3
 from botocore.exceptions import ClientError
 
 from common import ResourceInfo
+from common.collectors.base import query_metric, CW_LOOKBACK_MINUTES, CW_STAT_AVG
 
 logger = logging.getLogger(__name__)
 
-_CW_PERIOD = 300
-_CW_STAT = "Average"
-_CW_LOOKBACK_MINUTES = 10
 _BYTES_PER_GB = 1024 ** 3
+
+
+# ──────────────────────────────────────────────
+# boto3 클라이언트 싱글턴 (코딩 거버넌스 §1)
+# ──────────────────────────────────────────────
+
+@functools.lru_cache(maxsize=None)
+def _get_rds_client():
+    """RDS 클라이언트 싱글턴. 테스트 시 cache_clear()로 리셋."""
+    return boto3.client("rds")
 
 
 def collect_monitored_resources() -> list[ResourceInfo]:
@@ -27,7 +36,7 @@ def collect_monitored_resources() -> list[ResourceInfo]:
     삭제 중(deleting) 또는 삭제된 인스턴스는 제외하고 로그 기록.
     """
     try:
-        rds = boto3.client("rds")
+        rds = _get_rds_client()
         paginator = rds.get_paginator("describe_db_instances")
         pages = paginator.paginate()
     except ClientError as e:
@@ -79,55 +88,34 @@ def get_metrics(db_instance_id: str, resource_tags: dict | None = None) -> dict[
     if resource_tags is None:
         resource_tags = {}
 
-    cw = boto3.client("cloudwatch")
     end_time = datetime.now(timezone.utc)
-    start_time = end_time - timedelta(minutes=_CW_LOOKBACK_MINUTES)
+    start_time = end_time - timedelta(minutes=CW_LOOKBACK_MINUTES)
 
     dim = [{"Name": "DBInstanceIdentifier", "Value": db_instance_id}]
     metrics: dict[str, float] = {}
 
-    _collect_metric(cw, "AWS/RDS", "CPUUtilization", dim, start_time, end_time,
+    _collect_metric("AWS/RDS", "CPUUtilization", dim, start_time, end_time,
                     "CPU", metrics, transform=None)
-    _collect_metric(cw, "AWS/RDS", "FreeableMemory", dim, start_time, end_time,
+    _collect_metric("AWS/RDS", "FreeableMemory", dim, start_time, end_time,
                     "FreeMemoryGB", metrics, transform=lambda v: v / _BYTES_PER_GB)
-    _collect_metric(cw, "AWS/RDS", "FreeStorageSpace", dim, start_time, end_time,
+    _collect_metric("AWS/RDS", "FreeStorageSpace", dim, start_time, end_time,
                     "FreeStorageGB", metrics, transform=lambda v: v / _BYTES_PER_GB)
-    _collect_metric(cw, "AWS/RDS", "DatabaseConnections", dim, start_time, end_time,
+    _collect_metric("AWS/RDS", "DatabaseConnections", dim, start_time, end_time,
                     "Connections", metrics, transform=None)
 
     return metrics if metrics else None
 
 
-def _collect_metric(cw, namespace, cw_metric_name, dimensions,
+def _collect_metric(namespace, cw_metric_name, dimensions,
                     start_time, end_time, result_key, metrics_dict, transform):
     """단일 메트릭 조회 후 metrics_dict에 추가. 데이터 없으면 skip."""
-    value = _query_metric(cw, namespace, cw_metric_name, dimensions, start_time, end_time)
+    value = query_metric(namespace, cw_metric_name, dimensions,
+                         start_time, end_time, CW_STAT_AVG)
     if value is not None:
         metrics_dict[result_key] = transform(value) if transform else value
     else:
         logger.info("Skipping %s metric for RDS %s: no data", result_key,
                     dimensions[0]["Value"] if dimensions else "unknown")
-
-
-def _query_metric(cw, namespace, metric_name, dimensions, start_time, end_time) -> float | None:
-    try:
-        response = cw.get_metric_statistics(
-            Namespace=namespace,
-            MetricName=metric_name,
-            Dimensions=dimensions,
-            StartTime=start_time,
-            EndTime=end_time,
-            Period=_CW_PERIOD,
-            Statistics=[_CW_STAT],
-        )
-        datapoints = response.get("Datapoints", [])
-        if not datapoints:
-            return None
-        latest = max(datapoints, key=lambda d: d["Timestamp"])
-        return latest[_CW_STAT]
-    except ClientError as e:
-        logger.error("CloudWatch query failed for %s/%s: %s", namespace, metric_name, e)
-        return None
 
 
 def _get_tags(rds_client, db_arn: str) -> dict:

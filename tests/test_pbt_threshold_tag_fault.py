@@ -98,7 +98,7 @@ class TestThresholdTagFaultCondition:
 
         with patch("remediation_handler.lambda_handler.get_resource_tags",
                    return_value=current_tags), \
-             patch("common.alarm_manager.sync_alarms_for_resource") as mock_sync, \
+             patch("remediation_handler.lambda_handler.sync_alarms_for_resource") as mock_sync, \
              patch("remediation_handler.lambda_handler.send_error_alert"):
 
             _handle_tag_change(parsed)
@@ -120,7 +120,7 @@ class TestThresholdTagFaultCondition:
 
         with patch("remediation_handler.lambda_handler.get_resource_tags",
                    return_value=current_tags), \
-             patch("common.alarm_manager.sync_alarms_for_resource") as mock_sync, \
+             patch("remediation_handler.lambda_handler.sync_alarms_for_resource") as mock_sync, \
              patch("remediation_handler.lambda_handler.send_error_alert"):
 
             _handle_tag_change(parsed)
@@ -140,7 +140,7 @@ class TestThresholdTagFaultCondition:
 
         with patch("remediation_handler.lambda_handler.get_resource_tags",
                    return_value=current_tags), \
-             patch("common.alarm_manager.sync_alarms_for_resource") as mock_sync, \
+             patch("remediation_handler.lambda_handler.sync_alarms_for_resource") as mock_sync, \
              patch("remediation_handler.lambda_handler.send_error_alert"):
 
             _handle_tag_change(parsed)
