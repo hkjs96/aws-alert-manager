@@ -1,8 +1,9 @@
 """
-ELBCollector - Requirements 1.1, 1.2, 1.5, 3.5
+ELBCollector - Requirements 1.1, 1.2, 1.5, 1.12, 2.12, 3.5
 
-Monitoring=on 태그가 있는 ALB 및 TargetGroup 수집 및 CloudWatch 메트릭 조회.
-ALB 레벨: RequestCount
+Monitoring=on 태그가 있는 ALB/NLB 및 TargetGroup 수집 및 CloudWatch 메트릭 조회.
+ALB 레벨: RequestCount (AWS/ApplicationELB)
+NLB 레벨: ProcessedBytes, ActiveFlowCount, NewFlowCount (AWS/NetworkELB)
 TG 레벨: RequestCount, HealthyHostCount (TG에 Monitoring=on 태그 있을 때만)
 """
 
@@ -36,12 +37,13 @@ def _get_elbv2_client():
 
 def collect_monitored_resources() -> list[ResourceInfo]:
     """
-    Monitoring=on 태그가 있는 ALB 목록 반환.
-    각 ALB에 연결된 TG 중 Monitoring=on 태그 있는 것도 포함.
-    삭제 중인 ALB는 제외하고 로그 기록.
+    Monitoring=on 태그가 있는 ALB/NLB 목록 반환.
+    각 LB에 연결된 TG 중 Monitoring=on 태그 있는 것도 포함.
+    삭제 중인 LB는 제외하고 로그 기록.
 
     Returns:
-        ALB + TG ResourceInfo 리스트. type은 'ELB' 또는 'TG'.
+        ALB/NLB + TG ResourceInfo 리스트. type은 'ALB', 'NLB' 또는 'TG'.
+        tags에 _lb_type ('application' 또는 'network') 포함.
     """
     try:
         elbv2 = _get_elbv2_client()
@@ -60,24 +62,31 @@ def collect_monitored_resources() -> list[ResourceInfo]:
             lb_state = lb.get("State", {}).get("Code", "")
 
             if lb_state in ("deleting", "deleted", "failed"):
-                logger.info("Skipping ALB %s: state=%s", lb_arn, lb_state)
+                logger.info("Skipping LB %s: state=%s", lb_arn, lb_state)
                 continue
 
             tags = _get_tags(elbv2, lb_arn)
             if tags.get("Monitoring", "").lower() != "on":
                 continue
 
+            # ALB/NLB 타입 저장 (기본값: application)
+            lb_type = lb.get("Type", "application")
+            tags["_lb_type"] = lb_type
+            resource_type = "ALB" if lb_type == "application" else "NLB"
+
             resources.append(
                 ResourceInfo(
                     id=lb_arn,
-                    type="ELB",
+                    type=resource_type,
                     tags=tags,
                     region=region,
                 )
             )
 
-            # ALB에 연결된 TG 중 Monitoring=on 태그 있는 것 수집
-            tg_resources = _collect_target_groups(elbv2, lb_arn, region)
+            # LB에 연결된 TG 중 Monitoring=on 태그 있는 것 수집
+            tg_resources = _collect_target_groups(
+                elbv2, lb_arn, region, lb_type,
+            )
             resources.extend(tg_resources)
 
     return resources
@@ -88,17 +97,22 @@ def get_metrics(resource_id: str, resource_tags: dict | None = None,
     """
     CloudWatch에서 ELB/TG 메트릭 조회.
 
-    ALB (type=ELB):
+    ALB (type=ELB, _lb_type=application):
     - RequestCount (Sum) → 'RequestCount'
+
+    NLB (type=ELB, _lb_type=network):
+    - ProcessedBytes (Sum) → 'ProcessedBytes'
+    - ActiveFlowCount (Average) → 'ActiveFlowCount'
+    - NewFlowCount (Sum) → 'NewFlowCount'
 
     TG (type=TG):
     - RequestCount (Sum) → 'RequestCount'
     - HealthyHostCount (Average) → 'HealthyHostCount'
 
     Args:
-        resource_id: ALB ARN 또는 TG ARN
-        resource_tags: 리소스 태그
-        lb_arn: TG인 경우 연결된 ALB ARN (TG Dimension에 필요)
+        resource_id: ALB/NLB ARN 또는 TG ARN
+        resource_tags: 리소스 태그 (_lb_type 포함)
+        lb_arn: TG인 경우 연결된 LB ARN (TG Dimension에 필요)
 
     Returns:
         {metric_name: value} 딕셔너리. 수집된 메트릭 없으면 None.
@@ -110,38 +124,85 @@ def get_metrics(resource_id: str, resource_tags: dict | None = None,
     start_time = end_time - timedelta(minutes=CW_LOOKBACK_MINUTES)
 
     metrics: dict[str, float] = {}
-    is_tg = resource_tags.get("_resource_subtype") == "TG" or lb_arn is not None
+    is_tg = (
+        resource_tags.get("_resource_subtype") == "TG"
+        or lb_arn is not None
+    )
 
     if is_tg and lb_arn:
-        # TG ARN suffix 추출 (arn:aws:elasticloadbalancing:...:targetgroup/name/id → targetgroup/name/id)
-        tg_suffix = _arn_to_suffix(resource_id)
-        lb_suffix = _arn_to_suffix(lb_arn)
-
-        dim_tg = [
-            {"Name": "TargetGroup", "Value": tg_suffix},
-            {"Name": "LoadBalancer", "Value": lb_suffix},
-        ]
-        _collect_metric("AWS/ApplicationELB", "RequestCount", dim_tg,
-                        start_time, end_time, "RequestCount", metrics, CW_STAT_SUM)
-        _collect_metric("AWS/ApplicationELB", "HealthyHostCount", dim_tg,
-                        start_time, end_time, "HealthyHostCount", metrics, CW_STAT_AVG)
+        _collect_tg_metrics(
+            resource_id, lb_arn, resource_tags,
+            start_time, end_time, metrics,
+        )
     else:
-        # ALB 레벨
-        lb_suffix = _arn_to_suffix(resource_id)
-        dim_lb = [{"Name": "LoadBalancer", "Value": lb_suffix}]
-        _collect_metric("AWS/ApplicationELB", "RequestCount", dim_lb,
-                        start_time, end_time, "RequestCount", metrics, CW_STAT_SUM)
+        _collect_lb_metrics(
+            resource_id, resource_tags,
+            start_time, end_time, metrics,
+        )
 
     return metrics if metrics else None
 
 
-def _collect_target_groups(elbv2, lb_arn: str, region: str) -> list[ResourceInfo]:
-    """ALB에 연결된 TG 중 Monitoring=on 태그 있는 것 반환."""
+def _collect_tg_metrics(tg_arn, lb_arn, resource_tags,
+                        start_time, end_time, metrics):
+    """TG 레벨 메트릭 조회. lb_type에 따라 네임스페이스 분기."""
+    tg_suffix = _arn_to_suffix(tg_arn)
+    lb_suffix = _arn_to_suffix(lb_arn)
+    lb_type = resource_tags.get("_lb_type", "application")
+    namespace = _namespace_for_lb_type(lb_type)
+
+    dim_tg = [
+        {"Name": "TargetGroup", "Value": tg_suffix},
+        {"Name": "LoadBalancer", "Value": lb_suffix},
+    ]
+    _collect_metric(namespace, "RequestCount", dim_tg,
+                    start_time, end_time, "RequestCount",
+                    metrics, CW_STAT_SUM)
+    _collect_metric(namespace, "HealthyHostCount", dim_tg,
+                    start_time, end_time, "HealthyHostCount",
+                    metrics, CW_STAT_AVG)
+
+
+def _collect_lb_metrics(resource_id, resource_tags,
+                        start_time, end_time, metrics):
+    """LB 레벨 메트릭 조회. ALB/NLB에 따라 네임스페이스·메트릭 분기."""
+    lb_suffix = _arn_to_suffix(resource_id)
+    lb_type = resource_tags.get("_lb_type", "application")
+    namespace = _namespace_for_lb_type(lb_type)
+    dim_lb = [{"Name": "LoadBalancer", "Value": lb_suffix}]
+
+    if lb_type == "network":
+        _collect_metric(namespace, "ProcessedBytes", dim_lb,
+                        start_time, end_time, "ProcessedBytes",
+                        metrics, CW_STAT_SUM)
+        _collect_metric(namespace, "ActiveFlowCount", dim_lb,
+                        start_time, end_time, "ActiveFlowCount",
+                        metrics, CW_STAT_AVG)
+        _collect_metric(namespace, "NewFlowCount", dim_lb,
+                        start_time, end_time, "NewFlowCount",
+                        metrics, CW_STAT_SUM)
+    else:
+        _collect_metric(namespace, "RequestCount", dim_lb,
+                        start_time, end_time, "RequestCount",
+                        metrics, CW_STAT_SUM)
+
+
+def _namespace_for_lb_type(lb_type: str) -> str:
+    """LB 타입에 따른 CloudWatch 네임스페이스 반환."""
+    if lb_type == "network":
+        return "AWS/NetworkELB"
+    return "AWS/ApplicationELB"
+
+
+def _collect_target_groups(elbv2, lb_arn: str,
+                          region: str, lb_type: str) -> list[ResourceInfo]:
+    """LB에 연결된 TG 중 Monitoring=on 태그 있는 것 반환."""
     try:
         paginator = elbv2.get_paginator("describe_target_groups")
         pages = paginator.paginate(LoadBalancerArn=lb_arn)
     except ClientError as e:
-        logger.error("describe_target_groups failed for ALB %s: %s", lb_arn, e)
+        logger.error("describe_target_groups failed for LB %s: %s",
+                     lb_arn, e)
         return []
 
     tg_resources = []
@@ -151,8 +212,9 @@ def _collect_target_groups(elbv2, lb_arn: str, region: str) -> list[ResourceInfo
             tags = _get_tags(elbv2, tg_arn)
             if tags.get("Monitoring", "").lower() != "on":
                 continue
-            # lb_arn을 태그에 저장해 get_metrics에서 사용
+            # lb_arn과 lb_type을 태그에 저장해 get_metrics에서 사용
             tags["_lb_arn"] = lb_arn
+            tags["_lb_type"] = lb_type
             tags["_resource_subtype"] = "TG"
             tg_resources.append(
                 ResourceInfo(
@@ -193,6 +255,7 @@ def _arn_to_suffix(arn: str) -> str:
     ARN에서 CloudWatch Dimension 값으로 사용할 suffix 추출.
 
     ALB:  arn:...:loadbalancer/app/my-alb/abc123  → app/my-alb/abc123
+    NLB:  arn:...:loadbalancer/net/my-nlb/abc123  → net/my-nlb/abc123
     TG:   arn:...:targetgroup/my-tg/abc123        → targetgroup/my-tg/abc123
     """
     resource_part = arn.split(":")[-1]  # e.g. "loadbalancer/app/my-alb/id"

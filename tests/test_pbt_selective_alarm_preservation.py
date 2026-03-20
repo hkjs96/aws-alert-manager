@@ -93,34 +93,41 @@ class TestAllAlarmsOkPreservation:
         existing_alarms = [cpu_name, mem_name, disk_name]
         mock_cw = MagicMock()
 
-        mock_cw.describe_alarms.side_effect = [
-            {"MetricAlarms": [{"AlarmName": cpu_name, "Threshold": float(cpu_thr)}]},
-            {"MetricAlarms": [{"AlarmName": mem_name, "Threshold": float(mem_thr)}]},
-            {
-                "MetricAlarms": [
-                    {
-                        "AlarmName": disk_name,
-                        "Threshold": 80.0,
-                        "MetricName": "disk_used_percent",
-                        "Dimensions": [
-                            {"Name": "InstanceId", "Value": iid},
-                            {"Name": "path", "Value": "/"},
-                        ],
-                    }
-                ]
-            },
-        ]
+        # _describe_alarms_batch: 1회 호출, AlarmNames=batch
+        mock_cw.describe_alarms.return_value = {
+            "MetricAlarms": [
+                {
+                    "AlarmName": cpu_name,
+                    "MetricName": "CPUUtilization",
+                    "Threshold": float(cpu_thr),
+                    "Dimensions": [{"Name": "InstanceId", "Value": iid}],
+                },
+                {
+                    "AlarmName": mem_name,
+                    "MetricName": "mem_used_percent",
+                    "Threshold": float(mem_thr),
+                    "Dimensions": [{"Name": "InstanceId", "Value": iid}],
+                },
+                {
+                    "AlarmName": disk_name,
+                    "MetricName": "disk_used_percent",
+                    "Threshold": 80.0,
+                    "Dimensions": [
+                        {"Name": "InstanceId", "Value": iid},
+                        {"Name": "path", "Value": "/"},
+                    ],
+                },
+            ]
+        }
 
         with patch("common.alarm_manager._get_cw_client", return_value=mock_cw), \
              patch("common.alarm_manager._find_alarms_for_resource", return_value=existing_alarms), \
-             patch("common.alarm_manager.create_alarms_for_resource", return_value=[]) as mock_create, \
              patch.dict(os.environ, _ENV):
             result = sync_alarms_for_resource(iid, "EC2", tags)
 
         # 아무 삭제/재생성도 발생하지 않아야 함
         mock_cw.delete_alarms.assert_not_called()
         mock_cw.put_metric_alarm.assert_not_called()
-        mock_create.assert_not_called()
         assert result["updated"] == [], f"updated가 비어있지 않음: {result['updated']}"
         assert result["created"] == [], f"created가 비어있지 않음: {result['created']}"
 
@@ -155,27 +162,35 @@ class TestOkAlarmsPreservedAfterSync:
         existing_alarms = [cpu_name, mem_name, disk_name]
         mock_cw = MagicMock()
 
-        mock_cw.describe_alarms.side_effect = [
-            {"MetricAlarms": [{"AlarmName": cpu_name, "Threshold": float(cpu_thr)}]},
-            {"MetricAlarms": [{"AlarmName": mem_name, "Threshold": 80.0}]},
-            {
-                "MetricAlarms": [
-                    {
-                        "AlarmName": disk_name,
-                        "Threshold": 80.0,
-                        "MetricName": "disk_used_percent",
-                        "Dimensions": [
-                            {"Name": "InstanceId", "Value": iid},
-                            {"Name": "path", "Value": "/"},
-                        ],
-                    }
-                ]
-            },
-        ]
+        # _describe_alarms_batch: 1회 호출
+        mock_cw.describe_alarms.return_value = {
+            "MetricAlarms": [
+                {
+                    "AlarmName": cpu_name,
+                    "MetricName": "CPUUtilization",
+                    "Threshold": float(cpu_thr),
+                    "Dimensions": [{"Name": "InstanceId", "Value": iid}],
+                },
+                {
+                    "AlarmName": mem_name,
+                    "MetricName": "mem_used_percent",
+                    "Threshold": 80.0,
+                    "Dimensions": [{"Name": "InstanceId", "Value": iid}],
+                },
+                {
+                    "AlarmName": disk_name,
+                    "MetricName": "disk_used_percent",
+                    "Threshold": 80.0,
+                    "Dimensions": [
+                        {"Name": "InstanceId", "Value": iid},
+                        {"Name": "path", "Value": "/"},
+                    ],
+                },
+            ]
+        }
 
         with patch("common.alarm_manager._get_cw_client", return_value=mock_cw), \
              patch("common.alarm_manager._find_alarms_for_resource", return_value=existing_alarms), \
-             patch("common.alarm_manager.create_alarms_for_resource", return_value=[]), \
              patch.dict(os.environ, _ENV):
             result = sync_alarms_for_resource(iid, "EC2", tags)
 

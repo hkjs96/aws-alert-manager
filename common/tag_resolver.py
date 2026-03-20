@@ -167,7 +167,7 @@ def get_resource_tags(resource_id: str, resource_type: str) -> dict:
             return _get_ec2_tags(resource_id)
         elif resource_type == "RDS":
             return _get_rds_tags(resource_id)
-        elif resource_type in ("ELB", "TG"):
+        elif resource_type in ("ELB", "TG", "ALB", "NLB"):
             return _get_elbv2_tags(resource_id)
         else:
             logger.warning("Unsupported resource_type %r for resource %s", resource_type, resource_id)

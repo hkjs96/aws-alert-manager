@@ -34,7 +34,7 @@
   - 테스트 작성, 실행, PASS 확인 완료 시 태스크 완료 처리
   - _Requirements: 3.1, 3.2, 3.6, 3.7, 3.8_
 
-- [ ] 3. 인프라/기반 변경 (base.py, boto3 패턴 통일)
+- [x] 3. 인프라/기반 변경 (base.py, boto3 패턴 통일)
 
   - [x] 3.1 `common/collectors/base.py` 신규 생성 — CollectorProtocol + query_metric 공통화
     - `CollectorProtocol` (typing.Protocol) 정의: `collect_monitored_resources() -> list[ResourceInfo]`, `get_metrics(resource_id: str, resource_tags: dict) -> dict[str, float] | None`
@@ -71,7 +71,7 @@
     - _Bug_Condition: 변경 11 — 지연 import 제거 + 중복 코드 추출_
     - _Requirements: 1.9, 2.9_
 
-- [ ] 4. 핵심 기능 변경 (동적 파싱, 디멘션 해석, 메타데이터 매칭)
+- [x] 4. 핵심 기능 변경 (동적 파싱, 디멘션 해석, 메타데이터 매칭)
 
   - [x] 4.1 `alarm_manager.py` — 태그 동적 파싱 + 디멘션 자동 해석
     - `_parse_threshold_tags(resource_tags, resource_type)` 헬퍼 추가: `Threshold_*` 태그에서 하드코딩 목록에 없는 메트릭 추출
@@ -87,7 +87,7 @@
     - _Preservation: 하드코딩 메트릭 알람은 기존과 동일하게 생성_
     - _Requirements: 1.1, 1.2, 2.1, 2.2, 3.1_
 
-  - [~] 4.2 `alarm_manager.py` — 알람 이름 255자 제한 준수 + 검색 prefix 통일
+  - [x] 4.2 `alarm_manager.py` — 알람 이름 255자 제한 준수 + 검색 prefix 통일
     - `_pretty_alarm_name()`에 255자 truncate 로직 추가: label → display_metric 순으로 truncate (`...` 접미사)
     - resource_id 부분은 알람 검색/매칭에 필수이므로 절대 truncate하지 않음
     - `_find_alarms_for_resource()`를 `AlarmNamePrefix=resource_id` 단일 검색으로 단순화 (O(N) 풀스캔 제거)
@@ -97,7 +97,7 @@
     - _Bug_Condition: 변경 3, 6 — 알람 이름 제한 + 풀스캔 제거_
     - _Requirements: 1.3, 2.3_
 
-  - [~] 4.3 `alarm_manager.py` — 메타데이터 기반 알람 매칭 + 함수 분리
+  - [x] 4.3 `alarm_manager.py` — 메타데이터 기반 알람 매칭 + 함수 분리
     - `AlarmDescription`에 메트릭 키를 JSON 형태로 저장: `{"metric_key": "CPU", "resource_id": "i-xxx"}`
     - `sync_alarms_for_resource()`에서 `describe_alarms` 1회 호출 후 메타데이터 기반 매칭
     - 이름 문자열 매칭(`display in a`) 로직 제거
@@ -107,7 +107,7 @@
     - _Bug_Condition: 변경 4, 5 — 메타데이터 매칭 + 함수 분리_
     - _Requirements: 1.4, 1.6, 1.7, 1.13, 2.4, 2.6, 2.7, 2.13_
 
-  - [~] 4.4 `common/collectors/elb.py` — NLB 지원 추가
+  - [x] 4.4 `common/collectors/elb.py` — NLB 지원 추가
     - `collect_monitored_resources()`에서 LoadBalancer Type 확인 (ALB/NLB)
     - NLB인 경우 `AWS/NetworkELB` 네임스페이스 사용
     - `get_metrics()`에서 lb_type에 따라 네임스페이스 분기
@@ -115,7 +115,7 @@
     - _Bug_Condition: 변경 9 — NLB 지원 추가_
     - _Requirements: 1.12, 2.12_
 
-  - [~] 4.5 `daily_monitor/lambda_handler.py` — 고아 알람 확장 + 지연 import 정리
+  - [x] 4.5 `daily_monitor/lambda_handler.py` — 고아 알람 확장 + 지연 import 정리
     - `_cleanup_orphan_alarms()`에서 EC2 외 RDS/ELB 고아 알람도 정리
     - `_cleanup_orphan_alarms()` 내부의 `import boto3`, `import re` 지연 import를 파일 상단으로 이동
     - boto3 클라이언트 `@lru_cache` 싱글턴 패턴 적용
@@ -123,7 +123,7 @@
     - _Bug_Condition: 변경 12 — 고아 알람 확장_
     - _Requirements: 1.5, 2.5_
 
-  - [~] 4.6 기존 단위 테스트 업데이트
+  - [x] 4.6 기존 단위 테스트 업데이트
     - `tests/test_alarm_manager.py`: `_reset_cw_client` 픽스처를 `lru_cache.cache_clear()` 방식으로 변경
     - 새 함수(`_parse_threshold_tags`, `_resolve_metric_dimensions`, `_create_dynamic_alarm` 등) 단위 테스트 추가
     - `tests/test_collectors.py`: `base.query_metric()` 사용으로 변경된 부분 반영
@@ -131,9 +131,9 @@
     - `tests/test_daily_monitor.py`: 고아 알람 확장에 따른 테스트 추가
     - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7, 2.8, 2.9, 2.10, 2.11, 2.12, 2.13_
 
-- [ ] 5. 수정 후 검증
+- [x] 5. 수정 후 검증
 
-  - [~] 5.1 버그 조건 탐색 테스트 재실행 — 수정 확인
+  - [x] 5.1 버그 조건 탐색 테스트 재실행 — 수정 확인
     - **Property 1: Expected Behavior** - 하드코딩 목록 외 Threshold 태그 알람 생성 확인
     - **IMPORTANT**: 태스크 1에서 작성한 동일한 테스트를 재실행한다 — 새 테스트를 작성하지 말 것
     - 태스크 1의 테스트가 기대 동작을 인코딩하고 있음
@@ -142,14 +142,14 @@
     - **PASS 예상** (동적 메트릭 알람이 정상 생성됨을 확인)
     - _Requirements: 2.1, 2.2_
 
-  - [~] 5.2 보존 속성 테스트 재실행 — 회귀 없음 확인
+  - [x] 5.2 보존 속성 테스트 재실행 — 회귀 없음 확인
     - **Property 2: Preservation** - 기존 하드코딩 메트릭 알람 생성 보존
     - **IMPORTANT**: 태스크 2에서 작성한 동일한 테스트를 재실행한다 — 새 테스트를 작성하지 말 것
     - `tests/test_pbt_dynamic_alarm_preservation.py` 실행
     - **PASS 예상** (기존 동작이 수정 후에도 보존됨을 확인)
     - _Requirements: 3.1, 3.2, 3.6, 3.7, 3.8_
 
-  - [~] 5.3 추가 정합성 속성 테스트 작성 및 실행
+  - [x] 5.3 추가 정합성 속성 테스트 작성 및 실행
     - Property 3 (design.md): 메타데이터 기반 알람 매칭 — `sync_alarms_for_resource()`가 Namespace/MetricName/Dimensions로 매칭
     - Property 4 (design.md): 알람 검색 효율성 — prefix 기반 검색이 풀스캔과 동일 결과
     - Property 5 (design.md): 알람 이름 255자 제한 — `_pretty_alarm_name()`이 항상 255자 이하 반환
@@ -157,7 +157,7 @@
     - 테스트 파일: `tests/test_pbt_alarm_metadata_match.py`, `tests/test_pbt_alarm_name_constraint.py` 등
     - _Requirements: 2.3, 2.4, 2.13_
 
-- [~] 6. 체크포인트 — 전체 테스트 통과 확인
+- [x] 6. 체크포인트 — 전체 테스트 통과 확인
   - 전체 테스트 스위트 실행: `pytest tests/ -v`
   - 모든 PBT 테스트 PASS 확인
   - 모든 기존 단위/통합 테스트 PASS 확인

@@ -334,12 +334,12 @@ class TestParseCloudTrailEvent:
         assert parsed.event_category == "DELETE"
 
     def test_parse_delete_elb(self):
-        """ELB DeleteLoadBalancer 파싱"""
+        """ELB DeleteLoadBalancer 파싱 — app/ ARN → ALB"""
         arn = "arn:aws:elasticloadbalancing:us-east-1:123:loadbalancer/app/my-alb/abc"
         event = _make_event("DeleteLoadBalancer", arn)
         parsed = parse_cloudtrail_event(event)
         assert parsed.resource_id == arn
-        assert parsed.resource_type == "ELB"
+        assert parsed.resource_type == "ALB"
         assert parsed.event_category == "DELETE"
 
     def test_parse_create_tags(self):
@@ -366,21 +366,21 @@ class TestParseCloudTrailEvent:
         assert parsed.event_category == "TAG_CHANGE"
 
     def test_parse_elb_add_tags(self):
-        """ELB AddTags 파싱"""
+        """ELB AddTags 파싱 — app/ ARN → ALB"""
         arn = "arn:aws:elasticloadbalancing:us-east-1:123:loadbalancer/app/my-alb/abc"
         event = _make_event("AddTags", arn)
         parsed = parse_cloudtrail_event(event)
         assert parsed.resource_id == arn
-        assert parsed.resource_type == "ELB"
+        assert parsed.resource_type == "ALB"
         assert parsed.event_category == "TAG_CHANGE"
 
     def test_parse_elb_remove_tags(self):
-        """ELB RemoveTags 파싱"""
+        """ELB RemoveTags 파싱 — app/ ARN → ALB"""
         arn = "arn:aws:elasticloadbalancing:us-east-1:123:loadbalancer/app/my-alb/abc"
         event = _make_event("RemoveTags", arn)
         parsed = parse_cloudtrail_event(event)
         assert parsed.resource_id == arn
-        assert parsed.resource_type == "ELB"
+        assert parsed.resource_type == "ALB"
         assert parsed.event_category == "TAG_CHANGE"
 
     def test_missing_event_name_raises(self):
@@ -575,7 +575,7 @@ class TestRdsElbTagEvents:
         mock_create.assert_called_once()
         args = mock_create.call_args
         assert args[0][0] == arn
-        assert args[0][1] == "ELB"
+        assert args[0][1] == "ALB"
 
     def test_elb_remove_monitoring_tag_deletes_alarms(self):
         """ELB RemoveTags + Monitoring → 알람 삭제 + lifecycle 알림"""
@@ -595,7 +595,7 @@ class TestRdsElbTagEvents:
             result = lambda_handler(event, MagicMock())
 
         assert result["status"] == "ok"
-        mock_delete.assert_called_once_with(arn, "ELB")
+        mock_delete.assert_called_once_with(arn, "ALB")
         mock_alert.assert_called_once()
         assert mock_alert.call_args.kwargs["event_type"] == "MONITORING_REMOVED"
 
@@ -617,3 +617,108 @@ class TestRdsElbTagEvents:
         assert result["status"] == "ok"
         mock_alert.assert_not_called()
         mock_err.assert_not_called()
+
+
+# ──────────────────────────────────────────────
+# ALB/NLB resource_type 판별 테스트
+# ──────────────────────────────────────────────
+
+
+class TestAlbNlbResourceType:
+    """ARN 기반 ALB/NLB resource_type 판별 및 remediation 검증."""
+
+    def test_parse_delete_alb_returns_alb_type(self):
+        """DeleteLoadBalancer + app/ ARN → resource_type='ALB'"""
+        alb_arn = "arn:aws:elasticloadbalancing:us-east-1:123:loadbalancer/app/my-alb/abc"
+        event = {
+            "detail": {
+                "eventName": "DeleteLoadBalancer",
+                "requestParameters": {"loadBalancerArn": alb_arn},
+            }
+        }
+        parsed = parse_cloudtrail_event(event)
+        assert parsed.resource_type == "ALB"
+        assert parsed.resource_id == alb_arn
+
+    def test_parse_delete_nlb_returns_nlb_type(self):
+        """DeleteLoadBalancer + net/ ARN → resource_type='NLB'"""
+        nlb_arn = "arn:aws:elasticloadbalancing:us-east-1:123:loadbalancer/net/my-nlb/def"
+        event = {
+            "detail": {
+                "eventName": "DeleteLoadBalancer",
+                "requestParameters": {"loadBalancerArn": nlb_arn},
+            }
+        }
+        parsed = parse_cloudtrail_event(event)
+        assert parsed.resource_type == "NLB"
+        assert parsed.resource_id == nlb_arn
+
+    def test_parse_modify_alb_returns_alb_type(self):
+        """ModifyLoadBalancerAttributes + app/ ARN → resource_type='ALB'"""
+        alb_arn = "arn:aws:elasticloadbalancing:us-east-1:123:loadbalancer/app/my-alb/abc"
+        event = {
+            "detail": {
+                "eventName": "ModifyLoadBalancerAttributes",
+                "requestParameters": {"loadBalancerArn": alb_arn},
+            }
+        }
+        parsed = parse_cloudtrail_event(event)
+        assert parsed.resource_type == "ALB"
+
+    def test_execute_remediation_alb_calls_delete(self):
+        """_execute_remediation('ALB', arn) → elbv2.delete_load_balancer"""
+        from remediation_handler.lambda_handler import _execute_remediation
+        alb_arn = "arn:aws:elasticloadbalancing:us-east-1:123:loadbalancer/app/my-alb/abc"
+        with patch("remediation_handler.lambda_handler.boto3") as mock_boto3:
+            mock_elbv2 = MagicMock()
+            mock_boto3.client.return_value = mock_elbv2
+            result = _execute_remediation("ALB", alb_arn)
+        assert result == "DELETED"
+        mock_elbv2.delete_load_balancer.assert_called_once_with(LoadBalancerArn=alb_arn)
+
+    def test_execute_remediation_nlb_calls_delete(self):
+        """_execute_remediation('NLB', arn) → elbv2.delete_load_balancer"""
+        from remediation_handler.lambda_handler import _execute_remediation
+        nlb_arn = "arn:aws:elasticloadbalancing:us-east-1:123:loadbalancer/net/my-nlb/def"
+        with patch("remediation_handler.lambda_handler.boto3") as mock_boto3:
+            mock_elbv2 = MagicMock()
+            mock_boto3.client.return_value = mock_elbv2
+            result = _execute_remediation("NLB", nlb_arn)
+        assert result == "DELETED"
+        mock_elbv2.delete_load_balancer.assert_called_once_with(LoadBalancerArn=nlb_arn)
+
+    def test_remediation_action_name_alb_nlb(self):
+        """_remediation_action_name('ALB'/'NLB') → 'DELETED'"""
+        from remediation_handler.lambda_handler import _remediation_action_name
+        assert _remediation_action_name("ALB") == "DELETED"
+        assert _remediation_action_name("NLB") == "DELETED"
+
+    def test_elb_add_tags_alb_arn_returns_alb_type(self):
+        """AddTags + app/ ARN → resource_type='ALB'"""
+        alb_arn = "arn:aws:elasticloadbalancing:us-east-1:123:loadbalancer/app/my-alb/abc"
+        event = {
+            "detail": {
+                "eventName": "AddTags",
+                "requestParameters": {
+                    "resourceArns": [alb_arn],
+                    "tags": [{"key": "Monitoring", "value": "on"}],
+                },
+            }
+        }
+        parsed = parse_cloudtrail_event(event)
+        assert parsed.resource_type == "ALB"
+
+    def test_elb_add_tags_nlb_arn_returns_nlb_type(self):
+        """AddTags + net/ ARN → resource_type='NLB'"""
+        nlb_arn = "arn:aws:elasticloadbalancing:us-east-1:123:loadbalancer/net/my-nlb/def"
+        event = {
+            "detail": {
+                "eventName": "AddTags",
+                "requestParameters": {
+                    "resourceArns": [nlb_arn],
+                    "tags": [{"key": "Monitoring", "value": "on"}],
+                },
+            }
+        }
+        parsed = parse_cloudtrail_event(event)
+        assert parsed.resource_type == "NLB"

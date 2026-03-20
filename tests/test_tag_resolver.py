@@ -331,3 +331,36 @@ class TestGetThresholdDiskMetric:
             monkeypatch.delenv(f"DEFAULT_{metric.upper()}_THRESHOLD", raising=False)
             result = get_threshold({}, metric)
             assert result == HARDCODED_DEFAULTS[metric]
+
+
+# ──────────────────────────────────────────────
+# get_resource_tags ALB/NLB 호환
+# ──────────────────────────────────────────────
+
+class TestGetResourceTags:
+    """get_resource_tags()가 ALB/NLB 타입도 _get_elbv2_tags()를 호출하는지 검증."""
+
+    def test_alb_calls_elbv2_tags(self):
+        from common.tag_resolver import get_resource_tags
+        alb_arn = "arn:aws:elasticloadbalancing:us-east-1:123:loadbalancer/app/my-alb/abc"
+        with patch("common.tag_resolver._get_elbv2_tags", return_value={"Monitoring": "on"}) as mock:
+            result = get_resource_tags(alb_arn, "ALB")
+        mock.assert_called_once_with(alb_arn)
+        assert result == {"Monitoring": "on"}
+
+    def test_nlb_calls_elbv2_tags(self):
+        from common.tag_resolver import get_resource_tags
+        nlb_arn = "arn:aws:elasticloadbalancing:us-east-1:123:loadbalancer/net/my-nlb/def"
+        with patch("common.tag_resolver._get_elbv2_tags", return_value={"Name": "my-nlb"}) as mock:
+            result = get_resource_tags(nlb_arn, "NLB")
+        mock.assert_called_once_with(nlb_arn)
+        assert result == {"Name": "my-nlb"}
+
+    def test_elb_still_calls_elbv2_tags(self):
+        """기존 ELB 타입도 여전히 동작하는지 확인."""
+        from common.tag_resolver import get_resource_tags
+        arn = "arn:aws:elasticloadbalancing:us-east-1:123:loadbalancer/app/old/xyz"
+        with patch("common.tag_resolver._get_elbv2_tags", return_value={}) as mock:
+            result = get_resource_tags(arn, "ELB")
+        mock.assert_called_once_with(arn)
+        assert result == {}

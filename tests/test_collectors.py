@@ -274,3 +274,282 @@ class TestRDSCollector:
         with patch("common.collectors.base._get_cw_client", return_value=mock_cw):
             result = get_metrics("db-123")
         assert result is None
+
+
+# ──────────────────────────────────────────────
+# ELB/NLB 단위 테스트 — Requirements 1.12, 2.12
+# ──────────────────────────────────────────────
+
+_ALB_ARN = (
+    "arn:aws:elasticloadbalancing:us-east-1:123456789012"
+    ":loadbalancer/app/my-alb/abc123"
+)
+_NLB_ARN = (
+    "arn:aws:elasticloadbalancing:us-east-1:123456789012"
+    ":loadbalancer/net/my-nlb/def456"
+)
+
+
+def _make_lb(arn: str, lb_type: str = "application",
+             state: str = "active") -> dict:
+    """describe_load_balancers 응답용 LB dict 생성."""
+    return {
+        "LoadBalancerArn": arn,
+        "Type": lb_type,
+        "State": {"Code": state},
+    }
+
+
+def _mock_elbv2_for_collection(lbs, tag_map):
+    """ELBv2 클라이언트 mock 생성 (수집 테스트용)."""
+    mock = MagicMock()
+    mock_paginator = MagicMock()
+    mock.get_paginator.return_value = mock_paginator
+
+    # describe_load_balancers paginator
+    mock_paginator.paginate.return_value = [
+        {"LoadBalancers": lbs}
+    ]
+
+    # describe_tags
+    def _describe_tags(ResourceArns):
+        arn = ResourceArns[0]
+        tags = tag_map.get(arn, {})
+        return {
+            "TagDescriptions": [{
+                "Tags": [{"Key": k, "Value": v}
+                         for k, v in tags.items()]
+            }]
+        }
+    mock.describe_tags.side_effect = _describe_tags
+    return mock
+
+
+class TestELBCollector:
+    """ELB Collector 단위 테스트 — ALB/NLB 지원."""
+
+    def test_nlb_collection_stores_lb_type_network(self):
+        """NLB 수집 시 _lb_type='network' 태그 저장 — Req 1.12"""
+        from common.collectors import elb
+
+        mock_elbv2 = _mock_elbv2_for_collection(
+            [_make_lb(_NLB_ARN, "network")],
+            {_NLB_ARN: {"Monitoring": "on", "Name": "my-nlb"}},
+        )
+        # TG 없음
+        mock_elbv2.get_paginator.return_value.paginate.side_effect = [
+            [{"LoadBalancers": [_make_lb(_NLB_ARN, "network")]}],
+            [{"TargetGroups": []}],
+        ]
+
+        with patch.object(elb, "_get_elbv2_client",
+                          return_value=mock_elbv2), \
+             patch("common.collectors.elb.boto3.session.Session") as ms:
+            ms.return_value.region_name = "us-east-1"
+            result = elb.collect_monitored_resources()
+
+        assert len(result) == 1
+        assert result[0]["tags"]["_lb_type"] == "network"
+
+    def test_alb_collection_stores_lb_type_application(self):
+        """ALB 수집 시 _lb_type='application' 태그 저장 (보존)"""
+        from common.collectors import elb
+
+        mock_elbv2 = _mock_elbv2_for_collection(
+            [_make_lb(_ALB_ARN, "application")],
+            {_ALB_ARN: {"Monitoring": "on", "Name": "my-alb"}},
+        )
+        mock_elbv2.get_paginator.return_value.paginate.side_effect = [
+            [{"LoadBalancers": [_make_lb(_ALB_ARN, "application")]}],
+            [{"TargetGroups": []}],
+        ]
+
+        with patch.object(elb, "_get_elbv2_client",
+                          return_value=mock_elbv2), \
+             patch("common.collectors.elb.boto3.session.Session") as ms:
+            ms.return_value.region_name = "us-east-1"
+            result = elb.collect_monitored_resources()
+
+        assert len(result) == 1
+        assert result[0]["tags"]["_lb_type"] == "application"
+
+    def test_nlb_get_metrics_uses_network_elb_namespace(self):
+        """NLB get_metrics → AWS/NetworkELB 네임스페이스 사용 — Req 2.12"""
+        from common.collectors.elb import get_metrics
+
+        mock_cw = MagicMock()
+        mock_cw.get_metric_statistics.return_value = {
+            "Datapoints": [_make_cw_datapoint(5000.0)]
+        }
+
+        with patch("common.collectors.base._get_cw_client",
+                    return_value=mock_cw):
+            result = get_metrics(
+                _NLB_ARN,
+                resource_tags={"_lb_type": "network"},
+            )
+
+        # NLB 메트릭: ProcessedBytes, ActiveFlowCount, NewFlowCount
+        assert result is not None
+        assert "ProcessedBytes" in result
+
+        # 모든 호출이 AWS/NetworkELB 네임스페이스를 사용하는지 확인
+        for call in mock_cw.get_metric_statistics.call_args_list:
+            assert call.kwargs.get("Namespace", call[1].get("Namespace")) \
+                == "AWS/NetworkELB"
+
+    def test_alb_get_metrics_still_uses_application_elb(self):
+        """ALB get_metrics → AWS/ApplicationELB 네임스페이스 보존"""
+        from common.collectors.elb import get_metrics
+
+        mock_cw = MagicMock()
+        mock_cw.get_metric_statistics.return_value = {
+            "Datapoints": [_make_cw_datapoint(100.0)]
+        }
+
+        with patch("common.collectors.base._get_cw_client",
+                    return_value=mock_cw):
+            result = get_metrics(
+                _ALB_ARN,
+                resource_tags={"_lb_type": "application"},
+            )
+
+        assert result is not None
+        assert "RequestCount" in result
+
+        for call in mock_cw.get_metric_statistics.call_args_list:
+            assert call.kwargs.get("Namespace", call[1].get("Namespace")) \
+                == "AWS/ApplicationELB"
+
+    def test_nlb_get_metrics_returns_all_nlb_metrics(self):
+        """NLB에서 ProcessedBytes, ActiveFlowCount, NewFlowCount 수집"""
+        from common.collectors.elb import get_metrics
+
+        mock_cw = MagicMock()
+        mock_cw.get_metric_statistics.return_value = {
+            "Datapoints": [_make_cw_datapoint(42.0)]
+        }
+
+        with patch("common.collectors.base._get_cw_client",
+                    return_value=mock_cw):
+            result = get_metrics(
+                _NLB_ARN,
+                resource_tags={"_lb_type": "network"},
+            )
+
+        assert result is not None
+        # NLB는 3개 메트릭 수집
+        assert "ProcessedBytes" in result
+        assert "ActiveFlowCount" in result
+        assert "NewFlowCount" in result
+        assert mock_cw.get_metric_statistics.call_count == 3
+
+    def test_namespace_for_lb_type_helper(self):
+        """_namespace_for_lb_type 헬퍼 함수 검증"""
+        from common.collectors.elb import _namespace_for_lb_type
+
+        assert _namespace_for_lb_type("network") == "AWS/NetworkELB"
+        assert _namespace_for_lb_type("application") == "AWS/ApplicationELB"
+        # 알 수 없는 타입은 기본값 ALB
+        assert _namespace_for_lb_type("gateway") == "AWS/ApplicationELB"
+
+    def test_arn_to_suffix_nlb(self):
+        """NLB ARN suffix 추출 검증"""
+        from common.collectors.elb import _arn_to_suffix
+
+        assert _arn_to_suffix(_NLB_ARN) == "net/my-nlb/def456"
+        assert _arn_to_suffix(_ALB_ARN) == "app/my-alb/abc123"
+
+    # ── Task 2.1: ALB/NLB/TG resource_type 세분화 검증 ──
+    # Validates: Requirements 1.1, 2.1, 3.1
+
+    def test_alb_collection_returns_type_alb(self):
+        """ALB(Type=application) 수집 시 ResourceInfo.type == 'ALB' — Req 1.1"""
+        from common.collectors import elb
+
+        mock_elbv2 = _mock_elbv2_for_collection(
+            [_make_lb(_ALB_ARN, "application")],
+            {_ALB_ARN: {"Monitoring": "on", "Name": "my-alb"}},
+        )
+        mock_elbv2.get_paginator.return_value.paginate.side_effect = [
+            [{"LoadBalancers": [_make_lb(_ALB_ARN, "application")]}],
+            [{"TargetGroups": []}],
+        ]
+
+        with patch.object(elb, "_get_elbv2_client",
+                          return_value=mock_elbv2), \
+             patch("common.collectors.elb.boto3.session.Session") as ms:
+            ms.return_value.region_name = "us-east-1"
+            result = elb.collect_monitored_resources()
+
+        alb_resources = [r for r in result if r["id"] == _ALB_ARN]
+        assert len(alb_resources) == 1
+        assert alb_resources[0]["type"] == "ALB"
+
+    def test_nlb_collection_returns_type_nlb(self):
+        """NLB(Type=network) 수집 시 ResourceInfo.type == 'NLB' — Req 2.1"""
+        from common.collectors import elb
+
+        mock_elbv2 = _mock_elbv2_for_collection(
+            [_make_lb(_NLB_ARN, "network")],
+            {_NLB_ARN: {"Monitoring": "on", "Name": "my-nlb"}},
+        )
+        mock_elbv2.get_paginator.return_value.paginate.side_effect = [
+            [{"LoadBalancers": [_make_lb(_NLB_ARN, "network")]}],
+            [{"TargetGroups": []}],
+        ]
+
+        with patch.object(elb, "_get_elbv2_client",
+                          return_value=mock_elbv2), \
+             patch("common.collectors.elb.boto3.session.Session") as ms:
+            ms.return_value.region_name = "us-east-1"
+            result = elb.collect_monitored_resources()
+
+        nlb_resources = [r for r in result if r["id"] == _NLB_ARN]
+        assert len(nlb_resources) == 1
+        assert nlb_resources[0]["type"] == "NLB"
+
+    def test_tg_collection_keeps_type_tg(self):
+        """TG 수집 시 ResourceInfo.type == 'TG' 유지 — Req 3.1"""
+        from common.collectors import elb
+
+        tg_arn = (
+            "arn:aws:elasticloadbalancing:us-east-1:123456789012"
+            ":targetgroup/my-tg/ghi789"
+        )
+        mock_elbv2 = MagicMock()
+        mock_paginator = MagicMock()
+        mock_elbv2.get_paginator.return_value = mock_paginator
+
+        # First paginate call: describe_load_balancers
+        # Second paginate call: describe_target_groups
+        mock_paginator.paginate.side_effect = [
+            [{"LoadBalancers": [_make_lb(_ALB_ARN, "application")]}],
+            [{"TargetGroups": [{"TargetGroupArn": tg_arn}]}],
+        ]
+
+        def _describe_tags(ResourceArns):
+            arn = ResourceArns[0]
+            if arn == _ALB_ARN:
+                return {"TagDescriptions": [{"Tags": [
+                    {"Key": "Monitoring", "Value": "on"},
+                    {"Key": "Name", "Value": "my-alb"},
+                ]}]}
+            if arn == tg_arn:
+                return {"TagDescriptions": [{"Tags": [
+                    {"Key": "Monitoring", "Value": "on"},
+                    {"Key": "Name", "Value": "my-tg"},
+                ]}]}
+            return {"TagDescriptions": [{"Tags": []}]}
+
+        mock_elbv2.describe_tags.side_effect = _describe_tags
+
+        with patch.object(elb, "_get_elbv2_client",
+                          return_value=mock_elbv2), \
+             patch("common.collectors.elb.boto3.session.Session") as ms:
+            ms.return_value.region_name = "us-east-1"
+            result = elb.collect_monitored_resources()
+
+        tg_resources = [r for r in result if r["id"] == tg_arn]
+        assert len(tg_resources) == 1
+        assert tg_resources[0]["type"] == "TG"

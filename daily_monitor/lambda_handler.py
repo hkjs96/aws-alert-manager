@@ -8,7 +8,12 @@ Daily_Monitor Lambda Handler
 단일 리소스 실패가 전체 실행을 중단시키지 않는 격리 패턴 적용.
 """
 
+import functools
 import logging
+import re
+
+import boto3
+from botocore.exceptions import ClientError
 
 # Lambda 환경에서 root logger 레벨 설정 (모든 모듈에 적용)
 logging.getLogger().setLevel(logging.INFO)
@@ -23,6 +28,35 @@ from common.tag_resolver import get_threshold
 
 # collector 모듈 목록 (런타임에 .get_metrics 참조하여 패치 가능하도록)
 _COLLECTOR_MODULES = [ec2_collector, rds_collector, elb_collector]
+
+# 새 포맷 알람에서 resource_type과 resource_id를 추출하는 정규식
+# 예: "[EC2] MyServer CPU >=80% (i-1234567890abcdef0)"
+_NEW_FORMAT_RE = re.compile(r"^\[(\w+)\]\s.*\((.+)\)$")
+
+
+# ──────────────────────────────────────────────
+# boto3 클라이언트 싱글턴 (거버넌스 §1)
+# ──────────────────────────────────────────────
+
+
+@functools.lru_cache(maxsize=None)
+def _get_cw_client():
+    return boto3.client("cloudwatch")
+
+
+@functools.lru_cache(maxsize=None)
+def _get_ec2_client():
+    return boto3.client("ec2")
+
+
+@functools.lru_cache(maxsize=None)
+def _get_rds_client():
+    return boto3.client("rds")
+
+
+@functools.lru_cache(maxsize=None)
+def _get_elb_client():
+    return boto3.client("elbv2")
 
 
 def lambda_handler(event, context):
@@ -113,55 +147,61 @@ def lambda_handler(event, context):
     }
 
 
-def _cleanup_orphan_alarms() -> list[str]:
-    """
-    존재하지 않는 EC2 인스턴스의 알람을 찾아 삭제.
+# ──────────────────────────────────────────────
+# 고아 알람 정리 (거버넌스 §3: 헬퍼 분리)
+# ──────────────────────────────────────────────
 
-    알람 이름 패턴: {instance_id}-{metric}-{env}
-    i- 로 시작하는 알람에서 인스턴스 ID 추출 후 EC2 존재 여부 확인.
+
+def _collect_alarm_resource_ids(
+) -> dict[str, dict[str, list[str]]]:
+    """모든 알람에서 resource_type별 resource_id → 알람 이름 매핑 추출.
+
+    새 포맷: [EC2] ... (resource_id) → resource_type, resource_id 추출
+    레거시 포맷: i-xxx-metric-env → EC2, instance_id 추출
 
     Returns:
-        삭제된 알람 이름 목록
+        {"EC2": {"i-xxx": ["alarm1", ...]}, "RDS": {...}, "ELB": {...}, "TG": {...}}
     """
-    import boto3
-    from botocore.exceptions import ClientError
-
-    cw = boto3.client("cloudwatch")
-    ec2 = boto3.client("ec2")
-
-    # 모든 알람 조회 (페이지네이션)
-    alarm_names = []
+    cw = _get_cw_client()
+    result: dict[str, dict[str, list[str]]] = {}
     paginator = cw.get_paginator("describe_alarms")
+
     for page in paginator.paginate(AlarmTypes=["MetricAlarm"]):
         for alarm in page.get("MetricAlarms", []):
             name = alarm["AlarmName"]
-            # i-로 시작하는 알람만 대상
-            if name.startswith("i-"):
-                alarm_names.append(name)
+            _classify_alarm(name, result)
 
-    if not alarm_names:
-        return []
+    return result
 
-    # 알람 이름에서 인스턴스 ID 추출 (i-xxxxxxxxxxxxxxxxx 패턴)
-    import re
-    instance_ids = set()
-    alarm_by_instance: dict[str, list[str]] = {}
-    for name in alarm_names:
-        m = re.match(r"^(i-[0-9a-f]+)-", name)
-        if m:
-            iid = m.group(1)
-            instance_ids.add(iid)
-            alarm_by_instance.setdefault(iid, []).append(name)
 
-    if not instance_ids:
-        return []
+def _classify_alarm(
+    name: str,
+    result: dict[str, dict[str, list[str]]],
+) -> None:
+    """단일 알람 이름을 분류하여 result에 추가."""
+    # 새 포맷: [EC2] ... (resource_id)
+    m = _NEW_FORMAT_RE.match(name)
+    if m:
+        rtype = m.group(1)
+        rid = m.group(2)
+        result.setdefault(rtype, {}).setdefault(rid, []).append(name)
+        return
 
-    # EC2 존재 여부 확인 (terminated/없는 인스턴스 찾기)
-    alive = set()
-    # 최대 1000개씩 배치 처리
+    # 레거시 포맷: i-xxx-metric-env
+    legacy = re.match(r"^(i-[0-9a-f]+)-", name)
+    if legacy:
+        iid = legacy.group(1)
+        result.setdefault("EC2", {}).setdefault(iid, []).append(name)
+
+
+def _find_alive_ec2_instances(instance_ids: set[str]) -> set[str]:
+    """EC2 인스턴스 존재 여부 확인. terminated/shutting-down 제외."""
+    ec2 = _get_ec2_client()
+    alive: set[str] = set()
     id_list = list(instance_ids)
+
     for i in range(0, len(id_list), 200):
-        batch = id_list[i:i+200]
+        batch = id_list[i:i + 200]
         try:
             resp = ec2.describe_instances(InstanceIds=batch)
             for res in resp.get("Reservations", []):
@@ -172,34 +212,169 @@ def _cleanup_orphan_alarms() -> list[str]:
         except ClientError as e:
             code = e.response["Error"]["Code"]
             if code == "InvalidInstanceID.NotFound":
-                # 일부 ID가 완전히 없음 - 개별 확인
-                for iid in batch:
-                    try:
-                        r2 = ec2.describe_instances(InstanceIds=[iid])
-                        for res in r2.get("Reservations", []):
-                            for inst in res.get("Instances", []):
-                                state = inst.get("State", {}).get("Name", "")
-                                if state not in ("terminated", "shutting-down"):
-                                    alive.add(inst["InstanceId"])
-                    except ClientError:
-                        pass  # 완전히 없는 인스턴스 → alive에 추가 안 함
+                _check_ec2_individually(batch, alive)
             else:
                 logger.error("describe_instances failed: %s", e)
-                return []
 
-    # 존재하지 않거나 terminated된 인스턴스의 알람 삭제
-    to_delete = []
-    for iid in instance_ids:
-        if iid not in alive:
-            to_delete.extend(alarm_by_instance[iid])
+    return alive
+
+
+def _check_ec2_individually(
+    batch: list[str], alive: set[str],
+) -> None:
+    """배치 조회 실패 시 개별 인스턴스 확인."""
+    ec2 = _get_ec2_client()
+    for iid in batch:
+        try:
+            resp = ec2.describe_instances(InstanceIds=[iid])
+            for res in resp.get("Reservations", []):
+                for inst in res.get("Instances", []):
+                    state = inst.get("State", {}).get("Name", "")
+                    if state not in ("terminated", "shutting-down"):
+                        alive.add(inst["InstanceId"])
+        except ClientError:
+            pass  # 완전히 없는 인스턴스 → alive에 추가 안 함
+
+
+def _find_alive_rds_instances(db_ids: set[str]) -> set[str]:
+    """RDS DB 인스턴스 존재 여부 확인."""
+    rds = _get_rds_client()
+    alive: set[str] = set()
+
+    for db_id in db_ids:
+        try:
+            rds.describe_db_instances(DBInstanceIdentifier=db_id)
+            alive.add(db_id)
+        except ClientError as e:
+            code = e.response["Error"]["Code"]
+            if code == "DBInstanceNotFound":
+                logger.info("RDS instance not found (orphan): %s", db_id)
+            else:
+                logger.error(
+                    "describe_db_instances failed for %s: %s", db_id, e,
+                )
+
+    return alive
+
+
+def _find_alive_elb_resources(resource_ids: set[str]) -> set[str]:
+    """ELB/TG 리소스 존재 여부 확인.
+
+    resource_id가 ARN 형식이면 직접 조회, 아니면 skip.
+    ELB: describe_load_balancers(LoadBalancerArns=[...])
+    TG: describe_target_groups(TargetGroupArns=[...])
+    """
+    elb_client = _get_elb_client()
+    alive: set[str] = set()
+
+    lb_arns = [r for r in resource_ids if ":loadbalancer/" in r]
+    tg_arns = [r for r in resource_ids if ":targetgroup/" in r]
+    other_ids = resource_ids - set(lb_arns) - set(tg_arns)
+
+    # ELB ARN 조회
+    if lb_arns:
+        _check_elb_arns(elb_client, lb_arns, alive)
+
+    # TG ARN 조회
+    if tg_arns:
+        _check_tg_arns(elb_client, tg_arns, alive)
+
+    # ARN이 아닌 ID (예: app/my-lb/xxx 형식) — 존재 확인 불가, 보수적으로 alive 처리
+    alive.update(other_ids)
+
+    return alive
+
+
+def _check_elb_arns(
+    elb_client, lb_arns: list[str], alive: set[str],
+) -> None:
+    """ELB LoadBalancer ARN 존재 확인."""
+    for arn in lb_arns:
+        try:
+            elb_client.describe_load_balancers(LoadBalancerArns=[arn])
+            alive.add(arn)
+        except ClientError as e:
+            code = e.response["Error"]["Code"]
+            if code == "LoadBalancerNotFound":
+                logger.info("ELB not found (orphan): %s", arn)
+            else:
+                logger.error(
+                    "describe_load_balancers failed for %s: %s", arn, e,
+                )
+
+
+def _check_tg_arns(
+    elb_client, tg_arns: list[str], alive: set[str],
+) -> None:
+    """TargetGroup ARN 존재 확인."""
+    for arn in tg_arns:
+        try:
+            elb_client.describe_target_groups(TargetGroupArns=[arn])
+            alive.add(arn)
+        except ClientError as e:
+            code = e.response["Error"]["Code"]
+            if code == "TargetGroupNotFound":
+                logger.info("TG not found (orphan): %s", arn)
+            else:
+                logger.error(
+                    "describe_target_groups failed for %s: %s", arn, e,
+                )
+
+
+def _cleanup_orphan_alarms() -> list[str]:
+    """
+    존재하지 않는 리소스(EC2/RDS/ELB/TG)의 알람을 찾아 삭제.
+
+    새 포맷 알람: [{resource_type}] ... ({resource_id}) — 괄호에서 resource_id 추출
+    레거시 포맷 알람: i-xxx-metric-env — EC2 인스턴스 ID 추출
+
+    Returns:
+        삭제된 알람 이름 목록
+    """
+    alarm_map = _collect_alarm_resource_ids()
+    if not alarm_map:
+        return []
+
+    to_delete: list[str] = []
+
+    # resource_type별 존재 확인 함수 매핑
+    alive_checkers = {
+        "EC2": _find_alive_ec2_instances,
+        "RDS": _find_alive_rds_instances,
+        "ELB": _find_alive_elb_resources,
+        "ALB": _find_alive_elb_resources,
+        "NLB": _find_alive_elb_resources,
+        "TG": _find_alive_elb_resources,
+    }
+
+    for rtype, id_to_alarms in alarm_map.items():
+        checker = alive_checkers.get(rtype)
+        if checker is None:
+            logger.warning(
+                "No alive checker for resource type %s, skipping orphan cleanup",
+                rtype,
+            )
+            continue
+
+        resource_ids = set(id_to_alarms.keys())
+        alive = checker(resource_ids)
+
+        for rid, alarm_names in id_to_alarms.items():
+            if rid not in alive:
+                to_delete.extend(alarm_names)
+                logger.info(
+                    "Orphan alarms for %s %s: %s", rtype, rid, alarm_names,
+                )
 
     if not to_delete:
         return []
 
     # CloudWatch delete_alarms는 최대 100개씩
+    cw = _get_cw_client()
     for i in range(0, len(to_delete), 100):
-        cw.delete_alarms(AlarmNames=to_delete[i:i+100])
-    logger.info("Deleted orphan alarms for non-existent instances: %s", to_delete)
+        cw.delete_alarms(AlarmNames=to_delete[i:i + 100])
+
+    logger.info("Deleted %d orphan alarms", len(to_delete))
     return to_delete
 
 

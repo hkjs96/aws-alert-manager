@@ -1,0 +1,22 @@
+[
+  {
+    "ParameterKey": "VpcId",
+    "ParameterValue": "vpc-0da0a8c1bd8036c87"
+  },
+  {
+    "ParameterKey": "SubnetId",
+    "ParameterValue": "subnet-04938de02fa546798"
+  },
+  {
+    "ParameterKey": "SubnetId2",
+    "ParameterValue": "subnet-01b08c3cf2cf8d5c3"
+  },
+  {
+    "ParameterKey": "AmiId",
+    "ParameterValue": "ami-0c421724a94bba6d6"
+  },
+  {
+    "ParameterKey": "AllowedIpCidr",
+    "ParameterValue": "10.0.0.0/20"
+  }
+]

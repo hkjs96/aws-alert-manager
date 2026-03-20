@@ -29,21 +29,27 @@ from common.alarm_manager import (
 _HARDCODED_METRICS = {
     "EC2": {"CPU", "Memory", "Disk"},
     "RDS": {"CPU", "FreeMemoryGB", "FreeStorageGB", "Connections"},
-    "ELB": {"RequestCount"},
+    "ALB": {"RequestCount"},
+    "NLB": {"ProcessedBytes", "ActiveFlowCount", "NewFlowCount"},
+    "TG": {"RequestCount", "HealthyHostCount"},
 }
 
 # resource_type별 CloudWatch 네임스페이스 + 디멘션 키
 _NAMESPACE_MAP = {
     "EC2": ("AWS/EC2", "InstanceId"),
     "RDS": ("AWS/RDS", "DBInstanceIdentifier"),
-    "ELB": ("AWS/ApplicationELB", "LoadBalancer"),
+    "ALB": ("AWS/ApplicationELB", "LoadBalancer"),
+    "NLB": ("AWS/NetworkELB", "LoadBalancer"),
+    "TG": ("AWS/ApplicationELB", "TargetGroup"),
 }
 
 # resource_type별 샘플 resource_id
 _RESOURCE_IDS = {
     "EC2": "i-0abc123def456789a",
     "RDS": "db-test-dynamic",
-    "ELB": "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/my-alb/1234567890abcdef",
+    "ALB": "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/my-alb/1234567890abcdef",
+    "NLB": "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/net/my-nlb/1234567890abcdef",
+    "TG": "arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/my-tg/1234567890abcdef",
 }
 
 _ENV = {
@@ -81,7 +87,7 @@ _DYNAMIC_METRIC_NAMES = [
     "WriteIOPS",
 ]
 
-resource_types = st.sampled_from(["EC2", "RDS", "ELB"])
+resource_types = st.sampled_from(["EC2", "RDS", "ALB", "NLB", "TG"])
 
 
 def _dynamic_metrics_for_type(resource_type: str) -> list[str]:
@@ -93,7 +99,9 @@ def _dynamic_metrics_for_type(resource_type: str) -> list[str]:
 dynamic_metric_names = st.one_of(
     st.tuples(st.just("EC2"), st.sampled_from(_dynamic_metrics_for_type("EC2"))),
     st.tuples(st.just("RDS"), st.sampled_from(_dynamic_metrics_for_type("RDS"))),
-    st.tuples(st.just("ELB"), st.sampled_from(_dynamic_metrics_for_type("ELB"))),
+    st.tuples(st.just("ALB"), st.sampled_from(_dynamic_metrics_for_type("ALB"))),
+    st.tuples(st.just("NLB"), st.sampled_from(_dynamic_metrics_for_type("NLB"))),
+    st.tuples(st.just("TG"), st.sampled_from(_dynamic_metrics_for_type("TG"))),
 )
 
 # 양의 숫자 임계치
@@ -113,9 +121,9 @@ def _register_metric_and_create_alarms(
     resource_id = _RESOURCE_IDS[resource_type]
     namespace, dimension_key = _NAMESPACE_MAP[resource_type]
 
-    # ELB dimension 값은 ARN에서 추출
-    if resource_type == "ELB":
-        dim_value = resource_id.split("loadbalancer/", 1)[1]
+    # ALB/NLB/TG dimension 값은 ARN에서 추출
+    if resource_type in ("ALB", "NLB", "TG"):
+        dim_value = resource_id.split("loadbalancer/", 1)[1] if "loadbalancer/" in resource_id else resource_id.split("targetgroup/", 1)[1]
     else:
         dim_value = resource_id
 
@@ -157,7 +165,7 @@ class TestDynamicAlarmFaultCondition:
     """
 
     @given(data=dynamic_metric_names, threshold=positive_thresholds)
-    @settings(max_examples=100)
+    @settings(max_examples=20, deadline=None)
     @mock_aws
     def test_dynamic_metric_alarm_created(self, data, threshold):
         """

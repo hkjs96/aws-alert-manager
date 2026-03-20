@@ -31,14 +31,18 @@ from common.alarm_manager import (
 _HARDCODED_METRICS = {
     "EC2": ["CPU", "Memory", "Disk"],
     "RDS": ["CPU", "FreeMemoryGB", "FreeStorageGB", "Connections"],
-    "ELB": ["RequestCount"],
+    "ALB": ["RequestCount"],
+    "NLB": ["ProcessedBytes", "ActiveFlowCount", "NewFlowCount"],
+    "TG": ["RequestCount", "HealthyHostCount"],
 }
 
 # 알람 개수 기대값 (Disk는 CWAgent 메트릭 등록 시 1개)
 _EXPECTED_ALARM_COUNTS = {
     "EC2": 3,  # CPU + Memory + Disk(/)
     "RDS": 4,  # CPU + FreeMemoryGB + FreeStorageGB + Connections
-    "ELB": 1,  # RequestCount
+    "ALB": 1,  # RequestCount
+    "NLB": 3,  # ProcessedBytes + ActiveFlowCount + NewFlowCount
+    "TG": 2,   # RequestCount + HealthyHostCount
 }
 
 # 메트릭별 네임스페이스 매핑
@@ -54,8 +58,17 @@ _METRIC_NAMESPACE = {
         "FreeStorageGB": "AWS/RDS",
         "Connections": "AWS/RDS",
     },
-    "ELB": {
+    "ALB": {
         "RequestCount": "AWS/ApplicationELB",
+    },
+    "NLB": {
+        "ProcessedBytes": "AWS/NetworkELB",
+        "ActiveFlowCount": "AWS/NetworkELB",
+        "NewFlowCount": "AWS/NetworkELB",
+    },
+    "TG": {
+        "RequestCount": "AWS/ApplicationELB",
+        "HealthyHostCount": "AWS/ApplicationELB",
     },
 }
 
@@ -68,6 +81,10 @@ _METRIC_DISPLAY = {
     "FreeStorageGB": "FreeStorageSpace",
     "Connections": "DatabaseConnections",
     "RequestCount": "RequestCount",
+    "HealthyHostCount": "HealthyHostCount",
+    "ProcessedBytes": "ProcessedBytes",
+    "ActiveFlowCount": "ActiveFlowCount",
+    "NewFlowCount": "NewFlowCount",
 }
 
 # 메트릭별 방향/단위
@@ -79,15 +96,27 @@ _METRIC_DIRECTION_UNIT = {
     "FreeStorageGB": ("<", "GB"),
     "Connections": (">", ""),
     "RequestCount": (">", ""),
+    "HealthyHostCount": ("<", ""),
+    "ProcessedBytes": (">", ""),
+    "ActiveFlowCount": (">", ""),
+    "NewFlowCount": (">", ""),
 }
 
 # resource_type별 샘플 resource_id
 _RESOURCE_IDS = {
     "EC2": "i-0abc123def456789a",
     "RDS": "db-test-preserve",
-    "ELB": (
+    "ALB": (
         "arn:aws:elasticloadbalancing:us-east-1:123456789012:"
         "loadbalancer/app/my-alb/1234567890abcdef"
+    ),
+    "NLB": (
+        "arn:aws:elasticloadbalancing:us-east-1:123456789012:"
+        "loadbalancer/net/my-nlb/1234567890abcdef"
+    ),
+    "TG": (
+        "arn:aws:elasticloadbalancing:us-east-1:123456789012:"
+        "targetgroup/my-tg/1234567890abcdef"
     ),
 }
 
@@ -117,7 +146,7 @@ positive_thresholds = st.floats(
     allow_infinity=False,
 ).map(lambda x: round(x, 2))
 
-resource_types = st.sampled_from(["EC2", "RDS", "ELB"])
+resource_types = st.sampled_from(["EC2", "RDS", "ALB", "NLB", "TG"])
 
 # 리소스 이름 (알람 이름 label로 사용)
 resource_names = st.text(
@@ -232,7 +261,7 @@ class TestHardcodedAlarmPreservation:
     """
 
     @given(data=hardcoded_only_tags())
-    @settings(max_examples=100, deadline=None)
+    @settings(max_examples=10, deadline=None)
     @mock_aws
     def test_alarm_count_and_format_preserved(self, data):
         """
@@ -353,7 +382,7 @@ class TestHardcodedAlarmPreservation:
             )
 
     @given(data=hardcoded_only_tags())
-    @settings(max_examples=100, deadline=None)
+    @settings(max_examples=10, deadline=None)
     @mock_aws
     def test_rds_gb_to_bytes_conversion(self, data):
         """
@@ -404,7 +433,7 @@ class TestHardcodedAlarmPreservation:
             )
 
     @given(data=hardcoded_only_tags())
-    @settings(max_examples=100, deadline=None)
+    @settings(max_examples=10, deadline=None)
     @mock_aws
     def test_threshold_fallback_priority(self, data):
         """

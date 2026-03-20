@@ -264,6 +264,15 @@ def lambda_handler(event, context):
 # ──────────────────────────────────────────────
 
 
+def _resolve_elb_type(resource_id: str) -> str:
+    """ELB ARN에서 ALB/NLB 타입을 판별. 판별 불가 시 'ELB' 폴백."""
+    if "/app/" in resource_id:
+        return "ALB"
+    if "/net/" in resource_id:
+        return "NLB"
+    return "ELB"
+
+
 def parse_cloudtrail_event(event: dict) -> ParsedEvent:
     """
 
@@ -318,6 +327,10 @@ def parse_cloudtrail_event(event: dict) -> ParsedEvent:
             f"Cannot extract resource_id for {event_name}: params={request_params}"
 
         )
+
+    # ELB ARN 기반 ALB/NLB 타입 세분화
+    if resource_type == "ELB":
+        resource_type = _resolve_elb_type(resource_id)
 
 
     event_category = _get_event_category(event_name)
@@ -477,7 +490,7 @@ def perform_remediation(resource_type: str, resource_id: str, change_summary: st
 
 def _remediation_action_name(resource_type: str) -> str:
 
-    return {"EC2": "STOPPED", "RDS": "STOPPED", "ELB": "DELETED"}.get(
+    return {"EC2": "STOPPED", "RDS": "STOPPED", "ELB": "DELETED", "ALB": "DELETED", "NLB": "DELETED"}.get(
 
         resource_type, "UNKNOWN"
 
@@ -512,6 +525,15 @@ def _execute_remediation(resource_type: str, resource_id: str) -> str:
 
 
     if resource_type == "ELB":
+
+        elbv2 = boto3.client("elbv2")
+
+        elbv2.delete_load_balancer(LoadBalancerArn=resource_id)
+
+        return "DELETED"
+
+
+    if resource_type in ("ALB", "NLB"):
 
         elbv2 = boto3.client("elbv2")
 
