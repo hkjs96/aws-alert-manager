@@ -75,12 +75,12 @@ class TestDeleteTargetGroupBugCondition:
         event = _make_delete_tg_event(tg_arn)
         parsed = parse_cloudtrail_event(event)
 
-        assert parsed.resource_type == "TG", (
+        assert parsed[0].resource_type == "TG", (
             f"Expected resource_type='TG', got '{parsed.resource_type}'"
         )
-        assert parsed.event_category == "DELETE", (
+        assert parsed[0].event_category == "DELETE", (
             f"Expected event_category='DELETE', got '{parsed.event_category}'"
         )
-        assert parsed.resource_id == tg_arn, (
+        assert parsed[0].resource_id == tg_arn, (
             f"Expected resource_id='{tg_arn}', got '{parsed.resource_id}'"
         )

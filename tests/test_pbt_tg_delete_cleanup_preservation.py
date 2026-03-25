@@ -122,9 +122,9 @@ class TestExistingEventPreservation:
             "instancesSet": {"items": [{"instanceId": instance_id}]},
         })
         parsed = parse_cloudtrail_event(event)
-        assert parsed.resource_type == "EC2"
-        assert parsed.event_category == "DELETE"
-        assert parsed.resource_id == instance_id
+        assert parsed[0].resource_type == "EC2"
+        assert parsed[0].event_category == "DELETE"
+        assert parsed[0].resource_id == instance_id
 
     # ── RDS DELETE: DeleteDBInstance ──
 
@@ -140,9 +140,9 @@ class TestExistingEventPreservation:
             "dBInstanceIdentifier": db_id,
         })
         parsed = parse_cloudtrail_event(event)
-        assert parsed.resource_type == "RDS"
-        assert parsed.event_category == "DELETE"
-        assert parsed.resource_id == db_id
+        assert parsed[0].resource_type == "RDS"
+        assert parsed[0].event_category == "DELETE"
+        assert parsed[0].resource_id == db_id
 
     # ── ALB DELETE: DeleteLoadBalancer with ALB ARN ──
 
@@ -158,9 +158,9 @@ class TestExistingEventPreservation:
             "loadBalancerArn": arn,
         })
         parsed = parse_cloudtrail_event(event)
-        assert parsed.resource_type == "ALB"
-        assert parsed.event_category == "DELETE"
-        assert parsed.resource_id == arn
+        assert parsed[0].resource_type == "ALB"
+        assert parsed[0].event_category == "DELETE"
+        assert parsed[0].resource_id == arn
 
     # ── NLB DELETE: DeleteLoadBalancer with NLB ARN ──
 
@@ -176,9 +176,9 @@ class TestExistingEventPreservation:
             "loadBalancerArn": arn,
         })
         parsed = parse_cloudtrail_event(event)
-        assert parsed.resource_type == "NLB"
-        assert parsed.event_category == "DELETE"
-        assert parsed.resource_id == arn
+        assert parsed[0].resource_type == "NLB"
+        assert parsed[0].event_category == "DELETE"
+        assert parsed[0].resource_id == arn
 
     # ── EC2 MODIFY: ModifyInstanceAttribute ──
 
@@ -194,9 +194,9 @@ class TestExistingEventPreservation:
             "instanceId": instance_id,
         })
         parsed = parse_cloudtrail_event(event)
-        assert parsed.resource_type == "EC2"
-        assert parsed.event_category == "MODIFY"
-        assert parsed.resource_id == instance_id
+        assert parsed[0].resource_type == "EC2"
+        assert parsed[0].event_category == "MODIFY"
+        assert parsed[0].resource_id == instance_id
 
     # ── EC2 MODIFY: ModifyInstanceType ──
 
@@ -212,9 +212,9 @@ class TestExistingEventPreservation:
             "instanceId": instance_id,
         })
         parsed = parse_cloudtrail_event(event)
-        assert parsed.resource_type == "EC2"
-        assert parsed.event_category == "MODIFY"
-        assert parsed.resource_id == instance_id
+        assert parsed[0].resource_type == "EC2"
+        assert parsed[0].event_category == "MODIFY"
+        assert parsed[0].resource_id == instance_id
 
     # ── RDS MODIFY: ModifyDBInstance ──
 
@@ -230,9 +230,9 @@ class TestExistingEventPreservation:
             "dBInstanceIdentifier": db_id,
         })
         parsed = parse_cloudtrail_event(event)
-        assert parsed.resource_type == "RDS"
-        assert parsed.event_category == "MODIFY"
-        assert parsed.resource_id == db_id
+        assert parsed[0].resource_type == "RDS"
+        assert parsed[0].event_category == "MODIFY"
+        assert parsed[0].resource_id == db_id
 
     # ── ELB MODIFY: ModifyLoadBalancerAttributes (ALB) ──
 
@@ -248,9 +248,9 @@ class TestExistingEventPreservation:
             "loadBalancerArn": arn,
         })
         parsed = parse_cloudtrail_event(event)
-        assert parsed.resource_type == "ALB"
-        assert parsed.event_category == "MODIFY"
-        assert parsed.resource_id == arn
+        assert parsed[0].resource_type == "ALB"
+        assert parsed[0].event_category == "MODIFY"
+        assert parsed[0].resource_id == arn
 
     # ── ELB MODIFY: ModifyLoadBalancerAttributes (NLB) ──
 
@@ -266,9 +266,9 @@ class TestExistingEventPreservation:
             "loadBalancerArn": arn,
         })
         parsed = parse_cloudtrail_event(event)
-        assert parsed.resource_type == "NLB"
-        assert parsed.event_category == "MODIFY"
-        assert parsed.resource_id == arn
+        assert parsed[0].resource_type == "NLB"
+        assert parsed[0].event_category == "MODIFY"
+        assert parsed[0].resource_id == arn
 
     # ── ELB MODIFY: ModifyListener (ALB) ──
 
@@ -284,9 +284,9 @@ class TestExistingEventPreservation:
             "loadBalancerArn": arn,
         })
         parsed = parse_cloudtrail_event(event)
-        assert parsed.resource_type == "ALB"
-        assert parsed.event_category == "MODIFY"
-        assert parsed.resource_id == arn
+        assert parsed[0].resource_type == "ALB"
+        assert parsed[0].event_category == "MODIFY"
+        assert parsed[0].resource_id == arn
 
     # ── EC2 TAG_CHANGE: CreateTags ──
 
@@ -302,9 +302,9 @@ class TestExistingEventPreservation:
             "resourcesSet": {"items": [{"resourceId": instance_id}]},
         })
         parsed = parse_cloudtrail_event(event)
-        assert parsed.resource_type == "EC2"
-        assert parsed.event_category == "TAG_CHANGE"
-        assert parsed.resource_id == instance_id
+        assert parsed[0].resource_type == "EC2"
+        assert parsed[0].event_category == "TAG_CHANGE"
+        assert parsed[0].resource_id == instance_id
 
     # ── EC2 TAG_CHANGE: DeleteTags ──
 
@@ -320,9 +320,9 @@ class TestExistingEventPreservation:
             "resourcesSet": {"items": [{"resourceId": instance_id}]},
         })
         parsed = parse_cloudtrail_event(event)
-        assert parsed.resource_type == "EC2"
-        assert parsed.event_category == "TAG_CHANGE"
-        assert parsed.resource_id == instance_id
+        assert parsed[0].resource_type == "EC2"
+        assert parsed[0].event_category == "TAG_CHANGE"
+        assert parsed[0].resource_id == instance_id
 
     # ── RDS TAG_CHANGE: AddTagsToResource ──
 
@@ -338,11 +338,11 @@ class TestExistingEventPreservation:
             "resourceName": arn,
         })
         parsed = parse_cloudtrail_event(event)
-        assert parsed.resource_type == "RDS"
-        assert parsed.event_category == "TAG_CHANGE"
+        assert parsed[0].resource_type == "RDS"
+        assert parsed[0].event_category == "TAG_CHANGE"
         # RDS tag extractor splits on ":db:" to get the DB identifier
         expected_id = arn.split(":db:")[-1]
-        assert parsed.resource_id == expected_id
+        assert parsed[0].resource_id == expected_id
 
     # ── RDS TAG_CHANGE: RemoveTagsFromResource ──
 
@@ -358,10 +358,10 @@ class TestExistingEventPreservation:
             "resourceName": arn,
         })
         parsed = parse_cloudtrail_event(event)
-        assert parsed.resource_type == "RDS"
-        assert parsed.event_category == "TAG_CHANGE"
+        assert parsed[0].resource_type == "RDS"
+        assert parsed[0].event_category == "TAG_CHANGE"
         expected_id = arn.split(":db:")[-1]
-        assert parsed.resource_id == expected_id
+        assert parsed[0].resource_id == expected_id
 
     # ── ELB TAG_CHANGE: AddTags (ALB) ──
 
@@ -377,9 +377,9 @@ class TestExistingEventPreservation:
             "resourceArns": [arn],
         })
         parsed = parse_cloudtrail_event(event)
-        assert parsed.resource_type == "ALB"
-        assert parsed.event_category == "TAG_CHANGE"
-        assert parsed.resource_id == arn
+        assert parsed[0].resource_type == "ALB"
+        assert parsed[0].event_category == "TAG_CHANGE"
+        assert parsed[0].resource_id == arn
 
     # ── ELB TAG_CHANGE: AddTags (NLB) ──
 
@@ -395,9 +395,9 @@ class TestExistingEventPreservation:
             "resourceArns": [arn],
         })
         parsed = parse_cloudtrail_event(event)
-        assert parsed.resource_type == "NLB"
-        assert parsed.event_category == "TAG_CHANGE"
-        assert parsed.resource_id == arn
+        assert parsed[0].resource_type == "NLB"
+        assert parsed[0].event_category == "TAG_CHANGE"
+        assert parsed[0].resource_id == arn
 
     # ── ELB TAG_CHANGE: AddTags (TG ARN → "ELB" fallback) ──
     # NOTE: 현재 _resolve_elb_type()는 targetgroup/ ARN을 "ELB"로 폴백.
@@ -415,9 +415,9 @@ class TestExistingEventPreservation:
             "resourceArns": [arn],
         })
         parsed = parse_cloudtrail_event(event)
-        assert parsed.resource_type == _expected_resource_type_for_elb_arn(arn)
-        assert parsed.event_category == "TAG_CHANGE"
-        assert parsed.resource_id == arn
+        assert parsed[0].resource_type == _expected_resource_type_for_elb_arn(arn)
+        assert parsed[0].event_category == "TAG_CHANGE"
+        assert parsed[0].resource_id == arn
 
     # ── ELB TAG_CHANGE: RemoveTags (ALB) ──
 
@@ -433,9 +433,9 @@ class TestExistingEventPreservation:
             "resourceArns": [arn],
         })
         parsed = parse_cloudtrail_event(event)
-        assert parsed.resource_type == "ALB"
-        assert parsed.event_category == "TAG_CHANGE"
-        assert parsed.resource_id == arn
+        assert parsed[0].resource_type == "ALB"
+        assert parsed[0].event_category == "TAG_CHANGE"
+        assert parsed[0].resource_id == arn
 
     # ── ELB TAG_CHANGE: RemoveTags (NLB) ──
 
@@ -451,9 +451,9 @@ class TestExistingEventPreservation:
             "resourceArns": [arn],
         })
         parsed = parse_cloudtrail_event(event)
-        assert parsed.resource_type == "NLB"
-        assert parsed.event_category == "TAG_CHANGE"
-        assert parsed.resource_id == arn
+        assert parsed[0].resource_type == "NLB"
+        assert parsed[0].event_category == "TAG_CHANGE"
+        assert parsed[0].resource_id == arn
 
     # ── ELB TAG_CHANGE: RemoveTags (TG ARN → "ELB" fallback) ──
 
@@ -469,6 +469,6 @@ class TestExistingEventPreservation:
             "resourceArns": [arn],
         })
         parsed = parse_cloudtrail_event(event)
-        assert parsed.resource_type == _expected_resource_type_for_elb_arn(arn)
-        assert parsed.event_category == "TAG_CHANGE"
-        assert parsed.resource_id == arn
+        assert parsed[0].resource_type == _expected_resource_type_for_elb_arn(arn)
+        assert parsed[0].event_category == "TAG_CHANGE"
+        assert parsed[0].resource_id == arn

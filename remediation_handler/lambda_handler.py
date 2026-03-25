@@ -66,93 +66,81 @@ class ParsedEvent:
 # ──────────────────────────────────────────────
 
 
-def _extract_ec2_instance_id(params: dict) -> Optional[str]:
-
+def _extract_ec2_instance_ids(params: dict) -> list[str]:
+    """TerminateInstances / ModifyInstance: instancesSet에서 모든 ID 추출."""
     ids = params.get("instancesSet", {}).get("items", [])
-
-    return ids[0].get("instanceId") if ids else params.get("instanceId")
-
-
-
-def _extract_rds_id(params: dict) -> Optional[str]:
-
-    return params.get("dBInstanceIdentifier")
+    if ids:
+        return [item.get("instanceId") for item in ids if item.get("instanceId")]
+    single = params.get("instanceId")
+    return [single] if single else []
 
 
 
-def _extract_elb_id(params: dict) -> Optional[str]:
-
-    return params.get("loadBalancerArn") or params.get("loadBalancerName")
-
-
-def _extract_tg_id(params: dict) -> Optional[str]:
-
-    return params.get("targetGroupArn")
+def _extract_rds_ids(params: dict) -> list[str]:
+    rid = params.get("dBInstanceIdentifier")
+    return [rid] if rid else []
 
 
-def _extract_run_instances_id(resp: dict) -> Optional[str]:
-    """RunInstances: responseElements.instancesSet.items[0].instanceId"""
+
+def _extract_elb_ids(params: dict) -> list[str]:
+    rid = params.get("loadBalancerArn") or params.get("loadBalancerName")
+    return [rid] if rid else []
+
+
+def _extract_tg_ids(params: dict) -> list[str]:
+    rid = params.get("targetGroupArn")
+    return [rid] if rid else []
+
+
+def _extract_run_instances_ids(resp: dict) -> list[str]:
+    """RunInstances: responseElements.instancesSet.items[].instanceId"""
     items = resp.get("instancesSet", {}).get("items", [])
-    return items[0].get("instanceId") if items else None
+    return [item.get("instanceId") for item in items if item.get("instanceId")]
 
 
-def _extract_create_db_id(params: dict) -> Optional[str]:
+def _extract_create_db_ids(params: dict) -> list[str]:
     """CreateDBInstance: requestParameters.dBInstanceIdentifier"""
-    return params.get("dBInstanceIdentifier")
+    rid = params.get("dBInstanceIdentifier")
+    return [rid] if rid else []
 
 
-def _extract_create_lb_id(resp: dict) -> Optional[str]:
-    """CreateLoadBalancer: responseElements.loadBalancers[0].loadBalancerArn"""
+def _extract_create_lb_ids(resp: dict) -> list[str]:
+    """CreateLoadBalancer: responseElements.loadBalancers[].loadBalancerArn"""
     lbs = resp.get("loadBalancers", [])
-    return lbs[0].get("loadBalancerArn") if lbs else None
+    return [lb.get("loadBalancerArn") for lb in lbs if lb.get("loadBalancerArn")]
 
 
-def _extract_create_tg_id(resp: dict) -> Optional[str]:
-    """CreateTargetGroup: responseElements.targetGroups[0].targetGroupArn"""
+def _extract_create_tg_ids(resp: dict) -> list[str]:
+    """CreateTargetGroup: responseElements.targetGroups[].targetGroupArn"""
     tgs = resp.get("targetGroups", [])
-    return tgs[0].get("targetGroupArn") if tgs else None
+    return [tg.get("targetGroupArn") for tg in tgs if tg.get("targetGroupArn")]
 
 
 
-def _extract_tag_resource_id(params: dict) -> Optional[str]:
-
-    """CreateTags / DeleteTags: resourcesSet 또는 resourceIdList 첫 번째 항목"""
-
+def _extract_tag_resource_ids(params: dict) -> list[str]:
+    """CreateTags / DeleteTags: resourcesSet 또는 resourceIdList 전체."""
     items = params.get("resourcesSet", {}).get("items", [])
-
     if items:
-
-        return items[0].get("resourceId")
-
+        return [item.get("resourceId") for item in items if item.get("resourceId")]
     lst = params.get("resourceIdList", [])
-
-    return lst[0] if lst else None
-
+    return [rid for rid in lst if rid]
 
 
-def _extract_rds_tag_resource_id(params: dict) -> Optional[str]:
 
+def _extract_rds_tag_resource_ids(params: dict) -> list[str]:
     """AddTagsToResource / RemoveTagsFromResource: resourceName에서 DB identifier 추출.
-
     resourceName은 ARN 형태: arn:aws:rds:region:account:db:my-db-id"""
-
     arn = params.get("resourceName", "")
-
     if ":db:" in arn:
-
-        return arn.split(":db:")[-1]
-
-    return arn if arn else None
+        return [arn.split(":db:")[-1]]
+    return [arn] if arn else []
 
 
 
-def _extract_elb_tag_resource_id(params: dict) -> Optional[str]:
-
-    """AddTags / RemoveTags: resourceArns 첫 번째 항목"""
-
+def _extract_elb_tag_resource_ids(params: dict) -> list[str]:
+    """AddTags / RemoveTags: resourceArns 전체."""
     arns = params.get("resourceArns", [])
-
-    return arns[0] if arns else None
+    return [arn for arn in arns if arn]
 
 
 
@@ -160,48 +148,48 @@ _API_MAP: dict[str, tuple[str, callable]] = {
 
     # MODIFY
 
-    "ModifyInstanceAttribute":      ("EC2", _extract_ec2_instance_id),
+    "ModifyInstanceAttribute":      ("EC2", _extract_ec2_instance_ids),
 
-    "ModifyInstanceType":           ("EC2", _extract_ec2_instance_id),
+    "ModifyInstanceType":           ("EC2", _extract_ec2_instance_ids),
 
-    "ModifyDBInstance":             ("RDS", _extract_rds_id),
+    "ModifyDBInstance":             ("RDS", _extract_rds_ids),
 
-    "ModifyLoadBalancerAttributes": ("ELB", _extract_elb_id),
+    "ModifyLoadBalancerAttributes": ("ELB", _extract_elb_ids),
 
-    "ModifyListener":               ("ELB", _extract_elb_id),
+    "ModifyListener":               ("ELB", _extract_elb_ids),
 
     # DELETE
 
-    "TerminateInstances":           ("EC2", _extract_ec2_instance_id),
+    "TerminateInstances":           ("EC2", _extract_ec2_instance_ids),
 
-    "DeleteDBInstance":             ("RDS", _extract_rds_id),
+    "DeleteDBInstance":             ("RDS", _extract_rds_ids),
 
-    "DeleteLoadBalancer":           ("ELB", _extract_elb_id),
-    "DeleteTargetGroup":            ("TG",  _extract_tg_id),
+    "DeleteLoadBalancer":           ("ELB", _extract_elb_ids),
+    "DeleteTargetGroup":            ("TG",  _extract_tg_ids),
 
     # CREATE
 
-    "RunInstances":                 ("EC2", _extract_run_instances_id),
+    "RunInstances":                 ("EC2", _extract_run_instances_ids),
 
-    "CreateDBInstance":             ("RDS", _extract_create_db_id),
+    "CreateDBInstance":             ("RDS", _extract_create_db_ids),
 
-    "CreateLoadBalancer":           ("ELB", _extract_create_lb_id),
+    "CreateLoadBalancer":           ("ELB", _extract_create_lb_ids),
 
-    "CreateTargetGroup":            ("TG",  _extract_create_tg_id),
+    "CreateTargetGroup":            ("TG",  _extract_create_tg_ids),
 
     # TAG_CHANGE
 
-    "CreateTags":                   ("EC2", _extract_tag_resource_id),
+    "CreateTags":                   ("EC2", _extract_tag_resource_ids),
 
-    "DeleteTags":                   ("EC2", _extract_tag_resource_id),
+    "DeleteTags":                   ("EC2", _extract_tag_resource_ids),
 
-    "AddTagsToResource":            ("RDS", _extract_rds_tag_resource_id),
+    "AddTagsToResource":            ("RDS", _extract_rds_tag_resource_ids),
 
-    "RemoveTagsFromResource":       ("RDS", _extract_rds_tag_resource_id),
+    "RemoveTagsFromResource":       ("RDS", _extract_rds_tag_resource_ids),
 
-    "AddTags":                      ("ELB", _extract_elb_tag_resource_id),
+    "AddTags":                      ("ELB", _extract_elb_tag_resource_ids),
 
-    "RemoveTags":                   ("ELB", _extract_elb_tag_resource_id),
+    "RemoveTags":                   ("ELB", _extract_elb_tag_resource_ids),
 
 }
 
@@ -239,7 +227,7 @@ def lambda_handler(event, context):
 
     try:
 
-        parsed = parse_cloudtrail_event(event)
+        parsed_events = parse_cloudtrail_event(event)
 
     except Exception as e:
 
@@ -249,54 +237,52 @@ def lambda_handler(event, context):
 
         return {"status": "parse_error"}
 
-
-    logger.info(
-        "Received %s event: resource=%s (%s) category=%s | request_params=%s",
-        parsed.event_name, parsed.resource_id, parsed.resource_type, parsed.event_category,
-        str(parsed.request_params)[:500],
-    )
-
-
-    try:
-
-        if parsed.event_category == "MODIFY":
-
-            _handle_modify(parsed)
-
-        elif parsed.event_category == "DELETE":
-
-            _handle_delete(parsed)
-
-        elif parsed.event_category == "TAG_CHANGE":
-
-            _handle_tag_change(parsed)
-
-        elif parsed.event_category == "CREATE":
-
-            _handle_create(parsed)
-
-        else:
-
-            logger.warning("Unknown event_category: %s", parsed.event_category)
-
-    except Exception as e:
-
-        # perform_remediation 내부에서 이미 send_error_alert를 호출했으므로
-
-        # 여기서는 로그만 기록하고 status=error 반환
-
-        logger.error(
-
-            "Unhandled error processing event %s for %s: %s",
-
-            parsed.event_name, parsed.resource_id, e,
-
+    has_error = False
+    for parsed in parsed_events:
+        logger.info(
+            "Received %s event: resource=%s (%s) category=%s | request_params=%s",
+            parsed.event_name, parsed.resource_id, parsed.resource_type, parsed.event_category,
+            str(parsed.request_params)[:500],
         )
 
-        return {"status": "error"}
+
+        try:
+
+            if parsed.event_category == "MODIFY":
+
+                _handle_modify(parsed)
+
+            elif parsed.event_category == "DELETE":
+
+                _handle_delete(parsed)
+
+            elif parsed.event_category == "TAG_CHANGE":
+
+                _handle_tag_change(parsed)
+
+            elif parsed.event_category == "CREATE":
+
+                _handle_create(parsed)
+
+            else:
+
+                logger.warning("Unknown event_category: %s", parsed.event_category)
+
+        except Exception as e:
+
+            # 에러 기록 후 다음 리소스 처리 계속
+
+            logger.error(
+
+                "Unhandled error processing event %s for %s: %s",
+
+                parsed.event_name, parsed.resource_id, e,
+
+            )
+            has_error = True
 
 
-    return {"status": "ok"}
+    return {"status": "error" if has_error else "ok"}
 
 
 
@@ -316,50 +302,28 @@ def _resolve_elb_type(resource_id: str) -> str:
     return "ELB"
 
 
-def parse_cloudtrail_event(event: dict) -> ParsedEvent:
+def parse_cloudtrail_event(event: dict) -> list[ParsedEvent]:
     """
-
     EventBridge 래핑 CloudTrail 이벤트에서 필요한 필드 추출.
 
-
-    EventBridge 구조:
-
-    {
-
-      "detail": {
-
-        "eventName": "...",
-
-        "requestParameters": {...}
-
-      }
-
-    }
-
+    하나의 CloudTrail 이벤트가 여러 리소스를 포함할 수 있으므로
+    (예: TerminateInstances로 EC2 여러 대 동시 삭제)
+    ParsedEvent 리스트를 반환한다.
 
     Raises:
-
         ValueError: 필수 필드 누락 또는 지원하지 않는 API
     """
-
     detail = event.get("detail", {})
-
     event_name = detail.get("eventName")
-
     if not event_name:
-
         raise ValueError("Missing eventName in CloudTrail event detail")
-
 
     request_params = detail.get("requestParameters") or {}
 
-
     if event_name not in _API_MAP:
-
         raise ValueError(f"Unsupported eventName: {event_name!r}")
 
-
-    resource_type, id_extractor = _API_MAP[event_name]
+    resource_type, ids_extractor = _API_MAP[event_name]
 
     # CREATE 이벤트: responseElements에서 ID 추출 (CreateDBInstance만 requestParameters 사용)
     event_category = _get_event_category(event_name)
@@ -368,50 +332,38 @@ def parse_cloudtrail_event(event: dict) -> ParsedEvent:
     else:
         extract_source = request_params
 
-    resource_id = id_extractor(extract_source)
+    resource_ids = ids_extractor(extract_source)
 
-    if not resource_id:
-
+    if not resource_ids:
         raise ValueError(
-
             f"Cannot extract resource_id for {event_name}: params={extract_source}"
-
         )
 
-    # ELB ARN 기반 ALB/NLB 타입 세분화
-    if resource_type == "ELB":
-        resource_type = _resolve_elb_type(resource_id)
-
-
     if not event_category:
-
         raise ValueError(f"Cannot determine event_category for {event_name!r}")
 
+    results: list[ParsedEvent] = []
+    for resource_id in resource_ids:
+        rt = resource_type
+        # ELB ARN 기반 ALB/NLB 타입 세분화
+        if rt == "ELB":
+            rt = _resolve_elb_type(resource_id)
 
-    change_summary = (
+        change_summary = (
+            f"{event_name} on {rt} {resource_id}"
+            f" (params: {_summarize_params(request_params)})"
+        )
+        results.append(ParsedEvent(
+            resource_id=resource_id,
+            resource_type=rt,
+            event_name=event_name,
+            event_category=event_category,
+            change_summary=change_summary,
+            request_params=request_params,
+        ))
 
-        f"{event_name} on {resource_type} {resource_id}"
+    return results
 
-        f" (params: {_summarize_params(request_params)})"
-
-    )
-
-
-    return ParsedEvent(
-
-        resource_id=resource_id,
-
-        resource_type=resource_type,
-
-        event_name=event_name,
-
-        event_category=event_category,
-
-        change_summary=change_summary,
-
-        request_params=request_params,
-
-    )
 
 
 

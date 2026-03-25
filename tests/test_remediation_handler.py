@@ -322,7 +322,7 @@ class TestParseCloudTrailEvent:
     def test_parse_modify_ec2(self):
         """EC2 ModifyInstanceAttribute 파싱"""
         event = _make_event("ModifyInstanceAttribute", "i-001")
-        parsed = parse_cloudtrail_event(event)
+        parsed = parse_cloudtrail_event(event)[0]
         assert parsed.resource_id == "i-001"
         assert parsed.resource_type == "EC2"
         assert parsed.event_category == "MODIFY"
@@ -330,7 +330,7 @@ class TestParseCloudTrailEvent:
     def test_parse_delete_rds(self):
         """RDS DeleteDBInstance 파싱"""
         event = _make_event("DeleteDBInstance", "db-prod")
-        parsed = parse_cloudtrail_event(event)
+        parsed = parse_cloudtrail_event(event)[0]
         assert parsed.resource_id == "db-prod"
         assert parsed.resource_type == "RDS"
         assert parsed.event_category == "DELETE"
@@ -339,7 +339,7 @@ class TestParseCloudTrailEvent:
         """ELB DeleteLoadBalancer 파싱 — app/ ARN → ALB"""
         arn = "arn:aws:elasticloadbalancing:us-east-1:123:loadbalancer/app/my-alb/abc"
         event = _make_event("DeleteLoadBalancer", arn)
-        parsed = parse_cloudtrail_event(event)
+        parsed = parse_cloudtrail_event(event)[0]
         assert parsed.resource_id == arn
         assert parsed.resource_type == "ALB"
         assert parsed.event_category == "DELETE"
@@ -347,14 +347,14 @@ class TestParseCloudTrailEvent:
     def test_parse_create_tags(self):
         """CreateTags 파싱"""
         event = _make_event("CreateTags", "i-001")
-        parsed = parse_cloudtrail_event(event)
+        parsed = parse_cloudtrail_event(event)[0]
         assert parsed.resource_id == "i-001"
         assert parsed.event_category == "TAG_CHANGE"
 
     def test_parse_rds_add_tags(self):
         """RDS AddTagsToResource 파싱"""
         event = _make_event("AddTagsToResource", "my-rds-db")
-        parsed = parse_cloudtrail_event(event)
+        parsed = parse_cloudtrail_event(event)[0]
         assert parsed.resource_id == "my-rds-db"
         assert parsed.resource_type == "RDS"
         assert parsed.event_category == "TAG_CHANGE"
@@ -362,7 +362,7 @@ class TestParseCloudTrailEvent:
     def test_parse_rds_remove_tags(self):
         """RDS RemoveTagsFromResource 파싱"""
         event = _make_event("RemoveTagsFromResource", "my-rds-db")
-        parsed = parse_cloudtrail_event(event)
+        parsed = parse_cloudtrail_event(event)[0]
         assert parsed.resource_id == "my-rds-db"
         assert parsed.resource_type == "RDS"
         assert parsed.event_category == "TAG_CHANGE"
@@ -371,7 +371,7 @@ class TestParseCloudTrailEvent:
         """ELB AddTags 파싱 — app/ ARN → ALB"""
         arn = "arn:aws:elasticloadbalancing:us-east-1:123:loadbalancer/app/my-alb/abc"
         event = _make_event("AddTags", arn)
-        parsed = parse_cloudtrail_event(event)
+        parsed = parse_cloudtrail_event(event)[0]
         assert parsed.resource_id == arn
         assert parsed.resource_type == "ALB"
         assert parsed.event_category == "TAG_CHANGE"
@@ -380,7 +380,7 @@ class TestParseCloudTrailEvent:
         """ELB RemoveTags 파싱 — app/ ARN → ALB"""
         arn = "arn:aws:elasticloadbalancing:us-east-1:123:loadbalancer/app/my-alb/abc"
         event = _make_event("RemoveTags", arn)
-        parsed = parse_cloudtrail_event(event)
+        parsed = parse_cloudtrail_event(event)[0]
         assert parsed.resource_id == arn
         assert parsed.resource_type == "ALB"
         assert parsed.event_category == "TAG_CHANGE"
@@ -638,7 +638,7 @@ class TestAlbNlbResourceType:
                 "requestParameters": {"loadBalancerArn": alb_arn},
             }
         }
-        parsed = parse_cloudtrail_event(event)
+        parsed = parse_cloudtrail_event(event)[0]
         assert parsed.resource_type == "ALB"
         assert parsed.resource_id == alb_arn
 
@@ -651,7 +651,7 @@ class TestAlbNlbResourceType:
                 "requestParameters": {"loadBalancerArn": nlb_arn},
             }
         }
-        parsed = parse_cloudtrail_event(event)
+        parsed = parse_cloudtrail_event(event)[0]
         assert parsed.resource_type == "NLB"
         assert parsed.resource_id == nlb_arn
 
@@ -664,7 +664,7 @@ class TestAlbNlbResourceType:
                 "requestParameters": {"loadBalancerArn": alb_arn},
             }
         }
-        parsed = parse_cloudtrail_event(event)
+        parsed = parse_cloudtrail_event(event)[0]
         assert parsed.resource_type == "ALB"
 
     def test_execute_remediation_alb_calls_delete(self):
@@ -707,7 +707,7 @@ class TestAlbNlbResourceType:
                 },
             }
         }
-        parsed = parse_cloudtrail_event(event)
+        parsed = parse_cloudtrail_event(event)[0]
         assert parsed.resource_type == "ALB"
 
     def test_elb_add_tags_nlb_arn_returns_nlb_type(self):
@@ -722,7 +722,7 @@ class TestAlbNlbResourceType:
                 },
             }
         }
-        parsed = parse_cloudtrail_event(event)
+        parsed = parse_cloudtrail_event(event)[0]
         assert parsed.resource_type == "NLB"
 
 
@@ -737,17 +737,17 @@ class TestDeleteTargetGroup:
 
     TG_ARN = "arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/my-tg/abc123def456"
 
-    def test_extract_tg_id_returns_arn(self):
-        """_extract_tg_id(): targetGroupArn 키에서 ARN 추출 확인"""
-        from remediation_handler.lambda_handler import _extract_tg_id
-        result = _extract_tg_id({"targetGroupArn": self.TG_ARN})
-        assert result == self.TG_ARN
+    def test_extract_tg_ids_returns_arn(self):
+        """_extract_tg_ids(): targetGroupArn 키에서 ARN 추출 확인"""
+        from remediation_handler.lambda_handler import _extract_tg_ids
+        result = _extract_tg_ids({"targetGroupArn": self.TG_ARN})
+        assert result == [self.TG_ARN]
 
-    def test_extract_tg_id_missing_key_returns_none(self):
-        """_extract_tg_id(): targetGroupArn 키 없을 때 None 반환"""
-        from remediation_handler.lambda_handler import _extract_tg_id
-        assert _extract_tg_id({}) is None
-        assert _extract_tg_id({"loadBalancerArn": "some-arn"}) is None
+    def test_extract_tg_ids_missing_key_returns_none(self):
+        """_extract_tg_ids(): targetGroupArn 키 없을 때 None 반환"""
+        from remediation_handler.lambda_handler import _extract_tg_ids
+        assert _extract_tg_ids({}) == []
+        assert _extract_tg_ids({"loadBalancerArn": "some-arn"}) == []
 
     def test_get_event_category_delete_target_group(self):
         """_get_event_category('DeleteTargetGroup') → 'DELETE'"""
@@ -757,7 +757,7 @@ class TestDeleteTargetGroup:
     def test_parse_delete_target_group(self):
         """parse_cloudtrail_event(): DeleteTargetGroup → resource_type='TG', event_category='DELETE', resource_id=ARN"""
         event = _make_event("DeleteTargetGroup", self.TG_ARN)
-        parsed = parse_cloudtrail_event(event)
+        parsed = parse_cloudtrail_event(event)[0]
         assert parsed.resource_type == "TG"
         assert parsed.event_category == "DELETE"
         assert parsed.resource_id == self.TG_ARN
@@ -877,47 +877,47 @@ class TestCreateCategory:
 class TestCreateIdExtractors:
     """CREATE 이벤트용 ID 추출 함수 개별 테스트."""
 
-    def test_extract_run_instances_id_normal(self):
-        """_extract_run_instances_id: instancesSet.items[0].instanceId 추출"""
-        from remediation_handler.lambda_handler import _extract_run_instances_id
+    def test_extract_run_instances_ids_normal(self):
+        """_extract_run_instances_ids: instancesSet.items[0].instanceId 추출"""
+        from remediation_handler.lambda_handler import _extract_run_instances_ids
         resp = {"instancesSet": {"items": [{"instanceId": "i-abc"}]}}
-        assert _extract_run_instances_id(resp) == "i-abc"
+        assert _extract_run_instances_ids(resp) == ["i-abc"]
 
-    def test_extract_run_instances_id_empty_items(self):
-        """_extract_run_instances_id: 빈 items → None"""
-        from remediation_handler.lambda_handler import _extract_run_instances_id
+    def test_extract_run_instances_ids_empty_items(self):
+        """_extract_run_instances_ids: 빈 items → None"""
+        from remediation_handler.lambda_handler import _extract_run_instances_ids
         resp = {"instancesSet": {"items": []}}
-        assert _extract_run_instances_id(resp) is None
+        assert _extract_run_instances_ids(resp) == []
 
-    def test_extract_create_db_id_normal(self):
-        """_extract_create_db_id: dBInstanceIdentifier 추출"""
-        from remediation_handler.lambda_handler import _extract_create_db_id
+    def test_extract_create_db_ids_normal(self):
+        """_extract_create_db_ids: dBInstanceIdentifier 추출"""
+        from remediation_handler.lambda_handler import _extract_create_db_ids
         params = {"dBInstanceIdentifier": "mydb"}
-        assert _extract_create_db_id(params) == "mydb"
+        assert _extract_create_db_ids(params) == ["mydb"]
 
-    def test_extract_create_lb_id_normal(self):
-        """_extract_create_lb_id: loadBalancers[0].loadBalancerArn 추출"""
-        from remediation_handler.lambda_handler import _extract_create_lb_id
+    def test_extract_create_lb_ids_normal(self):
+        """_extract_create_lb_ids: loadBalancers[0].loadBalancerArn 추출"""
+        from remediation_handler.lambda_handler import _extract_create_lb_ids
         resp = {"loadBalancers": [{"loadBalancerArn": "arn:aws:elasticloadbalancing:us-east-1:123:loadbalancer/app/my-alb/abc"}]}
-        assert _extract_create_lb_id(resp) == "arn:aws:elasticloadbalancing:us-east-1:123:loadbalancer/app/my-alb/abc"
+        assert _extract_create_lb_ids(resp) == ["arn:aws:elasticloadbalancing:us-east-1:123:loadbalancer/app/my-alb/abc"]
 
-    def test_extract_create_lb_id_empty_list(self):
-        """_extract_create_lb_id: 빈 loadBalancers → None"""
-        from remediation_handler.lambda_handler import _extract_create_lb_id
+    def test_extract_create_lb_ids_empty_list(self):
+        """_extract_create_lb_ids: 빈 loadBalancers → None"""
+        from remediation_handler.lambda_handler import _extract_create_lb_ids
         resp = {"loadBalancers": []}
-        assert _extract_create_lb_id(resp) is None
+        assert _extract_create_lb_ids(resp) == []
 
-    def test_extract_create_tg_id_normal(self):
-        """_extract_create_tg_id: targetGroups[0].targetGroupArn 추출"""
-        from remediation_handler.lambda_handler import _extract_create_tg_id
+    def test_extract_create_tg_ids_normal(self):
+        """_extract_create_tg_ids: targetGroups[0].targetGroupArn 추출"""
+        from remediation_handler.lambda_handler import _extract_create_tg_ids
         resp = {"targetGroups": [{"targetGroupArn": "arn:aws:elasticloadbalancing:us-east-1:123:targetgroup/my-tg/abc"}]}
-        assert _extract_create_tg_id(resp) == "arn:aws:elasticloadbalancing:us-east-1:123:targetgroup/my-tg/abc"
+        assert _extract_create_tg_ids(resp) == ["arn:aws:elasticloadbalancing:us-east-1:123:targetgroup/my-tg/abc"]
 
-    def test_extract_create_tg_id_empty_list(self):
-        """_extract_create_tg_id: 빈 targetGroups → None"""
-        from remediation_handler.lambda_handler import _extract_create_tg_id
+    def test_extract_create_tg_ids_empty_list(self):
+        """_extract_create_tg_ids: 빈 targetGroups → None"""
+        from remediation_handler.lambda_handler import _extract_create_tg_ids
         resp = {"targetGroups": []}
-        assert _extract_create_tg_id(resp) is None
+        assert _extract_create_tg_ids(resp) == []
 
 
 # ──────────────────────────────────────────────
@@ -940,7 +940,7 @@ class TestCreateEventParsing:
                 },
             }
         }
-        parsed = parse_cloudtrail_event(event)
+        parsed = parse_cloudtrail_event(event)[0]
         assert parsed.resource_id == "i-abc123"
         assert parsed.resource_type == "EC2"
         assert parsed.event_category == "CREATE"
@@ -954,7 +954,7 @@ class TestCreateEventParsing:
                 "responseElements": {},
             }
         }
-        parsed = parse_cloudtrail_event(event)
+        parsed = parse_cloudtrail_event(event)[0]
         assert parsed.resource_id == "mydb-prod"
         assert parsed.resource_type == "RDS"
         assert parsed.event_category == "CREATE"
@@ -971,7 +971,7 @@ class TestCreateEventParsing:
                 },
             }
         }
-        parsed = parse_cloudtrail_event(event)
+        parsed = parse_cloudtrail_event(event)[0]
         assert parsed.resource_id == alb_arn
         assert parsed.resource_type == "ALB"
         assert parsed.event_category == "CREATE"
@@ -988,7 +988,7 @@ class TestCreateEventParsing:
                 },
             }
         }
-        parsed = parse_cloudtrail_event(event)
+        parsed = parse_cloudtrail_event(event)[0]
         assert parsed.resource_id == nlb_arn
         assert parsed.resource_type == "NLB"
         assert parsed.event_category == "CREATE"
@@ -1005,7 +1005,7 @@ class TestCreateEventParsing:
                 },
             }
         }
-        parsed = parse_cloudtrail_event(event)
+        parsed = parse_cloudtrail_event(event)[0]
         assert parsed.resource_id == tg_arn
         assert parsed.resource_type == "TG"
         assert parsed.event_category == "CREATE"
