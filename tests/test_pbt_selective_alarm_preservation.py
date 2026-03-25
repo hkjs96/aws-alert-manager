@@ -34,6 +34,10 @@ def _disk_alarm(iid: str, path: str, threshold: int) -> str:
     return f"[EC2] srv disk_used_percent({path}) >{threshold}% ({iid})"
 
 
+def _status_alarm(iid: str) -> str:
+    return f"[EC2] srv StatusCheckFailed >0 ({iid})"
+
+
 class TestInitialCreationPreservation:
     """
     알람이 없을 때 create_alarms_for_resource 전체 호출 동작 유지.
@@ -82,6 +86,7 @@ class TestAllAlarmsOkPreservation:
         cpu_name = _cpu_alarm(iid, cpu_thr)
         mem_name = _mem_alarm(iid, mem_thr)
         disk_name = _disk_alarm(iid, "/", 80)
+        status_name = _status_alarm(iid)
 
         tags = {
             "Monitoring": "on",
@@ -90,7 +95,7 @@ class TestAllAlarmsOkPreservation:
             "Threshold_Memory": str(mem_thr),
         }
 
-        existing_alarms = [cpu_name, mem_name, disk_name]
+        existing_alarms = [cpu_name, mem_name, disk_name, status_name]
         mock_cw = MagicMock()
 
         # _describe_alarms_batch: 1회 호출, AlarmNames=batch
@@ -115,6 +120,14 @@ class TestAllAlarmsOkPreservation:
                     "Dimensions": [
                         {"Name": "InstanceId", "Value": iid},
                         {"Name": "path", "Value": "/"},
+                    ],
+                },
+                {
+                    "AlarmName": status_name,
+                    "MetricName": "StatusCheckFailed",
+                    "Threshold": 0.0,
+                    "Dimensions": [
+                        {"Name": "InstanceId", "Value": iid},
                     ],
                 },
             ]
@@ -152,6 +165,7 @@ class TestOkAlarmsPreservedAfterSync:
         cpu_name = _cpu_alarm(iid, cpu_thr)
         mem_name = _mem_alarm(iid, 80)
         disk_name = _disk_alarm(iid, "/", 80)
+        status_name = _status_alarm(iid)
 
         tags = {
             "Monitoring": "on",
@@ -159,7 +173,7 @@ class TestOkAlarmsPreservedAfterSync:
             "Threshold_CPU": str(cpu_thr),
         }
 
-        existing_alarms = [cpu_name, mem_name, disk_name]
+        existing_alarms = [cpu_name, mem_name, disk_name, status_name]
         mock_cw = MagicMock()
 
         # _describe_alarms_batch: 1회 호출
@@ -184,6 +198,14 @@ class TestOkAlarmsPreservedAfterSync:
                     "Dimensions": [
                         {"Name": "InstanceId", "Value": iid},
                         {"Name": "path", "Value": "/"},
+                    ],
+                },
+                {
+                    "AlarmName": status_name,
+                    "MetricName": "StatusCheckFailed",
+                    "Threshold": 0.0,
+                    "Dimensions": [
+                        {"Name": "InstanceId", "Value": iid},
                     ],
                 },
             ]

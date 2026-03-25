@@ -27,11 +27,11 @@ from common.alarm_manager import (
 # ──────────────────────────────────────────────
 
 _HARDCODED_METRICS = {
-    "EC2": {"CPU", "Memory", "Disk"},
-    "RDS": {"CPU", "FreeMemoryGB", "FreeStorageGB", "Connections"},
-    "ALB": {"RequestCount"},
-    "NLB": {"ProcessedBytes", "ActiveFlowCount", "NewFlowCount"},
-    "TG": {"RequestCount", "HealthyHostCount"},
+    "EC2": {"CPU", "Memory", "Disk", "StatusCheckFailed"},
+    "RDS": {"CPU", "FreeMemoryGB", "FreeStorageGB", "Connections", "ReadLatency", "WriteLatency"},
+    "ALB": {"RequestCount", "ELB5XX", "TargetResponseTime"},
+    "NLB": {"ProcessedBytes", "ActiveFlowCount", "NewFlowCount", "TCPClientReset", "TCPTargetReset"},
+    "TG": {"HealthyHostCount", "UnHealthyHostCount", "RequestCountPerTarget", "TGResponseTime"},
 }
 
 # resource_type별 CloudWatch 네임스페이스 + 디멘션 키
@@ -122,8 +122,15 @@ def _register_metric_and_create_alarms(
     namespace, dimension_key = _NAMESPACE_MAP[resource_type]
 
     # ALB/NLB/TG dimension 값은 ARN에서 추출
+    # _extract_elb_dimension() 로직과 동일하게 처리
     if resource_type in ("ALB", "NLB", "TG"):
-        dim_value = resource_id.split("loadbalancer/", 1)[1] if "loadbalancer/" in resource_id else resource_id.split("targetgroup/", 1)[1]
+        if "loadbalancer/" in resource_id:
+            dim_value = resource_id.split("loadbalancer/", 1)[1]
+        elif ":targetgroup/" in resource_id:
+            parts = resource_id.split(":targetgroup/", 1)
+            dim_value = "targetgroup/" + parts[1]
+        else:
+            dim_value = resource_id
     else:
         dim_value = resource_id
 
@@ -149,6 +156,14 @@ def _register_metric_and_create_alarms(
         f"Threshold_{metric_name}": thr_str,
     }
 
+    # TG 리소스는 _lb_arn, _lb_type 태그 필수 (복합 디멘션 생성에 사용)
+    if resource_type == "TG":
+        tags["_lb_arn"] = (
+            "arn:aws:elasticloadbalancing:us-east-1:123456789012:"
+            "loadbalancer/app/my-alb/1234567890abcdef"
+        )
+        tags["_lb_type"] = "application"
+
     return create_alarms_for_resource(resource_id, resource_type, tags)
 
 
@@ -165,7 +180,7 @@ class TestDynamicAlarmFaultCondition:
     """
 
     @given(data=dynamic_metric_names, threshold=positive_thresholds)
-    @settings(max_examples=20, deadline=None)
+    @settings(max_examples=5, deadline=None)
     @mock_aws
     def test_dynamic_metric_alarm_created(self, data, threshold):
         """

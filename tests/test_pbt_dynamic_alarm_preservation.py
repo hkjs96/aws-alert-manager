@@ -15,12 +15,13 @@ import re
 
 import boto3
 import pytest
-from hypothesis import given, settings, assume
+from hypothesis import given, settings, assume, HealthCheck
 from hypothesis import strategies as st
 from moto import mock_aws
 
 from common.alarm_manager import (
     _get_cw_client,
+    _shorten_elb_resource_id,
     create_alarms_for_resource,
 )
 
@@ -29,20 +30,29 @@ from common.alarm_manager import (
 # ──────────────────────────────────────────────
 
 _HARDCODED_METRICS = {
-    "EC2": ["CPU", "Memory", "Disk"],
-    "RDS": ["CPU", "FreeMemoryGB", "FreeStorageGB", "Connections"],
-    "ALB": ["RequestCount"],
-    "NLB": ["ProcessedBytes", "ActiveFlowCount", "NewFlowCount"],
-    "TG": ["RequestCount", "HealthyHostCount"],
+    "EC2": ["CPU", "Memory", "Disk", "StatusCheckFailed"],
+    "RDS": [
+        "CPU", "FreeMemoryGB", "FreeStorageGB",
+        "Connections", "ReadLatency", "WriteLatency",
+    ],
+    "ALB": ["RequestCount", "ELB5XX", "TargetResponseTime"],
+    "NLB": [
+        "ProcessedBytes", "ActiveFlowCount", "NewFlowCount",
+        "TCPClientReset", "TCPTargetReset",
+    ],
+    "TG": [
+        "HealthyHostCount", "UnHealthyHostCount",
+        "RequestCountPerTarget", "TGResponseTime",
+    ],
 }
 
 # 알람 개수 기대값 (Disk는 CWAgent 메트릭 등록 시 1개)
 _EXPECTED_ALARM_COUNTS = {
-    "EC2": 3,  # CPU + Memory + Disk(/)
-    "RDS": 4,  # CPU + FreeMemoryGB + FreeStorageGB + Connections
-    "ALB": 1,  # RequestCount
-    "NLB": 3,  # ProcessedBytes + ActiveFlowCount + NewFlowCount
-    "TG": 2,   # RequestCount + HealthyHostCount
+    "EC2": 4,  # CPU + Memory + Disk(/) + StatusCheckFailed
+    "RDS": 6,  # CPU + FreeMemoryGB + FreeStorageGB + Connections + ReadLatency + WriteLatency
+    "ALB": 3,  # RequestCount + ELB5XX + TargetResponseTime
+    "NLB": 5,  # ProcessedBytes + ActiveFlowCount + NewFlowCount + TCPClientReset + TCPTargetReset
+    "TG": 4,   # RequestCount + HealthyHostCount + RequestCountPerTarget + TGResponseTime
 }
 
 # 메트릭별 네임스페이스 매핑
@@ -51,24 +61,33 @@ _METRIC_NAMESPACE = {
         "CPU": "AWS/EC2",
         "Memory": "CWAgent",
         "Disk": "CWAgent",
+        "StatusCheckFailed": "AWS/EC2",
     },
     "RDS": {
         "CPU": "AWS/RDS",
         "FreeMemoryGB": "AWS/RDS",
         "FreeStorageGB": "AWS/RDS",
         "Connections": "AWS/RDS",
+        "ReadLatency": "AWS/RDS",
+        "WriteLatency": "AWS/RDS",
     },
     "ALB": {
         "RequestCount": "AWS/ApplicationELB",
+        "ELB5XX": "AWS/ApplicationELB",
+        "TargetResponseTime": "AWS/ApplicationELB",
     },
     "NLB": {
         "ProcessedBytes": "AWS/NetworkELB",
         "ActiveFlowCount": "AWS/NetworkELB",
         "NewFlowCount": "AWS/NetworkELB",
+        "TCPClientReset": "AWS/NetworkELB",
+        "TCPTargetReset": "AWS/NetworkELB",
     },
     "TG": {
-        "RequestCount": "AWS/ApplicationELB",
         "HealthyHostCount": "AWS/ApplicationELB",
+        "UnHealthyHostCount": "AWS/ApplicationELB",
+        "RequestCountPerTarget": "AWS/ApplicationELB",
+        "TGResponseTime": "AWS/ApplicationELB",
     },
 }
 
@@ -82,9 +101,19 @@ _METRIC_DISPLAY = {
     "Connections": "DatabaseConnections",
     "RequestCount": "RequestCount",
     "HealthyHostCount": "HealthyHostCount",
+    "UnHealthyHostCount": "UnHealthyHostCount",
     "ProcessedBytes": "ProcessedBytes",
     "ActiveFlowCount": "ActiveFlowCount",
     "NewFlowCount": "NewFlowCount",
+    "StatusCheckFailed": "StatusCheckFailed",
+    "ReadLatency": "ReadLatency",
+    "WriteLatency": "WriteLatency",
+    "ELB5XX": "HTTPCode_ELB_5XX_Count",
+    "TargetResponseTime": "TargetResponseTime",
+    "TCPClientReset": "TCP_Client_Reset_Count",
+    "TCPTargetReset": "TCP_Target_Reset_Count",
+    "RequestCountPerTarget": "RequestCountPerTarget",
+    "TGResponseTime": "TargetResponseTime",
 }
 
 # 메트릭별 방향/단위
@@ -97,9 +126,19 @@ _METRIC_DIRECTION_UNIT = {
     "Connections": (">", ""),
     "RequestCount": (">", ""),
     "HealthyHostCount": ("<", ""),
+    "UnHealthyHostCount": (">", ""),
     "ProcessedBytes": (">", ""),
     "ActiveFlowCount": (">", ""),
     "NewFlowCount": (">", ""),
+    "StatusCheckFailed": (">", ""),
+    "ReadLatency": (">", "s"),
+    "WriteLatency": (">", "s"),
+    "ELB5XX": (">", ""),
+    "TargetResponseTime": (">", "s"),
+    "TCPClientReset": (">", ""),
+    "TCPTargetReset": (">", ""),
+    "RequestCountPerTarget": (">", ""),
+    "TGResponseTime": (">", "s"),
 }
 
 # resource_type별 샘플 resource_id
@@ -167,6 +206,14 @@ def hardcoded_only_tags(draw):
     metrics = _HARDCODED_METRICS[rtype]
 
     tags = {"Monitoring": "on", "Name": name}
+
+    # TG 리소스는 _lb_arn, _lb_type 태그 필수 (복합 디멘션 생성에 사용)
+    if rtype == "TG":
+        tags["_lb_arn"] = (
+            "arn:aws:elasticloadbalancing:us-east-1:123456789012:"
+            "loadbalancer/app/my-alb/1234567890abcdef"
+        )
+        tags["_lb_type"] = "application"
 
     # 각 하드코딩 메트릭에 대해 임계치 태그 생성 (Disk 제외)
     for metric in metrics:
@@ -317,10 +364,11 @@ class TestHardcodedAlarmPreservation:
                 f"expected={resource_type}, "
                 f"actual={match.group('rtype')}"
             )
-            # resource_id 일치
-            assert match.group("rid") == resource_id, (
+            # resource_id 일치 (ALB/NLB/TG는 Short_ID로 변환됨)
+            expected_rid = _shorten_elb_resource_id(resource_id, resource_type)
+            assert match.group("rid") == expected_rid, (
                 f"resource_id 불일치: "
-                f"expected={resource_id}, "
+                f"expected={expected_rid}, "
                 f"actual={match.group('rid')}"
             )
 
@@ -338,7 +386,8 @@ class TestHardcodedAlarmPreservation:
             else:
                 matching = [
                     a for a in result
-                    if display in a
+                    if _ALARM_NAME_PATTERN.match(a)
+                    and _ALARM_NAME_PATTERN.match(a).group("display") == display
                 ]
 
             assert len(matching) >= 1, (
@@ -382,7 +431,11 @@ class TestHardcodedAlarmPreservation:
             )
 
     @given(data=hardcoded_only_tags())
-    @settings(max_examples=10, deadline=None)
+    @settings(
+        max_examples=10,
+        deadline=None,
+        suppress_health_check=[HealthCheck.filter_too_much],
+    )
     @mock_aws
     def test_rds_gb_to_bytes_conversion(self, data):
         """
@@ -478,7 +531,13 @@ class TestHardcodedAlarmPreservation:
                 matching = [a for a in result if f"{display}(/)" in a]
                 tag_key = "Threshold_Disk_root"
             else:
-                matching = [a for a in result if display in a]
+                # 정규식으로 display 메트릭 부분만 정확히 매칭
+                # 알람 이름 포맷: [TYPE] label display dir+thr+unit (rid)
+                matching = [
+                    a for a in result
+                    if _ALARM_NAME_PATTERN.match(a)
+                    and _ALARM_NAME_PATTERN.match(a).group("display") == display
+                ]
                 tag_key = f"Threshold_{metric}"
 
             assert len(matching) >= 1, (

@@ -22,11 +22,11 @@ from common.alarm_manager import _parse_threshold_tags
 # ──────────────────────────────────────────────
 
 _HARDCODED_METRICS = {
-    "EC2": {"CPU", "Memory", "Disk"},
-    "RDS": {"CPU", "FreeMemoryGB", "FreeStorageGB", "Connections"},
-    "ALB": {"RequestCount"},
-    "NLB": {"ProcessedBytes", "ActiveFlowCount", "NewFlowCount"},
-    "TG": {"RequestCount", "HealthyHostCount"},
+    "EC2": {"CPU", "Memory", "Disk", "StatusCheckFailed"},
+    "RDS": {"CPU", "FreeMemoryGB", "FreeStorageGB", "Connections", "ReadLatency", "WriteLatency"},
+    "ALB": {"RequestCount", "ELB5XX", "TargetResponseTime"},
+    "NLB": {"ProcessedBytes", "ActiveFlowCount", "NewFlowCount", "TCPClientReset", "TCPTargetReset"},
+    "TG": {"HealthyHostCount", "UnHealthyHostCount", "RequestCountPerTarget", "TGResponseTime"},
 }
 
 # AWS 태그 허용 문자 (메트릭 이름 부분)
