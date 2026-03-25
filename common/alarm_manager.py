@@ -578,8 +578,8 @@ def _parse_threshold_tags(
         # 메트릭 이름 최소 1자
         if not metric_name:
             continue
-        # 하드코딩 목록에 있으면 skip
-        if metric_name in hardcoded:
+        # 하드코딩 목록에 있으면 skip (내부 키 또는 CW metric_name 별칭)
+        if metric_name in hardcoded or _metric_name_to_key(metric_name) in hardcoded:
             continue
         # 태그 키 128자 제한
         if len(key) > 128:
