@@ -6,6 +6,8 @@ inclusion: always
 
 이 프로젝트의 코드 작성 시 반드시 준수해야 하는 규칙.
 
+> 알람 관련 상세 규칙(§5~§7, §11)은 `.kiro/steering/alarm-rules.md`, `.kiro/steering/resource-checklist.md`에 분리되어 있으며, Python 파일 작업 시 자동 로드된다.
+
 ## 0. 기술 스택 및 버전
 
 ### 런타임
@@ -27,6 +29,7 @@ inclusion: always
 | pytest-mock | >=3.14 | mock 래퍼 |
 | hypothesis | >=6.100 | Property-Based Testing |
 | moto[ec2,rds,elbv2,cloudwatch,sns] | >=5.0 | AWS 서비스 모킹 |
+
 
 ### Lambda 런타임 내장 패키지 (2026-03-19 기준)
 | 패키지 | python3.12 | python3.13 | python3.14 |
@@ -89,35 +92,6 @@ def _get_cw_client():
 - AWS API 호출: `botocore.exceptions.ClientError`만 catch
 - `except Exception` 사용 금지 (최상위 핸들러 제외)
 - 에러 로그 시 `logger.error("메시지: %s", e)` 포맷 사용 (f-string 금지)
-
-## 5. Collector 인터페이스
-
-새 Collector 추가 시 `common/collectors/base.py`의 `CollectorProtocol`을 구현한다.
-필수 메서드:
-- `collect_monitored_resources() -> list[ResourceInfo]`
-- `get_metrics(resource_id: str, resource_tags: dict) -> dict[str, float] | None`
-
-메트릭 조회는 `common/collectors/base.py`의 공통 `query_metric()` 유틸리티를 사용한다.
-
-## 6. 알람 관련 규칙
-
-- 알람 이름 포맷: `[{resource_type}] {label} {display_metric} {direction}{threshold}{unit} ({resource_id})`
-- 알람 이름 최대 255자 (CloudWatch API 제한). 초과 시 label → display_metric 순으로 truncate (`...` 접미사)
-- 알람 매칭: 알람 메타데이터(Namespace, MetricName, Dimensions) 기반. 이름 문자열 매칭 금지
-- 알람 생성 시 `AlarmDescription`에 메트릭 키를 포함하여 역추적 가능하게 한다 (최대 1024자)
-- 새 포맷 알람 검색: resource_id prefix 기반 검색. 전체 알람 풀스캔 금지
-
-## 7. 태그 기반 동적 알람
-
-- `Threshold_{MetricName}={Value}` 태그는 동적으로 파싱하여 알람을 생성한다
-- 하드코딩 메트릭 목록(`_EC2_ALARMS` 등)은 기본 알람 정의로만 사용하고, 태그에서 발견된 추가 메트릭도 처리한다
-- 디멘션 자동 해석: CloudWatch `list_metrics` API로 네임스페이스/디멘션을 조회한다
-- AWS 태그 제약 준수:
-  - 태그 키 최대 128자 → `Threshold_` 접두사(10자) 제외 시 메트릭 이름 최대 118자
-  - 태그 값 최대 256자, 양의 숫자로 파싱 가능해야 함
-  - 리소스당 태그 최대 50개 (Monitoring, Name 등 시스템 태그 포함)
-  - 태그 허용 문자: 문자, 숫자, 공백, `_ . : / = + - @`
-  - `aws:` 접두사 태그는 무시
 
 ## 8. 테스트 규칙
 
