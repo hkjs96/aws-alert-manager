@@ -85,6 +85,34 @@ def _extract_elb_id(params: dict) -> Optional[str]:
     return params.get("loadBalancerArn") or params.get("loadBalancerName")
 
 
+def _extract_tg_id(params: dict) -> Optional[str]:
+
+    return params.get("targetGroupArn")
+
+
+def _extract_run_instances_id(resp: dict) -> Optional[str]:
+    """RunInstances: responseElements.instancesSet.items[0].instanceId"""
+    items = resp.get("instancesSet", {}).get("items", [])
+    return items[0].get("instanceId") if items else None
+
+
+def _extract_create_db_id(params: dict) -> Optional[str]:
+    """CreateDBInstance: requestParameters.dBInstanceIdentifier"""
+    return params.get("dBInstanceIdentifier")
+
+
+def _extract_create_lb_id(resp: dict) -> Optional[str]:
+    """CreateLoadBalancer: responseElements.loadBalancers[0].loadBalancerArn"""
+    lbs = resp.get("loadBalancers", [])
+    return lbs[0].get("loadBalancerArn") if lbs else None
+
+
+def _extract_create_tg_id(resp: dict) -> Optional[str]:
+    """CreateTargetGroup: responseElements.targetGroups[0].targetGroupArn"""
+    tgs = resp.get("targetGroups", [])
+    return tgs[0].get("targetGroupArn") if tgs else None
+
+
 
 def _extract_tag_resource_id(params: dict) -> Optional[str]:
 
@@ -149,6 +177,17 @@ _API_MAP: dict[str, tuple[str, callable]] = {
     "DeleteDBInstance":             ("RDS", _extract_rds_id),
 
     "DeleteLoadBalancer":           ("ELB", _extract_elb_id),
+    "DeleteTargetGroup":            ("TG",  _extract_tg_id),
+
+    # CREATE
+
+    "RunInstances":                 ("EC2", _extract_run_instances_id),
+
+    "CreateDBInstance":             ("RDS", _extract_create_db_id),
+
+    "CreateLoadBalancer":           ("ELB", _extract_create_lb_id),
+
+    "CreateTargetGroup":            ("TG",  _extract_create_tg_id),
 
     # TAG_CHANGE
 
@@ -231,6 +270,10 @@ def lambda_handler(event, context):
         elif parsed.event_category == "TAG_CHANGE":
 
             _handle_tag_change(parsed)
+
+        elif parsed.event_category == "CREATE":
+
+            _handle_create(parsed)
 
         else:
 
@@ -318,13 +361,20 @@ def parse_cloudtrail_event(event: dict) -> ParsedEvent:
 
     resource_type, id_extractor = _API_MAP[event_name]
 
-    resource_id = id_extractor(request_params)
+    # CREATE 이벤트: responseElements에서 ID 추출 (CreateDBInstance만 requestParameters 사용)
+    event_category = _get_event_category(event_name)
+    if event_category == "CREATE" and event_name != "CreateDBInstance":
+        extract_source = detail.get("responseElements") or {}
+    else:
+        extract_source = request_params
+
+    resource_id = id_extractor(extract_source)
 
     if not resource_id:
 
         raise ValueError(
 
-            f"Cannot extract resource_id for {event_name}: params={request_params}"
+            f"Cannot extract resource_id for {event_name}: params={extract_source}"
 
         )
 
@@ -332,8 +382,6 @@ def parse_cloudtrail_event(event: dict) -> ParsedEvent:
     if resource_type == "ELB":
         resource_type = _resolve_elb_type(resource_id)
 
-
-    event_category = _get_event_category(event_name)
 
     if not event_category:
 
@@ -605,6 +653,39 @@ def _handle_delete(parsed: ParsedEvent) -> None:
         tag_name=name_tag,
     )
 
+
+
+# ──────────────────────────────────────────────
+
+# CREATE 처리 → 알람 즉시 생성
+
+# ──────────────────────────────────────────────
+
+
+def _handle_create(parsed: ParsedEvent) -> None:
+    """CREATE 이벤트: Monitoring=on 태그 있으면 알람 즉시 생성."""
+    tags = get_resource_tags(parsed.resource_id, parsed.resource_type)
+    if not tags:
+        logger.warning(
+            "get_resource_tags returned empty for newly created %s %s: skipping alarm creation",
+            parsed.resource_type, parsed.resource_id,
+        )
+        return
+
+    if not has_monitoring_tag(tags):
+        logger.info(
+            "Skipping alarm creation for %s %s: no Monitoring=on tag",
+            parsed.resource_type, parsed.resource_id,
+        )
+        return
+
+    created = create_alarms_for_resource(
+        parsed.resource_id, parsed.resource_type, tags,
+    )
+    logger.info(
+        "Created alarms for newly created %s %s: %s",
+        parsed.resource_type, parsed.resource_id, created,
+    )
 
 
 # ──────────────────────────────────────────────

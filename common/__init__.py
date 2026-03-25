@@ -24,6 +24,15 @@ HARDCODED_DEFAULTS: dict[str, float] = {
     "ProcessedBytes": 100000000.0,
     "ActiveFlowCount": 10000.0,
     "NewFlowCount": 5000.0,
+    "StatusCheckFailed": 0.0,
+    "ReadLatency": 0.02,
+    "WriteLatency": 0.02,
+    "ELB5XX": 50.0,
+    "TargetResponseTime": 5.0,
+    "TCPClientReset": 100.0,
+    "TCPTargetReset": 100.0,
+    "RequestCountPerTarget": 1000.0,
+    "TGResponseTime": 5.0,
 }
 
 # 지원하는 AWS 리소스 유형 - Requirements 6.1
@@ -42,6 +51,7 @@ MONITORED_API_EVENTS: dict[str, list[str]] = {
         "TerminateInstances",
         "DeleteDBInstance",
         "DeleteLoadBalancer",
+        "DeleteTargetGroup",
     ],
     "TAG_CHANGE": [
         "CreateTags",
@@ -50,6 +60,12 @@ MONITORED_API_EVENTS: dict[str, list[str]] = {
         "RemoveTagsFromResource",  # RDS
         "AddTags",                 # ELB
         "RemoveTags",              # ELB
+    ],
+    "CREATE": [
+        "RunInstances",
+        "CreateDBInstance",
+        "CreateLoadBalancer",
+        "CreateTargetGroup",
     ],
 }
 

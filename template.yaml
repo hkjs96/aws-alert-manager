@@ -202,12 +202,17 @@ Resources:
             - TerminateInstances
             - DeleteDBInstance
             - DeleteLoadBalancer
+            - DeleteTargetGroup
             - CreateTags
             - DeleteTags
             - AddTagsToResource
             - RemoveTagsFromResource
             - AddTags
             - RemoveTags
+            - RunInstances
+            - CreateDBInstance
+            - CreateLoadBalancer
+            - CreateTargetGroup
       Targets:
         - Id: RemediationHandlerTarget
           Arn: !GetAtt RemediationHandlerFunction.Arn

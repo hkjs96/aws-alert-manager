@@ -41,6 +41,8 @@ def _make_event(event_name: str, resource_id: str, extra_params: dict = None) ->
     elif event_name in ("AddTagsToResource", "RemoveTagsFromResource"):
         # RDS 태그 API: resourceName은 ARN 형태
         params.setdefault("resourceName", f"arn:aws:rds:us-east-1:123456789012:db:{resource_id}")
+    elif event_name == "DeleteTargetGroup":
+        params.setdefault("targetGroupArn", resource_id)
     elif event_name in ("AddTags", "RemoveTags"):
         # ELB 태그 API: resourceArns 리스트
         params.setdefault("resourceArns", [resource_id])
@@ -722,3 +724,541 @@ class TestAlbNlbResourceType:
         }
         parsed = parse_cloudtrail_event(event)
         assert parsed.resource_type == "NLB"
+
+
+# ──────────────────────────────────────────────
+# DeleteTargetGroup 버그 수정 단위 테스트
+# Validates: Requirements 2.1, 2.2, 2.3, 2.4, 2.5, 3.6
+# ──────────────────────────────────────────────
+
+
+class TestDeleteTargetGroup:
+    """DeleteTargetGroup 이벤트 처리 버그 수정 검증."""
+
+    TG_ARN = "arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/my-tg/abc123def456"
+
+    def test_extract_tg_id_returns_arn(self):
+        """_extract_tg_id(): targetGroupArn 키에서 ARN 추출 확인"""
+        from remediation_handler.lambda_handler import _extract_tg_id
+        result = _extract_tg_id({"targetGroupArn": self.TG_ARN})
+        assert result == self.TG_ARN
+
+    def test_extract_tg_id_missing_key_returns_none(self):
+        """_extract_tg_id(): targetGroupArn 키 없을 때 None 반환"""
+        from remediation_handler.lambda_handler import _extract_tg_id
+        assert _extract_tg_id({}) is None
+        assert _extract_tg_id({"loadBalancerArn": "some-arn"}) is None
+
+    def test_get_event_category_delete_target_group(self):
+        """_get_event_category('DeleteTargetGroup') → 'DELETE'"""
+        from remediation_handler.lambda_handler import _get_event_category
+        assert _get_event_category("DeleteTargetGroup") == "DELETE"
+
+    def test_parse_delete_target_group(self):
+        """parse_cloudtrail_event(): DeleteTargetGroup → resource_type='TG', event_category='DELETE', resource_id=ARN"""
+        event = _make_event("DeleteTargetGroup", self.TG_ARN)
+        parsed = parse_cloudtrail_event(event)
+        assert parsed.resource_type == "TG"
+        assert parsed.event_category == "DELETE"
+        assert parsed.resource_id == self.TG_ARN
+
+    def test_handle_delete_tg_with_monitoring_tag(self):
+        """_handle_delete(): TG + Monitoring=on → delete_alarms_for_resource + send_lifecycle_alert 호출"""
+        parsed = _make_parsed("DeleteTargetGroup", self.TG_ARN, "TG", "DELETE")
+
+        with patch("remediation_handler.lambda_handler.get_resource_tags",
+                   return_value={"Monitoring": "on"}), \
+             patch("remediation_handler.lambda_handler.send_lifecycle_alert") as mock_alert, \
+             patch("remediation_handler.lambda_handler.delete_alarms_for_resource",
+                   return_value=["alarm1"]) as mock_delete:
+            from remediation_handler.lambda_handler import _handle_delete
+            _handle_delete(parsed)
+
+        mock_delete.assert_called_once_with(self.TG_ARN, "TG")
+        mock_alert.assert_called_once()
+        assert mock_alert.call_args.kwargs["event_type"] == "RESOURCE_DELETED"
+        assert mock_alert.call_args.kwargs["resource_id"] == self.TG_ARN
+
+    def test_handle_delete_tg_without_monitoring_tag(self):
+        """_handle_delete(): TG + Monitoring 태그 없음 → delete_alarms_for_resource 호출, send_lifecycle_alert 미호출"""
+        parsed = _make_parsed("DeleteTargetGroup", self.TG_ARN, "TG", "DELETE")
+
+        with patch("remediation_handler.lambda_handler.get_resource_tags",
+                   return_value={}), \
+             patch("remediation_handler.lambda_handler.send_lifecycle_alert") as mock_alert, \
+             patch("remediation_handler.lambda_handler.delete_alarms_for_resource",
+                   return_value=[]) as mock_delete:
+            from remediation_handler.lambda_handler import _handle_delete
+            _handle_delete(parsed)
+
+        mock_delete.assert_called_once_with(self.TG_ARN, "TG")
+        mock_alert.assert_not_called()
+
+    def test_template_event_pattern_includes_delete_target_group(self):
+        """template.yaml EventPattern에 DeleteTargetGroup 포함 정적 검증"""
+        from pathlib import Path
+
+        template_path = Path(__file__).resolve().parent.parent / "template.yaml"
+        content = template_path.read_text(encoding="utf-8")
+
+        # CloudTrailModifyRule 섹션에서 DeleteTargetGroup 문자열 존재 확인
+        assert "DeleteTargetGroup" in content, (
+            "DeleteTargetGroup not found in template.yaml"
+        )
+
+        # EventPattern의 eventName 리스트 내에 위치하는지 더 정밀하게 검증
+        # CloudTrailModifyRule 블록 추출 후 eventName 리스트에 포함 확인
+        import re
+        pattern = re.compile(
+            r"CloudTrailModifyRule:.*?eventName:\s*\n((?:\s+-\s+\S+\n)+)",
+            re.DOTALL,
+        )
+        match = pattern.search(content)
+        assert match, "Could not find CloudTrailModifyRule eventName list"
+        event_names_block = match.group(1)
+        assert "DeleteTargetGroup" in event_names_block, (
+            "DeleteTargetGroup not in CloudTrailModifyRule eventName list"
+        )
+
+
+# ──────────────────────────────────────────────
+# CREATE 카테고리 단위 테스트
+# Validates: Requirements 1.1, 1.2, 1.3
+# ──────────────────────────────────────────────
+
+
+class TestCreateCategory:
+    """MONITORED_API_EVENTS CREATE 카테고리 및 _get_event_category 검증."""
+
+    def test_monitored_api_events_has_create_key(self):
+        """MONITORED_API_EVENTS에 'CREATE' 키가 존재해야 한다."""
+        from common import MONITORED_API_EVENTS
+        assert "CREATE" in MONITORED_API_EVENTS, (
+            "MONITORED_API_EVENTS should contain 'CREATE' key"
+        )
+
+    def test_create_category_contains_four_events(self):
+        """CREATE 카테고리에 4개 이벤트가 포함되어야 한다."""
+        from common import MONITORED_API_EVENTS
+        expected = {"RunInstances", "CreateDBInstance", "CreateLoadBalancer", "CreateTargetGroup"}
+        actual = set(MONITORED_API_EVENTS.get("CREATE", []))
+        assert actual == expected, (
+            f"CREATE category should contain {expected}, got {actual}"
+        )
+
+    def test_existing_categories_preserved(self):
+        """기존 MODIFY, DELETE, TAG_CHANGE 카테고리가 보존되어야 한다."""
+        from common import MONITORED_API_EVENTS
+        for category in ("MODIFY", "DELETE", "TAG_CHANGE"):
+            assert category in MONITORED_API_EVENTS, (
+                f"Existing category '{category}' should be preserved"
+            )
+            assert len(MONITORED_API_EVENTS[category]) > 0, (
+                f"Category '{category}' should not be empty"
+            )
+
+    def test_get_event_category_run_instances_returns_create(self):
+        """_get_event_category('RunInstances') → 'CREATE'"""
+        from remediation_handler.lambda_handler import _get_event_category
+        assert _get_event_category("RunInstances") == "CREATE"
+
+    def test_get_event_category_create_db_instance_returns_create(self):
+        """_get_event_category('CreateDBInstance') → 'CREATE'"""
+        from remediation_handler.lambda_handler import _get_event_category
+        assert _get_event_category("CreateDBInstance") == "CREATE"
+
+
+# ──────────────────────────────────────────────
+# CREATE용 ID 추출 함수 단위 테스트
+# Validates: Requirements 3.1, 3.2, 3.3, 3.4, 3.5
+# ──────────────────────────────────────────────
+
+
+class TestCreateIdExtractors:
+    """CREATE 이벤트용 ID 추출 함수 개별 테스트."""
+
+    def test_extract_run_instances_id_normal(self):
+        """_extract_run_instances_id: instancesSet.items[0].instanceId 추출"""
+        from remediation_handler.lambda_handler import _extract_run_instances_id
+        resp = {"instancesSet": {"items": [{"instanceId": "i-abc"}]}}
+        assert _extract_run_instances_id(resp) == "i-abc"
+
+    def test_extract_run_instances_id_empty_items(self):
+        """_extract_run_instances_id: 빈 items → None"""
+        from remediation_handler.lambda_handler import _extract_run_instances_id
+        resp = {"instancesSet": {"items": []}}
+        assert _extract_run_instances_id(resp) is None
+
+    def test_extract_create_db_id_normal(self):
+        """_extract_create_db_id: dBInstanceIdentifier 추출"""
+        from remediation_handler.lambda_handler import _extract_create_db_id
+        params = {"dBInstanceIdentifier": "mydb"}
+        assert _extract_create_db_id(params) == "mydb"
+
+    def test_extract_create_lb_id_normal(self):
+        """_extract_create_lb_id: loadBalancers[0].loadBalancerArn 추출"""
+        from remediation_handler.lambda_handler import _extract_create_lb_id
+        resp = {"loadBalancers": [{"loadBalancerArn": "arn:aws:elasticloadbalancing:us-east-1:123:loadbalancer/app/my-alb/abc"}]}
+        assert _extract_create_lb_id(resp) == "arn:aws:elasticloadbalancing:us-east-1:123:loadbalancer/app/my-alb/abc"
+
+    def test_extract_create_lb_id_empty_list(self):
+        """_extract_create_lb_id: 빈 loadBalancers → None"""
+        from remediation_handler.lambda_handler import _extract_create_lb_id
+        resp = {"loadBalancers": []}
+        assert _extract_create_lb_id(resp) is None
+
+    def test_extract_create_tg_id_normal(self):
+        """_extract_create_tg_id: targetGroups[0].targetGroupArn 추출"""
+        from remediation_handler.lambda_handler import _extract_create_tg_id
+        resp = {"targetGroups": [{"targetGroupArn": "arn:aws:elasticloadbalancing:us-east-1:123:targetgroup/my-tg/abc"}]}
+        assert _extract_create_tg_id(resp) == "arn:aws:elasticloadbalancing:us-east-1:123:targetgroup/my-tg/abc"
+
+    def test_extract_create_tg_id_empty_list(self):
+        """_extract_create_tg_id: 빈 targetGroups → None"""
+        from remediation_handler.lambda_handler import _extract_create_tg_id
+        resp = {"targetGroups": []}
+        assert _extract_create_tg_id(resp) is None
+
+
+# ──────────────────────────────────────────────
+# CREATE 이벤트 파싱 단위 테스트 (parse_cloudtrail_event)
+# Validates: Requirements 3.1, 3.2, 3.3, 3.4, 3.5, 6.1, 6.2, 6.3
+# ──────────────────────────────────────────────
+
+
+class TestCreateEventParsing:
+    """parse_cloudtrail_event()가 CREATE 이벤트의 responseElements에서 리소스 ID를 올바르게 추출하는지 검증."""
+
+    def test_run_instances_parses_ec2(self):
+        """RunInstances → resource_type='EC2', event_category='CREATE', resource_id from responseElements"""
+        event = {
+            "detail": {
+                "eventName": "RunInstances",
+                "requestParameters": {"instanceType": "t3.micro"},
+                "responseElements": {
+                    "instancesSet": {"items": [{"instanceId": "i-abc123"}]}
+                },
+            }
+        }
+        parsed = parse_cloudtrail_event(event)
+        assert parsed.resource_id == "i-abc123"
+        assert parsed.resource_type == "EC2"
+        assert parsed.event_category == "CREATE"
+
+    def test_create_db_instance_parses_rds(self):
+        """CreateDBInstance → resource_type='RDS', event_category='CREATE', resource_id from requestParameters"""
+        event = {
+            "detail": {
+                "eventName": "CreateDBInstance",
+                "requestParameters": {"dBInstanceIdentifier": "mydb-prod"},
+                "responseElements": {},
+            }
+        }
+        parsed = parse_cloudtrail_event(event)
+        assert parsed.resource_id == "mydb-prod"
+        assert parsed.resource_type == "RDS"
+        assert parsed.event_category == "CREATE"
+
+    def test_create_load_balancer_alb_parses(self):
+        """CreateLoadBalancer + app/ ARN → resource_type='ALB', event_category='CREATE'"""
+        alb_arn = "arn:aws:elasticloadbalancing:us-east-1:123:loadbalancer/app/my-alb/abc123"
+        event = {
+            "detail": {
+                "eventName": "CreateLoadBalancer",
+                "requestParameters": {"name": "my-alb", "type": "application"},
+                "responseElements": {
+                    "loadBalancers": [{"loadBalancerArn": alb_arn}]
+                },
+            }
+        }
+        parsed = parse_cloudtrail_event(event)
+        assert parsed.resource_id == alb_arn
+        assert parsed.resource_type == "ALB"
+        assert parsed.event_category == "CREATE"
+
+    def test_create_load_balancer_nlb_parses(self):
+        """CreateLoadBalancer + net/ ARN → resource_type='NLB', event_category='CREATE'"""
+        nlb_arn = "arn:aws:elasticloadbalancing:us-east-1:123:loadbalancer/net/my-nlb/def456"
+        event = {
+            "detail": {
+                "eventName": "CreateLoadBalancer",
+                "requestParameters": {"name": "my-nlb", "type": "network"},
+                "responseElements": {
+                    "loadBalancers": [{"loadBalancerArn": nlb_arn}]
+                },
+            }
+        }
+        parsed = parse_cloudtrail_event(event)
+        assert parsed.resource_id == nlb_arn
+        assert parsed.resource_type == "NLB"
+        assert parsed.event_category == "CREATE"
+
+    def test_create_target_group_parses(self):
+        """CreateTargetGroup → resource_type='TG', event_category='CREATE'"""
+        tg_arn = "arn:aws:elasticloadbalancing:us-east-1:123:targetgroup/my-tg/abc123"
+        event = {
+            "detail": {
+                "eventName": "CreateTargetGroup",
+                "requestParameters": {"name": "my-tg"},
+                "responseElements": {
+                    "targetGroups": [{"targetGroupArn": tg_arn}]
+                },
+            }
+        }
+        parsed = parse_cloudtrail_event(event)
+        assert parsed.resource_id == tg_arn
+        assert parsed.resource_type == "TG"
+        assert parsed.event_category == "CREATE"
+
+    def test_run_instances_missing_response_elements_raises(self):
+        """RunInstances + responseElements 누락 → ValueError"""
+        event = {
+            "detail": {
+                "eventName": "RunInstances",
+                "requestParameters": {"instanceType": "t3.micro"},
+            }
+        }
+        with pytest.raises(ValueError, match="Cannot extract resource_id"):
+            parse_cloudtrail_event(event)
+
+    def test_create_load_balancer_empty_list_raises(self):
+        """CreateLoadBalancer + 빈 loadBalancers 리스트 → ValueError"""
+        event = {
+            "detail": {
+                "eventName": "CreateLoadBalancer",
+                "requestParameters": {"name": "my-alb"},
+                "responseElements": {
+                    "loadBalancers": []
+                },
+            }
+        }
+        with pytest.raises(ValueError, match="Cannot extract resource_id"):
+            parse_cloudtrail_event(event)
+
+
+# ──────────────────────────────────────────────
+# _handle_create 핸들러 및 lambda_handler CREATE 라우팅 단위 테스트
+# Validates: Requirements 4.1, 4.2, 4.3, 4.4, 7.1, 7.2, 7.3
+# ──────────────────────────────────────────────
+
+
+class TestHandleCreate:
+    """_handle_create 핸들러 및 lambda_handler CREATE 라우팅 검증."""
+
+    def _make_create_parsed(self, resource_id="i-new123", resource_type="EC2",
+                            event_name="RunInstances"):
+        """CREATE ParsedEvent 헬퍼."""
+        return ParsedEvent(
+            resource_id=resource_id,
+            resource_type=resource_type,
+            event_name=event_name,
+            event_category="CREATE",
+            change_summary=f"{event_name} on {resource_type} {resource_id}",
+            request_params={},
+        )
+
+    # ── 라우팅 테스트 ──
+
+    def test_create_event_routes_to_handle_create(self):
+        """CREATE 이벤트 → _handle_create 호출 확인 (라우팅) — Requirements 7.1"""
+        event = {
+            "detail": {
+                "eventName": "RunInstances",
+                "requestParameters": {"instanceType": "t3.micro"},
+                "responseElements": {
+                    "instancesSet": {"items": [{"instanceId": "i-new123"}]}
+                },
+            }
+        }
+        with patch("remediation_handler.lambda_handler._handle_create") as mock_hc:
+            result = lambda_handler(event, MagicMock())
+
+        mock_hc.assert_called_once()
+        assert result["status"] == "ok"
+
+    # ── Monitoring=on → create_alarms_for_resource 호출 ──
+
+    def test_create_with_monitoring_on_creates_alarms(self):
+        """CREATE + Monitoring=on → create_alarms_for_resource 호출 — Requirements 4.1"""
+        from remediation_handler.lambda_handler import _handle_create
+
+        parsed = self._make_create_parsed()
+        tags = {"Monitoring": "on", "Name": "test-instance"}
+
+        with patch("remediation_handler.lambda_handler.get_resource_tags",
+                   return_value=tags) as mock_tags, \
+             patch("remediation_handler.lambda_handler.has_monitoring_tag",
+                   return_value=True), \
+             patch("remediation_handler.lambda_handler.create_alarms_for_resource",
+                   return_value=["alarm1"]) as mock_create:
+            _handle_create(parsed)
+
+        mock_tags.assert_called_once_with("i-new123", "EC2")
+        mock_create.assert_called_once_with("i-new123", "EC2", tags)
+
+    # ── Monitoring 태그 없음 → 알람 생성 미호출 + info 로그 ──
+
+    def test_create_without_monitoring_tag_skips_alarms(self, caplog):
+        """CREATE + Monitoring 태그 없음 → create_alarms_for_resource 미호출 + info 로그 — Requirements 4.2"""
+        from remediation_handler.lambda_handler import _handle_create
+
+        parsed = self._make_create_parsed()
+        tags = {"Name": "test-instance"}
+
+        with caplog.at_level(logging.INFO, logger="remediation_handler.lambda_handler"), \
+             patch("remediation_handler.lambda_handler.get_resource_tags",
+                   return_value=tags), \
+             patch("remediation_handler.lambda_handler.has_monitoring_tag",
+                   return_value=False), \
+             patch("remediation_handler.lambda_handler.create_alarms_for_resource") as mock_create:
+            _handle_create(parsed)
+
+        mock_create.assert_not_called()
+        log_msgs = [r.message for r in caplog.records]
+        assert any("skip" in m.lower() or "Skipping" in m for m in log_msgs), \
+            f"Expected info log about skipping alarm creation, got: {log_msgs}"
+
+    # ── get_resource_tags 빈 딕셔너리 → warning 로그 + 스킵 ──
+
+    def test_create_empty_tags_logs_warning_and_skips(self, caplog):
+        """CREATE + get_resource_tags 빈 딕셔너리 → warning 로그 + 알람 생성 스킵 — Requirements 4.4"""
+        from remediation_handler.lambda_handler import _handle_create
+
+        parsed = self._make_create_parsed()
+
+        with caplog.at_level(logging.WARNING, logger="remediation_handler.lambda_handler"), \
+             patch("remediation_handler.lambda_handler.get_resource_tags",
+                   return_value={}) as mock_tags, \
+             patch("remediation_handler.lambda_handler.create_alarms_for_resource") as mock_create:
+            _handle_create(parsed)
+
+        mock_tags.assert_called_once_with("i-new123", "EC2")
+        mock_create.assert_not_called()
+        warning_msgs = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
+        assert warning_msgs, "Expected warning log when get_resource_tags returns empty dict"
+
+    # ── 정상 처리 → {"status": "ok"} ──
+
+    def test_create_event_returns_ok(self):
+        """CREATE 이벤트 정상 처리 → {"status": "ok"} 반환 — Requirements 7.2"""
+        event = {
+            "detail": {
+                "eventName": "RunInstances",
+                "requestParameters": {"instanceType": "t3.micro"},
+                "responseElements": {
+                    "instancesSet": {"items": [{"instanceId": "i-new123"}]}
+                },
+            }
+        }
+        with patch("remediation_handler.lambda_handler.get_resource_tags",
+                   return_value={"Monitoring": "on"}), \
+             patch("remediation_handler.lambda_handler.has_monitoring_tag",
+                   return_value=True), \
+             patch("remediation_handler.lambda_handler.create_alarms_for_resource",
+                   return_value=["alarm1"]):
+            result = lambda_handler(event, MagicMock())
+
+        assert result == {"status": "ok"}
+
+    # ── 예외 발생 → {"status": "error"} ──
+
+    def test_create_event_exception_returns_error(self):
+        """CREATE 이벤트 처리 중 예외 → {"status": "error"} 반환 — Requirements 7.3"""
+        event = {
+            "detail": {
+                "eventName": "RunInstances",
+                "requestParameters": {"instanceType": "t3.micro"},
+                "responseElements": {
+                    "instancesSet": {"items": [{"instanceId": "i-new123"}]}
+                },
+            }
+        }
+        with patch("remediation_handler.lambda_handler._handle_create",
+                   side_effect=RuntimeError("boom")):
+            result = lambda_handler(event, MagicMock())
+
+        assert result == {"status": "error"}
+
+
+# ──────────────────────────────────────────────
+# EventBridge 규칙 정적 검증 테스트
+# Validates: Requirements 2.1, 2.2
+# ──────────────────────────────────────────────
+
+
+class TestEventBridgeRule:
+    """template.yaml CloudTrailModifyRule EventPattern에 CREATE 이벤트 포함 및 기존 이벤트 보존 검증."""
+
+    @staticmethod
+    def _load_event_names() -> list[str]:
+        """template.yaml을 파싱하여 CloudTrailModifyRule의 eventName 리스트를 반환."""
+        from pathlib import Path
+        import yaml
+
+        # CloudFormation 인트린식 함수 태그를 처리하는 커스텀 로더
+        class _CfnLoader(yaml.SafeLoader):
+            pass
+
+        def _cfn_tag_constructor(loader, tag_suffix, node):
+            if isinstance(node, yaml.ScalarNode):
+                return loader.construct_scalar(node)
+            if isinstance(node, yaml.SequenceNode):
+                return loader.construct_sequence(node)
+            if isinstance(node, yaml.MappingNode):
+                return loader.construct_mapping(node)
+            return None
+
+        _CfnLoader.add_multi_constructor("!", _cfn_tag_constructor)
+
+        template_path = Path(__file__).resolve().parent.parent / "template.yaml"
+        with open(template_path, encoding="utf-8") as f:
+            template = yaml.load(f, Loader=_CfnLoader)
+
+        return (
+            template["Resources"]["CloudTrailModifyRule"]
+            ["Properties"]["EventPattern"]["detail"]["eventName"]
+        )
+
+    def test_event_pattern_includes_create_events(self):
+        """CloudTrailModifyRule EventPattern에 4개 CREATE 이벤트가 포함되어야 한다 — Requirements 2.1"""
+        event_names = self._load_event_names()
+        expected_create_events = [
+            "RunInstances",
+            "CreateDBInstance",
+            "CreateLoadBalancer",
+            "CreateTargetGroup",
+        ]
+        for event_name in expected_create_events:
+            assert event_name in event_names, (
+                f"CREATE event '{event_name}' not found in CloudTrailModifyRule eventName list. "
+                f"Current list: {event_names}"
+            )
+
+    def test_event_pattern_preserves_existing_events(self):
+        """기존 MODIFY/DELETE/TAG_CHANGE 이벤트 필터가 보존되어야 한다 — Requirements 2.2"""
+        event_names = self._load_event_names()
+        existing_events = [
+            # MODIFY
+            "ModifyInstanceAttribute",
+            "ModifyInstanceType",
+            "ModifyDBInstance",
+            "ModifyLoadBalancerAttributes",
+            "ModifyListener",
+            # DELETE
+            "TerminateInstances",
+            "DeleteDBInstance",
+            "DeleteLoadBalancer",
+            "DeleteTargetGroup",
+            # TAG_CHANGE
+            "CreateTags",
+            "DeleteTags",
+            "AddTagsToResource",
+            "RemoveTagsFromResource",
+            "AddTags",
+            "RemoveTags",
+        ]
+        for event_name in existing_events:
+            assert event_name in event_names, (
+                f"Existing event '{event_name}' missing from CloudTrailModifyRule eventName list. "
+                f"Current list: {event_names}"
+            )
