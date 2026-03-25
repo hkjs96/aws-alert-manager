@@ -82,3 +82,66 @@ fileMatchPattern: '**/*.py'
   - 리소스당 태그 최대 50개 (Monitoring, Name 등 시스템 태그 포함)
   - 태그 허용 문자: 문자, 숫자, 공백, `_ . : / = + - @`
   - `aws:` 접두사 태그는 무시
+
+## §12. 리소스별 태그-메트릭 매핑 테이블 유지 규칙
+
+새 리소스 타입 또는 메트릭을 추가할 때, 아래 매핑 테이블을 반드시 업데이트한다.
+이 테이블은 태그 키(Threshold_*)와 내부 metric key, CloudWatch metric_name 간의 관계를 정의한다.
+
+### 규칙
+- 새 하드코딩 알람 정의(`_*_ALARMS`)를 추가하면 이 테이블에 해당 행을 추가한다
+- `_metric_name_to_key()` 매핑에도 동일하게 추가한다 (CW metric_name → 내부 키)
+- `HARDCODED_DEFAULTS`에 기본 임계치를 추가한다
+- `_METRIC_DISPLAY`에 표시 정보를 추가한다
+
+### EC2
+
+| 태그 키 | 내부 metric key | CW metric_name | Namespace | 기본 임계치 | 단위 |
+|---------|----------------|----------------|-----------|-----------|------|
+| Threshold_CPU | CPU | CPUUtilization | AWS/EC2 | 80 | % |
+| Threshold_Memory | Memory | mem_used_percent | CWAgent | 80 | % |
+| Threshold_Disk_{path} | Disk_{path} | disk_used_percent | CWAgent | 80 | % |
+| Threshold_StatusCheckFailed | StatusCheckFailed | StatusCheckFailed | AWS/EC2 | 0 | Count |
+
+### RDS
+
+| 태그 키 | 내부 metric key | CW metric_name | Namespace | 기본 임계치 | 단위 | 변환 |
+|---------|----------------|----------------|-----------|-----------|------|------|
+| Threshold_CPU | CPU | CPUUtilization | AWS/RDS | 80 | % | - |
+| Threshold_FreeMemoryGB | FreeMemoryGB | FreeableMemory | AWS/RDS | 2 | GB | GB→bytes |
+| Threshold_FreeStorageGB | FreeStorageGB | FreeStorageSpace | AWS/RDS | 10 | GB | GB→bytes |
+| Threshold_Connections | Connections | DatabaseConnections | AWS/RDS | 100 | Count | - |
+| Threshold_ReadLatency | ReadLatency | ReadLatency | AWS/RDS | 0.02 | Seconds | - |
+| Threshold_WriteLatency | WriteLatency | WriteLatency | AWS/RDS | 0.02 | Seconds | - |
+
+### ALB
+
+| 태그 키 | 내부 metric key | CW metric_name | Namespace | 기본 임계치 | 단위 |
+|---------|----------------|----------------|-----------|-----------|------|
+| Threshold_RequestCount | RequestCount | RequestCount | AWS/ApplicationELB | 10000 | Count |
+| Threshold_ELB5XX | ELB5XX | HTTPCode_ELB_5XX_Count | AWS/ApplicationELB | 50 | Count |
+| Threshold_TargetResponseTime | TargetResponseTime | TargetResponseTime | AWS/ApplicationELB | 5 | Seconds |
+
+### NLB
+
+| 태그 키 | 내부 metric key | CW metric_name | Namespace | 기본 임계치 | 단위 |
+|---------|----------------|----------------|-----------|-----------|------|
+| Threshold_ProcessedBytes | ProcessedBytes | ProcessedBytes | AWS/NetworkELB | 100000000 | Bytes |
+| Threshold_ActiveFlowCount | ActiveFlowCount | ActiveFlowCount | AWS/NetworkELB | 10000 | Count |
+| Threshold_NewFlowCount | NewFlowCount | NewFlowCount | AWS/NetworkELB | 5000 | Count |
+| Threshold_TCPClientReset | TCPClientReset | TCP_Client_Reset_Count | AWS/NetworkELB | 100 | Count |
+| Threshold_TCPTargetReset | TCPTargetReset | TCP_Target_Reset_Count | AWS/NetworkELB | 100 | Count |
+
+### TG (Target Group)
+
+| 태그 키 | 내부 metric key | CW metric_name | Namespace | 기본 임계치 | 단위 | 비고 |
+|---------|----------------|----------------|-----------|-----------|------|------|
+| Threshold_HealthyHostCount | HealthyHostCount | HealthyHostCount | ALB/NLB 분기 | 1 | Count | LessThan |
+| Threshold_UnHealthyHostCount | UnHealthyHostCount | UnHealthyHostCount | ALB/NLB 분기 | 80 | Count | - |
+| Threshold_RequestCountPerTarget | RequestCountPerTarget | RequestCountPerTarget | AWS/ApplicationELB | 1000 | Count | ALB TG only |
+| Threshold_TGResponseTime | TGResponseTime | TargetResponseTime | AWS/ApplicationELB | 5 | Seconds | ALB TG only |
+
+### 동적 알람 (Threshold_* 태그)
+
+하드코딩 목록에 없는 `Threshold_{MetricName}={Value}` 태그는 동적 알람으로 처리된다.
+단, CW metric_name이 하드코딩 내부 키의 별칭인 경우 동적 알람 생성을 방지한다 (KI-005 참조).

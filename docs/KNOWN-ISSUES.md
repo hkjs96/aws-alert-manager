@@ -90,3 +90,40 @@ Memory/Disk 메트릭은 CWAgent가 수집하여 `CWAgent` 네임스페이스로
 - Disk 알람: CWAgent 메트릭이 없으면 `_get_disk_dimensions()`에서 빈 리스트 반환 → 알람 생성 스킵 + 경고 로그
 - Memory 알람: 알람은 생성되지만 `INSUFFICIENT_DATA` 상태로 대기 (에이전트 설치 후 자동 활성화)
 - CWAgent 설치 가이드: [CWAGENT.md](../CWAGENT.md)
+
+---
+
+## KI-005: Threshold_* 태그에 CloudWatch metric_name 사용 시 동적 알람 중복 생성 방지
+
+### 현상
+`Threshold_CPUUtilization=10` 태그를 달면, 하드코딩 CPU 알람(80%)은 그대로 유지되면서
+동적 알람 `CPUUtilization >10`이 추가로 생성되어 **알람이 중복**된다.
+
+### 원인
+하드코딩 알람의 내부 metric key(`CPU`)와 CloudWatch metric_name(`CPUUtilization`)이 다르기 때문.
+`_parse_threshold_tags()`가 `CPUUtilization`을 하드코딩 목록에서 찾지 못해 동적 알람으로 처리.
+
+### 영향 범위
+내부 키와 CW metric_name이 다른 모든 메트릭:
+
+| 내부 키 (태그용) | CW metric_name | 리소스 |
+|-----------------|----------------|--------|
+| CPU | CPUUtilization | EC2, RDS |
+| Memory | mem_used_percent | EC2 |
+| Disk | disk_used_percent | EC2 |
+| FreeMemoryGB | FreeableMemory | RDS |
+| FreeStorageGB | FreeStorageSpace | RDS |
+| Connections | DatabaseConnections | RDS |
+| ELB5XX | HTTPCode_ELB_5XX_Count | ALB |
+| TCPClientReset | TCP_Client_Reset_Count | NLB |
+| TCPTargetReset | TCP_Target_Reset_Count | NLB |
+| TGResponseTime | TargetResponseTime | TG |
+
+### 엔진 대응 (v20260325)
+- `_parse_threshold_tags()`에서 `_metric_name_to_key()` 매핑으로 CW metric_name도 하드코딩 필터링
+- `Threshold_CPUUtilization=10` → `_metric_name_to_key("CPUUtilization")` = `"CPU"` → hardcoded에 있으므로 skip
+- 하드코딩 임계치 오버라이드는 내부 키 사용: `Threshold_CPU=90`
+
+### 향후 계획
+- UI 구현 시 태그를 자동 생성하므로 사용자가 키 이름을 직접 입력할 필요 없음
+- 전체 metric key 리네이밍은 UI 구현과 함께 진행 예정 (스펙: `.kiro/specs/metric-key-rename/`)
