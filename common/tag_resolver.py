@@ -20,13 +20,6 @@ logger = logging.getLogger(__name__)
 def is_threshold_off(resource_tags: dict, metric_name: str) -> bool:
     """
     Threshold_{metric_name} 태그 값이 'off'(대소문자 무관)인지 판별.
-
-    Args:
-        resource_tags: 리소스에 부착된 태그 딕셔너리
-        metric_name: 메트릭 이름
-
-    Returns:
-        off이면 True, 아니면 False
     """
     return resource_tags.get(f"Threshold_{metric_name}", "").strip().lower() == "off"
 
