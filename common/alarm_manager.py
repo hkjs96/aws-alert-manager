@@ -21,6 +21,7 @@ from botocore.exceptions import ClientError
 from common.tag_resolver import (
     disk_path_to_tag_suffix,
     get_threshold,
+    is_threshold_off,
     tag_suffix_to_disk_path,
 )
 
@@ -55,9 +56,19 @@ _METRIC_DISPLAY = {
     "Connections": ("DatabaseConnections", ">", ""),
     "RequestCount": ("RequestCount", ">", ""),
     "HealthyHostCount": ("HealthyHostCount", "<", ""),
+    "UnHealthyHostCount": ("UnHealthyHostCount", ">", ""),
     "ProcessedBytes": ("ProcessedBytes", ">", ""),
     "ActiveFlowCount": ("ActiveFlowCount", ">", ""),
     "NewFlowCount": ("NewFlowCount", ">", ""),
+    "StatusCheckFailed": ("StatusCheckFailed", ">", ""),
+    "ReadLatency": ("ReadLatency", ">", "s"),
+    "WriteLatency": ("WriteLatency", ">", "s"),
+    "ELB5XX": ("HTTPCode_ELB_5XX_Count", ">", ""),
+    "TargetResponseTime": ("TargetResponseTime", ">", "s"),
+    "TCPClientReset": ("TCP_Client_Reset_Count", ">", ""),
+    "TCPTargetReset": ("TCP_Target_Reset_Count", ">", ""),
+    "RequestCountPerTarget": ("RequestCountPerTarget", ">", ""),
+    "TGResponseTime": ("TargetResponseTime", ">", "s"),
 }
 
 
@@ -104,7 +115,8 @@ def _pretty_alarm_name(
     # 고정 부분 (절대 truncate 불가): prefix + threshold_part + suffix
     prefix = f"[{resource_type}] "
     threshold_part = f" {direction}{thr_str}{unit} "
-    suffix = f"({resource_id})"
+    short_id = _shorten_elb_resource_id(resource_id, resource_type)
+    suffix = f"({short_id})"
 
     fixed_len = len(prefix) + len(threshold_part) + len(suffix)
     available = _MAX_ALARM_NAME - fixed_len
@@ -188,7 +200,10 @@ def _find_alarms_for_resource(
     cw = _get_cw_client()
     seen: set[str] = set()
     alarm_names: list[str] = []
-    suffix = f"({resource_id})"
+    short_id = _shorten_elb_resource_id(resource_id, resource_type)
+    suffixes = {f"({short_id})"}
+    if short_id != resource_id:
+        suffixes.add(f"({resource_id})")  # 레거시 Full_ARN 호환
 
     def _collect(prefix: str, filter_suffix: bool = False) -> None:
         try:
@@ -196,7 +211,7 @@ def _find_alarms_for_resource(
             for page in paginator.paginate(AlarmNamePrefix=prefix):
                 for a in page.get("MetricAlarms", []):
                     name = a["AlarmName"]
-                    if filter_suffix and not name.endswith(suffix):
+                    if filter_suffix and not any(name.endswith(s) for s in suffixes):
                         continue
                     if name not in seen:
                         seen.add(name)
@@ -219,8 +234,8 @@ def _find_alarms_for_resource(
     for p in type_prefixes:
         _collect(p, filter_suffix=True)
 
-    # 3) 레거시 [ELB] prefix 호환: ALB/NLB는 기존 [ELB] 알람도 검색
-    if resource_type in ("ALB", "NLB"):
+    # 3) 레거시 [ELB] prefix 호환: ALB/NLB/TG는 기존 [ELB] 알람도 검색
+    if resource_type in ("ALB", "NLB", "TG"):
         _collect("[ELB] ", filter_suffix=True)
 
     return alarm_names
@@ -264,6 +279,16 @@ _EC2_ALARMS = [
         "evaluation_periods": 1,
         # extra_dimensions는 동적으로 조회 (device/fstype/path는 인스턴스마다 다름)
         "dynamic_dimensions": True,
+    },
+    {
+        "metric": "StatusCheckFailed",
+        "namespace": "AWS/EC2",
+        "metric_name": "StatusCheckFailed",
+        "dimension_key": "InstanceId",
+        "stat": "Maximum",
+        "comparison": "GreaterThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
     },
 ]
 
@@ -310,6 +335,26 @@ _RDS_ALARMS = [
         "period": 300,
         "evaluation_periods": 1,
     },
+    {
+        "metric": "ReadLatency",
+        "namespace": "AWS/RDS",
+        "metric_name": "ReadLatency",
+        "dimension_key": "DBInstanceIdentifier",
+        "stat": "Average",
+        "comparison": "GreaterThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+    },
+    {
+        "metric": "WriteLatency",
+        "namespace": "AWS/RDS",
+        "metric_name": "WriteLatency",
+        "dimension_key": "DBInstanceIdentifier",
+        "stat": "Average",
+        "comparison": "GreaterThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+    },
 ]
 
 _ALB_ALARMS = [
@@ -319,6 +364,26 @@ _ALB_ALARMS = [
         "metric_name": "RequestCount",
         "dimension_key": "LoadBalancer",
         "stat": "Sum",
+        "comparison": "GreaterThanThreshold",
+        "period": 60,
+        "evaluation_periods": 1,
+    },
+    {
+        "metric": "ELB5XX",
+        "namespace": "AWS/ApplicationELB",
+        "metric_name": "HTTPCode_ELB_5XX_Count",
+        "dimension_key": "LoadBalancer",
+        "stat": "Sum",
+        "comparison": "GreaterThanThreshold",
+        "period": 60,
+        "evaluation_periods": 1,
+    },
+    {
+        "metric": "TargetResponseTime",
+        "namespace": "AWS/ApplicationELB",
+        "metric_name": "TargetResponseTime",
+        "dimension_key": "LoadBalancer",
+        "stat": "Average",
         "comparison": "GreaterThanThreshold",
         "period": 60,
         "evaluation_periods": 1,
@@ -356,19 +421,29 @@ _NLB_ALARMS = [
         "period": 60,
         "evaluation_periods": 1,
     },
-]
-
-_TG_ALARMS = [
     {
-        "metric": "RequestCount",
-        "namespace": "AWS/ApplicationELB",
-        "metric_name": "RequestCount",
-        "dimension_key": "TargetGroup",
+        "metric": "TCPClientReset",
+        "namespace": "AWS/NetworkELB",
+        "metric_name": "TCP_Client_Reset_Count",
+        "dimension_key": "LoadBalancer",
         "stat": "Sum",
         "comparison": "GreaterThanThreshold",
         "period": 60,
         "evaluation_periods": 1,
     },
+    {
+        "metric": "TCPTargetReset",
+        "namespace": "AWS/NetworkELB",
+        "metric_name": "TCP_Target_Reset_Count",
+        "dimension_key": "LoadBalancer",
+        "stat": "Sum",
+        "comparison": "GreaterThanThreshold",
+        "period": 60,
+        "evaluation_periods": 1,
+    },
+]
+
+_TG_ALARMS = [
     {
         "metric": "HealthyHostCount",
         "namespace": "AWS/ApplicationELB",
@@ -379,10 +454,43 @@ _TG_ALARMS = [
         "period": 60,
         "evaluation_periods": 1,
     },
+    {
+        "metric": "UnHealthyHostCount",
+        "namespace": "AWS/ApplicationELB",
+        "metric_name": "UnHealthyHostCount",
+        "dimension_key": "TargetGroup",
+        "stat": "Average",
+        "comparison": "GreaterThanThreshold",
+        "period": 60,
+        "evaluation_periods": 1,
+    },
+    {
+        "metric": "RequestCountPerTarget",
+        "namespace": "AWS/ApplicationELB",
+        "metric_name": "RequestCountPerTarget",
+        "dimension_key": "TargetGroup",
+        "stat": "Sum",
+        "comparison": "GreaterThanThreshold",
+        "period": 60,
+        "evaluation_periods": 1,
+    },
+    {
+        "metric": "TGResponseTime",
+        "namespace": "AWS/ApplicationELB",
+        "metric_name": "TargetResponseTime",
+        "dimension_key": "TargetGroup",
+        "stat": "Average",
+        "comparison": "GreaterThanThreshold",
+        "period": 60,
+        "evaluation_periods": 1,
+    },
 ]
 
 
-def _get_alarm_defs(resource_type: str) -> list[dict]:
+_NLB_TG_EXCLUDED_METRICS = {"RequestCountPerTarget", "TGResponseTime"}
+
+
+def _get_alarm_defs(resource_type: str, resource_tags: dict | None = None) -> list[dict]:
     if resource_type == "EC2":
         return _EC2_ALARMS
     elif resource_type == "RDS":
@@ -392,17 +500,23 @@ def _get_alarm_defs(resource_type: str) -> list[dict]:
     elif resource_type == "NLB":
         return _NLB_ALARMS
     elif resource_type == "TG":
+        # TargetType=alb인 TG는 HealthyHostCount/UnHealthyHostCount 메트릭이
+        # CloudWatch에서 발행되지 않음 (AWS 제약사항) → 알람 생성 스킵
+        if resource_tags is not None and resource_tags.get("_target_type") == "alb":
+            return []
+        if resource_tags is not None and resource_tags.get("_lb_type") == "network":
+            return [d for d in _TG_ALARMS if d["metric"] not in _NLB_TG_EXCLUDED_METRICS]
         return _TG_ALARMS
     return []
 
 
 # resource_type별 하드코딩 메트릭 키
 _HARDCODED_METRIC_KEYS: dict[str, set[str]] = {
-    "EC2": {"CPU", "Memory", "Disk"},
-    "RDS": {"CPU", "FreeMemoryGB", "FreeStorageGB", "Connections"},
-    "ALB": {"RequestCount"},
-    "NLB": {"ProcessedBytes", "ActiveFlowCount", "NewFlowCount"},
-    "TG": {"RequestCount", "HealthyHostCount"},
+    "EC2": {"CPU", "Memory", "Disk", "StatusCheckFailed"},
+    "RDS": {"CPU", "FreeMemoryGB", "FreeStorageGB", "Connections", "ReadLatency", "WriteLatency"},
+    "ALB": {"RequestCount", "ELB5XX", "TargetResponseTime"},
+    "NLB": {"ProcessedBytes", "ActiveFlowCount", "NewFlowCount", "TCPClientReset", "TCPTargetReset"},
+    "TG": {"HealthyHostCount", "UnHealthyHostCount", "RequestCountPerTarget", "TGResponseTime"},
 }
 
 # resource_type별 CloudWatch 네임스페이스 목록
@@ -429,6 +543,15 @@ _TAG_ALLOWED_CHARS = re.compile(
 )
 
 
+def _get_hardcoded_metric_keys(resource_type: str, resource_tags: dict | None = None) -> set[str]:
+    """resource_type과 resource_tags 기반으로 하드코딩 메트릭 키 집합을 반환.
+
+    _get_alarm_defs() 결과에서 동적으로 추출하여 NLB TG 등 LB 타입별 차이를 반영한다.
+    """
+    alarm_defs = _get_alarm_defs(resource_type, resource_tags)
+    return {d["metric"] for d in alarm_defs}
+
+
 def _parse_threshold_tags(
     resource_tags: dict,
     resource_type: str,
@@ -442,7 +565,7 @@ def _parse_threshold_tags(
     Returns:
         {metric_name: threshold_value} 딕셔너리 (동적 메트릭만)
     """
-    hardcoded = _HARDCODED_METRIC_KEYS.get(resource_type, set())
+    hardcoded = _get_hardcoded_metric_keys(resource_type, resource_tags)
     result: dict[str, float] = {}
 
     for key, value in resource_tags.items():
@@ -472,6 +595,13 @@ def _parse_threshold_tags(
                 key,
             )
             continue
+        # off 값 명시적 스킵 (대소문자 무관)
+        if value.strip().lower() == "off":
+            logger.info(
+                "Skipping dynamic tag %s: alarm explicitly disabled (off)",
+                key,
+            )
+            continue
         # 값 검증: 양의 유한 숫자
         try:
             val = float(value)
@@ -489,6 +619,38 @@ def _parse_threshold_tags(
             )
 
     return result
+
+
+def _select_best_dimensions(
+    metrics: list[dict],
+    primary_dim_key: str,
+) -> list[dict]:
+    """list_metrics 결과에서 최적 디멘션 조합 선택.
+
+    우선순위:
+    1. Primary_Dimension_Key만 포함된 조합
+    2. AZ 미포함 + 디멘션 수 최소
+    3. 디멘션 수 최소 (AZ 포함 허용)
+    """
+    if not metrics:
+        return []
+
+    # 1순위: primary_dim_key만 포함된 조합
+    for m in metrics:
+        dims = m["Dimensions"]
+        if len(dims) == 1 and dims[0]["Name"] == primary_dim_key:
+            return dims
+
+    # 2순위: AZ 미포함 조합 중 디멘션 수 최소
+    no_az = [
+        m["Dimensions"] for m in metrics
+        if not any(d["Name"] == "AvailabilityZone" for d in m["Dimensions"])
+    ]
+    if no_az:
+        return min(no_az, key=len)
+
+    # 3순위: 디멘션 수 최소 (AZ 포함 허용)
+    return min((m["Dimensions"] for m in metrics), key=len)
 
 
 def _resolve_metric_dimensions(
@@ -527,7 +689,7 @@ def _resolve_metric_dimensions(
             )
             metrics = resp.get("Metrics", [])
             if metrics:
-                return (namespace, metrics[0]["Dimensions"])
+                return (namespace, _select_best_dimensions(metrics, dim_key))
         except ClientError as e:
             logger.error(
                 "Failed to list_metrics for %s/%s (%s): %s",
@@ -574,6 +736,12 @@ def _create_disk_alarms(
         path = next((d["Value"] for d in dim_set if d["Name"] == "path"), "/")
         suffix = path.lstrip("/") or "root"
         alarm_metric = f"Disk_{suffix}"
+        if is_threshold_off(resource_tags, alarm_metric):
+            logger.info(
+                "Skipping Disk alarm for %s path %s: threshold set to off",
+                resource_id, path,
+            )
+            continue
         disk_threshold = get_threshold(resource_tags, alarm_metric)
         disk_metric_label = f"Disk-{suffix}"
         name = _pretty_alarm_name(
@@ -610,6 +778,45 @@ def _create_disk_alarms(
     return created
 
 
+def _build_dimensions(
+    alarm_def: dict,
+    resource_id: str,
+    resource_type: str,
+    resource_tags: dict,
+) -> list[dict]:
+    """리소스 유형별 CloudWatch Dimensions 리스트 생성.
+
+    - TG: TargetGroup + LoadBalancer 복합 디멘션
+    - ALB/NLB: LoadBalancer 단일 디멘션
+    - EC2/RDS 등: {dim_key: resource_id} 단일 디멘션
+    - alarm_def의 extra_dimensions 추가
+    """
+    dim_key = alarm_def["dimension_key"]
+
+    if resource_type == "TG":
+        dimensions = [
+            {"Name": "TargetGroup", "Value": _extract_elb_dimension(resource_id)},
+            {"Name": "LoadBalancer", "Value": _extract_elb_dimension(resource_tags["_lb_arn"])},
+        ]
+    elif resource_type in ("ALB", "NLB"):
+        dimensions = [{"Name": dim_key, "Value": _extract_elb_dimension(resource_id)}]
+    else:
+        dimensions = [{"Name": dim_key, "Value": resource_id}]
+
+    dimensions.extend(alarm_def.get("extra_dimensions", []))
+    return dimensions
+
+
+def _resolve_tg_namespace(alarm_def: dict, resource_tags: dict) -> str:
+    """TG 리소스의 CloudWatch namespace를 동적 결정.
+
+    _lb_type == "network" → AWS/NetworkELB, 그 외 → alarm_def["namespace"].
+    """
+    if resource_tags.get("_lb_type") == "network":
+        return "AWS/NetworkELB"
+    return alarm_def["namespace"]
+
+
 def _create_standard_alarm(
     alarm_def: dict,
     resource_id: str,
@@ -626,14 +833,13 @@ def _create_standard_alarm(
     transform = alarm_def.get("transform_threshold")
     cw_threshold = transform(threshold) if transform else threshold
 
-    dim_key = alarm_def["dimension_key"]
-    if resource_type in ("ALB", "NLB", "TG") and dim_key in ("LoadBalancer", "TargetGroup"):
-        dim_value = _extract_elb_dimension(resource_id)
-    else:
-        dim_value = resource_id
+    dimensions = _build_dimensions(alarm_def, resource_id, resource_type, resource_tags)
 
-    dimensions = [{"Name": dim_key, "Value": dim_value}]
-    dimensions.extend(alarm_def.get("extra_dimensions", []))
+    namespace = (
+        _resolve_tg_namespace(alarm_def, resource_tags)
+        if resource_type == "TG"
+        else alarm_def["namespace"]
+    )
 
     name = _pretty_alarm_name(
         resource_type, resource_id, resource_name,
@@ -647,7 +853,7 @@ def _create_standard_alarm(
         cw.put_metric_alarm(
             AlarmName=name,
             AlarmDescription=desc,
-            Namespace=alarm_def["namespace"],
+            Namespace=namespace,
             MetricName=alarm_def["metric_name"],
             Dimensions=dimensions,
             Statistic=alarm_def["stat"],
@@ -685,7 +891,7 @@ def create_alarms_for_resource(
     """
     cw = _get_cw_client()
     sns_arn = _get_sns_alert_arn()
-    alarm_defs = _get_alarm_defs(resource_type)
+    alarm_defs = _get_alarm_defs(resource_type, resource_tags)
     created: list[str] = []
     resource_name = resource_tags.get("Name", "")
 
@@ -700,6 +906,12 @@ def create_alarms_for_resource(
             )
             created.extend(disk_names)
         else:
+            if is_threshold_off(resource_tags, alarm_def["metric"]):
+                logger.info(
+                    "Skipping alarm for %s metric %s: threshold set to off",
+                    resource_id, alarm_def["metric"],
+                )
+                continue
             name = _create_standard_alarm(
                 alarm_def, resource_id, resource_type, resource_tags, cw,
             )
@@ -717,18 +929,55 @@ def create_alarms_for_resource(
     return created
 
 
+def _shorten_elb_resource_id(resource_id: str, resource_type: str) -> str:
+    """ALB/NLB/TG ARN에서 짧은 식별자(name/hash)를 추출.
+
+    - ALB: arn:...loadbalancer/app/{name}/{hash} → {name}/{hash}
+    - NLB: arn:...loadbalancer/net/{name}/{hash} → {name}/{hash}
+    - TG:  arn:...targetgroup/{name}/{hash}      → {name}/{hash}
+    - EC2/RDS 또는 ARN이 아닌 입력: 그대로 반환 (방어적 처리)
+    """
+    if resource_type not in ("ALB", "NLB", "TG"):
+        return resource_id
+    if not resource_id:
+        return resource_id
+
+    if resource_type in ("ALB", "NLB"):
+        # loadbalancer/app/{name}/{hash} 또는 loadbalancer/net/{name}/{hash}
+        for prefix in ("loadbalancer/app/", "loadbalancer/net/"):
+            idx = resource_id.find(prefix)
+            if idx >= 0:
+                return resource_id[idx + len(prefix):]
+    elif resource_type == "TG":
+        # targetgroup/{name}/{hash}
+        marker = ":targetgroup/"
+        idx = resource_id.find(marker)
+        if idx >= 0:
+            return resource_id[idx + len(marker):]
+        # 이미 short_id 형태이거나 "targetgroup/" 접두사 없는 경우
+        marker_no_colon = "targetgroup/"
+        if resource_id.startswith(marker_no_colon):
+            return resource_id[len(marker_no_colon):]
+
+    return resource_id
+
+
 def _extract_elb_dimension(elb_arn: str) -> str:
     """
     ALB/NLB/TG ARN에서 CloudWatch Dimension 값 추출.
     arn:aws:elasticloadbalancing:...:loadbalancer/app/my-alb/1234
     → app/my-alb/1234
     arn:aws:elasticloadbalancing:...:targetgroup/my-tg/1234
-    → my-tg/1234
+    → targetgroup/my-tg/1234
     """
-    for prefix in ("loadbalancer/", "targetgroup/"):
-        parts = elb_arn.split(prefix, 1)
-        if len(parts) == 2:
-            return parts[1]
+    # LB: loadbalancer/ prefix 제거 → app/... 또는 net/...
+    parts = elb_arn.split("loadbalancer/", 1)
+    if len(parts) == 2:
+        return parts[1]
+    # TG: targetgroup/ prefix 유지 (CloudWatch 디멘션 규칙)
+    parts = elb_arn.split(":targetgroup/", 1)
+    if len(parts) == 2:
+        return "targetgroup/" + parts[1]
     return elb_arn
 
 
@@ -761,7 +1010,8 @@ def _create_dynamic_alarm(
     _ELLIPSIS = "..."
     prefix = f"[{resource_type}] "
     threshold_part = f" >{thr_str} "
-    suffix = f"({resource_id})"
+    short_id = _shorten_elb_resource_id(resource_id, resource_type)
+    suffix = f"({short_id})"
     fixed_len = len(prefix) + len(threshold_part) + len(suffix)
     available = _MAX_ALARM_NAME - fixed_len
 
@@ -885,9 +1135,18 @@ def _metric_name_to_key(metric_name: str) -> str:
         "DatabaseConnections": "Connections",
         "RequestCount": "RequestCount",
         "HealthyHostCount": "HealthyHostCount",
+        "UnHealthyHostCount": "UnHealthyHostCount",
         "ProcessedBytes": "ProcessedBytes",
         "ActiveFlowCount": "ActiveFlowCount",
         "NewFlowCount": "NewFlowCount",
+        "StatusCheckFailed": "StatusCheckFailed",
+        "ReadLatency": "ReadLatency",
+        "WriteLatency": "WriteLatency",
+        "HTTPCode_ELB_5XX_Count": "ELB5XX",
+        "TargetResponseTime": "TargetResponseTime",
+        "TCP_Client_Reset_Count": "TCPClientReset",
+        "TCP_Target_Reset_Count": "TCPTargetReset",
+        "RequestCountPerTarget": "RequestCountPerTarget",
     }
     return mapping.get(metric_name, metric_name)
 
@@ -911,7 +1170,7 @@ def _create_single_alarm(
     """전체 삭제 없이 단일 메트릭 알람만 생성 (result["created"] 처리용)."""
     cw = _get_cw_client()
     sns_arn = _get_sns_alert_arn()
-    alarm_defs = _get_alarm_defs(resource_type)
+    alarm_defs = _get_alarm_defs(resource_type, resource_tags)
     resource_name = resource_tags.get("Name", "")
 
     alarm_def = next((d for d in alarm_defs if d["metric"] == metric), None)
@@ -923,14 +1182,13 @@ def _create_single_alarm(
     transform = alarm_def.get("transform_threshold")
     cw_threshold = transform(threshold) if transform else threshold
 
-    dim_key = alarm_def["dimension_key"]
-    if resource_type in ("ALB", "NLB", "TG") and dim_key in ("LoadBalancer", "TargetGroup"):
-        dim_value = _extract_elb_dimension(resource_id)
-    else:
-        dim_value = resource_id
+    dimensions = _build_dimensions(alarm_def, resource_id, resource_type, resource_tags)
 
-    dimensions = [{"Name": dim_key, "Value": dim_value}]
-    dimensions.extend(alarm_def.get("extra_dimensions", []))
+    namespace = (
+        _resolve_tg_namespace(alarm_def, resource_tags)
+        if resource_type == "TG"
+        else alarm_def["namespace"]
+    )
 
     name = _pretty_alarm_name(resource_type, resource_id, resource_name, metric, threshold)
     desc = _build_alarm_description(
@@ -941,7 +1199,7 @@ def _create_single_alarm(
         cw.put_metric_alarm(
             AlarmName=name,
             AlarmDescription=desc,
-            Namespace=alarm_def["namespace"],
+            Namespace=namespace,
             MetricName=alarm_def["metric_name"],
             Dimensions=dimensions,
             Statistic=alarm_def["stat"],
@@ -997,7 +1255,7 @@ def _recreate_alarm_by_name(
         return
 
     # 3. put_metric_alarm으로 재생성
-    alarm_defs = _get_alarm_defs(resource_type)
+    alarm_defs = _get_alarm_defs(resource_type, resource_tags)
     alarm_def = next((d for d in alarm_defs if d["metric"] == metric_key), None)
     if alarm_def is None:
         logger.warning("No alarm definition found for metric key %s (alarm: %s)", metric_key, alarm_name)
@@ -1074,14 +1332,13 @@ def _recreate_standard_alarm(
     transform = alarm_def.get("transform_threshold")
     cw_threshold = transform(threshold) if transform else threshold
 
-    dim_key = alarm_def["dimension_key"]
-    if resource_type in ("ALB", "NLB", "TG") and dim_key in ("LoadBalancer", "TargetGroup"):
-        dim_value = _extract_elb_dimension(resource_id)
-    else:
-        dim_value = resource_id
+    dimensions = _build_dimensions(alarm_def, resource_id, resource_type, resource_tags)
 
-    dimensions = [{"Name": dim_key, "Value": dim_value}]
-    dimensions.extend(alarm_def.get("extra_dimensions", []))
+    namespace = (
+        _resolve_tg_namespace(alarm_def, resource_tags)
+        if resource_type == "TG"
+        else alarm_def["namespace"]
+    )
 
     name = _pretty_alarm_name(resource_type, resource_id, resource_name, metric_key, threshold)
     desc = _build_alarm_description(
@@ -1092,7 +1349,7 @@ def _recreate_standard_alarm(
         cw.put_metric_alarm(
             AlarmName=name,
             AlarmDescription=desc,
-            Namespace=alarm_def["namespace"],
+            Namespace=namespace,
             MetricName=alarm_def["metric_name"],
             Dimensions=dimensions,
             Statistic=alarm_def["stat"],
@@ -1163,9 +1420,11 @@ def sync_alarms_for_resource(
     메타데이터 기반 매칭: AlarmDescription JSON에서 metric_key를 파싱하여 매칭.
 
     Returns:
-        {"created": [...], "updated": [...], "ok": [...]}
+        {"created": [...], "updated": [...], "ok": [...], "deleted": [...]}
     """
-    result: dict[str, list] = {"created": [], "updated": [], "ok": []}
+    result: dict[str, list] = {
+        "created": [], "updated": [], "ok": [], "deleted": [],
+    }
 
     # 현재 알람 이름 목록 조회
     existing_names = _find_alarms_for_resource(resource_id, resource_type)
@@ -1185,7 +1444,13 @@ def sync_alarms_for_resource(
         key_to_alarm.setdefault(mk, alarm_info)
 
     # 하드코딩 메트릭 동기화
-    alarm_defs = _get_alarm_defs(resource_type)
+    alarm_defs = _get_alarm_defs(resource_type, resource_tags)
+
+    # alarm_defs가 빈 리스트면 이 리소스에 알람이 불필요 → 기존 알람 삭제
+    if not alarm_defs and existing_names:
+        _delete_all_alarms_for_resource(resource_id, resource_type)
+        return result
+
     needs_recreate = False
     for alarm_def in alarm_defs:
         metric = alarm_def["metric"]
@@ -1201,6 +1466,16 @@ def sync_alarms_for_resource(
             )
             if changed:
                 needs_recreate = True
+
+    # 하드코딩 알람 off 체크: 기존 알람 삭제
+    _sync_off_hardcoded(
+        alarm_defs, key_to_alarm, resource_tags, result,
+    )
+
+    # 동적 알람 동기화
+    _sync_dynamic_alarms(
+        key_to_alarm, resource_id, resource_type, resource_tags, result,
+    )
 
     if needs_recreate:
         _apply_sync_changes(result, resource_id, resource_type, resource_tags, existing_names)
@@ -1244,6 +1519,9 @@ def _sync_disk_alarms(
             "/",
         )
         suffix = disk_path_to_tag_suffix(path)
+        # off 태그 설정 시 _sync_off_hardcoded()에서 처리 → 여기서는 스킵
+        if is_threshold_off(resource_tags, f"Disk_{suffix}"):
+            continue
         expected_thr = get_threshold(resource_tags, f"Disk_{suffix}")
         if abs(existing_thr - expected_thr) > 0.001:
             result["updated"].append(name)
@@ -1261,6 +1539,9 @@ def _sync_standard_alarms(
 ) -> bool:
     """표준 메트릭 알람 동기화. 변경 필요 시 True 반환."""
     metric = alarm_def["metric"]
+    # off 태그 설정 시 _sync_off_hardcoded()에서 처리 → 여기서는 스킵
+    if is_threshold_off(resource_tags, metric):
+        return False
     threshold = get_threshold(resource_tags, metric)
     transform = alarm_def.get("transform_threshold")
     cw_threshold = transform(threshold) if transform else threshold
@@ -1278,6 +1559,102 @@ def _sync_standard_alarms(
 
     result["ok"].append(name)
     return False
+
+
+def _sync_off_hardcoded(
+    alarm_defs: list[dict],
+    key_to_alarm: dict[str, dict],
+    resource_tags: dict,
+    result: dict[str, list],
+) -> None:
+    """하드코딩 알람 off 체크: 기존 알람이 있으면 삭제 + deleted 추가."""
+    cw = _get_cw_client()
+    for alarm_def in alarm_defs:
+        metric = alarm_def["metric"]
+        if not is_threshold_off(resource_tags, metric):
+            continue
+        alarm_info = key_to_alarm.get(metric)
+        if not alarm_info:
+            continue
+        name = alarm_info["AlarmName"]
+        # ok/updated 목록에서 제거 (off가 우선)
+        for lst_key in ("ok", "updated", "created"):
+            if name in result[lst_key]:
+                result[lst_key].remove(name)
+            if metric in result[lst_key]:
+                result[lst_key].remove(metric)
+        try:
+            cw.delete_alarms(AlarmNames=[name])
+            logger.info(
+                "Deleted alarm %s for %s: threshold set to off",
+                name, metric,
+            )
+        except ClientError as e:
+            logger.error("Failed to delete off alarm %s: %s", name, e)
+            continue
+        result["deleted"].append(name)
+
+
+def _sync_dynamic_alarms(
+    key_to_alarm: dict[str, dict],
+    resource_id: str,
+    resource_type: str,
+    resource_tags: dict,
+    result: dict[str, list],
+) -> None:
+    """동적 알람 동기화: 생성/삭제/업데이트."""
+    cw = _get_cw_client()
+    sns_arn = _get_sns_alert_arn()
+    resource_name = resource_tags.get("Name", "")
+    hardcoded_keys = _get_hardcoded_metric_keys(resource_type, resource_tags)
+
+    # 현재 태그에서 동적 메트릭 추출
+    dynamic_tags = _parse_threshold_tags(resource_tags, resource_type)
+
+    # 기존 동적 알람 식별 (metric_key가 하드코딩 목록에 없는 것)
+    existing_dynamic: dict[str, dict] = {
+        mk: info for mk, info in key_to_alarm.items()
+        if mk not in hardcoded_keys and not mk.startswith("Disk")
+    }
+
+    # 새 동적 메트릭 → 생성
+    for metric_name, threshold in dynamic_tags.items():
+        if metric_name in existing_dynamic:
+            continue
+        _create_dynamic_alarm(
+            resource_id, resource_type, resource_name,
+            metric_name, threshold, cw, sns_arn, result["created"],
+        )
+
+    # 기존 동적 알람 처리
+    for mk, alarm_info in existing_dynamic.items():
+        name = alarm_info["AlarmName"]
+        if mk not in dynamic_tags:
+            # 태그 제거 → 삭제
+            _delete_alarm_names(cw, [name])
+            result["deleted"].append(name)
+            continue
+        # 임계치 비교
+        existing_thr = alarm_info.get("Threshold", 0)
+        tag_thr = dynamic_tags[mk]
+        if abs(existing_thr - tag_thr) > 0.001:
+            # 임계치 변경 → 삭제 후 재생성
+            _delete_alarm_names(cw, [name])
+            _create_dynamic_alarm(
+                resource_id, resource_type, resource_name,
+                mk, tag_thr, cw, sns_arn, result["created"],
+            )
+            result["updated"].append(name)
+        else:
+            result["ok"].append(name)
+
+
+def _delete_alarm_names(cw, alarm_names: list[str]) -> None:
+    """알람 이름 목록으로 삭제 (에러 로깅)."""
+    try:
+        cw.delete_alarms(AlarmNames=alarm_names)
+    except ClientError as e:
+        logger.error("Failed to delete alarms %s: %s", alarm_names, e)
 
 
 def _apply_sync_changes(

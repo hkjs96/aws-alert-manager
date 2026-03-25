@@ -11,7 +11,7 @@ from unittest.mock import patch
 from hypothesis import given, settings, HealthCheck, assume
 from hypothesis import strategies as st
 
-from common.tag_resolver import get_threshold, has_monitoring_tag
+from common.tag_resolver import get_threshold, has_monitoring_tag, is_threshold_off
 from common import HARDCODED_DEFAULTS
 
 # ──────────────────────────────────────────────
@@ -150,6 +150,55 @@ def test_property_13_always_returns_positive_float(metric, tags, env_val):
 # ──────────────────────────────────────────────
 # 단위 테스트 - Requirements 2.1, 2.2, 2.3, 2.5
 # ──────────────────────────────────────────────
+
+# ──────────────────────────────────────────────
+# is_threshold_off() 단위 테스트
+# Requirements: 8.1, 8.2, 8.3
+# ──────────────────────────────────────────────
+
+class TestIsThresholdOff:
+    """is_threshold_off() 단위 테스트"""
+
+    def test_off_lowercase_returns_true(self):
+        """'off' → True"""
+        assert is_threshold_off({"Threshold_CPU": "off"}, "CPU") is True
+
+    def test_off_uppercase_returns_true(self):
+        """'OFF' → True"""
+        assert is_threshold_off({"Threshold_CPU": "OFF"}, "CPU") is True
+
+    def test_off_mixed_case_off_returns_true(self):
+        """'Off' → True"""
+        assert is_threshold_off({"Threshold_CPU": "Off"}, "CPU") is True
+
+    def test_off_mixed_case_oFf_returns_true(self):
+        """'oFf' → True"""
+        assert is_threshold_off({"Threshold_CPU": "oFf"}, "CPU") is True
+
+    def test_off_with_whitespace_returns_true(self):
+        """' off ' (앞뒤 공백) → True"""
+        assert is_threshold_off({"Threshold_CPU": " off "}, "CPU") is True
+
+    def test_positive_number_returns_false(self):
+        """양의 숫자 문자열 → False"""
+        assert is_threshold_off({"Threshold_CPU": "90"}, "CPU") is False
+
+    def test_empty_string_returns_false(self):
+        """빈 문자열 → False"""
+        assert is_threshold_off({"Threshold_CPU": ""}, "CPU") is False
+
+    def test_tag_not_set_returns_false(self):
+        """태그 미설정 → False"""
+        assert is_threshold_off({}, "CPU") is False
+
+    def test_disk_metric_off(self):
+        """Disk 계열 메트릭 off 체크"""
+        assert is_threshold_off({"Threshold_Disk_root": "off"}, "Disk_root") is True
+
+    def test_different_metric_not_affected(self):
+        """다른 메트릭의 off 태그는 영향 없음"""
+        assert is_threshold_off({"Threshold_Memory": "off"}, "CPU") is False
+
 
 class TestGetThresholdUnit:
     """get_threshold 구체적 예시 및 엣지 케이스"""

@@ -8,16 +8,25 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from common import HARDCODED_DEFAULTS
 from common.alarm_manager import (
     _alarm_name,
     _build_alarm_description,
+    _build_dimensions,
     _create_dynamic_alarm,
     _extract_elb_dimension,
     _get_alarm_defs,
+    _get_hardcoded_metric_keys,
+    _HARDCODED_METRIC_KEYS,
+    _METRIC_DISPLAY,
+    _metric_name_to_key,
     _parse_alarm_metadata,
     _parse_threshold_tags,
     _pretty_alarm_name,
     _resolve_metric_dimensions,
+    _resolve_tg_namespace,
+    _select_best_dimensions,
+    _shorten_elb_resource_id,
     _find_alarms_for_resource,
     create_alarms_for_resource,
     delete_alarms_for_resource,
@@ -116,24 +125,68 @@ class TestHelpers:
         assert name == "[RDS] my-db CPUUtilization >80% (db-001)"
         assert len(name) <= 255
 
+    # ── Task 2.1: ALB/NLB/TG suffix에 Short_ID 적용 검증 ──
+
+    def test_pretty_alarm_name_alb_suffix_short_id(self):
+        """ALB ARN → suffix가 (my-alb/1234567890abcdef)로 끝나는지 검증.
+        Validates: Requirements 2.1
+        """
+        alb_arn = "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/my-alb/1234567890abcdef"
+        name = _pretty_alarm_name("ALB", alb_arn, "my-alb", "CPU", 80.0)
+        assert name.endswith("(my-alb/1234567890abcdef)")
+
+    def test_pretty_alarm_name_nlb_suffix_short_id(self):
+        """NLB ARN → suffix가 (my-nlb/1234567890abcdef)로 끝나는지 검증.
+        Validates: Requirements 2.1
+        """
+        nlb_arn = "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/net/my-nlb/1234567890abcdef"
+        name = _pretty_alarm_name("NLB", nlb_arn, "my-nlb", "CPU", 80.0)
+        assert name.endswith("(my-nlb/1234567890abcdef)")
+
+    def test_pretty_alarm_name_tg_suffix_short_id(self):
+        """TG ARN → suffix가 (my-tg/1234567890abcdef)로 끝나는지 검증.
+        Validates: Requirements 2.1
+        """
+        tg_arn = "arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/my-tg/1234567890abcdef"
+        name = _pretty_alarm_name("TG", tg_arn, "my-tg", "CPU", 80.0)
+        assert name.endswith("(my-tg/1234567890abcdef)")
+
+    def test_pretty_alarm_name_ec2_suffix_unchanged(self):
+        """EC2 resource_id → 기존 동작 유지, suffix가 (i-xxx)로 끝나는지 검증.
+        Validates: Requirements 2.2
+        """
+        name = _pretty_alarm_name("EC2", "i-xxx", "my-ec2", "CPU", 80.0)
+        assert name.endswith("(i-xxx)")
+
+    def test_pretty_alarm_name_rds_suffix_unchanged(self):
+        """RDS resource_id → 기존 동작 유지, suffix가 (db-test)로 끝나는지 검증.
+        Validates: Requirements 2.2
+        """
+        name = _pretty_alarm_name("RDS", "db-test", "my-rds", "CPU", 80.0)
+        assert name.endswith("(db-test)")
+
     def test_extract_elb_dimension_from_arn(self):
         arn = "arn:aws:elasticloadbalancing:us-east-1:123:loadbalancer/app/my-alb/abc123"
         assert _extract_elb_dimension(arn) == "app/my-alb/abc123"
+
+    def test_extract_elb_dimension_tg_arn(self):
+        arn = "arn:aws:elasticloadbalancing:us-east-1:123:targetgroup/my-tg/abc123"
+        assert _extract_elb_dimension(arn) == "targetgroup/my-tg/abc123"
 
     def test_extract_elb_dimension_fallback(self):
         assert _extract_elb_dimension("not-an-arn") == "not-an-arn"
 
     def test_get_alarm_defs_ec2(self):
         defs = _get_alarm_defs("EC2")
-        assert len(defs) == 3
+        assert len(defs) == 4
         metrics = {d["metric"] for d in defs}
-        assert metrics == {"CPU", "Memory", "Disk"}
+        assert metrics == {"CPU", "Memory", "Disk", "StatusCheckFailed"}
 
     def test_get_alarm_defs_rds(self):
         defs = _get_alarm_defs("RDS")
-        assert len(defs) == 4
+        assert len(defs) == 6
         metrics = {d["metric"] for d in defs}
-        assert metrics == {"CPU", "FreeMemoryGB", "FreeStorageGB", "Connections"}
+        assert metrics == {"CPU", "FreeMemoryGB", "FreeStorageGB", "Connections", "ReadLatency", "WriteLatency"}
 
     def test_get_alarm_defs_elb(self):
         defs = _get_alarm_defs("ELB")
@@ -145,35 +198,37 @@ class TestHelpers:
     # ── Task 3.1: ALB/NLB/TG 알람 정의 분리 검증 ──
 
     def test_get_alarm_defs_alb(self):
-        """_get_alarm_defs('ALB') → RequestCount (AWS/ApplicationELB) 반환.
+        """_get_alarm_defs('ALB') → RequestCount, ELB5XX, TargetResponseTime (AWS/ApplicationELB) 반환.
         Validates: Requirements 4.1
         """
         defs = _get_alarm_defs("ALB")
-        assert len(defs) == 1
-        assert defs[0]["metric"] == "RequestCount"
-        assert defs[0]["namespace"] == "AWS/ApplicationELB"
-        assert defs[0]["dimension_key"] == "LoadBalancer"
-
-    def test_get_alarm_defs_nlb(self):
-        """_get_alarm_defs('NLB') → ProcessedBytes, ActiveFlowCount, NewFlowCount (AWS/NetworkELB) 반환.
-        Validates: Requirements 4.2
-        """
-        defs = _get_alarm_defs("NLB")
         assert len(defs) == 3
         metrics = {d["metric"] for d in defs}
-        assert metrics == {"ProcessedBytes", "ActiveFlowCount", "NewFlowCount"}
+        assert metrics == {"RequestCount", "ELB5XX", "TargetResponseTime"}
+        for d in defs:
+            assert d["namespace"] == "AWS/ApplicationELB"
+            assert d["dimension_key"] == "LoadBalancer"
+
+    def test_get_alarm_defs_nlb(self):
+        """_get_alarm_defs('NLB') → ProcessedBytes, ActiveFlowCount, NewFlowCount, TCPClientReset, TCPTargetReset (AWS/NetworkELB) 반환.
+        Validates: Requirements 4.2, 2.1, 2.2, 2.3
+        """
+        defs = _get_alarm_defs("NLB")
+        assert len(defs) == 5
+        metrics = {d["metric"] for d in defs}
+        assert metrics == {"ProcessedBytes", "ActiveFlowCount", "NewFlowCount", "TCPClientReset", "TCPTargetReset"}
         for d in defs:
             assert d["namespace"] == "AWS/NetworkELB"
             assert d["dimension_key"] == "LoadBalancer"
 
     def test_get_alarm_defs_tg(self):
-        """_get_alarm_defs('TG') → RequestCount, HealthyHostCount 반환.
-        Validates: Requirements 4.3
+        """_get_alarm_defs('TG') → HealthyHostCount, UnHealthyHostCount, RequestCountPerTarget, TGResponseTime 반환.
+        Validates: Requirements 4.3, 5.1, 5.2
         """
         defs = _get_alarm_defs("TG")
-        assert len(defs) == 2
+        assert len(defs) == 4
         metrics = {d["metric"] for d in defs}
-        assert metrics == {"RequestCount", "HealthyHostCount"}
+        assert metrics == {"HealthyHostCount", "UnHealthyHostCount", "RequestCountPerTarget", "TGResponseTime"}
         for d in defs:
             assert d["dimension_key"] == "TargetGroup"
 
@@ -190,11 +245,11 @@ class TestHelpers:
         """
         from common.alarm_manager import _HARDCODED_METRIC_KEYS
         assert "ALB" in _HARDCODED_METRIC_KEYS
-        assert _HARDCODED_METRIC_KEYS["ALB"] == {"RequestCount"}
+        assert _HARDCODED_METRIC_KEYS["ALB"] == {"RequestCount", "ELB5XX", "TargetResponseTime"}
         assert "NLB" in _HARDCODED_METRIC_KEYS
-        assert _HARDCODED_METRIC_KEYS["NLB"] == {"ProcessedBytes", "ActiveFlowCount", "NewFlowCount"}
+        assert _HARDCODED_METRIC_KEYS["NLB"] == {"ProcessedBytes", "ActiveFlowCount", "NewFlowCount", "TCPClientReset", "TCPTargetReset"}
         assert "TG" in _HARDCODED_METRIC_KEYS
-        assert _HARDCODED_METRIC_KEYS["TG"] == {"RequestCount", "HealthyHostCount"}
+        assert _HARDCODED_METRIC_KEYS["TG"] == {"HealthyHostCount", "UnHealthyHostCount", "RequestCountPerTarget", "TGResponseTime"}
         assert "ELB" not in _HARDCODED_METRIC_KEYS
 
     def test_namespace_map_alb_nlb_tg(self):
@@ -216,6 +271,378 @@ class TestHelpers:
         assert _DIMENSION_KEY_MAP["NLB"] == "LoadBalancer"
         assert _DIMENSION_KEY_MAP["TG"] == "TargetGroup"
         assert "ELB" not in _DIMENSION_KEY_MAP
+
+
+# ──────────────────────────────────────────────
+# EC2 StatusCheckFailed 알람 정의 검증 (TDD Red)
+# ──────────────────────────────────────────────
+
+def test_ec2_status_check_failed_alarm_def():
+    """EC2 StatusCheckFailed 알람 정의가 올바르게 등록되어 있는지 검증.
+    Validates: Requirements 3.1, 3.2, 3.3, 3.4, 3.5, 3.6
+    """
+    # _get_alarm_defs("EC2") → 4개 (CPU, Memory, Disk, StatusCheckFailed)
+    defs = _get_alarm_defs("EC2")
+    assert len(defs) == 4
+    metrics = {d["metric"] for d in defs}
+    assert "StatusCheckFailed" in metrics
+
+    # _HARDCODED_METRIC_KEYS["EC2"]에 StatusCheckFailed 포함
+    assert _HARDCODED_METRIC_KEYS["EC2"] == {"CPU", "Memory", "Disk", "StatusCheckFailed"}
+
+    # _METRIC_DISPLAY 매핑 검증
+    assert _METRIC_DISPLAY["StatusCheckFailed"] == ("StatusCheckFailed", ">", "")
+
+    # _metric_name_to_key 변환 검증
+    assert _metric_name_to_key("StatusCheckFailed") == "StatusCheckFailed"
+
+    # HARDCODED_DEFAULTS 기본 임계치 검증
+    assert HARDCODED_DEFAULTS["StatusCheckFailed"] == 0.0
+
+    # StatusCheckFailed 알람 정의 상세 검증
+    scf_def = next(d for d in defs if d["metric"] == "StatusCheckFailed")
+    assert scf_def["stat"] == "Maximum"
+    assert scf_def["comparison"] == "GreaterThanThreshold"
+    assert scf_def["namespace"] == "AWS/EC2"
+    assert scf_def["dimension_key"] == "InstanceId"
+
+
+# ──────────────────────────────────────────────
+# RDS ReadLatency/WriteLatency 알람 정의 검증 (TDD Red)
+# ──────────────────────────────────────────────
+
+def test_rds_read_write_latency_alarm_def():
+    """RDS ReadLatency/WriteLatency 알람 정의가 올바르게 등록되어 있는지 검증.
+    Validates: Requirements 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 4.7
+    """
+    # _get_alarm_defs("RDS") → 6개 (CPU, FreeMemoryGB, FreeStorageGB, Connections, ReadLatency, WriteLatency)
+    defs = _get_alarm_defs("RDS")
+    assert len(defs) == 6
+    metrics = {d["metric"] for d in defs}
+    assert "ReadLatency" in metrics
+    assert "WriteLatency" in metrics
+
+    # _HARDCODED_METRIC_KEYS["RDS"] 검증
+    assert _HARDCODED_METRIC_KEYS["RDS"] == {
+        "CPU", "FreeMemoryGB", "FreeStorageGB", "Connections",
+        "ReadLatency", "WriteLatency",
+    }
+
+    # _METRIC_DISPLAY 매핑 검증
+    assert _METRIC_DISPLAY["ReadLatency"] == ("ReadLatency", ">", "s")
+    assert _METRIC_DISPLAY["WriteLatency"] == ("WriteLatency", ">", "s")
+
+    # _metric_name_to_key 변환 검증
+    assert _metric_name_to_key("ReadLatency") == "ReadLatency"
+    assert _metric_name_to_key("WriteLatency") == "WriteLatency"
+
+    # HARDCODED_DEFAULTS 기본 임계치 검증
+    assert HARDCODED_DEFAULTS["ReadLatency"] == 0.02
+    assert HARDCODED_DEFAULTS["WriteLatency"] == 0.02
+
+    # ReadLatency 알람 정의 상세 검증
+    rl_def = next(d for d in defs if d["metric"] == "ReadLatency")
+    assert rl_def["stat"] == "Average"
+    assert rl_def["comparison"] == "GreaterThanThreshold"
+    assert rl_def["namespace"] == "AWS/RDS"
+    assert rl_def["dimension_key"] == "DBInstanceIdentifier"
+
+    # WriteLatency 알람 정의 상세 검증
+    wl_def = next(d for d in defs if d["metric"] == "WriteLatency")
+    assert wl_def["stat"] == "Average"
+    assert wl_def["comparison"] == "GreaterThanThreshold"
+    assert wl_def["namespace"] == "AWS/RDS"
+    assert wl_def["dimension_key"] == "DBInstanceIdentifier"
+
+
+# ──────────────────────────────────────────────
+# ALB ELB5XX/TargetResponseTime 알람 정의 검증 (TDD Red)
+# ──────────────────────────────────────────────
+
+def test_alb_elb5xx_target_response_time_alarm_def():
+    """ALB ELB5XX/TargetResponseTime 알람 정의가 올바르게 등록되어 있는지 검증.
+    Validates: Requirements 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 8.4
+    """
+    # _get_alarm_defs("ALB") → 3개 (RequestCount, ELB5XX, TargetResponseTime)
+    defs = _get_alarm_defs("ALB")
+    assert len(defs) == 3
+    metrics = {d["metric"] for d in defs}
+    assert "ELB5XX" in metrics
+    assert "TargetResponseTime" in metrics
+
+    # _HARDCODED_METRIC_KEYS["ALB"] 검증
+    assert _HARDCODED_METRIC_KEYS["ALB"] == {"RequestCount", "ELB5XX", "TargetResponseTime"}
+
+    # _METRIC_DISPLAY 매핑 검증
+    assert _METRIC_DISPLAY["ELB5XX"] == ("HTTPCode_ELB_5XX_Count", ">", "")
+    assert _METRIC_DISPLAY["TargetResponseTime"] == ("TargetResponseTime", ">", "s")
+
+    # _metric_name_to_key 변환 검증
+    assert _metric_name_to_key("HTTPCode_ELB_5XX_Count") == "ELB5XX"
+    assert _metric_name_to_key("TargetResponseTime") == "TargetResponseTime"
+
+    # HARDCODED_DEFAULTS 기본 임계치 검증
+    assert HARDCODED_DEFAULTS["ELB5XX"] == 50.0
+    assert HARDCODED_DEFAULTS["TargetResponseTime"] == 5.0
+
+    # ELB5XX 알람 정의 상세 검증
+    elb5xx_def = next(d for d in defs if d["metric"] == "ELB5XX")
+    assert elb5xx_def["dimension_key"] == "LoadBalancer"
+    assert elb5xx_def["stat"] == "Sum"
+    assert elb5xx_def["namespace"] == "AWS/ApplicationELB"
+
+    # TargetResponseTime 알람 정의 상세 검증
+    trt_def = next(d for d in defs if d["metric"] == "TargetResponseTime")
+    assert trt_def["dimension_key"] == "LoadBalancer"
+    assert trt_def["stat"] == "Average"
+    assert trt_def["namespace"] == "AWS/ApplicationELB"
+
+
+# ──────────────────────────────────────────────
+# NLB TCPClientReset/TCPTargetReset 알람 정의 검증 (TDD Red)
+# ──────────────────────────────────────────────
+
+def test_nlb_tcp_reset_alarm_def():
+    """NLB TCPClientReset/TCPTargetReset 알람 정의가 올바르게 등록되어 있는지 검증.
+    Validates: Requirements 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7
+    """
+    # _get_alarm_defs("NLB") → 5개
+    defs = _get_alarm_defs("NLB")
+    assert len(defs) == 5
+    metrics = {d["metric"] for d in defs}
+    assert metrics == {"ProcessedBytes", "ActiveFlowCount", "NewFlowCount", "TCPClientReset", "TCPTargetReset"}
+
+    # _HARDCODED_METRIC_KEYS["NLB"] 검증
+    assert _HARDCODED_METRIC_KEYS["NLB"] == {
+        "ProcessedBytes", "ActiveFlowCount", "NewFlowCount",
+        "TCPClientReset", "TCPTargetReset",
+    }
+
+    # _METRIC_DISPLAY 매핑 검증
+    assert _METRIC_DISPLAY["TCPClientReset"] == ("TCP_Client_Reset_Count", ">", "")
+    assert _METRIC_DISPLAY["TCPTargetReset"] == ("TCP_Target_Reset_Count", ">", "")
+
+    # _metric_name_to_key 변환 검증
+    assert _metric_name_to_key("TCP_Client_Reset_Count") == "TCPClientReset"
+    assert _metric_name_to_key("TCP_Target_Reset_Count") == "TCPTargetReset"
+
+    # HARDCODED_DEFAULTS 기본 임계치 검증
+    assert HARDCODED_DEFAULTS["TCPClientReset"] == 100.0
+    assert HARDCODED_DEFAULTS["TCPTargetReset"] == 100.0
+
+    # TCPClientReset 알람 정의 상세 검증
+    tcr_def = next(d for d in defs if d["metric"] == "TCPClientReset")
+    assert tcr_def["dimension_key"] == "LoadBalancer"
+    assert tcr_def["stat"] == "Sum"
+    assert tcr_def["namespace"] == "AWS/NetworkELB"
+
+    # TCPTargetReset 알람 정의 상세 검증
+    ttr_def = next(d for d in defs if d["metric"] == "TCPTargetReset")
+    assert ttr_def["dimension_key"] == "LoadBalancer"
+    assert ttr_def["stat"] == "Sum"
+    assert ttr_def["namespace"] == "AWS/NetworkELB"
+
+
+# ──────────────────────────────────────────────
+# TG RequestCountPerTarget/TGResponseTime 알람 정의 검증 (TDD Red)
+# ──────────────────────────────────────────────
+
+def test_tg_request_count_response_time_alarm_def():
+    """TG RequestCountPerTarget/TGResponseTime 알람 정의가 올바르게 등록되어 있는지 검증.
+    Validates: Requirements 5.1, 5.2, 5.3, 5.4, 5.7, 5.8, 5.9, 5.10
+    """
+    # _get_alarm_defs("TG") → 4개 (HealthyHostCount, UnHealthyHostCount, RequestCountPerTarget, TGResponseTime)
+    defs = _get_alarm_defs("TG")
+    assert len(defs) == 4
+    metrics = {d["metric"] for d in defs}
+    assert metrics == {"HealthyHostCount", "UnHealthyHostCount", "RequestCountPerTarget", "TGResponseTime"}
+
+    # _HARDCODED_METRIC_KEYS["TG"] 검증
+    assert _HARDCODED_METRIC_KEYS["TG"] == {
+        "HealthyHostCount", "UnHealthyHostCount",
+        "RequestCountPerTarget", "TGResponseTime",
+    }
+
+    # _METRIC_DISPLAY 매핑 검증
+    assert _METRIC_DISPLAY["RequestCountPerTarget"] == ("RequestCountPerTarget", ">", "")
+    assert _METRIC_DISPLAY["TGResponseTime"] == ("TargetResponseTime", ">", "s")
+
+    # _metric_name_to_key 변환 검증
+    assert _metric_name_to_key("RequestCountPerTarget") == "RequestCountPerTarget"
+
+    # HARDCODED_DEFAULTS 기본 임계치 검증
+    assert HARDCODED_DEFAULTS["RequestCountPerTarget"] == 1000.0
+    assert HARDCODED_DEFAULTS["TGResponseTime"] == 5.0
+
+    # RequestCountPerTarget 알람 정의 상세 검증
+    rcpt_def = next(d for d in defs if d["metric"] == "RequestCountPerTarget")
+    assert rcpt_def["dimension_key"] == "TargetGroup"
+    assert rcpt_def["stat"] == "Sum"
+    assert rcpt_def["namespace"] == "AWS/ApplicationELB"
+
+    # TGResponseTime 알람 정의 상세 검증
+    tgrt_def = next(d for d in defs if d["metric"] == "TGResponseTime")
+    assert tgrt_def["dimension_key"] == "TargetGroup"
+    assert tgrt_def["stat"] == "Average"
+    assert tgrt_def["namespace"] == "AWS/ApplicationELB"
+
+
+# ──────────────────────────────────────────────
+# _build_dimensions / _resolve_tg_namespace 테스트
+# ──────────────────────────────────────────────
+
+class TestBuildDimensions:
+
+    def test_tg_returns_compound_dimensions(self):
+        """TG → TargetGroup + LoadBalancer 복합 디멘션."""
+        alarm_def = _get_alarm_defs("TG")[0]
+        tg_arn = "arn:aws:elasticloadbalancing:us-east-1:123:targetgroup/my-tg/abc123"
+        lb_arn = "arn:aws:elasticloadbalancing:us-east-1:123:loadbalancer/app/my-alb/def456"
+        tags = {"_lb_arn": lb_arn}
+
+        dims = _build_dimensions(alarm_def, tg_arn, "TG", tags)
+
+        assert len(dims) == 2
+        assert dims[0] == {"Name": "TargetGroup", "Value": "targetgroup/my-tg/abc123"}
+        assert dims[1] == {"Name": "LoadBalancer", "Value": "app/my-alb/def456"}
+
+    def test_tg_nlb_compound_dimensions(self):
+        """NLB TG → TargetGroup + LoadBalancer 복합 디멘션."""
+        alarm_def = _get_alarm_defs("TG")[0]
+        tg_arn = "arn:aws:elasticloadbalancing:us-east-1:123:targetgroup/my-tg/abc123"
+        lb_arn = "arn:aws:elasticloadbalancing:us-east-1:123:loadbalancer/net/my-nlb/def456"
+        tags = {"_lb_arn": lb_arn, "_lb_type": "network"}
+
+        dims = _build_dimensions(alarm_def, tg_arn, "TG", tags)
+
+        assert len(dims) == 2
+        assert dims[0]["Name"] == "TargetGroup"
+        assert dims[1] == {"Name": "LoadBalancer", "Value": "net/my-nlb/def456"}
+
+    def test_alb_returns_single_loadbalancer_dimension(self):
+        """ALB → LoadBalancer 단일 디멘션."""
+        alarm_def = _get_alarm_defs("ALB")[0]
+        alb_arn = "arn:aws:elasticloadbalancing:us-east-1:123:loadbalancer/app/my-alb/abc"
+
+        dims = _build_dimensions(alarm_def, alb_arn, "ALB", {})
+
+        assert len(dims) == 1
+        assert dims[0] == {"Name": "LoadBalancer", "Value": "app/my-alb/abc"}
+
+    def test_nlb_returns_single_loadbalancer_dimension(self):
+        """NLB → LoadBalancer 단일 디멘션."""
+        alarm_def = _get_alarm_defs("NLB")[0]
+        nlb_arn = "arn:aws:elasticloadbalancing:us-east-1:123:loadbalancer/net/my-nlb/abc"
+
+        dims = _build_dimensions(alarm_def, nlb_arn, "NLB", {})
+
+        assert len(dims) == 1
+        assert dims[0] == {"Name": "LoadBalancer", "Value": "net/my-nlb/abc"}
+
+    def test_ec2_returns_instance_id_dimension(self):
+        """EC2 → InstanceId 단일 디멘션."""
+        alarm_def = _get_alarm_defs("EC2")[0]  # CPU
+
+        dims = _build_dimensions(alarm_def, "i-001", "EC2", {})
+
+        assert len(dims) == 1
+        assert dims[0] == {"Name": "InstanceId", "Value": "i-001"}
+
+    def test_rds_returns_db_instance_dimension(self):
+        """RDS → DBInstanceIdentifier 단일 디멘션."""
+        alarm_def = _get_alarm_defs("RDS")[0]  # CPU
+
+        dims = _build_dimensions(alarm_def, "db-001", "RDS", {})
+
+        assert len(dims) == 1
+        assert dims[0] == {"Name": "DBInstanceIdentifier", "Value": "db-001"}
+
+    def test_extra_dimensions_appended(self):
+        """alarm_def의 extra_dimensions가 추가됨."""
+        alarm_def = {
+            "dimension_key": "InstanceId",
+            "extra_dimensions": [{"Name": "path", "Value": "/"}],
+        }
+
+        dims = _build_dimensions(alarm_def, "i-001", "EC2", {})
+
+        assert len(dims) == 2
+        assert dims[1] == {"Name": "path", "Value": "/"}
+
+    def test_tg_with_extra_dimensions(self):
+        """TG 복합 디멘션 + extra_dimensions."""
+        alarm_def = {
+            "dimension_key": "TargetGroup",
+            "extra_dimensions": [{"Name": "AvailabilityZone", "Value": "us-east-1a"}],
+        }
+        tg_arn = "arn:aws:elasticloadbalancing:us-east-1:123:targetgroup/my-tg/abc"
+        lb_arn = "arn:aws:elasticloadbalancing:us-east-1:123:loadbalancer/app/my-alb/def"
+        tags = {"_lb_arn": lb_arn}
+
+        dims = _build_dimensions(alarm_def, tg_arn, "TG", tags)
+
+        assert len(dims) == 3
+        assert dims[0]["Name"] == "TargetGroup"
+        assert dims[1]["Name"] == "LoadBalancer"
+        assert dims[2] == {"Name": "AvailabilityZone", "Value": "us-east-1a"}
+
+    def test_tg_new_alarms_have_compound_dimensions(self):
+        """RequestCountPerTarget/TGResponseTime도 TargetGroup + LoadBalancer 복합 디멘션 생성.
+        Validates: Requirements 5.3, 5.4
+        """
+        tg_arn = "arn:aws:elasticloadbalancing:us-east-1:123:targetgroup/my-tg/abc123"
+        lb_arn = "arn:aws:elasticloadbalancing:us-east-1:123:loadbalancer/app/my-alb/def456"
+        tags = {"_lb_arn": lb_arn}
+
+        for alarm_def in _get_alarm_defs("TG"):
+            if alarm_def["metric"] in ("RequestCountPerTarget", "TGResponseTime"):
+                dims = _build_dimensions(alarm_def, tg_arn, "TG", tags)
+                assert len(dims) == 2, f"{alarm_def['metric']} should have 2 dimensions"
+                assert dims[0] == {"Name": "TargetGroup", "Value": "targetgroup/my-tg/abc123"}
+                assert dims[1] == {"Name": "LoadBalancer", "Value": "app/my-alb/def456"}
+
+
+class TestResolveTgNamespace:
+
+    def test_network_lb_type_returns_network_elb(self):
+        """_lb_type == 'network' → AWS/NetworkELB."""
+        alarm_def = {"namespace": "AWS/ApplicationELB"}
+        tags = {"_lb_type": "network"}
+
+        assert _resolve_tg_namespace(alarm_def, tags) == "AWS/NetworkELB"
+
+    def test_application_lb_type_returns_alarm_def_namespace(self):
+        """_lb_type == 'application' → alarm_def['namespace']."""
+        alarm_def = {"namespace": "AWS/ApplicationELB"}
+        tags = {"_lb_type": "application"}
+
+        assert _resolve_tg_namespace(alarm_def, tags) == "AWS/ApplicationELB"
+
+    def test_missing_lb_type_returns_alarm_def_namespace(self):
+        """_lb_type 없음 → alarm_def['namespace'] (기본값)."""
+        alarm_def = {"namespace": "AWS/ApplicationELB"}
+        tags = {}
+
+        assert _resolve_tg_namespace(alarm_def, tags) == "AWS/ApplicationELB"
+
+    def test_empty_lb_type_returns_alarm_def_namespace(self):
+        """_lb_type == '' → alarm_def['namespace']."""
+        alarm_def = {"namespace": "AWS/ApplicationELB"}
+        tags = {"_lb_type": ""}
+
+        assert _resolve_tg_namespace(alarm_def, tags) == "AWS/ApplicationELB"
+
+    def test_tg_new_alarms_network_lb_type_returns_network_elb(self):
+        """RequestCountPerTarget/TGResponseTime with _lb_type=='network' → AWS/NetworkELB.
+        Validates: Requirements 5.5, 5.6
+        """
+        tags = {"_lb_type": "network"}
+        for alarm_def in _get_alarm_defs("TG"):
+            if alarm_def["metric"] in ("RequestCountPerTarget", "TGResponseTime"):
+                ns = _resolve_tg_namespace(alarm_def, tags)
+                assert ns == "AWS/NetworkELB", (
+                    f"{alarm_def['metric']} with network LB should use AWS/NetworkELB"
+                )
 
 
 # ──────────────────────────────────────────────
@@ -246,14 +673,15 @@ class TestCreateAlarms:
         with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
             created = create_alarms_for_resource("i-001", "EC2", tags)
 
-        assert len(created) == 3
+        assert len(created) == 4
         assert any("CPUUtilization" in n for n in created)
         assert any("mem_used_percent" in n for n in created)
         assert any("disk_used_percent" in n for n in created)
+        assert any("StatusCheckFailed" in n for n in created)
         # 새 포맷 확인
         assert any("[EC2] my-server" in n for n in created)
         assert any("(i-001)" in n for n in created)
-        assert mock_cw.put_metric_alarm.call_count == 3
+        assert mock_cw.put_metric_alarm.call_count == 4
 
     def test_ec2_custom_threshold_from_tag(self):
         mock_cw = self._mock_cw_with_disk()
@@ -267,7 +695,7 @@ class TestCreateAlarms:
         # 알람 이름에 90% 포함
         assert ">90%" in cpu_call.kwargs["AlarmName"]
 
-    def test_rds_creates_four_alarms(self):
+    def test_rds_creates_six_alarms(self):
         mock_cw = MagicMock()
         mock_paginator = MagicMock()
         mock_paginator.paginate.return_value = [{"MetricAlarms": []}]
@@ -276,8 +704,8 @@ class TestCreateAlarms:
         with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
             created = create_alarms_for_resource("db-001", "RDS", tags)
 
-        assert len(created) == 4
-        assert mock_cw.put_metric_alarm.call_count == 4
+        assert len(created) == 6
+        assert mock_cw.put_metric_alarm.call_count == 6
 
     def test_rds_free_memory_threshold_converted_to_bytes(self):
         mock_cw = MagicMock()
@@ -301,10 +729,13 @@ class TestCreateAlarms:
         with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
             created = create_alarms_for_resource(arn, "ALB", {"Monitoring": "on"})
 
-        assert len(created) == 1
-        kwargs = mock_cw.put_metric_alarm.call_args.kwargs
-        dims = kwargs["Dimensions"]
-        assert dims[0]["Value"] == "app/my-alb/abc"
+        assert len(created) == 3
+        # All ALB alarms use LoadBalancer single dimension (no TargetGroup)
+        for call in mock_cw.put_metric_alarm.call_args_list:
+            dims = call.kwargs["Dimensions"]
+            assert len(dims) == 1
+            assert dims[0]["Name"] == "LoadBalancer"
+            assert dims[0]["Value"] == "app/my-alb/abc"
 
     def test_sns_arn_set_as_alarm_action(self):
         mock_cw = self._mock_cw_with_disk()
@@ -485,6 +916,28 @@ class TestDeleteAlarms:
         assert legacy_alarm["AlarmName"] in result
         assert len(result) == 1
 
+    def test_find_alarms_tg_also_searches_elb_prefix(self):
+        """resource_type='TG'일 때 [ELB] prefix 알람도 검색되는지 확인.
+        Validates: Requirements 2.4, 3.5
+        """
+        mock_cw = MagicMock()
+        tg_arn = "arn:aws:elasticloadbalancing:us-east-1:123:targetgroup/my-tg/abc123"
+        legacy_alarm = {"AlarmName": f"[ELB] my-tg HealthyHostCount <1 ({tg_arn})"}
+        new_alarm = {"AlarmName": f"[TG] my-tg HealthyHostCount <1 ({tg_arn})"}
+        mock_paginator = MagicMock()
+        mock_paginator.paginate.side_effect = [
+            [{"MetricAlarms": []}],            # legacy prefix search
+            [{"MetricAlarms": [new_alarm]}],   # [TG] prefix search
+            [{"MetricAlarms": [legacy_alarm]}], # [ELB] prefix search
+        ]
+        mock_cw.get_paginator.return_value = mock_paginator
+        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+            result = _find_alarms_for_resource(tg_arn, "TG")
+
+        assert new_alarm["AlarmName"] in result
+        assert legacy_alarm["AlarmName"] in result
+        assert len(result) == 2
+
     def test_find_alarms_ec2_does_not_search_elb_prefix(self):
         """resource_type='EC2'일 때 [ELB] prefix를 추가 검색하지 않는지 확인."""
         mock_cw = MagicMock()
@@ -529,6 +982,7 @@ class TestSyncAlarms:
             "[EC2] srv CPUUtilization >80% (i-001)",
             "[EC2] srv mem_used_percent >80% (i-001)",
             "[EC2] srv disk_used_percent(/) >80% (i-001)",
+            "[EC2] srv StatusCheckFailed >0 (i-001)",
         ]
 
         def _make_desc(metric_key):
@@ -540,15 +994,17 @@ class TestSyncAlarms:
             alarms = []
             for n in names:
                 if "CPUUtilization" in n:
-                    mk = "CPU"
+                    mk, thr = "CPU", 80.0
                 elif "mem_used_percent" in n:
-                    mk = "Memory"
+                    mk, thr = "Memory", 80.0
+                elif "StatusCheckFailed" in n:
+                    mk, thr = "StatusCheckFailed", 0.0
                 else:
-                    mk = "Disk_root"
+                    mk, thr = "Disk_root", 80.0
                 alarms.append({
                     "AlarmName": n,
-                    "Threshold": 80.0,
-                    "MetricName": "disk_used_percent" if "disk" in n else "CPUUtilization",
+                    "Threshold": thr,
+                    "MetricName": "StatusCheckFailed" if "StatusCheckFailed" in n else ("disk_used_percent" if "disk" in n else "CPUUtilization"),
                     "AlarmDescription": _make_desc(mk),
                     "Dimensions": [{"Name": "path", "Value": "/"}] if "disk" in n else [],
                 })
@@ -559,7 +1015,7 @@ class TestSyncAlarms:
              patch("common.alarm_manager._find_alarms_for_resource", return_value=existing):
             result = sync_alarms_for_resource("i-001", "EC2", {})
 
-        assert len(result["ok"]) == 3
+        assert len(result["ok"]) == 4
         assert result["created"] == []
         assert result["updated"] == []
 
@@ -717,6 +1173,38 @@ class TestAlarmMetadata:
         assert meta["resource_id"] == "db-001"
         assert meta["resource_type"] == "RDS"
 
+    # ── Task 6.1: AlarmDescription에 Full_ARN 유지 검증 ──
+
+    def test_alarm_description_preserves_full_arn_alb(self):
+        """ALB ARN → build → parse 라운드트립 시 resource_id에 Full_ARN 유지.
+        Validates: Requirements 4.1
+        """
+        alb_arn = "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/my-alb/1234567890abcdef"
+        desc = _build_alarm_description("ALB", alb_arn, "RequestCount", "Auto-created")
+        meta = _parse_alarm_metadata(desc)
+        assert meta is not None
+        assert meta["resource_id"] == alb_arn
+
+    def test_alarm_description_preserves_full_arn_nlb(self):
+        """NLB ARN → build → parse 라운드트립 시 resource_id에 Full_ARN 유지.
+        Validates: Requirements 4.1
+        """
+        nlb_arn = "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/net/my-nlb/abcdef1234567890"
+        desc = _build_alarm_description("NLB", nlb_arn, "ProcessedBytes", "Auto-created")
+        meta = _parse_alarm_metadata(desc)
+        assert meta is not None
+        assert meta["resource_id"] == nlb_arn
+
+    def test_alarm_description_preserves_full_arn_tg(self):
+        """TG ARN → build → parse 라운드트립 시 resource_id에 Full_ARN 유지.
+        Validates: Requirements 4.1
+        """
+        tg_arn = "arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/my-tg/fedcba0987654321"
+        desc = _build_alarm_description("TG", tg_arn, "HealthyHostCount", "Auto-created")
+        meta = _parse_alarm_metadata(desc)
+        assert meta is not None
+        assert meta["resource_id"] == tg_arn
+
 
 # ──────────────────────────────────────────────
 # _parse_threshold_tags 테스트
@@ -734,11 +1222,14 @@ class TestParseThresholdTags:
         assert "CPU" not in result
 
     def test_extracts_dynamic_metric_for_rds(self):
-        tags = {"Threshold_ReadLatency": "0.01", "Threshold_FreeMemoryGB": "4"}
+        tags = {"Threshold_ReadLatency": "0.01", "Threshold_FreeMemoryGB": "4", "Threshold_CustomRDS": "50"}
         result = _parse_threshold_tags(tags, "RDS")
-        assert "ReadLatency" in result
-        assert result["ReadLatency"] == 0.01
+        # ReadLatency is now hardcoded in _HARDCODED_METRIC_KEYS["RDS"], so excluded from dynamic results
+        assert "ReadLatency" not in result
         assert "FreeMemoryGB" not in result
+        # Non-hardcoded metric should be included
+        assert "CustomRDS" in result
+        assert result["CustomRDS"] == 50.0
 
     def test_skips_disk_prefix_tags(self):
         """Threshold_Disk_* 패턴은 기존 Disk 로직에서 처리하므로 제외."""
@@ -786,6 +1277,81 @@ class TestParseThresholdTags:
         }
         result = _parse_threshold_tags(tags, "EC2")
         assert len(result) == 3
+
+    def test_off_value_excluded_from_result(self):
+        """Threshold_CustomMetric=off → 결과에서 제외.
+        Validates: Requirements 2.1, 2.2
+        """
+        tags = {"Threshold_CustomMetric": "off"}
+        result = _parse_threshold_tags(tags, "EC2")
+        assert "CustomMetric" not in result
+        assert result == {}
+
+    def test_off_value_case_insensitive(self):
+        """Threshold_CustomMetric=OFF → 결과에서 제외 (대소문자 무관).
+        Validates: Requirements 2.1, 2.2
+        """
+        tags = {"Threshold_CustomMetric": "OFF"}
+        result = _parse_threshold_tags(tags, "EC2")
+        assert "CustomMetric" not in result
+        assert result == {}
+
+    def test_positive_number_included_alongside_off(self):
+        """양의 숫자 태그는 정상 포함, off 태그는 제외.
+        Validates: Requirements 2.1, 2.2
+        """
+        tags = {
+            "Threshold_CustomMetric": "off",
+            "Threshold_NetworkIn": "1000",
+        }
+        result = _parse_threshold_tags(tags, "EC2")
+        assert "CustomMetric" not in result
+        assert "NetworkIn" in result
+        assert result["NetworkIn"] == 1000.0
+
+    def test_parse_threshold_tags_excludes_new_hardcoded_keys(self):
+        """새 하드코딩 키가 _parse_threshold_tags 결과에서 제외되고,
+        비하드코딩 키는 정상 반환되는지 검증.
+        Validates: Requirements 6.1, 6.2, 6.3
+        """
+        # ALB: ELB5XX, TargetResponseTime 제외, CustomALB 포함
+        tags = {"Threshold_ELB5XX": "100", "Threshold_TargetResponseTime": "10", "Threshold_CustomALB": "42"}
+        result = _parse_threshold_tags(tags, "ALB")
+        assert "ELB5XX" not in result
+        assert "TargetResponseTime" not in result
+        assert "CustomALB" in result
+        assert result["CustomALB"] == 42.0
+
+        # NLB: TCPClientReset, TCPTargetReset 제외, CustomNLB 포함
+        tags = {"Threshold_TCPClientReset": "200", "Threshold_TCPTargetReset": "300", "Threshold_CustomNLB": "55"}
+        result = _parse_threshold_tags(tags, "NLB")
+        assert "TCPClientReset" not in result
+        assert "TCPTargetReset" not in result
+        assert "CustomNLB" in result
+        assert result["CustomNLB"] == 55.0
+
+        # EC2: StatusCheckFailed 제외, CustomEC2 포함
+        tags = {"Threshold_StatusCheckFailed": "1", "Threshold_CustomEC2": "77"}
+        result = _parse_threshold_tags(tags, "EC2")
+        assert "StatusCheckFailed" not in result
+        assert "CustomEC2" in result
+        assert result["CustomEC2"] == 77.0
+
+        # RDS: ReadLatency, WriteLatency 제외, CustomRDS 포함
+        tags = {"Threshold_ReadLatency": "0.05", "Threshold_WriteLatency": "0.05", "Threshold_CustomRDS": "33"}
+        result = _parse_threshold_tags(tags, "RDS")
+        assert "ReadLatency" not in result
+        assert "WriteLatency" not in result
+        assert "CustomRDS" in result
+        assert result["CustomRDS"] == 33.0
+
+        # TG: RequestCountPerTarget, TGResponseTime 제외, CustomTG 포함
+        tags = {"Threshold_RequestCountPerTarget": "500", "Threshold_TGResponseTime": "3", "Threshold_CustomTG": "99"}
+        result = _parse_threshold_tags(tags, "TG")
+        assert "RequestCountPerTarget" not in result
+        assert "TGResponseTime" not in result
+        assert "CustomTG" in result
+        assert result["CustomTG"] == 99.0
 
 
 # ──────────────────────────────────────────────
@@ -930,3 +1496,813 @@ class TestCreateDynamicAlarm:
             )
 
         assert created == []
+
+    # ── Task 3.1: 동적 알람 ALB/NLB/TG suffix에 Short_ID 적용 검증 ──
+
+    def test_dynamic_alarm_alb_suffix_short_id(self):
+        """ALB 동적 알람 생성 시 suffix가 Short_ID(name/hash)인지 검증.
+        Validates: Requirements 2.4
+        """
+        mock_cw = MagicMock()
+        alb_arn = "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/my-alb/1234567890abcdef"
+        mock_cw.list_metrics.return_value = {"Metrics": [
+            {"Dimensions": [{"Name": "LoadBalancer", "Value": "app/my-alb/1234567890abcdef"}]}
+        ]}
+        created = []
+        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+            _create_dynamic_alarm(
+                alb_arn, "ALB", "my-alb",
+                "CustomMetric", 100.0, mock_cw,
+                "arn:aws:sns:us-east-1:123:topic", created,
+            )
+
+        assert len(created) == 1
+        assert created[0].endswith("(my-alb/1234567890abcdef)")
+
+    def test_dynamic_alarm_tg_suffix_short_id(self):
+        """TG 동적 알람 생성 시 suffix가 Short_ID(name/hash)인지 검증.
+        Validates: Requirements 2.4
+        """
+        mock_cw = MagicMock()
+        tg_arn = "arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/my-tg/abcdef1234567890"
+        mock_cw.list_metrics.return_value = {"Metrics": [
+            {"Dimensions": [{"Name": "TargetGroup", "Value": "targetgroup/my-tg/abcdef1234567890"}]}
+        ]}
+        created = []
+        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+            _create_dynamic_alarm(
+                tg_arn, "TG", "my-tg",
+                "CustomMetric", 50.0, mock_cw,
+                "arn:aws:sns:us-east-1:123:topic", created,
+            )
+
+        assert len(created) == 1
+        assert created[0].endswith("(my-tg/abcdef1234567890)")
+
+    def test_dynamic_alarm_ec2_suffix_unchanged(self):
+        """EC2 동적 알람 suffix는 기존 동작 유지 (resource_id 그대로).
+        Validates: Requirements 2.4
+        """
+        mock_cw = MagicMock()
+        mock_cw.list_metrics.return_value = {"Metrics": [
+            {"Dimensions": [{"Name": "InstanceId", "Value": "i-001"}]}
+        ]}
+        created = []
+        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+            _create_dynamic_alarm(
+                "i-001", "EC2", "my-server",
+                "NetworkIn", 1000.0, mock_cw,
+                "arn:aws:sns:us-east-1:123:topic", created,
+            )
+
+        assert len(created) == 1
+        assert created[0].endswith("(i-001)")
+
+
+# ──────────────────────────────────────────────
+# _shorten_elb_resource_id() 단위 테스트
+# ──────────────────────────────────────────────
+
+class TestShortenElbResourceId:
+    """_shorten_elb_resource_id() 함수 단위 테스트.
+    Validates: Requirements 1.1, 1.2, 1.3, 1.4, 1.5, 5.3
+    """
+
+    def test_alb_arn_returns_name_hash(self):
+        """ALB ARN → {name}/{hash} 반환."""
+        arn = "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/my-alb/1234567890abcdef"
+        assert _shorten_elb_resource_id(arn, "ALB") == "my-alb/1234567890abcdef"
+
+    def test_nlb_arn_returns_name_hash(self):
+        """NLB ARN → {name}/{hash} 반환."""
+        arn = "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/net/my-nlb/1234567890abcdef"
+        assert _shorten_elb_resource_id(arn, "NLB") == "my-nlb/1234567890abcdef"
+
+    def test_tg_arn_returns_name_hash(self):
+        """TG ARN → {name}/{hash} 반환."""
+        arn = "arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/my-tg/1234567890abcdef"
+        assert _shorten_elb_resource_id(arn, "TG") == "my-tg/1234567890abcdef"
+
+    def test_ec2_instance_id_unchanged(self):
+        """EC2 instance ID → 그대로 반환."""
+        assert _shorten_elb_resource_id("i-0abc123def456789a", "EC2") == "i-0abc123def456789a"
+
+    def test_rds_identifier_unchanged(self):
+        """RDS identifier → 그대로 반환."""
+        assert _shorten_elb_resource_id("db-test", "RDS") == "db-test"
+
+    def test_non_arn_string_with_alb_type_unchanged(self):
+        """ARN이 아닌 문자열 + resource_type=ALB → 그대로 반환 (방어적 처리)."""
+        assert _shorten_elb_resource_id("some-random-string", "ALB") == "some-random-string"
+
+    def test_empty_string_returns_empty(self):
+        """빈 문자열 → 빈 문자열 반환."""
+        assert _shorten_elb_resource_id("", "ALB") == ""
+
+    def test_idempotent_alb_short_id(self):
+        """이미 Short_ID 형태인 입력 → 동일 결과 (멱등성)."""
+        short_id = "my-alb/1234567890abcdef"
+        assert _shorten_elb_resource_id(short_id, "ALB") == short_id
+
+
+# ──────────────────────────────────────────────
+# Task 5.1: _find_alarms_for_resource() 레거시+새 포맷 호환 검색 (moto 기반)
+# ──────────────────────────────────────────────
+
+import boto3 as _boto3
+from moto import mock_aws
+
+
+def _put_alarm(cw, alarm_name: str) -> None:
+    """moto CloudWatch에 더미 알람 생성 헬퍼."""
+    cw.put_metric_alarm(
+        AlarmName=alarm_name,
+        Namespace="AWS/ApplicationELB",
+        MetricName="RequestCount",
+        Dimensions=[{"Name": "LoadBalancer", "Value": "app/my-alb/abc"}],
+        Statistic="Sum",
+        Period=60,
+        EvaluationPeriods=1,
+        Threshold=100,
+        ComparisonOperator="GreaterThanThreshold",
+    )
+
+
+class TestFindAlarmsForResourceMoto:
+    """_find_alarms_for_resource() 레거시+새 포맷 호환 검색 테스트 (moto 기반).
+    Validates: Requirements 3.1, 3.2, 3.3, 3.4
+    """
+
+    @mock_aws
+    def test_finds_short_id_suffix_alarms_only(self):
+        """새 Short_ID suffix 알람만 존재 → 정상 검색.
+        Validates: Requirements 3.1
+        """
+        import common.alarm_manager as am
+        am._get_cw_client.cache_clear()
+
+        cw = _boto3.client("cloudwatch", region_name="us-east-1")
+        alb_arn = "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/my-alb/abc123def456"
+        short_id = "my-alb/abc123def456"
+
+        # 새 포맷 알람 (Short_ID suffix)
+        _put_alarm(cw, f"[ALB] my-alb RequestCount >100 ({short_id})")
+        _put_alarm(cw, f"[ALB] my-alb HTTPCode_ELB_5XX_Count >50 ({short_id})")
+
+        with patch("common.alarm_manager._get_cw_client", return_value=cw):
+            result = _find_alarms_for_resource(alb_arn, "ALB")
+
+        assert len(result) == 2
+        assert all(name.endswith(f"({short_id})") for name in result)
+
+    @mock_aws
+    def test_finds_legacy_full_arn_suffix_alarms_only(self):
+        """레거시 Full_ARN suffix 알람만 존재 → 정상 검색.
+        Validates: Requirements 3.2
+        """
+        import common.alarm_manager as am
+        am._get_cw_client.cache_clear()
+
+        cw = _boto3.client("cloudwatch", region_name="us-east-1")
+        alb_arn = "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/my-alb/abc123def456"
+
+        # 레거시 알람 (Full_ARN suffix)
+        _put_alarm(cw, f"[ALB] my-alb RequestCount >100 ({alb_arn})")
+        _put_alarm(cw, f"[ALB] my-alb HTTPCode_ELB_5XX_Count >50 ({alb_arn})")
+
+        with patch("common.alarm_manager._get_cw_client", return_value=cw):
+            result = _find_alarms_for_resource(alb_arn, "ALB")
+
+        assert len(result) == 2
+        assert all(name.endswith(f"({alb_arn})") for name in result)
+
+    @mock_aws
+    def test_finds_mixed_short_id_and_full_arn_no_duplicates(self):
+        """혼재 상태 (Short_ID + Full_ARN suffix 알람 모두 존재) → 중복 없이 합산.
+        Validates: Requirements 3.3
+        """
+        import common.alarm_manager as am
+        am._get_cw_client.cache_clear()
+
+        cw = _boto3.client("cloudwatch", region_name="us-east-1")
+        tg_arn = "arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/my-tg/abc123def456"
+        short_id = "my-tg/abc123def456"
+
+        # 레거시 알람 (Full_ARN suffix)
+        _put_alarm(cw, f"[TG] my-tg HealthyHostCount <2 ({tg_arn})")
+        # 새 포맷 알람 (Short_ID suffix)
+        _put_alarm(cw, f"[TG] my-tg UnHealthyHostCount >0 ({short_id})")
+
+        with patch("common.alarm_manager._get_cw_client", return_value=cw):
+            result = _find_alarms_for_resource(tg_arn, "TG")
+
+        assert len(result) == 2
+        # 중복 없음
+        assert len(set(result)) == 2
+        names_str = " ".join(result)
+        assert "HealthyHostCount" in names_str
+        assert "UnHealthyHostCount" in names_str
+
+    @mock_aws
+    def test_ec2_search_unchanged(self):
+        """EC2 → 기존 검색 로직 변경 없음.
+        Validates: Requirements 3.4
+        """
+        import common.alarm_manager as am
+        am._get_cw_client.cache_clear()
+
+        cw = _boto3.client("cloudwatch", region_name="us-east-1")
+        instance_id = "i-0abc123def456789a"
+
+        # 레거시 알람
+        cw.put_metric_alarm(
+            AlarmName=f"{instance_id}-CPU-prod",
+            Namespace="AWS/EC2",
+            MetricName="CPUUtilization",
+            Dimensions=[{"Name": "InstanceId", "Value": instance_id}],
+            Statistic="Average",
+            Period=300,
+            EvaluationPeriods=1,
+            Threshold=80,
+            ComparisonOperator="GreaterThanThreshold",
+        )
+        # 새 포맷 알람
+        cw.put_metric_alarm(
+            AlarmName=f"[EC2] my-server CPUUtilization >80% ({instance_id})",
+            Namespace="AWS/EC2",
+            MetricName="CPUUtilization",
+            Dimensions=[{"Name": "InstanceId", "Value": instance_id}],
+            Statistic="Average",
+            Period=300,
+            EvaluationPeriods=1,
+            Threshold=80,
+            ComparisonOperator="GreaterThanThreshold",
+        )
+
+        with patch("common.alarm_manager._get_cw_client", return_value=cw):
+            result = _find_alarms_for_resource(instance_id, "EC2")
+
+        assert len(result) == 2
+        assert f"{instance_id}-CPU-prod" in result
+        assert f"[EC2] my-server CPUUtilization >80% ({instance_id})" in result
+
+    @mock_aws
+    def test_rds_search_unchanged(self):
+        """RDS → 기존 검색 로직 변경 없음.
+        Validates: Requirements 3.4
+        """
+        import common.alarm_manager as am
+        am._get_cw_client.cache_clear()
+
+        cw = _boto3.client("cloudwatch", region_name="us-east-1")
+        db_id = "my-database"
+
+        cw.put_metric_alarm(
+            AlarmName=f"[RDS] my-db CPUUtilization >80% ({db_id})",
+            Namespace="AWS/RDS",
+            MetricName="CPUUtilization",
+            Dimensions=[{"Name": "DBInstanceIdentifier", "Value": db_id}],
+            Statistic="Average",
+            Period=300,
+            EvaluationPeriods=1,
+            Threshold=80,
+            ComparisonOperator="GreaterThanThreshold",
+        )
+
+        with patch("common.alarm_manager._get_cw_client", return_value=cw):
+            result = _find_alarms_for_resource(db_id, "RDS")
+
+        assert len(result) == 1
+        assert f"[RDS] my-db CPUUtilization >80% ({db_id})" in result
+
+
+# ──────────────────────────────────────────────
+# _select_best_dimensions 테스트 (Task 2.1)
+# ──────────────────────────────────────────────
+
+class TestSelectBestDimensions:
+    """_select_best_dimensions() 단위 테스트.
+    Requirements: 1.1, 1.2, 1.3, 1.4, 1.5
+    """
+
+    def test_primary_only_preferred(self):
+        """Primary_Dimension_Key만 포함된 조합이 있으면 우선 선택.
+        Validates: Requirements 1.1
+        """
+        metrics = [
+            {"Dimensions": [
+                {"Name": "InstanceId", "Value": "i-001"},
+                {"Name": "AvailabilityZone", "Value": "us-east-1a"},
+            ]},
+            {"Dimensions": [
+                {"Name": "InstanceId", "Value": "i-001"},
+            ]},
+        ]
+        result = _select_best_dimensions(metrics, "InstanceId")
+        assert result == [{"Name": "InstanceId", "Value": "i-001"}]
+
+    def test_no_primary_only_prefers_no_az_min_dims(self):
+        """Primary_Dimension_Key만 포함된 조합이 없으면 AZ 미포함 + 최소 디멘션 선택.
+        Validates: Requirements 1.2, 1.3, 1.4
+        """
+        metrics = [
+            {"Dimensions": [
+                {"Name": "InstanceId", "Value": "i-001"},
+                {"Name": "device", "Value": "xvda"},
+                {"Name": "AvailabilityZone", "Value": "us-east-1a"},
+            ]},
+            {"Dimensions": [
+                {"Name": "InstanceId", "Value": "i-001"},
+                {"Name": "device", "Value": "xvda"},
+            ]},
+            {"Dimensions": [
+                {"Name": "InstanceId", "Value": "i-001"},
+                {"Name": "device", "Value": "xvda"},
+                {"Name": "fstype", "Value": "xfs"},
+            ]},
+        ]
+        result = _select_best_dimensions(metrics, "InstanceId")
+        # AZ 미포함 중 디멘션 수 최소 = 2개짜리
+        assert result == [
+            {"Name": "InstanceId", "Value": "i-001"},
+            {"Name": "device", "Value": "xvda"},
+        ]
+
+    def test_all_have_az_selects_min_dims(self):
+        """모든 조합에 AZ 포함 시 디멘션 수 최소 선택 (AZ 허용).
+        Validates: Requirements 1.5
+        """
+        metrics = [
+            {"Dimensions": [
+                {"Name": "InstanceId", "Value": "i-001"},
+                {"Name": "AvailabilityZone", "Value": "us-east-1a"},
+                {"Name": "device", "Value": "xvda"},
+            ]},
+            {"Dimensions": [
+                {"Name": "InstanceId", "Value": "i-001"},
+                {"Name": "AvailabilityZone", "Value": "us-east-1a"},
+            ]},
+        ]
+        result = _select_best_dimensions(metrics, "InstanceId")
+        # 모두 AZ 포함 → 디멘션 수 최소 (2개)
+        assert result == [
+            {"Name": "InstanceId", "Value": "i-001"},
+            {"Name": "AvailabilityZone", "Value": "us-east-1a"},
+        ]
+
+    def test_empty_list_returns_empty(self):
+        """빈 리스트 입력 시 빈 리스트 반환.
+        Validates: Requirements 1.1
+        """
+        result = _select_best_dimensions([], "InstanceId")
+        assert result == []
+
+
+# ──────────────────────────────────────────────
+# Task 5.1: create_alarms_for_resource() off 체크 테스트
+# ──────────────────────────────────────────────
+
+class TestCreateAlarmsOffCheck:
+    """create_alarms_for_resource()에서 Threshold_*=off 태그 설정 시 해당 알람 스킵 검증.
+    Validates: Requirements 3.1, 3.3, 4.1
+    """
+
+    def _mock_cw_with_disk(self):
+        mock_cw = MagicMock()
+        mock_cw.list_metrics.return_value = {"Metrics": [
+            {"Dimensions": [
+                {"Name": "InstanceId", "Value": "i-001"},
+                {"Name": "device", "Value": "xvda1"},
+                {"Name": "fstype", "Value": "xfs"},
+                {"Name": "path", "Value": "/"},
+            ]}
+        ]}
+        mock_paginator = MagicMock()
+        mock_paginator.paginate.return_value = [{"MetricAlarms": []}]
+        mock_cw.get_paginator.return_value = mock_paginator
+        return mock_cw
+
+    def test_cpu_off_skips_cpu_alarm(self):
+        """Threshold_CPU=off → CPU 알람 생성 스킵, 나머지는 정상 생성.
+        Validates: Requirements 3.1
+        """
+        mock_cw = self._mock_cw_with_disk()
+        tags = {"Monitoring": "on", "Name": "my-server", "Threshold_CPU": "off"}
+        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+            created = create_alarms_for_resource("i-001", "EC2", tags)
+
+        # CPU 알람이 생성되지 않아야 함
+        assert not any("CPUUtilization" in n for n in created)
+        # Memory, Disk, StatusCheckFailed는 정상 생성
+        assert any("mem_used_percent" in n for n in created)
+        assert any("disk_used_percent" in n for n in created)
+        assert any("StatusCheckFailed" in n for n in created)
+        assert len(created) == 3
+
+    def test_disk_root_off_skips_root_disk_alarm(self):
+        """Threshold_Disk_root=off → root Disk 알람 생성 스킵.
+        Validates: Requirements 3.3
+        """
+        mock_cw = self._mock_cw_with_disk()
+        tags = {"Monitoring": "on", "Name": "my-server", "Threshold_Disk_root": "off"}
+        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+            created = create_alarms_for_resource("i-001", "EC2", tags)
+
+        # Disk 알람이 생성되지 않아야 함 (root만 있으므로)
+        assert not any("disk_used_percent" in n for n in created)
+        # CPU, Memory, StatusCheckFailed는 정상 생성
+        assert any("CPUUtilization" in n for n in created)
+        assert any("mem_used_percent" in n for n in created)
+        assert any("StatusCheckFailed" in n for n in created)
+        assert len(created) == 3
+
+    def test_non_off_metrics_created_normally(self):
+        """off 미설정 메트릭은 정상 생성.
+        Validates: Requirements 3.1, 4.1
+        """
+        mock_cw = self._mock_cw_with_disk()
+        tags = {"Monitoring": "on", "Name": "my-server"}
+        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+            created = create_alarms_for_resource("i-001", "EC2", tags)
+
+        # 모든 4개 알람 정상 생성
+        assert len(created) == 4
+        assert any("CPUUtilization" in n for n in created)
+        assert any("mem_used_percent" in n for n in created)
+        assert any("disk_used_percent" in n for n in created)
+        assert any("StatusCheckFailed" in n for n in created)
+
+    def test_off_case_insensitive(self):
+        """Threshold_CPU=OFF (대문자) → CPU 알람 생성 스킵.
+        Validates: Requirements 3.1
+        """
+        mock_cw = self._mock_cw_with_disk()
+        tags = {"Monitoring": "on", "Threshold_CPU": "OFF"}
+        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+            created = create_alarms_for_resource("i-001", "EC2", tags)
+
+        assert not any("CPUUtilization" in n for n in created)
+        assert len(created) == 3
+
+    def test_multiple_off_metrics(self):
+        """여러 메트릭 off → 해당 알람 모두 스킵.
+        Validates: Requirements 3.1, 3.3
+        """
+        mock_cw = self._mock_cw_with_disk()
+        tags = {
+            "Monitoring": "on",
+            "Threshold_CPU": "off",
+            "Threshold_Memory": "off",
+        }
+        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+            created = create_alarms_for_resource("i-001", "EC2", tags)
+
+        assert not any("CPUUtilization" in n for n in created)
+        assert not any("mem_used_percent" in n for n in created)
+        # Disk + StatusCheckFailed만 생성
+        assert len(created) == 2
+
+    def test_rds_off_metric_skipped(self):
+        """RDS Threshold_CPU=off → CPU 알람 스킵, 나머지 5개 정상 생성.
+        Validates: Requirements 3.1
+        """
+        mock_cw = MagicMock()
+        mock_paginator = MagicMock()
+        mock_paginator.paginate.return_value = [{"MetricAlarms": []}]
+        mock_cw.get_paginator.return_value = mock_paginator
+        tags = {"Monitoring": "on", "Threshold_CPU": "off"}
+        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+            created = create_alarms_for_resource("db-001", "RDS", tags)
+
+        assert not any("CPUUtilization" in n for n in created)
+        assert len(created) == 5  # 6 total - 1 CPU = 5
+
+
+# ──────────────────────────────────────────────
+# Task 6.1: sync 동적 알람 생성/삭제/업데이트 단위 테스트
+# Validates: Requirements 5.1, 5.2, 6.1, 6.2, 7.1, 7.2, 7.3
+# ──────────────────────────────────────────────
+
+class TestSyncDynamicAlarms:
+    """sync_alarms_for_resource()에서 동적 알람 생성/삭제/업데이트 검증."""
+
+    @staticmethod
+    def _make_desc(metric_key, resource_id="i-001", resource_type="EC2"):
+        import json
+        meta = json.dumps(
+            {"metric_key": metric_key, "resource_id": resource_id,
+             "resource_type": resource_type},
+            separators=(",", ":"),
+        )
+        return f"Auto-created | {meta}"
+
+    def test_new_dynamic_tag_creates_alarm(self):
+        """새 동적 태그 추가 → created 목록에 포함.
+        Validates: Requirements 5.1, 5.2
+        """
+        mock_cw = MagicMock()
+        # 기존 하드코딩 알람 4개 (CPU, Memory, Disk_root, StatusCheckFailed)
+        existing = [
+            "[EC2] srv CPUUtilization >80% (i-001)",
+            "[EC2] srv mem_used_percent >80% (i-001)",
+            "[EC2] srv disk_used_percent(/) >80% (i-001)",
+            "[EC2] srv StatusCheckFailed >0 (i-001)",
+        ]
+
+        def describe_side_effect(**kwargs):
+            names = kwargs.get("AlarmNames", [])
+            alarms = []
+            for n in names:
+                if "CPUUtilization" in n:
+                    mk, thr = "CPU", 80.0
+                elif "mem_used_percent" in n:
+                    mk, thr = "Memory", 80.0
+                elif "StatusCheckFailed" in n:
+                    mk, thr = "StatusCheckFailed", 0.0
+                else:
+                    mk, thr = "Disk_root", 80.0
+                alarms.append({
+                    "AlarmName": n,
+                    "Threshold": thr,
+                    "MetricName": n.split()[2] if len(n.split()) > 2 else "unknown",
+                    "AlarmDescription": self._make_desc(mk),
+                    "Dimensions": [],
+                })
+            return {"MetricAlarms": alarms}
+
+        mock_cw.describe_alarms.side_effect = describe_side_effect
+        mock_cw.put_metric_alarm.return_value = {}
+        # list_metrics for dynamic alarm creation
+        mock_cw.list_metrics.return_value = {"Metrics": [
+            {"Dimensions": [{"Name": "InstanceId", "Value": "i-001"}]}
+        ]}
+
+        tags = {"Threshold_NetworkIn": "1000000"}
+        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw), \
+             patch("common.alarm_manager._find_alarms_for_resource", return_value=existing):
+            result = sync_alarms_for_resource("i-001", "EC2", tags)
+
+        assert any("NetworkIn" in n for n in result["created"])
+
+    def test_removed_dynamic_tag_deletes_alarm(self):
+        """동적 태그 제거 → 기존 동적 알람 deleted 목록에 포함.
+        Validates: Requirements 6.1, 6.2
+        """
+        mock_cw = MagicMock()
+        dynamic_alarm_name = "[EC2] srv NetworkIn >1000000 (i-001)"
+        existing = [
+            "[EC2] srv CPUUtilization >80% (i-001)",
+            "[EC2] srv mem_used_percent >80% (i-001)",
+            "[EC2] srv disk_used_percent(/) >80% (i-001)",
+            "[EC2] srv StatusCheckFailed >0 (i-001)",
+            dynamic_alarm_name,
+        ]
+
+        def describe_side_effect(**kwargs):
+            names = kwargs.get("AlarmNames", [])
+            alarms = []
+            for n in names:
+                if "CPUUtilization" in n:
+                    mk, thr = "CPU", 80.0
+                elif "mem_used_percent" in n:
+                    mk, thr = "Memory", 80.0
+                elif "StatusCheckFailed" in n:
+                    mk, thr = "StatusCheckFailed", 0.0
+                elif "NetworkIn" in n:
+                    mk, thr = "NetworkIn", 1000000.0
+                else:
+                    mk, thr = "Disk_root", 80.0
+                alarms.append({
+                    "AlarmName": n,
+                    "Threshold": thr,
+                    "MetricName": mk,
+                    "AlarmDescription": self._make_desc(mk),
+                    "Dimensions": [],
+                })
+            return {"MetricAlarms": alarms}
+
+        mock_cw.describe_alarms.side_effect = describe_side_effect
+        mock_cw.delete_alarms.return_value = {}
+
+        # 태그에 NetworkIn 없음 → 동적 알람 삭제 대상
+        tags = {}
+        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw), \
+             patch("common.alarm_manager._find_alarms_for_resource", return_value=existing):
+            result = sync_alarms_for_resource("i-001", "EC2", tags)
+
+        assert "deleted" in result
+        assert dynamic_alarm_name in result["deleted"]
+
+    def test_dynamic_threshold_changed_updates_alarm(self):
+        """동적 태그 임계치 변경 → updated 목록에 포함.
+        Validates: Requirements 7.1, 7.3
+        """
+        mock_cw = MagicMock()
+        dynamic_alarm_name = "[EC2] srv NetworkIn >1000000 (i-001)"
+        existing = [
+            "[EC2] srv CPUUtilization >80% (i-001)",
+            "[EC2] srv mem_used_percent >80% (i-001)",
+            "[EC2] srv disk_used_percent(/) >80% (i-001)",
+            "[EC2] srv StatusCheckFailed >0 (i-001)",
+            dynamic_alarm_name,
+        ]
+
+        def describe_side_effect(**kwargs):
+            names = kwargs.get("AlarmNames", [])
+            alarms = []
+            for n in names:
+                if "CPUUtilization" in n:
+                    mk, thr = "CPU", 80.0
+                elif "mem_used_percent" in n:
+                    mk, thr = "Memory", 80.0
+                elif "StatusCheckFailed" in n:
+                    mk, thr = "StatusCheckFailed", 0.0
+                elif "NetworkIn" in n:
+                    mk, thr = "NetworkIn", 1000000.0
+                else:
+                    mk, thr = "Disk_root", 80.0
+                alarms.append({
+                    "AlarmName": n,
+                    "Threshold": thr,
+                    "MetricName": mk,
+                    "AlarmDescription": self._make_desc(mk),
+                    "Dimensions": [],
+                })
+            return {"MetricAlarms": alarms}
+
+        mock_cw.describe_alarms.side_effect = describe_side_effect
+        mock_cw.put_metric_alarm.return_value = {}
+        mock_cw.delete_alarms.return_value = {}
+        mock_cw.list_metrics.return_value = {"Metrics": [
+            {"Dimensions": [{"Name": "InstanceId", "Value": "i-001"}]}
+        ]}
+
+        # 임계치 변경: 1000000 → 2000000
+        tags = {"Threshold_NetworkIn": "2000000"}
+        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw), \
+             patch("common.alarm_manager._find_alarms_for_resource", return_value=existing):
+            result = sync_alarms_for_resource("i-001", "EC2", tags)
+
+        assert dynamic_alarm_name in result["updated"]
+
+    def test_dynamic_threshold_same_is_ok(self):
+        """동적 태그 임계치 동일 → ok 목록에 포함.
+        Validates: Requirements 7.2
+        """
+        mock_cw = MagicMock()
+        dynamic_alarm_name = "[EC2] srv NetworkIn >1000000 (i-001)"
+        existing = [
+            "[EC2] srv CPUUtilization >80% (i-001)",
+            "[EC2] srv mem_used_percent >80% (i-001)",
+            "[EC2] srv disk_used_percent(/) >80% (i-001)",
+            "[EC2] srv StatusCheckFailed >0 (i-001)",
+            dynamic_alarm_name,
+        ]
+
+        def describe_side_effect(**kwargs):
+            names = kwargs.get("AlarmNames", [])
+            alarms = []
+            for n in names:
+                if "CPUUtilization" in n:
+                    mk, thr = "CPU", 80.0
+                elif "mem_used_percent" in n:
+                    mk, thr = "Memory", 80.0
+                elif "StatusCheckFailed" in n:
+                    mk, thr = "StatusCheckFailed", 0.0
+                elif "NetworkIn" in n:
+                    mk, thr = "NetworkIn", 1000000.0
+                else:
+                    mk, thr = "Disk_root", 80.0
+                alarms.append({
+                    "AlarmName": n,
+                    "Threshold": thr,
+                    "MetricName": mk,
+                    "AlarmDescription": self._make_desc(mk),
+                    "Dimensions": [],
+                })
+            return {"MetricAlarms": alarms}
+
+        mock_cw.describe_alarms.side_effect = describe_side_effect
+
+        # 임계치 동일
+        tags = {"Threshold_NetworkIn": "1000000"}
+        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw), \
+             patch("common.alarm_manager._find_alarms_for_resource", return_value=existing):
+            result = sync_alarms_for_resource("i-001", "EC2", tags)
+
+        assert dynamic_alarm_name in result["ok"]
+
+
+# ──────────────────────────────────────────────
+# Task 6.2: sync 하드코딩 off 삭제 단위 테스트
+# Validates: Requirements 3.2, 4.2, 4.3
+# ──────────────────────────────────────────────
+
+class TestSyncHardcodedOffDeletion:
+    """sync_alarms_for_resource()에서 Threshold_*=off 시 기존 알람 삭제 검증."""
+
+    @staticmethod
+    def _make_desc(metric_key, resource_id="i-001", resource_type="EC2"):
+        import json
+        meta = json.dumps(
+            {"metric_key": metric_key, "resource_id": resource_id,
+             "resource_type": resource_type},
+            separators=(",", ":"),
+        )
+        return f"Auto-created | {meta}"
+
+    def test_off_tag_deletes_existing_hardcoded_alarm(self):
+        """Threshold_CPU=off + 기존 CPU 알람 → deleted 목록에 포함.
+        Validates: Requirements 3.2, 4.2
+        """
+        mock_cw = MagicMock()
+        cpu_alarm_name = "[EC2] srv CPUUtilization >80% (i-001)"
+        existing = [
+            cpu_alarm_name,
+            "[EC2] srv mem_used_percent >80% (i-001)",
+            "[EC2] srv disk_used_percent(/) >80% (i-001)",
+            "[EC2] srv StatusCheckFailed >0 (i-001)",
+        ]
+
+        def describe_side_effect(**kwargs):
+            names = kwargs.get("AlarmNames", [])
+            alarms = []
+            for n in names:
+                if "CPUUtilization" in n:
+                    mk, thr = "CPU", 80.0
+                elif "mem_used_percent" in n:
+                    mk, thr = "Memory", 80.0
+                elif "StatusCheckFailed" in n:
+                    mk, thr = "StatusCheckFailed", 0.0
+                else:
+                    mk, thr = "Disk_root", 80.0
+                alarms.append({
+                    "AlarmName": n,
+                    "Threshold": thr,
+                    "MetricName": mk,
+                    "AlarmDescription": self._make_desc(mk),
+                    "Dimensions": [],
+                })
+            return {"MetricAlarms": alarms}
+
+        mock_cw.describe_alarms.side_effect = describe_side_effect
+        mock_cw.delete_alarms.return_value = {}
+
+        tags = {"Threshold_CPU": "off"}
+        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw), \
+             patch("common.alarm_manager._find_alarms_for_resource", return_value=existing):
+            result = sync_alarms_for_resource("i-001", "EC2", tags)
+
+        assert "deleted" in result
+        assert cpu_alarm_name in result["deleted"]
+
+    def test_off_deletion_logged(self):
+        """off 삭제 시 로깅 검증.
+        Validates: Requirements 4.3
+        """
+        import logging
+        mock_cw = MagicMock()
+        cpu_alarm_name = "[EC2] srv CPUUtilization >80% (i-001)"
+        existing = [
+            cpu_alarm_name,
+            "[EC2] srv mem_used_percent >80% (i-001)",
+            "[EC2] srv disk_used_percent(/) >80% (i-001)",
+            "[EC2] srv StatusCheckFailed >0 (i-001)",
+        ]
+
+        def describe_side_effect(**kwargs):
+            names = kwargs.get("AlarmNames", [])
+            alarms = []
+            for n in names:
+                if "CPUUtilization" in n:
+                    mk, thr = "CPU", 80.0
+                elif "mem_used_percent" in n:
+                    mk, thr = "Memory", 80.0
+                elif "StatusCheckFailed" in n:
+                    mk, thr = "StatusCheckFailed", 0.0
+                else:
+                    mk, thr = "Disk_root", 80.0
+                alarms.append({
+                    "AlarmName": n,
+                    "Threshold": thr,
+                    "MetricName": mk,
+                    "AlarmDescription": self._make_desc(mk),
+                    "Dimensions": [],
+                })
+            return {"MetricAlarms": alarms}
+
+        mock_cw.describe_alarms.side_effect = describe_side_effect
+        mock_cw.delete_alarms.return_value = {}
+
+        tags = {"Threshold_CPU": "off"}
+        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw), \
+             patch("common.alarm_manager._find_alarms_for_resource", return_value=existing), \
+             patch("common.alarm_manager.logger") as mock_logger:
+            result = sync_alarms_for_resource("i-001", "EC2", tags)
+
+        assert cpu_alarm_name in result["deleted"]
+        # 로깅 호출 확인 (info 레벨)
+        log_messages = [
+            str(call) for call in mock_logger.info.call_args_list
+        ]
+        assert any("off" in msg.lower() or "delet" in msg.lower() for msg in log_messages)
