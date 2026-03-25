@@ -14,6 +14,7 @@ from hypothesis import strategies as st
 from daily_monitor.lambda_handler import (
     _classify_alarm,
     _cleanup_orphan_alarms,
+    _process_resource,
     lambda_handler as handler,
 )
 
@@ -534,3 +535,163 @@ class TestCleanupOrphanAlarms:
 
         assert len(deleted) == 1
         assert arn in deleted[0]
+
+
+# ──────────────────────────────────────────────
+# Task 7.1: _process_resource() AuroraRDS 라우팅 검증
+# Requirements: 6.1, 6.2, 6.3
+# ──────────────────────────────────────────────
+
+
+class TestProcessResourceAuroraRDS:
+    """_process_resource() AuroraRDS 라우팅 및 임계치 비교 검증."""
+
+    def test_aurora_rds_routes_to_get_aurora_metrics(self):
+        """resource_type='AuroraRDS' → collector_mod.get_aurora_metrics() 호출."""
+        collector_mod = MagicMock()
+        collector_mod.get_aurora_metrics.return_value = {"CPU": 50.0}
+
+        with patch("daily_monitor.lambda_handler.get_threshold", return_value=80.0), \
+             patch("daily_monitor.lambda_handler.send_alert"):
+            _process_resource(
+                "aurora-db-001", "AuroraRDS", {"Monitoring": "on"}, collector_mod,
+            )
+
+        collector_mod.get_aurora_metrics.assert_called_once_with(
+            "aurora-db-001", {"Monitoring": "on"},
+        )
+        # get_metrics should NOT be called for AuroraRDS
+        collector_mod.get_metrics.assert_not_called()
+
+    def test_aurora_rds_free_local_storage_less_than_threshold_alerts(self):
+        """FreeLocalStorageGB < threshold → 알림 발송 (낮을수록 위험)."""
+        collector_mod = MagicMock()
+        collector_mod.get_aurora_metrics.return_value = {"FreeLocalStorageGB": 5.0}
+
+        with patch("daily_monitor.lambda_handler.get_threshold", return_value=10.0), \
+             patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
+            alerts = _process_resource(
+                "aurora-db-001", "AuroraRDS", {"Monitoring": "on"}, collector_mod,
+            )
+
+        assert alerts == 1
+        mock_alert.assert_called_once_with(
+            resource_id="aurora-db-001",
+            resource_type="AuroraRDS",
+            metric_name="FreeLocalStorageGB",
+            current_value=5.0,
+            threshold=10.0,
+            tag_name="",
+        )
+
+    def test_aurora_rds_free_local_storage_above_threshold_no_alert(self):
+        """FreeLocalStorageGB >= threshold → 알림 미발송."""
+        collector_mod = MagicMock()
+        collector_mod.get_aurora_metrics.return_value = {"FreeLocalStorageGB": 15.0}
+
+        with patch("daily_monitor.lambda_handler.get_threshold", return_value=10.0), \
+             patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
+            alerts = _process_resource(
+                "aurora-db-001", "AuroraRDS", {"Monitoring": "on"}, collector_mod,
+            )
+
+        assert alerts == 0
+        mock_alert.assert_not_called()
+
+    def test_aurora_rds_no_metrics_returns_zero(self):
+        """AuroraRDS 메트릭 없으면 알림 0건."""
+        collector_mod = MagicMock()
+        collector_mod.get_aurora_metrics.return_value = None
+
+        with patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
+            alerts = _process_resource(
+                "aurora-db-001", "AuroraRDS", {"Monitoring": "on"}, collector_mod,
+            )
+
+        assert alerts == 0
+        mock_alert.assert_not_called()
+
+
+# ──────────────────────────────────────────────
+# Task 7.3: _cleanup_orphan_alarms() AuroraRDS alive_checker 검증
+# Requirements: 7.1, 7.2, 7.3
+# ──────────────────────────────────────────────
+
+
+class TestCleanupOrphanAlarmsAuroraRDS:
+    """AuroraRDS 고아 알람 정리 검증."""
+
+    def test_aurora_rds_orphan_alarm_deleted(self):
+        """삭제된 Aurora DB 인스턴스의 알람이 고아로 삭제됨."""
+        from botocore.exceptions import ClientError
+
+        mock_cw = MagicMock()
+        mock_paginator = MagicMock()
+        mock_paginator.paginate.return_value = [{"MetricAlarms": [
+            {"AlarmName": "[AuroraRDS] my-aurora FreeLocalStorage <10GB (aurora-db-gone)"},
+        ]}]
+        mock_cw.get_paginator.return_value = mock_paginator
+
+        mock_rds = MagicMock()
+        mock_rds.describe_db_instances.side_effect = ClientError(
+            {"Error": {"Code": "DBInstanceNotFound", "Message": "not found"}},
+            "DescribeDBInstances",
+        )
+
+        with patch("daily_monitor.lambda_handler._get_cw_client", return_value=mock_cw), \
+             patch("daily_monitor.lambda_handler._get_rds_client", return_value=mock_rds):
+            deleted = _cleanup_orphan_alarms()
+
+        assert "[AuroraRDS] my-aurora FreeLocalStorage <10GB (aurora-db-gone)" in deleted
+        mock_cw.delete_alarms.assert_called_once()
+
+    def test_aurora_rds_alive_instance_not_deleted(self):
+        """존재하는 Aurora DB 인스턴스의 알람은 삭제하지 않음."""
+        mock_cw = MagicMock()
+        mock_paginator = MagicMock()
+        mock_paginator.paginate.return_value = [{"MetricAlarms": [
+            {"AlarmName": "[AuroraRDS] my-aurora CPU >80% (aurora-db-alive)"},
+        ]}]
+        mock_cw.get_paginator.return_value = mock_paginator
+
+        mock_rds = MagicMock()
+        mock_rds.describe_db_instances.return_value = {
+            "DBInstances": [{"DBInstanceIdentifier": "aurora-db-alive"}],
+        }
+
+        with patch("daily_monitor.lambda_handler._get_cw_client", return_value=mock_cw), \
+             patch("daily_monitor.lambda_handler._get_rds_client", return_value=mock_rds):
+            deleted = _cleanup_orphan_alarms()
+
+        assert deleted == []
+        mock_cw.delete_alarms.assert_not_called()
+
+    def test_aurora_rds_uses_find_alive_rds_instances(self):
+        """alive_checkers['AuroraRDS'] == _find_alive_rds_instances 검증."""
+        from daily_monitor.lambda_handler import _find_alive_rds_instances
+
+        # Verify by checking that AuroraRDS alarms trigger RDS describe_db_instances
+        from botocore.exceptions import ClientError
+
+        mock_cw = MagicMock()
+        mock_paginator = MagicMock()
+        mock_paginator.paginate.return_value = [{"MetricAlarms": [
+            {"AlarmName": "[AuroraRDS] aurora-inst CPU >80% (aurora-db-001)"},
+        ]}]
+        mock_cw.get_paginator.return_value = mock_paginator
+
+        mock_rds = MagicMock()
+        mock_rds.describe_db_instances.side_effect = ClientError(
+            {"Error": {"Code": "DBInstanceNotFound", "Message": "not found"}},
+            "DescribeDBInstances",
+        )
+
+        with patch("daily_monitor.lambda_handler._get_cw_client", return_value=mock_cw), \
+             patch("daily_monitor.lambda_handler._get_rds_client", return_value=mock_rds):
+            deleted = _cleanup_orphan_alarms()
+
+        # RDS describe_db_instances was called for the AuroraRDS alarm's resource_id
+        mock_rds.describe_db_instances.assert_called_once_with(
+            DBInstanceIdentifier="aurora-db-001",
+        )
+        assert len(deleted) == 1

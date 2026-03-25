@@ -15,6 +15,8 @@ from typing import Optional
 
 import boto3
 
+from botocore.exceptions import ClientError
+
 from common import MONITORED_API_EVENTS
 from common.alarm_manager import (
     create_alarms_for_resource,
@@ -302,6 +304,20 @@ def _resolve_elb_type(resource_id: str) -> str:
     return "ELB"
 
 
+def _resolve_rds_aurora_type(db_instance_id: str) -> str:
+    """describe_db_instances로 Engine 확인 후 AuroraRDS/RDS 판별. API 오류 시 'RDS' 폴백."""
+    try:
+        rds = boto3.client("rds")
+        resp = rds.describe_db_instances(DBInstanceIdentifier=db_instance_id)
+        engine = resp["DBInstances"][0].get("Engine", "")
+        if "aurora" in engine.lower():
+            return "AuroraRDS"
+        return "RDS"
+    except ClientError as e:
+        logger.warning("Failed to resolve RDS/Aurora type for %s: %s", db_instance_id, e)
+        return "RDS"
+
+
 def parse_cloudtrail_event(event: dict) -> list[ParsedEvent]:
     """
     EventBridge 래핑 CloudTrail 이벤트에서 필요한 필드 추출.
@@ -348,6 +364,9 @@ def parse_cloudtrail_event(event: dict) -> list[ParsedEvent]:
         # ELB ARN 기반 ALB/NLB 타입 세분화
         if rt == "ELB":
             rt = _resolve_elb_type(resource_id)
+        # RDS → AuroraRDS 세분화 (describe_db_instances Engine 확인)
+        elif rt == "RDS":
+            rt = _resolve_rds_aurora_type(resource_id)
 
         change_summary = (
             f"{event_name} on {rt} {resource_id}"
@@ -490,7 +509,7 @@ def perform_remediation(resource_type: str, resource_id: str, change_summary: st
 
 def _remediation_action_name(resource_type: str) -> str:
 
-    return {"EC2": "STOPPED", "RDS": "STOPPED", "ELB": "DELETED", "ALB": "DELETED", "NLB": "DELETED"}.get(
+    return {"EC2": "STOPPED", "RDS": "STOPPED", "AuroraRDS": "STOPPED", "ELB": "DELETED", "ALB": "DELETED", "NLB": "DELETED"}.get(
 
         resource_type, "UNKNOWN"
 
@@ -516,6 +535,15 @@ def _execute_remediation(resource_type: str, resource_id: str) -> str:
 
 
     if resource_type == "RDS":
+
+        rds = boto3.client("rds")
+
+        rds.stop_db_instance(DBInstanceIdentifier=resource_id)
+
+        return "STOPPED"
+
+
+    if resource_type == "AuroraRDS":
 
         rds = boto3.client("rds")
 

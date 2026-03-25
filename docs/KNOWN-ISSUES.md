@@ -127,3 +127,79 @@ Memory/Disk 메트릭은 CWAgent가 수집하여 `CWAgent` 네임스페이스로
 ### 향후 계획
 - UI 구현 시 태그를 자동 생성하므로 사용자가 키 이름을 직접 입력할 필요 없음
 - 전체 metric key 리네이밍은 UI 구현과 함께 진행 예정 (스펙: `.kiro/specs/metric-key-rename/`)
+
+---
+
+## KI-006: Aurora Serverless v2에서 FreeLocalStorage 메트릭 미발행
+
+### 현상
+Aurora Serverless v2 인스턴스(`db.serverless`)에 `FreeLocalStorage` 알람을 생성하면
+`INSUFFICIENT_DATA` 상태가 영구적으로 유지된다.
+
+### 원인
+`FreeLocalStorage` 메트릭은 프로비저닝 인스턴스(`db.r6g.*`, `db.r7g.*` 등)에서만 발행된다.
+Serverless v2는 로컬 임시 스토리지 관리가 다르며, 해당 메트릭을 CloudWatch에 발행하지 않는다.
+
+E2E 테스트(aurora-rds-test 스택, 2026-03-25)에서 `list_metrics` API로 확인:
+Serverless v2 인스턴스의 발행 메트릭 목록에 `FreeLocalStorage`가 없음.
+
+### 영향 범위
+- Aurora Serverless v2 (`db.serverless`) 인스턴스에만 해당
+- 프로비저닝 Aurora 인스턴스(`db.r6g.large` 등)에서는 정상 발행
+
+### 엔진 대응
+- `TreatMissingData="missing"` 설정으로 데이터 없을 때 상태 유지
+- 별도 코드 변경 불필요 (CWAgent 미설치 시 Memory 알람과 동일 패턴)
+- Serverless v2 사용 시 `Threshold_FreeLocalStorageGB=off` 태그로 알람 비활성화 가능
+
+---
+
+## KI-007: Aurora 라이터 단독 구성에서 AuroraReplicaLagMaximum 메트릭 미발행
+
+### 현상
+Aurora 클러스터에 라이터 인스턴스만 있고 리더(replica) 인스턴스가 없으면
+`AuroraReplicaLagMaximum` 알람이 `INSUFFICIENT_DATA` 상태가 된다.
+
+### 원인
+`AuroraReplicaLagMaximum`은 리더 인스턴스의 복제 지연을 측정하는 메트릭이다.
+리더 인스턴스가 없으면 복제 자체가 발생하지 않으므로 CloudWatch에 데이터가 발행되지 않는다.
+
+E2E 테스트(aurora-rds-test 스택, 2026-03-25)에서 확인:
+라이터 1개 단독 구성 시 `list_metrics`에 `AuroraReplicaLagMaximum` 없음.
+
+### 영향 범위
+- 라이터 단독 구성(리더 0개)에만 해당
+- 리더 인스턴스 1개 이상 추가하면 정상 발행
+
+### 엔진 대응
+- `TreatMissingData="missing"` 설정으로 데이터 없을 때 상태 유지
+- 별도 코드 변경 불필요
+- 라이터 단독 구성에서 `Threshold_ReplicaLag=off` 태그로 알람 비활성화 가능
+
+---
+
+## KI-008: DeleteDBInstance 이벤트에서 Aurora 알람 삭제 실패 가능성
+
+### 현상
+Aurora 인스턴스가 삭제된 후 CloudTrail `DeleteDBInstance` 이벤트를 Remediation Handler가 수신하면,
+`_resolve_rds_aurora_type()`가 `describe_db_instances`를 호출하지만 인스턴스가 이미 삭제되어 API 실패 → `"RDS"` 폴백.
+이 경우 `[RDS]` prefix로 알람을 검색하므로 `[AuroraRDS]` prefix 알람을 찾지 못해 삭제하지 못할 수 있다.
+
+### 원인
+`_resolve_rds_aurora_type()`는 `describe_db_instances` API로 Engine 필드를 확인하여 Aurora 여부를 판별한다.
+인스턴스 삭제 후에는 API가 `DBInstanceNotFound` 에러를 반환하므로 `"RDS"` 폴백이 발생한다.
+`_handle_delete()`는 폴백된 `"RDS"` 타입으로 `delete_alarms_for_resource()`를 호출하므로
+`[AuroraRDS]` prefix 알람은 검색 대상에서 제외된다.
+
+### 영향 범위
+- Aurora 인스턴스 삭제 시 실시간 알람 정리 경로에만 해당
+- Daily Monitor의 `_cleanup_orphan_alarms()`가 백업으로 다음 실행 시 정리함 (최대 24시간 지연)
+
+### 현재 대응
+- Daily Monitor 고아 알람 정리가 백업 경로로 동작
+- 수동 삭제: `aws cloudwatch delete-alarms --alarm-names "[AuroraRDS] ..."` 
+
+### 향후 수정 계획
+- `rds-aurora-alarm-optimization` 스펙에서 수정 예정
+- `_handle_delete()`에서 RDS 이벤트 시 `"RDS"`와 `"AuroraRDS"` 양쪽 prefix로 알람 검색
+- 또는 `AlarmDescription` JSON 메타데이터의 `resource_id` 기반 검색으로 전환

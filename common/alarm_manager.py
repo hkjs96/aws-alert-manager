@@ -69,6 +69,8 @@ _METRIC_DISPLAY = {
     "TCPTargetReset": ("TCP_Target_Reset_Count", ">", ""),
     "RequestCountPerTarget": ("RequestCountPerTarget", ">", ""),
     "TGResponseTime": ("TargetResponseTime", ">", "s"),
+    "FreeLocalStorageGB": ("FreeLocalStorage", "<", "GB"),
+    "ReplicaLag": ("AuroraReplicaLagMaximum", ">", "μs"),
 }
 
 
@@ -229,7 +231,7 @@ def _find_alarms_for_resource(
     type_prefixes = (
         [f"[{resource_type}] "]
         if resource_type
-        else [f"[{rt}] " for rt in ("EC2", "RDS", "ALB", "NLB", "TG")]
+        else [f"[{rt}] " for rt in ("EC2", "RDS", "ALB", "NLB", "TG", "AuroraRDS")]
     )
     for p in type_prefixes:
         _collect(p, filter_suffix=True)
@@ -487,6 +489,61 @@ _TG_ALARMS = [
 ]
 
 
+_AURORA_RDS_ALARMS = [
+    {
+        "metric": "CPU",
+        "namespace": "AWS/RDS",
+        "metric_name": "CPUUtilization",
+        "dimension_key": "DBInstanceIdentifier",
+        "stat": "Average",
+        "comparison": "GreaterThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+    },
+    {
+        "metric": "FreeMemoryGB",
+        "namespace": "AWS/RDS",
+        "metric_name": "FreeableMemory",
+        "dimension_key": "DBInstanceIdentifier",
+        "stat": "Average",
+        "comparison": "LessThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+        "transform_threshold": lambda gb: gb * 1073741824,
+    },
+    {
+        "metric": "Connections",
+        "namespace": "AWS/RDS",
+        "metric_name": "DatabaseConnections",
+        "dimension_key": "DBInstanceIdentifier",
+        "stat": "Average",
+        "comparison": "GreaterThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+    },
+    {
+        "metric": "FreeLocalStorageGB",
+        "namespace": "AWS/RDS",
+        "metric_name": "FreeLocalStorage",
+        "dimension_key": "DBInstanceIdentifier",
+        "stat": "Average",
+        "comparison": "LessThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+        "transform_threshold": lambda gb: gb * 1073741824,
+    },
+    {
+        "metric": "ReplicaLag",
+        "namespace": "AWS/RDS",
+        "metric_name": "AuroraReplicaLagMaximum",
+        "dimension_key": "DBInstanceIdentifier",
+        "stat": "Maximum",
+        "comparison": "GreaterThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+    },
+]
+
 _NLB_TG_EXCLUDED_METRICS = {"RequestCountPerTarget", "TGResponseTime"}
 
 
@@ -495,6 +552,8 @@ def _get_alarm_defs(resource_type: str, resource_tags: dict | None = None) -> li
         return _EC2_ALARMS
     elif resource_type == "RDS":
         return _RDS_ALARMS
+    elif resource_type == "AuroraRDS":
+        return _AURORA_RDS_ALARMS
     elif resource_type == "ALB":
         return _ALB_ALARMS
     elif resource_type == "NLB":
@@ -517,6 +576,7 @@ _HARDCODED_METRIC_KEYS: dict[str, set[str]] = {
     "ALB": {"RequestCount", "ELB5XX", "TargetResponseTime"},
     "NLB": {"ProcessedBytes", "ActiveFlowCount", "NewFlowCount", "TCPClientReset", "TCPTargetReset"},
     "TG": {"HealthyHostCount", "UnHealthyHostCount", "RequestCountPerTarget", "TGResponseTime"},
+    "AuroraRDS": {"CPU", "FreeMemoryGB", "Connections", "FreeLocalStorageGB", "ReplicaLag"},
 }
 
 # resource_type별 CloudWatch 네임스페이스 목록
@@ -526,6 +586,7 @@ _NAMESPACE_MAP: dict[str, list[str]] = {
     "ALB": ["AWS/ApplicationELB"],
     "NLB": ["AWS/NetworkELB"],
     "TG": ["AWS/ApplicationELB", "AWS/NetworkELB"],
+    "AuroraRDS": ["AWS/RDS"],
 }
 
 # resource_type별 디멘션 키
@@ -535,6 +596,7 @@ _DIMENSION_KEY_MAP: dict[str, str] = {
     "ALB": "LoadBalancer",
     "NLB": "LoadBalancer",
     "TG": "TargetGroup",
+    "AuroraRDS": "DBInstanceIdentifier",
 }
 
 # AWS 태그 허용 문자 패턴 (메트릭 이름 부분)
@@ -1147,6 +1209,8 @@ def _metric_name_to_key(metric_name: str) -> str:
         "TCP_Client_Reset_Count": "TCPClientReset",
         "TCP_Target_Reset_Count": "TCPTargetReset",
         "RequestCountPerTarget": "RequestCountPerTarget",
+        "FreeLocalStorage": "FreeLocalStorageGB",
+        "AuroraReplicaLagMaximum": "ReplicaLag",
     }
     return mapping.get(metric_name, metric_name)
 

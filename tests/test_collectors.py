@@ -28,11 +28,13 @@ def _make_ec2_response(instances: list[dict]) -> dict:
     return {"Reservations": [{"Instances": instances}]}
 
 
-def _make_rds_instance(db_id: str, db_arn: str, status: str = "available") -> dict:
+def _make_rds_instance(db_id: str, db_arn: str, status: str = "available",
+                       engine: str = "mysql") -> dict:
     return {
         "DBInstanceIdentifier": db_id,
         "DBInstanceArn": db_arn,
         "DBInstanceStatus": status,
+        "Engine": engine,
     }
 
 
@@ -553,3 +555,267 @@ class TestELBCollector:
         tg_resources = [r for r in result if r["id"] == tg_arn]
         assert len(tg_resources) == 1
         assert tg_resources[0]["type"] == "TG"
+
+
+# ──────────────────────────────────────────────
+# RDS Aurora 분류 단위 테스트
+# Validates: Requirements 1.1, 1.2, 1.3, 1.4, 1.5
+# ──────────────────────────────────────────────
+
+class TestRDSAuroraClassification:
+    """collect_monitored_resources() Aurora 분류 검증."""
+
+    def _mock_rds_for_collection(self, instances, tag_map):
+        """RDS 클라이언트 mock 생성 (수집 테스트용)."""
+        mock_rds = MagicMock()
+        mock_paginator = MagicMock()
+        mock_rds.get_paginator.return_value = mock_paginator
+        mock_paginator.paginate.return_value = [{"DBInstances": instances}]
+
+        def mock_list_tags(ResourceName):
+            tags = tag_map.get(ResourceName, {})
+            return {"TagList": [{"Key": k, "Value": v} for k, v in tags.items()]}
+
+        mock_rds.list_tags_for_resource.side_effect = mock_list_tags
+        return mock_rds
+
+    def test_aurora_mysql_classified_as_aurora_rds(self):
+        """Engine 'aurora-mysql' → type='AuroraRDS' — Req 1.1, 1.3"""
+        from common.collectors.rds import collect_monitored_resources
+
+        arn = "arn:aws:rds:us-east-1:123:db:aurora-db-1"
+        instances = [_make_rds_instance("aurora-db-1", arn, engine="aurora-mysql")]
+        mock_rds = self._mock_rds_for_collection(instances, {arn: {"Monitoring": "on"}})
+
+        with patch("common.collectors.rds._get_rds_client", return_value=mock_rds), \
+             patch("common.collectors.rds.boto3.session.Session") as ms:
+            ms.return_value.region_name = "us-east-1"
+            result = collect_monitored_resources()
+
+        assert len(result) == 1
+        assert result[0]["type"] == "AuroraRDS"
+        assert result[0]["id"] == "aurora-db-1"
+
+    def test_aurora_postgresql_classified_as_aurora_rds(self):
+        """Engine 'aurora-postgresql' → type='AuroraRDS' — Req 1.1, 1.3"""
+        from common.collectors.rds import collect_monitored_resources
+
+        arn = "arn:aws:rds:us-east-1:123:db:aurora-pg-1"
+        instances = [_make_rds_instance("aurora-pg-1", arn, engine="aurora-postgresql")]
+        mock_rds = self._mock_rds_for_collection(instances, {arn: {"Monitoring": "on"}})
+
+        with patch("common.collectors.rds._get_rds_client", return_value=mock_rds), \
+             patch("common.collectors.rds.boto3.session.Session") as ms:
+            ms.return_value.region_name = "us-east-1"
+            result = collect_monitored_resources()
+
+        assert len(result) == 1
+        assert result[0]["type"] == "AuroraRDS"
+
+    def test_mysql_engine_stays_rds(self):
+        """Engine 'mysql' → type='RDS' 유지 — Req 1.2"""
+        from common.collectors.rds import collect_monitored_resources
+
+        arn = "arn:aws:rds:us-east-1:123:db:mysql-db-1"
+        instances = [_make_rds_instance("mysql-db-1", arn, engine="mysql")]
+        mock_rds = self._mock_rds_for_collection(instances, {arn: {"Monitoring": "on"}})
+
+        with patch("common.collectors.rds._get_rds_client", return_value=mock_rds), \
+             patch("common.collectors.rds.boto3.session.Session") as ms:
+            ms.return_value.region_name = "us-east-1"
+            result = collect_monitored_resources()
+
+        assert len(result) == 1
+        assert result[0]["type"] == "RDS"
+
+    def test_aurora_engine_classified_as_aurora_rds(self):
+        """Engine 'aurora' → type='AuroraRDS' — Req 1.1, 1.3"""
+        from common.collectors.rds import collect_monitored_resources
+
+        arn = "arn:aws:rds:us-east-1:123:db:aurora-plain-1"
+        instances = [_make_rds_instance("aurora-plain-1", arn, engine="aurora")]
+        mock_rds = self._mock_rds_for_collection(instances, {arn: {"Monitoring": "on"}})
+
+        with patch("common.collectors.rds._get_rds_client", return_value=mock_rds), \
+             patch("common.collectors.rds.boto3.session.Session") as ms:
+            ms.return_value.region_name = "us-east-1"
+            result = collect_monitored_resources()
+
+        assert len(result) == 1
+        assert result[0]["type"] == "AuroraRDS"
+
+    def test_deleting_aurora_instance_skipped(self):
+        """deleting/deleted Aurora 인스턴스 skip — Req 1.5"""
+        from common.collectors.rds import collect_monitored_resources
+
+        arn_del = "arn:aws:rds:us-east-1:123:db:aurora-deleting"
+        arn_deleted = "arn:aws:rds:us-east-1:123:db:aurora-deleted"
+        arn_ok = "arn:aws:rds:us-east-1:123:db:aurora-ok"
+        instances = [
+            _make_rds_instance("aurora-deleting", arn_del, status="deleting", engine="aurora-mysql"),
+            _make_rds_instance("aurora-deleted", arn_deleted, status="deleted", engine="aurora-postgresql"),
+            _make_rds_instance("aurora-ok", arn_ok, status="available", engine="aurora-mysql"),
+        ]
+        tag_map = {
+            arn_del: {"Monitoring": "on"},
+            arn_deleted: {"Monitoring": "on"},
+            arn_ok: {"Monitoring": "on"},
+        }
+        mock_rds = self._mock_rds_for_collection(instances, tag_map)
+
+        with patch("common.collectors.rds._get_rds_client", return_value=mock_rds), \
+             patch("common.collectors.rds.boto3.session.Session") as ms:
+            ms.return_value.region_name = "us-east-1"
+            result = collect_monitored_resources()
+
+        assert len(result) == 1
+        assert result[0]["id"] == "aurora-ok"
+        assert result[0]["type"] == "AuroraRDS"
+
+    def test_mixed_engines_classified_correctly(self):
+        """Aurora + non-Aurora 혼합 시 각각 올바르게 분류 — Req 1.1, 1.2"""
+        from common.collectors.rds import collect_monitored_resources
+
+        arn1 = "arn:aws:rds:us-east-1:123:db:aurora-db"
+        arn2 = "arn:aws:rds:us-east-1:123:db:mysql-db"
+        instances = [
+            _make_rds_instance("aurora-db", arn1, engine="aurora-mysql"),
+            _make_rds_instance("mysql-db", arn2, engine="mysql"),
+        ]
+        tag_map = {arn1: {"Monitoring": "on"}, arn2: {"Monitoring": "on"}}
+        mock_rds = self._mock_rds_for_collection(instances, tag_map)
+
+        with patch("common.collectors.rds._get_rds_client", return_value=mock_rds), \
+             patch("common.collectors.rds.boto3.session.Session") as ms:
+            ms.return_value.region_name = "us-east-1"
+            result = collect_monitored_resources()
+
+        result_map = {r["id"]: r["type"] for r in result}
+        assert result_map["aurora-db"] == "AuroraRDS"
+        assert result_map["mysql-db"] == "RDS"
+
+
+# ──────────────────────────────────────────────
+# RDS Aurora 메트릭 수집 단위 테스트
+# Validates: Requirements 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 4.7, 4.8
+# ──────────────────────────────────────────────
+
+class TestAuroraMetrics:
+    """get_aurora_metrics() 메트릭 수집 검증."""
+
+    def _make_cw_mock_with_data(self, metric_data: dict[str, float]):
+        """CloudWatch mock: metric_name → value 매핑으로 응답 생성."""
+        mock_cw = MagicMock()
+
+        def get_metric_stats(**kwargs):
+            metric_name = kwargs.get("MetricName", "")
+            if metric_name in metric_data:
+                return {
+                    "Datapoints": [{
+                        "Timestamp": datetime(2024, 1, 1, tzinfo=timezone.utc),
+                        "Average": metric_data[metric_name],
+                        "Maximum": metric_data[metric_name],
+                    }]
+                }
+            return {"Datapoints": []}
+
+        mock_cw.get_metric_statistics.side_effect = get_metric_stats
+        return mock_cw
+
+    def test_all_five_metrics_returned(self):
+        """5개 메트릭 모두 반환 — Req 4.1"""
+        from common.collectors.rds import get_aurora_metrics
+
+        two_gb = 2.0 * (1024 ** 3)
+        five_gb = 5.0 * (1024 ** 3)
+        mock_cw = self._make_cw_mock_with_data({
+            "CPUUtilization": 75.0,
+            "FreeableMemory": two_gb,
+            "DatabaseConnections": 50.0,
+            "FreeLocalStorage": five_gb,
+            "AuroraReplicaLagMaximum": 1500000.0,
+        })
+
+        with patch("common.collectors.base._get_cw_client", return_value=mock_cw):
+            result = get_aurora_metrics("aurora-db-1")
+
+        assert result is not None
+        assert result["CPU"] == pytest.approx(75.0)
+        assert result["FreeMemoryGB"] == pytest.approx(2.0)
+        assert result["Connections"] == pytest.approx(50.0)
+        assert result["FreeLocalStorageGB"] == pytest.approx(5.0)
+        assert result["ReplicaLag"] == pytest.approx(1500000.0)
+
+    def test_freeable_memory_bytes_to_gb(self):
+        """FreeableMemory bytes→GB 변환 — Req 4.2"""
+        from common.collectors.rds import get_aurora_metrics
+
+        four_gb_bytes = 4.0 * 1073741824
+        mock_cw = self._make_cw_mock_with_data({
+            "FreeableMemory": four_gb_bytes,
+        })
+
+        with patch("common.collectors.base._get_cw_client", return_value=mock_cw):
+            result = get_aurora_metrics("aurora-db-1")
+
+        assert result is not None
+        assert result["FreeMemoryGB"] == pytest.approx(4.0)
+
+    def test_free_local_storage_bytes_to_gb(self):
+        """FreeLocalStorage bytes→GB 변환 — Req 4.3"""
+        from common.collectors.rds import get_aurora_metrics
+
+        ten_gb_bytes = 10.0 * 1073741824
+        mock_cw = self._make_cw_mock_with_data({
+            "FreeLocalStorage": ten_gb_bytes,
+        })
+
+        with patch("common.collectors.base._get_cw_client", return_value=mock_cw):
+            result = get_aurora_metrics("aurora-db-1")
+
+        assert result is not None
+        assert result["FreeLocalStorageGB"] == pytest.approx(10.0)
+
+    def test_replica_lag_raw_microseconds(self):
+        """AuroraReplicaLagMaximum raw μs 반환 — Req 4.4"""
+        from common.collectors.rds import get_aurora_metrics
+
+        mock_cw = self._make_cw_mock_with_data({
+            "AuroraReplicaLagMaximum": 2500000.0,
+        })
+
+        with patch("common.collectors.base._get_cw_client", return_value=mock_cw):
+            result = get_aurora_metrics("aurora-db-1")
+
+        assert result is not None
+        assert result["ReplicaLag"] == pytest.approx(2500000.0)
+
+    def test_individual_metric_skip_when_no_data(self):
+        """개별 메트릭 데이터 없을 때 skip — Req 4.7"""
+        from common.collectors.rds import get_aurora_metrics
+
+        # CPUUtilization만 데이터 있음, 나머지 없음
+        mock_cw = self._make_cw_mock_with_data({
+            "CPUUtilization": 60.0,
+        })
+
+        with patch("common.collectors.base._get_cw_client", return_value=mock_cw):
+            result = get_aurora_metrics("aurora-db-1")
+
+        assert result is not None
+        assert result["CPU"] == pytest.approx(60.0)
+        assert "FreeMemoryGB" not in result
+        assert "Connections" not in result
+        assert "FreeLocalStorageGB" not in result
+        assert "ReplicaLag" not in result
+
+    def test_returns_none_when_all_metrics_empty(self):
+        """전체 메트릭 없을 때 None 반환 — Req 4.8"""
+        from common.collectors.rds import get_aurora_metrics
+
+        mock_cw = self._make_cw_mock_with_data({})  # 모든 메트릭 데이터 없음
+
+        with patch("common.collectors.base._get_cw_client", return_value=mock_cw):
+            result = get_aurora_metrics("aurora-db-1")
+
+        assert result is None

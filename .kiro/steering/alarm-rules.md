@@ -141,6 +141,16 @@ fileMatchPattern: '**/*.py'
 | Threshold_RequestCountPerTarget | RequestCountPerTarget | RequestCountPerTarget | AWS/ApplicationELB | 1000 | Count | ALB TG only |
 | Threshold_TGResponseTime | TGResponseTime | TargetResponseTime | AWS/ApplicationELB | 5 | Seconds | ALB TG only |
 
+### AuroraRDS
+
+| 태그 키 | 내부 metric key | CW metric_name | Namespace | 기본 임계치 | 단위 | 변환 |
+|---------|----------------|----------------|-----------|-----------|------|------|
+| Threshold_CPU | CPU | CPUUtilization | AWS/RDS | 80 | % | - |
+| Threshold_FreeMemoryGB | FreeMemoryGB | FreeableMemory | AWS/RDS | 2 | GB | GB→bytes |
+| Threshold_Connections | Connections | DatabaseConnections | AWS/RDS | 100 | Count | - |
+| Threshold_FreeLocalStorageGB | FreeLocalStorageGB | FreeLocalStorage | AWS/RDS | 10 | GB | GB→bytes |
+| Threshold_ReplicaLag | ReplicaLag | AuroraReplicaLagMaximum | AWS/RDS | 2000000 | μs | - |
+
 ### 동적 알람 (Threshold_* 태그)
 
 하드코딩 목록에 없는 `Threshold_{MetricName}={Value}` 태그는 동적 알람으로 처리된다.

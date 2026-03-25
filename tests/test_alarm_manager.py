@@ -2306,3 +2306,452 @@ class TestSyncHardcodedOffDeletion:
             str(call) for call in mock_logger.info.call_args_list
         ]
         assert any("off" in msg.lower() or "delet" in msg.lower() for msg in log_messages)
+
+
+# ──────────────────────────────────────────────
+# AuroraRDS 알람 정의 검증 (Task 4.1 - TDD Red)
+# ──────────────────────────────────────────────
+
+def test_aurora_rds_alarm_defs():
+    """_get_alarm_defs('AuroraRDS') → 5개 정의 반환 검증.
+    Validates: Requirements 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7
+    """
+    defs = _get_alarm_defs("AuroraRDS")
+    assert len(defs) == 5
+    metrics = {d["metric"] for d in defs}
+    assert metrics == {"CPU", "FreeMemoryGB", "Connections", "FreeLocalStorageGB", "ReplicaLag"}
+
+    # 모든 정의가 AWS/RDS 네임스페이스, DBInstanceIdentifier 디멘션 사용
+    for d in defs:
+        assert d["namespace"] == "AWS/RDS"
+        assert d["dimension_key"] == "DBInstanceIdentifier"
+        assert d["period"] == 300
+        assert d["evaluation_periods"] == 1
+
+    # CPU: Average, GreaterThanThreshold
+    cpu_def = next(d for d in defs if d["metric"] == "CPU")
+    assert cpu_def["stat"] == "Average"
+    assert cpu_def["comparison"] == "GreaterThanThreshold"
+    assert cpu_def["metric_name"] == "CPUUtilization"
+
+    # FreeMemoryGB: Average, LessThanThreshold, transform_threshold
+    mem_def = next(d for d in defs if d["metric"] == "FreeMemoryGB")
+    assert mem_def["stat"] == "Average"
+    assert mem_def["comparison"] == "LessThanThreshold"
+    assert mem_def["metric_name"] == "FreeableMemory"
+    assert mem_def["transform_threshold"](2.0) == 2.0 * 1073741824
+
+    # Connections: Average, GreaterThanThreshold
+    conn_def = next(d for d in defs if d["metric"] == "Connections")
+    assert conn_def["stat"] == "Average"
+    assert conn_def["comparison"] == "GreaterThanThreshold"
+    assert conn_def["metric_name"] == "DatabaseConnections"
+
+    # FreeLocalStorageGB: Average, LessThanThreshold, transform_threshold
+    storage_def = next(d for d in defs if d["metric"] == "FreeLocalStorageGB")
+    assert storage_def["stat"] == "Average"
+    assert storage_def["comparison"] == "LessThanThreshold"
+    assert storage_def["metric_name"] == "FreeLocalStorage"
+    assert storage_def["transform_threshold"](10.0) == 10737418240
+
+    # ReplicaLag: Maximum, GreaterThanThreshold
+    lag_def = next(d for d in defs if d["metric"] == "ReplicaLag")
+    assert lag_def["stat"] == "Maximum"
+    assert lag_def["comparison"] == "GreaterThanThreshold"
+    assert lag_def["metric_name"] == "AuroraReplicaLagMaximum"
+
+
+# ──────────────────────────────────────────────
+# AuroraRDS 상수 매핑 검증 (Task 4.3 - TDD Red)
+# ──────────────────────────────────────────────
+
+def test_aurora_rds_constant_mappings():
+    """AuroraRDS 상수 매핑 업데이트 검증.
+    Validates: Requirements 5.3, 5.4
+    """
+    from common.alarm_manager import _NAMESPACE_MAP, _DIMENSION_KEY_MAP
+
+    # _HARDCODED_METRIC_KEYS
+    assert "AuroraRDS" in _HARDCODED_METRIC_KEYS
+    assert _HARDCODED_METRIC_KEYS["AuroraRDS"] == {
+        "CPU", "FreeMemoryGB", "Connections", "FreeLocalStorageGB", "ReplicaLag",
+    }
+
+    # _NAMESPACE_MAP
+    assert _NAMESPACE_MAP["AuroraRDS"] == ["AWS/RDS"]
+
+    # _DIMENSION_KEY_MAP
+    assert _DIMENSION_KEY_MAP["AuroraRDS"] == "DBInstanceIdentifier"
+
+    # _METRIC_DISPLAY: FreeLocalStorageGB, ReplicaLag
+    assert _METRIC_DISPLAY["FreeLocalStorageGB"] == ("FreeLocalStorage", "<", "GB")
+    assert _METRIC_DISPLAY["ReplicaLag"] == ("AuroraReplicaLagMaximum", ">", "μs")
+
+    # _metric_name_to_key 변환
+    assert _metric_name_to_key("FreeLocalStorage") == "FreeLocalStorageGB"
+    assert _metric_name_to_key("AuroraReplicaLagMaximum") == "ReplicaLag"
+
+
+# ──────────────────────────────────────────────
+# Task 5.1: _find_alarms_for_resource() AuroraRDS 검색 검증
+# ──────────────────────────────────────────────
+
+
+class TestFindAlarmsForResourceAuroraRDS:
+    """_find_alarms_for_resource() AuroraRDS 검색 호환 테스트.
+    Validates: Requirements 8.1, 8.2
+    """
+
+    @mock_aws
+    def test_aurora_rds_explicit_type_searches_with_correct_prefix_and_suffix(self):
+        """resource_type='AuroraRDS' → prefix '[AuroraRDS] ' + suffix '({db_id})' 검색.
+        Validates: Requirements 8.1
+        """
+        import common.alarm_manager as am
+        am._get_cw_client.cache_clear()
+
+        cw = _boto3.client("cloudwatch", region_name="us-east-1")
+        db_id = "my-aurora-instance"
+
+        # AuroraRDS 새 포맷 알람
+        cw.put_metric_alarm(
+            AlarmName=f"[AuroraRDS] my-aurora CPUUtilization >80% ({db_id})",
+            Namespace="AWS/RDS",
+            MetricName="CPUUtilization",
+            Dimensions=[{"Name": "DBInstanceIdentifier", "Value": db_id}],
+            Statistic="Average",
+            Period=300,
+            EvaluationPeriods=1,
+            Threshold=80,
+            ComparisonOperator="GreaterThanThreshold",
+        )
+        cw.put_metric_alarm(
+            AlarmName=f"[AuroraRDS] my-aurora FreeLocalStorage <10GB ({db_id})",
+            Namespace="AWS/RDS",
+            MetricName="FreeLocalStorage",
+            Dimensions=[{"Name": "DBInstanceIdentifier", "Value": db_id}],
+            Statistic="Average",
+            Period=300,
+            EvaluationPeriods=1,
+            Threshold=10737418240,
+            ComparisonOperator="LessThanThreshold",
+        )
+        # 다른 리소스의 알람 (검색에 포함되면 안 됨)
+        cw.put_metric_alarm(
+            AlarmName=f"[AuroraRDS] other-aurora CPUUtilization >80% (other-instance)",
+            Namespace="AWS/RDS",
+            MetricName="CPUUtilization",
+            Dimensions=[{"Name": "DBInstanceIdentifier", "Value": "other-instance"}],
+            Statistic="Average",
+            Period=300,
+            EvaluationPeriods=1,
+            Threshold=80,
+            ComparisonOperator="GreaterThanThreshold",
+        )
+
+        with patch("common.alarm_manager._get_cw_client", return_value=cw):
+            result = _find_alarms_for_resource(db_id, "AuroraRDS")
+
+        assert len(result) == 2
+        assert all(name.endswith(f"({db_id})") for name in result)
+        assert all(name.startswith("[AuroraRDS] ") for name in result)
+
+    @mock_aws
+    def test_default_fallback_includes_aurora_rds(self):
+        """resource_type 미지정(default) → fallback 리스트에 'AuroraRDS' 포함하여 검색.
+        Validates: Requirements 8.2
+        """
+        import common.alarm_manager as am
+        am._get_cw_client.cache_clear()
+
+        cw = _boto3.client("cloudwatch", region_name="us-east-1")
+        db_id = "my-aurora-db"
+
+        # AuroraRDS 알람
+        cw.put_metric_alarm(
+            AlarmName=f"[AuroraRDS] my-aurora CPUUtilization >80% ({db_id})",
+            Namespace="AWS/RDS",
+            MetricName="CPUUtilization",
+            Dimensions=[{"Name": "DBInstanceIdentifier", "Value": db_id}],
+            Statistic="Average",
+            Period=300,
+            EvaluationPeriods=1,
+            Threshold=80,
+            ComparisonOperator="GreaterThanThreshold",
+        )
+
+        # resource_type 미지정 → default fallback
+        with patch("common.alarm_manager._get_cw_client", return_value=cw):
+            result = _find_alarms_for_resource(db_id)
+
+        assert len(result) >= 1
+        assert f"[AuroraRDS] my-aurora CPUUtilization >80% ({db_id})" in result
+
+
+# ──────────────────────────────────────────────
+# AuroraRDS 통합 시나리오 테스트 (Task 12.1)
+# ──────────────────────────────────────────────
+
+class TestAuroraRDSIntegration:
+    """AuroraRDS 알람 생성 → sync → 삭제 end-to-end 통합 테스트.
+
+    Validates: Requirements 6.2, 10.1, 10.2, 10.3, 10.4, 10.5, 10.6
+    """
+
+    @staticmethod
+    def _make_mock_cw():
+        """AuroraRDS 테스트용 mock CloudWatch 클라이언트 생성."""
+        mock_cw = MagicMock()
+        mock_paginator = MagicMock()
+        mock_paginator.paginate.return_value = [{"MetricAlarms": []}]
+        mock_cw.get_paginator.return_value = mock_paginator
+        mock_cw.put_metric_alarm.return_value = {}
+        mock_cw.delete_alarms.return_value = {}
+        mock_cw.list_metrics.return_value = {"Metrics": []}
+        return mock_cw
+
+    def test_create_aurora_rds_creates_five_alarms(self):
+        """sync_alarms_for_resource() 최초 호출 시 5개 AuroraRDS 알람 생성.
+
+        Validates: Requirements 6.2, 10.1, 10.2, 10.3, 10.4, 10.5
+        """
+        mock_cw = self._make_mock_cw()
+        tags = {"Monitoring": "on", "Name": "my-aurora"}
+        db_id = "aurora-db-001"
+
+        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+            result = sync_alarms_for_resource(db_id, "AuroraRDS", tags)
+
+        assert len(result["created"]) == 5
+        created_names = result["created"]
+        # 5개 메트릭 알람 이름에 올바른 prefix/suffix 포함
+        assert all(n.startswith("[AuroraRDS] ") for n in created_names)
+        assert all(n.endswith(f"({db_id})") for n in created_names)
+        # 각 메트릭 display name 포함 검증
+        assert any("CPUUtilization" in n for n in created_names)
+        assert any("FreeableMemory" in n for n in created_names)
+        assert any("DatabaseConnections" in n for n in created_names)
+        assert any("FreeLocalStorage" in n for n in created_names)
+        assert any("AuroraReplicaLagMaximum" in n for n in created_names)
+
+    def test_sync_aurora_rds_matching_thresholds_ok(self):
+        """기존 알람 임계치가 일치하면 ok 목록에 포함.
+
+        Validates: Requirements 6.2
+        """
+        import json
+        mock_cw = self._make_mock_cw()
+        db_id = "aurora-db-002"
+
+        existing = [
+            f"[AuroraRDS] my-aurora CPUUtilization >80% ({db_id})",
+            f"[AuroraRDS] my-aurora FreeableMemory <2GB ({db_id})",
+            f"[AuroraRDS] my-aurora DatabaseConnections >100 ({db_id})",
+            f"[AuroraRDS] my-aurora FreeLocalStorage <10GB ({db_id})",
+            f"[AuroraRDS] my-aurora AuroraReplicaLagMaximum >2000000μs ({db_id})",
+        ]
+
+        def _make_desc(metric_key):
+            meta = json.dumps(
+                {"metric_key": metric_key, "resource_id": db_id, "resource_type": "AuroraRDS"},
+                separators=(",", ":"),
+            )
+            return f"Auto-created | {meta}"
+
+        # transform_threshold: GB→bytes for FreeMemoryGB and FreeLocalStorageGB
+        alarm_data = {
+            "CPUUtilization": ("CPU", 80.0),
+            "FreeableMemory": ("FreeMemoryGB", 2.0 * 1073741824),
+            "DatabaseConnections": ("Connections", 100.0),
+            "FreeLocalStorage": ("FreeLocalStorageGB", 10.0 * 1073741824),
+            "AuroraReplicaLagMaximum": ("ReplicaLag", 2000000.0),
+        }
+
+        def describe_side_effect(**kwargs):
+            names = kwargs.get("AlarmNames", [])
+            alarms = []
+            for n in names:
+                for cw_metric, (mk, thr) in alarm_data.items():
+                    if cw_metric in n:
+                        alarms.append({
+                            "AlarmName": n,
+                            "Threshold": thr,
+                            "MetricName": cw_metric,
+                            "AlarmDescription": _make_desc(mk),
+                            "Dimensions": [{"Name": "DBInstanceIdentifier", "Value": db_id}],
+                        })
+                        break
+            return {"MetricAlarms": alarms}
+
+        mock_cw.describe_alarms.side_effect = describe_side_effect
+
+        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw), \
+             patch("common.alarm_manager._find_alarms_for_resource", return_value=existing):
+            result = sync_alarms_for_resource(db_id, "AuroraRDS", {"Name": "my-aurora"})
+
+        assert len(result["ok"]) == 5
+        assert result["created"] == []
+        assert result["updated"] == []
+
+    def test_resync_after_tag_change_updates_threshold(self):
+        """태그 변경 후 re-sync 시 임계치 업데이트 검증.
+
+        Validates: Requirements 10.1, 10.2, 10.3, 10.4, 10.5
+        """
+        import json
+        mock_cw = self._make_mock_cw()
+        db_id = "aurora-db-003"
+
+        # 기존 알람: 기본 임계치로 생성됨
+        existing = [
+            f"[AuroraRDS] my-aurora CPUUtilization >80% ({db_id})",
+            f"[AuroraRDS] my-aurora FreeableMemory <2GB ({db_id})",
+            f"[AuroraRDS] my-aurora DatabaseConnections >100 ({db_id})",
+            f"[AuroraRDS] my-aurora FreeLocalStorage <10GB ({db_id})",
+            f"[AuroraRDS] my-aurora AuroraReplicaLagMaximum >2000000μs ({db_id})",
+        ]
+
+        def _make_desc(metric_key):
+            meta = json.dumps(
+                {"metric_key": metric_key, "resource_id": db_id, "resource_type": "AuroraRDS"},
+                separators=(",", ":"),
+            )
+            return f"Auto-created | {meta}"
+
+        alarm_data = {
+            "CPUUtilization": ("CPU", 80.0),
+            "FreeableMemory": ("FreeMemoryGB", 2.0 * 1073741824),
+            "DatabaseConnections": ("Connections", 100.0),
+            "FreeLocalStorage": ("FreeLocalStorageGB", 10.0 * 1073741824),
+            "AuroraReplicaLagMaximum": ("ReplicaLag", 2000000.0),
+        }
+
+        def describe_side_effect(**kwargs):
+            names = kwargs.get("AlarmNames", [])
+            alarms = []
+            for n in names:
+                for cw_metric, (mk, thr) in alarm_data.items():
+                    if cw_metric in n:
+                        alarms.append({
+                            "AlarmName": n,
+                            "Threshold": thr,
+                            "MetricName": cw_metric,
+                            "AlarmDescription": _make_desc(mk),
+                            "Dimensions": [{"Name": "DBInstanceIdentifier", "Value": db_id}],
+                        })
+                        break
+            return {"MetricAlarms": alarms}
+
+        mock_cw.describe_alarms.side_effect = describe_side_effect
+
+        # 태그 변경: 모든 5개 메트릭 임계치 오버라이드
+        tags = {
+            "Name": "my-aurora",
+            "Threshold_CPU": "90",
+            "Threshold_FreeMemoryGB": "4",
+            "Threshold_Connections": "200",
+            "Threshold_FreeLocalStorageGB": "20",
+            "Threshold_ReplicaLag": "3000000",
+        }
+
+        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw), \
+             patch("common.alarm_manager._find_alarms_for_resource", return_value=existing):
+            result = sync_alarms_for_resource(db_id, "AuroraRDS", tags)
+
+        # 모든 5개 알람이 updated 목록에 포함
+        assert len(result["updated"]) == 5
+
+    def test_delete_aurora_rds_alarms(self):
+        """AuroraRDS 알람 삭제 검증.
+
+        Validates: Requirements 6.2
+        """
+        mock_cw = self._make_mock_cw()
+        db_id = "aurora-db-004"
+        alarm_names = [
+            f"[AuroraRDS] my-aurora CPUUtilization >80% ({db_id})",
+            f"[AuroraRDS] my-aurora FreeableMemory <2GB ({db_id})",
+        ]
+
+        mock_paginator = MagicMock()
+        mock_paginator.paginate.return_value = [
+            {"MetricAlarms": [{"AlarmName": n} for n in alarm_names]}
+        ]
+        mock_cw.get_paginator.return_value = mock_paginator
+
+        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+            deleted = delete_alarms_for_resource(db_id, "AuroraRDS")
+
+        assert len(deleted) == 2
+        mock_cw.delete_alarms.assert_called_once()
+
+    def test_create_aurora_rds_transform_threshold_applied(self):
+        """FreeMemoryGB/FreeLocalStorageGB 알람 생성 시 transform_threshold(GB→bytes) 적용 검증.
+
+        Validates: Requirements 10.2, 10.3
+        """
+        mock_cw = self._make_mock_cw()
+        db_id = "aurora-db-005"
+        tags = {
+            "Monitoring": "on",
+            "Name": "my-aurora",
+            "Threshold_FreeMemoryGB": "4",
+            "Threshold_FreeLocalStorageGB": "20",
+        }
+
+        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+            create_alarms_for_resource(db_id, "AuroraRDS", tags)
+
+        put_calls = mock_cw.put_metric_alarm.call_args_list
+        # FreeableMemory: 4 GB → 4 * 1073741824 bytes
+        mem_call = [c for c in put_calls if c.kwargs["MetricName"] == "FreeableMemory"][0]
+        assert mem_call.kwargs["Threshold"] == 4.0 * 1073741824
+        # FreeLocalStorage: 20 GB → 20 * 1073741824 bytes
+        storage_call = [c for c in put_calls if c.kwargs["MetricName"] == "FreeLocalStorage"][0]
+        assert storage_call.kwargs["Threshold"] == 20.0 * 1073741824
+
+    def test_create_aurora_rds_replica_lag_stat_and_comparison(self):
+        """ReplicaLag 알람: stat=Maximum, comparison=GreaterThanThreshold 검증.
+
+        Validates: Requirements 10.4
+        """
+        mock_cw = self._make_mock_cw()
+        db_id = "aurora-db-006"
+        tags = {"Monitoring": "on", "Name": "my-aurora"}
+
+        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+            create_alarms_for_resource(db_id, "AuroraRDS", tags)
+
+        put_calls = mock_cw.put_metric_alarm.call_args_list
+        lag_call = [c for c in put_calls if c.kwargs["MetricName"] == "AuroraReplicaLagMaximum"][0]
+        assert lag_call.kwargs["Statistic"] == "Maximum"
+        assert lag_call.kwargs["ComparisonOperator"] == "GreaterThanThreshold"
+        assert lag_call.kwargs["Threshold"] == 2000000.0
+
+    def test_dynamic_alarm_for_aurora_rds(self):
+        """AuroraRDS 동적 알람(하드코딩 외 Threshold_* 태그) 생성 검증.
+
+        Validates: Requirements 10.6
+        """
+        mock_cw = self._make_mock_cw()
+        # list_metrics로 동적 메트릭 디멘션 해석 성공 시나리오
+        mock_cw.list_metrics.return_value = {
+            "Metrics": [{
+                "Namespace": "AWS/RDS",
+                "MetricName": "CommitLatency",
+                "Dimensions": [{"Name": "DBInstanceIdentifier", "Value": "aurora-db-007"}],
+            }]
+        }
+        db_id = "aurora-db-007"
+        tags = {
+            "Monitoring": "on",
+            "Name": "my-aurora",
+            "Threshold_CommitLatency": "500",
+        }
+
+        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+            created = create_alarms_for_resource(db_id, "AuroraRDS", tags)
+
+        # 5개 하드코딩 + 1개 동적 = 6개
+        assert len(created) == 6
+        assert any("CommitLatency" in n for n in created)

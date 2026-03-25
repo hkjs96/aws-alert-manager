@@ -413,3 +413,14 @@ class TestGetResourceTags:
             result = get_resource_tags(arn, "ELB")
         mock.assert_called_once_with(arn)
         assert result == {}
+
+    def test_aurora_rds_calls_rds_tags(self):
+        """AuroraRDS 타입이 _get_rds_tags()를 호출하는지 검증.
+        Validates: Requirements 10.1, 10.2, 10.3, 10.4, 10.5
+        """
+        from common.tag_resolver import get_resource_tags
+        with patch("common.tag_resolver._get_rds_tags",
+                   return_value={"Monitoring": "on", "Threshold_CPU": "90"}) as mock:
+            result = get_resource_tags("aurora-db-001", "AuroraRDS")
+        mock.assert_called_once_with("aurora-db-001")
+        assert result == {"Monitoring": "on", "Threshold_CPU": "90"}

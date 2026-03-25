@@ -11,6 +11,8 @@ import pytest
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
+from botocore.exceptions import ClientError
+
 from remediation_handler.lambda_handler import (
     ParsedEvent,
     lambda_handler,
@@ -330,7 +332,8 @@ class TestParseCloudTrailEvent:
     def test_parse_delete_rds(self):
         """RDS DeleteDBInstance 파싱"""
         event = _make_event("DeleteDBInstance", "db-prod")
-        parsed = parse_cloudtrail_event(event)[0]
+        with patch("remediation_handler.lambda_handler._resolve_rds_aurora_type", return_value="RDS"):
+            parsed = parse_cloudtrail_event(event)[0]
         assert parsed.resource_id == "db-prod"
         assert parsed.resource_type == "RDS"
         assert parsed.event_category == "DELETE"
@@ -354,7 +357,8 @@ class TestParseCloudTrailEvent:
     def test_parse_rds_add_tags(self):
         """RDS AddTagsToResource 파싱"""
         event = _make_event("AddTagsToResource", "my-rds-db")
-        parsed = parse_cloudtrail_event(event)[0]
+        with patch("remediation_handler.lambda_handler._resolve_rds_aurora_type", return_value="RDS"):
+            parsed = parse_cloudtrail_event(event)[0]
         assert parsed.resource_id == "my-rds-db"
         assert parsed.resource_type == "RDS"
         assert parsed.event_category == "TAG_CHANGE"
@@ -362,7 +366,8 @@ class TestParseCloudTrailEvent:
     def test_parse_rds_remove_tags(self):
         """RDS RemoveTagsFromResource 파싱"""
         event = _make_event("RemoveTagsFromResource", "my-rds-db")
-        parsed = parse_cloudtrail_event(event)[0]
+        with patch("remediation_handler.lambda_handler._resolve_rds_aurora_type", return_value="RDS"):
+            parsed = parse_cloudtrail_event(event)[0]
         assert parsed.resource_id == "my-rds-db"
         assert parsed.resource_type == "RDS"
         assert parsed.event_category == "TAG_CHANGE"
@@ -522,7 +527,8 @@ class TestRdsElbTagEvents:
                 },
             }
         }
-        with patch("remediation_handler.lambda_handler.get_resource_tags",
+        with patch("remediation_handler.lambda_handler._resolve_rds_aurora_type", return_value="RDS"), \
+             patch("remediation_handler.lambda_handler.get_resource_tags",
                    return_value={"Monitoring": "on"}), \
              patch("remediation_handler.lambda_handler.create_alarms_for_resource",
                    return_value=["alarm1"]) as mock_create:
@@ -545,7 +551,8 @@ class TestRdsElbTagEvents:
                 },
             }
         }
-        with patch("remediation_handler.lambda_handler.send_lifecycle_alert") as mock_alert, \
+        with patch("remediation_handler.lambda_handler._resolve_rds_aurora_type", return_value="RDS"), \
+             patch("remediation_handler.lambda_handler.send_lifecycle_alert") as mock_alert, \
              patch("remediation_handler.lambda_handler.delete_alarms_for_resource",
                    return_value=[]) as mock_delete:
             result = lambda_handler(event, MagicMock())
@@ -612,7 +619,8 @@ class TestRdsElbTagEvents:
                 },
             }
         }
-        with patch("remediation_handler.lambda_handler.send_lifecycle_alert") as mock_alert, \
+        with patch("remediation_handler.lambda_handler._resolve_rds_aurora_type", return_value="RDS"), \
+             patch("remediation_handler.lambda_handler.send_lifecycle_alert") as mock_alert, \
              patch("remediation_handler.lambda_handler.send_error_alert") as mock_err:
             result = lambda_handler(event, MagicMock())
 
@@ -954,7 +962,8 @@ class TestCreateEventParsing:
                 "responseElements": {},
             }
         }
-        parsed = parse_cloudtrail_event(event)[0]
+        with patch("remediation_handler.lambda_handler._resolve_rds_aurora_type", return_value="RDS"):
+            parsed = parse_cloudtrail_event(event)[0]
         assert parsed.resource_id == "mydb-prod"
         assert parsed.resource_type == "RDS"
         assert parsed.event_category == "CREATE"
@@ -1262,3 +1271,194 @@ class TestEventBridgeRule:
                 f"Existing event '{event_name}' missing from CloudTrailModifyRule eventName list. "
                 f"Current list: {event_names}"
             )
+
+
+# ──────────────────────────────────────────────
+# _resolve_rds_aurora_type() 헬퍼 테스트
+# Validates: Requirements 9.5
+# ──────────────────────────────────────────────
+
+
+class TestResolveRdsAuroraType:
+    """_resolve_rds_aurora_type() 헬퍼 검증."""
+
+    def test_aurora_mysql_engine_returns_aurora_rds(self):
+        """Engine 'aurora-mysql' → 'AuroraRDS' 반환"""
+        from remediation_handler.lambda_handler import _resolve_rds_aurora_type
+
+        mock_rds = MagicMock()
+        mock_rds.describe_db_instances.return_value = {
+            "DBInstances": [{"Engine": "aurora-mysql"}]
+        }
+        with patch("remediation_handler.lambda_handler.boto3.client", return_value=mock_rds):
+            result = _resolve_rds_aurora_type("my-aurora-db")
+
+        assert result == "AuroraRDS"
+        mock_rds.describe_db_instances.assert_called_once_with(
+            DBInstanceIdentifier="my-aurora-db"
+        )
+
+    def test_aurora_postgresql_engine_returns_aurora_rds(self):
+        """Engine 'aurora-postgresql' → 'AuroraRDS' 반환"""
+        from remediation_handler.lambda_handler import _resolve_rds_aurora_type
+
+        mock_rds = MagicMock()
+        mock_rds.describe_db_instances.return_value = {
+            "DBInstances": [{"Engine": "aurora-postgresql"}]
+        }
+        with patch("remediation_handler.lambda_handler.boto3.client", return_value=mock_rds):
+            result = _resolve_rds_aurora_type("my-aurora-pg")
+
+        assert result == "AuroraRDS"
+
+    def test_mysql_engine_returns_rds(self):
+        """Engine 'mysql' → 'RDS' 반환"""
+        from remediation_handler.lambda_handler import _resolve_rds_aurora_type
+
+        mock_rds = MagicMock()
+        mock_rds.describe_db_instances.return_value = {
+            "DBInstances": [{"Engine": "mysql"}]
+        }
+        with patch("remediation_handler.lambda_handler.boto3.client", return_value=mock_rds):
+            result = _resolve_rds_aurora_type("my-mysql-db")
+
+        assert result == "RDS"
+
+    def test_postgres_engine_returns_rds(self):
+        """Engine 'postgres' → 'RDS' 반환"""
+        from remediation_handler.lambda_handler import _resolve_rds_aurora_type
+
+        mock_rds = MagicMock()
+        mock_rds.describe_db_instances.return_value = {
+            "DBInstances": [{"Engine": "postgres"}]
+        }
+        with patch("remediation_handler.lambda_handler.boto3.client", return_value=mock_rds):
+            result = _resolve_rds_aurora_type("my-pg-db")
+
+        assert result == "RDS"
+
+    def test_api_error_falls_back_to_rds(self, caplog):
+        """ClientError 발생 시 'RDS' 폴백 + warning 로그"""
+        from remediation_handler.lambda_handler import _resolve_rds_aurora_type
+
+        mock_rds = MagicMock()
+        mock_rds.describe_db_instances.side_effect = ClientError(
+            {"Error": {"Code": "DBInstanceNotFound", "Message": "not found"}},
+            "DescribeDBInstances",
+        )
+        with caplog.at_level(logging.WARNING, logger="remediation_handler.lambda_handler"), \
+             patch("remediation_handler.lambda_handler.boto3.client", return_value=mock_rds):
+            result = _resolve_rds_aurora_type("nonexistent-db")
+
+        assert result == "RDS"
+        warning_msgs = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
+        assert warning_msgs, "Expected warning log on API error fallback"
+
+
+# ──────────────────────────────────────────────
+# parse_cloudtrail_event() Aurora RDS 이벤트 검증
+# Validates: Requirements 9.1, 9.2, 9.3, 9.4
+# ──────────────────────────────────────────────
+
+
+class TestParseCloudTrailAuroraRds:
+    """parse_cloudtrail_event()가 Aurora RDS 이벤트를 올바르게 AuroraRDS로 해석하는지 검증."""
+
+    def _mock_resolve_aurora(self):
+        """_resolve_rds_aurora_type → 'AuroraRDS' 반환 mock."""
+        return patch(
+            "remediation_handler.lambda_handler._resolve_rds_aurora_type",
+            return_value="AuroraRDS",
+        )
+
+    def _mock_resolve_rds(self):
+        """_resolve_rds_aurora_type → 'RDS' 반환 mock."""
+        return patch(
+            "remediation_handler.lambda_handler._resolve_rds_aurora_type",
+            return_value="RDS",
+        )
+
+    def test_create_db_instance_aurora_resolves_aurora_rds(self):
+        """CreateDBInstance (Aurora engine) → resource_type='AuroraRDS' — Requirements 9.1"""
+        event = {
+            "detail": {
+                "eventName": "CreateDBInstance",
+                "requestParameters": {"dBInstanceIdentifier": "my-aurora-db"},
+            }
+        }
+        with self._mock_resolve_aurora() as mock_resolve:
+            parsed = parse_cloudtrail_event(event)[0]
+
+        assert parsed.resource_type == "AuroraRDS"
+        assert parsed.resource_id == "my-aurora-db"
+        assert parsed.event_category == "CREATE"
+        mock_resolve.assert_called_once_with("my-aurora-db")
+
+    def test_delete_db_instance_aurora_resolves_aurora_rds(self):
+        """DeleteDBInstance (Aurora engine) → resource_type='AuroraRDS' — Requirements 9.2"""
+        event = _make_event("DeleteDBInstance", "my-aurora-db")
+        with self._mock_resolve_aurora() as mock_resolve:
+            parsed = parse_cloudtrail_event(event)[0]
+
+        assert parsed.resource_type == "AuroraRDS"
+        assert parsed.resource_id == "my-aurora-db"
+        assert parsed.event_category == "DELETE"
+        mock_resolve.assert_called_once_with("my-aurora-db")
+
+    def test_modify_db_instance_aurora_resolves_aurora_rds(self):
+        """ModifyDBInstance (Aurora engine) → resource_type='AuroraRDS' — Requirements 9.3"""
+        event = _make_event("ModifyDBInstance", "my-aurora-db")
+        with self._mock_resolve_aurora() as mock_resolve:
+            parsed = parse_cloudtrail_event(event)[0]
+
+        assert parsed.resource_type == "AuroraRDS"
+        assert parsed.resource_id == "my-aurora-db"
+        assert parsed.event_category == "MODIFY"
+        mock_resolve.assert_called_once_with("my-aurora-db")
+
+    def test_add_tags_to_resource_aurora_resolves_aurora_rds(self):
+        """AddTagsToResource (Aurora engine) → resource_type='AuroraRDS' — Requirements 9.4"""
+        event = _make_event("AddTagsToResource", "my-aurora-db")
+        with self._mock_resolve_aurora() as mock_resolve:
+            parsed = parse_cloudtrail_event(event)[0]
+
+        assert parsed.resource_type == "AuroraRDS"
+        assert parsed.resource_id == "my-aurora-db"
+        assert parsed.event_category == "TAG_CHANGE"
+        mock_resolve.assert_called_once_with("my-aurora-db")
+
+    def test_remove_tags_from_resource_aurora_resolves_aurora_rds(self):
+        """RemoveTagsFromResource (Aurora engine) → resource_type='AuroraRDS' — Requirements 9.4"""
+        event = _make_event("RemoveTagsFromResource", "my-aurora-db")
+        with self._mock_resolve_aurora() as mock_resolve:
+            parsed = parse_cloudtrail_event(event)[0]
+
+        assert parsed.resource_type == "AuroraRDS"
+        assert parsed.resource_id == "my-aurora-db"
+        assert parsed.event_category == "TAG_CHANGE"
+        mock_resolve.assert_called_once_with("my-aurora-db")
+
+    def test_create_db_instance_non_aurora_stays_rds(self):
+        """CreateDBInstance (non-Aurora engine) → resource_type='RDS' 유지"""
+        event = {
+            "detail": {
+                "eventName": "CreateDBInstance",
+                "requestParameters": {"dBInstanceIdentifier": "my-mysql-db"},
+            }
+        }
+        with self._mock_resolve_rds() as mock_resolve:
+            parsed = parse_cloudtrail_event(event)[0]
+
+        assert parsed.resource_type == "RDS"
+        mock_resolve.assert_called_once_with("my-mysql-db")
+
+    def test_ec2_event_does_not_call_resolve(self):
+        """EC2 이벤트는 _resolve_rds_aurora_type 호출하지 않음"""
+        event = _make_event("ModifyInstanceAttribute", "i-001")
+        with patch(
+            "remediation_handler.lambda_handler._resolve_rds_aurora_type"
+        ) as mock_resolve:
+            parsed = parse_cloudtrail_event(event)[0]
+
+        assert parsed.resource_type == "EC2"
+        mock_resolve.assert_not_called()

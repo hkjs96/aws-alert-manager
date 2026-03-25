@@ -60,11 +60,14 @@ def collect_monitored_resources() -> list[ResourceInfo]:
             if tags.get("Monitoring", "").lower() != "on":
                 continue
 
+            engine = db.get("Engine", "")
+            resource_type = "AuroraRDS" if "aurora" in engine.lower() else "RDS"
+
             region = boto3.session.Session().region_name or "us-east-1"
             resources.append(
                 ResourceInfo(
                     id=db_id,
-                    type="RDS",
+                    type=resource_type,
                     tags=tags,
                     region=region,
                 )
@@ -102,6 +105,42 @@ def get_metrics(db_instance_id: str, resource_tags: dict | None = None) -> dict[
                     "FreeStorageGB", metrics, transform=lambda v: v / _BYTES_PER_GB)
     _collect_metric("AWS/RDS", "DatabaseConnections", dim, start_time, end_time,
                     "Connections", metrics, transform=None)
+
+    return metrics if metrics else None
+
+
+def get_aurora_metrics(db_instance_id: str, resource_tags: dict | None = None) -> dict[str, float] | None:
+    """
+    CloudWatch에서 Aurora RDS 메트릭 조회.
+
+    수집 메트릭:
+    - CPUUtilization → 'CPU'
+    - FreeableMemory (bytes → GB) → 'FreeMemoryGB'
+    - DatabaseConnections → 'Connections'
+    - FreeLocalStorage (bytes → GB) → 'FreeLocalStorageGB'
+    - AuroraReplicaLagMaximum (raw μs) → 'ReplicaLag'
+
+    데이터 없으면 해당 메트릭 skip. 모두 없으면 None 반환.
+    """
+    if resource_tags is None:
+        resource_tags = {}
+
+    end_time = datetime.now(timezone.utc)
+    start_time = end_time - timedelta(minutes=CW_LOOKBACK_MINUTES)
+
+    dim = [{"Name": "DBInstanceIdentifier", "Value": db_instance_id}]
+    metrics: dict[str, float] = {}
+
+    _collect_metric("AWS/RDS", "CPUUtilization", dim, start_time, end_time,
+                    "CPU", metrics, transform=None)
+    _collect_metric("AWS/RDS", "FreeableMemory", dim, start_time, end_time,
+                    "FreeMemoryGB", metrics, transform=lambda v: v / _BYTES_PER_GB)
+    _collect_metric("AWS/RDS", "DatabaseConnections", dim, start_time, end_time,
+                    "Connections", metrics, transform=None)
+    _collect_metric("AWS/RDS", "FreeLocalStorage", dim, start_time, end_time,
+                    "FreeLocalStorageGB", metrics, transform=lambda v: v / _BYTES_PER_GB)
+    _collect_metric("AWS/RDS", "AuroraReplicaLagMaximum", dim, start_time, end_time,
+                    "ReplicaLag", metrics, transform=None)
 
     return metrics if metrics else None
 

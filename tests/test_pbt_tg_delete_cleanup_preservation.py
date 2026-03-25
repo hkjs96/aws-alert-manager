@@ -12,6 +12,8 @@ EXPECTED: This test PASSES on unfixed code (baseline for existing behavior).
 After the fix, this test should CONTINUE TO PASS (no regression).
 """
 
+from unittest.mock import patch
+
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
@@ -139,7 +141,8 @@ class TestExistingEventPreservation:
         event = _make_event("DeleteDBInstance", {
             "dBInstanceIdentifier": db_id,
         })
-        parsed = parse_cloudtrail_event(event)
+        with patch("remediation_handler.lambda_handler._resolve_rds_aurora_type", return_value="RDS"):
+            parsed = parse_cloudtrail_event(event)
         assert parsed[0].resource_type == "RDS"
         assert parsed[0].event_category == "DELETE"
         assert parsed[0].resource_id == db_id
@@ -229,7 +232,8 @@ class TestExistingEventPreservation:
         event = _make_event("ModifyDBInstance", {
             "dBInstanceIdentifier": db_id,
         })
-        parsed = parse_cloudtrail_event(event)
+        with patch("remediation_handler.lambda_handler._resolve_rds_aurora_type", return_value="RDS"):
+            parsed = parse_cloudtrail_event(event)
         assert parsed[0].resource_type == "RDS"
         assert parsed[0].event_category == "MODIFY"
         assert parsed[0].resource_id == db_id
@@ -337,7 +341,8 @@ class TestExistingEventPreservation:
         event = _make_event("AddTagsToResource", {
             "resourceName": arn,
         })
-        parsed = parse_cloudtrail_event(event)
+        with patch("remediation_handler.lambda_handler._resolve_rds_aurora_type", return_value="RDS"):
+            parsed = parse_cloudtrail_event(event)
         assert parsed[0].resource_type == "RDS"
         assert parsed[0].event_category == "TAG_CHANGE"
         # RDS tag extractor splits on ":db:" to get the DB identifier
@@ -357,7 +362,8 @@ class TestExistingEventPreservation:
         event = _make_event("RemoveTagsFromResource", {
             "resourceName": arn,
         })
-        parsed = parse_cloudtrail_event(event)
+        with patch("remediation_handler.lambda_handler._resolve_rds_aurora_type", return_value="RDS"):
+            parsed = parse_cloudtrail_event(event)
         assert parsed[0].resource_type == "RDS"
         assert parsed[0].event_category == "TAG_CHANGE"
         expected_id = arn.split(":db:")[-1]

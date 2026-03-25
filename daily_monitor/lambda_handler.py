@@ -341,6 +341,7 @@ def _cleanup_orphan_alarms() -> list[str]:
     alive_checkers = {
         "EC2": _find_alive_ec2_instances,
         "RDS": _find_alive_rds_instances,
+        "AuroraRDS": _find_alive_rds_instances,
         "ELB": _find_alive_elb_resources,
         "ALB": _find_alive_elb_resources,
         "NLB": _find_alive_elb_resources,
@@ -394,6 +395,8 @@ def _process_resource(
     if resource_type == "TG":
         lb_arn = resource_tags.get("_lb_arn")
         metrics = collector_mod.get_metrics(resource_id, resource_tags, lb_arn=lb_arn)
+    elif resource_type == "AuroraRDS":
+        metrics = collector_mod.get_aurora_metrics(resource_id, resource_tags)
     else:
         metrics = collector_mod.get_metrics(resource_id, resource_tags)
 
@@ -408,8 +411,8 @@ def _process_resource(
     for metric_name, current_value in metrics.items():
         threshold = get_threshold(resource_tags, metric_name)
 
-        # FreeMemoryGB / FreeStorageGB는 값이 임계치 미만일 때 알림 (낮을수록 위험)
-        if metric_name in ("FreeMemoryGB", "FreeStorageGB"):
+        # FreeMemoryGB / FreeStorageGB / FreeLocalStorageGB는 값이 임계치 미만일 때 알림 (낮을수록 위험)
+        if metric_name in ("FreeMemoryGB", "FreeStorageGB", "FreeLocalStorageGB"):
             exceeded = current_value < threshold
         else:
             exceeded = current_value > threshold

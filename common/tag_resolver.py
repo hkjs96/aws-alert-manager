@@ -172,7 +172,7 @@ def get_resource_tags(resource_id: str, resource_type: str) -> dict:
     try:
         if resource_type == "EC2":
             return _get_ec2_tags(resource_id)
-        elif resource_type == "RDS":
+        elif resource_type in ("RDS", "AuroraRDS"):
             return _get_rds_tags(resource_id)
         elif resource_type in ("ELB", "TG", "ALB", "NLB"):
             return _get_elbv2_tags(resource_id)
