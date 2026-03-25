@@ -216,6 +216,7 @@ def _collect_target_groups(elbv2, lb_arn: str,
             tags["_lb_arn"] = lb_arn
             tags["_lb_type"] = lb_type
             tags["_resource_subtype"] = "TG"
+            tags["_target_type"] = tg.get("TargetType", "instance")
             tg_resources.append(
                 ResourceInfo(
                     id=tg_arn,

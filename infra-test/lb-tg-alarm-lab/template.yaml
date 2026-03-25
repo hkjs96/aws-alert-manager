@@ -92,14 +92,19 @@ Resources:
       InstanceType: t3.micro
       ImageId: !Ref AmiId
       KeyName: !If [HasKeyPair, !Ref KeyPairName, !Ref 'AWS::NoValue']
-      SubnetId: !Ref SubnetId
-      SecurityGroupIds:
-        - !Ref Ec2SecurityGroup
+      NetworkInterfaces:
+        - DeviceIndex: '0'
+          SubnetId: !Ref SubnetId
+          AssociatePublicIpAddress: true
+          GroupSet:
+            - !Ref Ec2SecurityGroup
       UserData:
         Fn::Base64: |
           #!/bin/bash
-          yum update -y
-          python3 -m http.server 80 &
+          yum install -y httpd
+          echo "OK" > /var/www/html/index.html
+          systemctl enable httpd
+          systemctl start httpd
       Tags:
         - Key: Monitoring
           Value: 'on'
