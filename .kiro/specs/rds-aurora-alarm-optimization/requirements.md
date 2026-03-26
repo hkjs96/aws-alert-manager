@@ -36,28 +36,25 @@ This spec builds on the existing `aurora-rds-monitoring` spec which established 
 
 | Metric | RDS (non-Aurora) | Aurora Prov. Writer (w/ readers) | Aurora Prov. Writer (no readers) | Aurora Prov. Reader | Serverless v2 Writer (w/ readers) | Serverless v2 Writer (no readers) | Serverless v2 Reader |
 |--------|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| CPUUtilization | ✅ doc | ✅ doc | ✅ doc | ✅ doc | ✅ E2E | ✅ E2E | ✅ doc |
-| FreeableMemory | ✅ doc | ✅ doc | ✅ doc | ✅ doc | ✅ E2E | ✅ E2E | ✅ doc |
-| DatabaseConnections | ✅ doc | ✅ doc | ✅ doc | ✅ doc | ✅ E2E | ✅ E2E | ✅ doc |
-| FreeStorageSpace | ✅ doc | ❌ doc | ❌ doc | ❌ doc | ❌ doc | ❌ doc | ❌ doc |
-| FreeLocalStorage | ❌ | ✅ doc | ✅ doc | ✅ doc | ❌ E2E (KI-006) | ❌ E2E (KI-006) | ❌ doc |
-| ReadLatency | ✅ doc | ✅ doc | ✅ doc | ✅ doc | ✅ E2E | ✅ E2E | ✅ doc |
-| WriteLatency | ✅ doc | ✅ doc | ✅ doc | ✅ doc | ✅ E2E | ✅ E2E | ✅ doc |
-| AuroraReplicaLagMaximum | ❌ | ✅ doc (Primary) | ❌ E2E (KI-007) | ❌ doc | ✅ doc (Primary) | ❌ E2E (KI-007) | ❌ doc |
-| AuroraReplicaLag | ❌ | ❌ doc | ❌ doc | ✅ doc (Replica) | ❌ doc | ❌ doc | ✅ doc (Replica) |
-| ACUUtilization | ❌ | ❌ doc | ❌ doc | ❌ doc | ✅ E2E | ✅ E2E | ✅ doc |
-| ServerlessDatabaseCapacity | ❌ | ❌ doc | ❌ doc | ❌ doc | ✅ E2E | ✅ E2E | ✅ doc |
+| CPUUtilization | ✅ doc | ✅ E2E | ✅ doc | ✅ E2E | ✅ E2E | ✅ E2E | ✅ doc |
+| FreeableMemory | ✅ doc | ✅ E2E | ✅ doc | ✅ E2E | ✅ E2E | ✅ E2E | ✅ doc |
+| DatabaseConnections | ✅ doc | ✅ E2E | ✅ doc | ✅ E2E | ✅ E2E | ✅ E2E | ✅ doc |
+| FreeStorageSpace | ✅ doc | ❌ E2E | ❌ doc | ❌ E2E | ❌ doc | ❌ doc | ❌ doc |
+| FreeLocalStorage | ❌ | ✅ E2E | ✅ doc | ✅ E2E | ❌ E2E (KI-006) | ❌ E2E (KI-006) | ❌ doc |
+| ReadLatency | ✅ doc | ✅ E2E | ✅ doc | ✅ E2E | ✅ E2E | ✅ E2E | ✅ doc |
+| WriteLatency | ✅ doc | ✅ E2E | ✅ doc | ✅ E2E | ✅ E2E | ✅ E2E | ✅ doc |
+| AuroraReplicaLagMaximum | ❌ | ✅ E2E (Primary) | ❌ E2E (KI-007) | ❌ E2E | ✅ doc (Primary) | ❌ E2E (KI-007) | ❌ doc |
+| AuroraReplicaLag | ❌ | ❌ E2E | ❌ doc | ✅ E2E (Replica) | ❌ doc | ❌ doc | ✅ doc (Replica) |
+| ACUUtilization | ❌ | ❌ E2E | ❌ doc | ❌ E2E | ✅ E2E | ✅ E2E | ✅ doc |
+| ServerlessDatabaseCapacity | ❌ | ❌ E2E | ❌ doc | ❌ E2E | ✅ E2E | ✅ E2E | ✅ doc |
 
 **근거 범례:**
-- `✅ E2E` — aurora-rds-test 스택(2026-03-25)에서 `list_metrics` API로 직접 확인
+- `✅ E2E` — `list_metrics` API로 직접 확인 (aurora-rds-test 2026-03-25, rds-aurora-prov-test 2026-03-26)
 - `✅ doc` — AWS 공식 문서 기준 ([Aurora CloudWatch Metrics](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/Aurora.AuroraMonitoring.Metrics.html))
-- `❌ E2E` — E2E 테스트에서 메트릭 미발행 확인 (KI-006, KI-007)
+- `❌ E2E` — E2E 테스트에서 메트릭 미발행 확인
 - `❌ doc` — AWS 공식 문서에서 해당 인스턴스 유형/역할에 미발행 명시
 
-**미검증 항목 (프로비저닝 인프라 테스트 시 확인 필요):**
-- Aurora Provisioned Writer/Reader의 FreeLocalStorage 실제 발행 여부
-- Aurora Provisioned Writer (with readers)의 AuroraReplicaLagMaximum 실제 발행 여부
-- Aurora Provisioned Reader의 AuroraReplicaLag 실제 발행 여부
+**미검증 항목 (Serverless v2 Reader 인프라 테스트 시 확인 필요):**
 - Serverless v2 Reader의 ACUUtilization, AuroraReplicaLag 실제 발행 여부
 
 ## Requirements
