@@ -245,6 +245,11 @@ def collect_monitored_resources() -> list[ResourceInfo]:
                 continue
 
             engine = db.get("Engine", "")
+
+            # DocDB 엔진은 별도 Collector(docdb.py)에서 처리하므로 제외
+            if engine.lower() == "docdb":
+                continue
+
             resource_type = "AuroraRDS" if "aurora" in engine.lower() else "RDS"
 
             if resource_type == "AuroraRDS":

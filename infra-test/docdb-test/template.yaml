@@ -1,0 +1,73 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: DocumentDB 모니터링 테스트 인프라 (단일 인스턴스 클러스터)
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+  SubnetId1:
+    Type: AWS::EC2::Subnet::Id
+  SubnetId2:
+    Type: AWS::EC2::Subnet::Id
+  DBMasterPassword:
+    Type: String
+    NoEcho: true
+    MinLength: 8
+
+Resources:
+  DocDBSg:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Sub '${Environment}-sg-docdb-test'
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 27017
+          ToPort: 27017
+          CidrIp: 10.0.0.0/8
+
+  DocDBSubnetGroup:
+    Type: AWS::DocDB::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: !Sub '${Environment}-docdb-test-subnet-group'
+      SubnetIds:
+        - !Ref SubnetId1
+        - !Ref SubnetId2
+
+  DocDBCluster:
+    Type: AWS::DocDB::DBCluster
+    Properties:
+      DBClusterIdentifier: !Sub '${Environment}-docdb-test-cluster'
+      MasterUsername: docdbadmin
+      MasterUserPassword: !Ref DBMasterPassword
+      DBSubnetGroupName: !Ref DocDBSubnetGroup
+      VpcSecurityGroupIds:
+        - !Ref DocDBSg
+      DeletionProtection: false
+      Tags:
+        - Key: Monitoring
+          Value: 'on'
+        - Key: Name
+          Value: !Sub '${Environment}-docdb-test-cluster'
+
+  DocDBInstance:
+    Type: AWS::DocDB::DBInstance
+    Properties:
+      DBInstanceIdentifier: !Sub '${Environment}-docdb-test-inst'
+      DBClusterIdentifier: !Ref DocDBCluster
+      DBInstanceClass: db.t3.medium
+      Tags:
+        - Key: Monitoring
+          Value: 'on'
+        - Key: Name
+          Value: !Sub '${Environment}-docdb-test-inst'
+
+Outputs:
+  ClusterId:
+    Value: !Ref DocDBCluster
+  InstanceId:
+    Value: !Ref DocDBInstance
+  Endpoint:
+    Value: !GetAtt DocDBCluster.Endpoint
