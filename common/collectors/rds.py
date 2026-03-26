@@ -68,10 +68,53 @@ _INSTANCE_CLASS_MEMORY_MAP: dict[str, int] = {
 # boto3 클라이언트 싱글턴 (코딩 거버넌스 §1)
 # ──────────────────────────────────────────────
 
+_instance_class_memory_cache: dict[str, int | None] = {}
+
+
 @functools.lru_cache(maxsize=None)
 def _get_rds_client():
     """RDS 클라이언트 싱글턴. 테스트 시 cache_clear()로 리셋."""
     return boto3.client("rds")
+
+
+def _lookup_instance_class_memory(instance_class: str) -> int | None:
+    """인스턴스 클래스의 메모리 용량(bytes) 조회.
+
+    조회 우선순위:
+    1. _INSTANCE_CLASS_MEMORY_MAP 정적 매핑
+    2. _instance_class_memory_cache 캐시 (API 실패 None 포함)
+    3. describe_db_instance_classes API 동적 조회
+    """
+    # 1순위: 정적 매핑
+    static = _INSTANCE_CLASS_MEMORY_MAP.get(instance_class)
+    if static is not None:
+        return static
+
+    # 2순위: 캐시 (None도 캐시됨 → API 실패 반복 방지)
+    if instance_class in _instance_class_memory_cache:
+        return _instance_class_memory_cache[instance_class]
+
+    # 3순위: describe_db_instance_classes API
+    try:
+        rds = _get_rds_client()
+        resp = rds.describe_db_instance_classes(
+            DBInstanceClass=instance_class,
+        )
+        db_classes = resp.get("DBInstanceClasses", [])
+        if db_classes:
+            memory_mib = db_classes[0].get("Memory", 0)
+            memory_bytes = memory_mib * 1024 * 1024
+            _instance_class_memory_cache[instance_class] = memory_bytes
+            return memory_bytes
+        _instance_class_memory_cache[instance_class] = None
+        return None
+    except ClientError as e:
+        logger.warning(
+            "describe_db_instance_classes failed for %s: %s",
+            instance_class, e,
+        )
+        _instance_class_memory_cache[instance_class] = None
+        return None
 
 
 def _get_cluster_info(cluster_id: str) -> dict | None:
@@ -140,8 +183,8 @@ def _enrich_aurora_metadata(
                 cluster_id,
             )
     else:
-        # Provisioned: 인스턴스 클래스 메모리 lookup
-        memory = _INSTANCE_CLASS_MEMORY_MAP.get(instance_class)
+        # Provisioned: 인스턴스 클래스 메모리 lookup (정적 매핑 → API 동적 조회)
+        memory = _lookup_instance_class_memory(instance_class)
         if memory is not None:
             tags["_total_memory_bytes"] = str(memory)
         else:
@@ -159,7 +202,7 @@ def _enrich_rds_memory(db_instance: dict, tags: dict) -> None:
     if not instance_class:
         return
     tags["_db_instance_class"] = instance_class
-    memory = _INSTANCE_CLASS_MEMORY_MAP.get(instance_class)
+    memory = _lookup_instance_class_memory(instance_class)
     if memory is not None:
         tags["_total_memory_bytes"] = str(memory)
     else:

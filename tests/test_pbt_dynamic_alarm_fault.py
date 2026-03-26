@@ -29,7 +29,7 @@ from common.alarm_manager import (
 _HARDCODED_METRICS = {
     "EC2": {"CPU", "Memory", "Disk", "StatusCheckFailed"},
     "RDS": {"CPU", "FreeMemoryGB", "FreeStorageGB", "Connections", "ReadLatency", "WriteLatency"},
-    "ALB": {"RequestCount", "ELB5XX", "TargetResponseTime"},
+    "ALB": {"RequestCount", "ELB5XX", "TargetResponseTime", "ELB4XX", "TargetConnectionError"},
     "NLB": {"ProcessedBytes", "ActiveFlowCount", "NewFlowCount", "TCPClientReset", "TCPTargetReset"},
     "TG": {"HealthyHostCount", "UnHealthyHostCount", "RequestCountPerTarget", "TGResponseTime"},
 }

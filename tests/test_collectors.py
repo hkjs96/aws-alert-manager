@@ -1251,8 +1251,13 @@ class TestAuroraMetadataEnrichment:
         assert "_has_readers" not in tags
 
     def test_unknown_instance_class_no_memory_with_warning(self):
-        """알 수 없는 인스턴스 클래스: _total_memory_bytes 미포함 + warning — Req 6.4"""
-        from common.collectors.rds import collect_monitored_resources
+        """알 수 없는 인스턴스 클래스: API도 실패 시 _total_memory_bytes 미포함 + warning — Req 6.4"""
+        from common.collectors.rds import (
+            collect_monitored_resources,
+            _instance_class_memory_cache,
+        )
+
+        _instance_class_memory_cache.clear()
 
         arn = "arn:aws:rds:us-east-1:123:db:aurora-unknown-1"
         instances = [_make_aurora_instance(
@@ -1265,6 +1270,10 @@ class TestAuroraMetadataEnrichment:
         mock_rds = self._mock_rds_with_cluster(
             instances, {arn: {"Monitoring": "on"}}, cluster_resp,
         )
+        # API도 해당 인스턴스 클래스를 모르는 경우 빈 결과 반환
+        mock_rds.describe_db_instance_classes.return_value = {
+            "DBInstanceClasses": [],
+        }
 
         with patch("common.collectors.rds._get_rds_client", return_value=mock_rds), \
              patch("common.collectors.rds.boto3.session.Session") as ms, \
