@@ -311,6 +311,7 @@ Resources:
               - Effect: Allow
                 Action:
                   - rds:DescribeDBInstances
+                  - rds:DescribeDBClusters
                   - rds:ListTagsForResource
                 Resource: "*"
               - Effect: Allow
@@ -367,6 +368,7 @@ Resources:
                 Action:
                   - rds:ListTagsForResource
                   - rds:DescribeDBInstances
+                  - rds:DescribeDBClusters
                   - rds:StopDBInstance
                 Resource: "*"
               - Effect: Allow
