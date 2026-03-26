@@ -213,3 +213,34 @@ Aurora 인스턴스가 삭제된 후 CloudTrail `DeleteDBInstance` 이벤트를 
    - 성공 시 `("AuroraRDS", False)` 또는 `("RDS", False)`, 실패 시 `("RDS", True)`
    - `_handle_delete()`: `is_fallback=True` + DELETE 이벤트 시 `delete_alarms_for_resource(resource_id, "")` 호출 → 전체 prefix(`[RDS]`, `[AuroraRDS]`) 검색으로 알람 삭제
 2. **Daily Monitor**: 고아 알람 정리가 백업 경로로 여전히 동작 (최대 24시간 지연)
+
+---
+
+## KI-009: Dynamic Alarm Direction Limitation (GreaterThanThreshold Only)
+
+### Phenomenon
+Dynamic alarms created via `Threshold_*` tags always use `GreaterThanThreshold` comparison.
+For "higher is better" metrics like `BufferCacheHitRatio` or `HealthyHostCount`, this creates
+inverted alarms that trigger when the value is healthy (e.g., BufferCacheHitRatio 100% > 95 threshold → ALARM).
+
+### Cause
+The `_create_dynamic_alarm()` function hardcodes `ComparisonOperator="GreaterThanThreshold"` for all
+dynamic alarms. There is no mechanism in the tag key to specify the comparison direction.
+
+Hardcoded alarms handle this correctly because each alarm definition explicitly specifies the comparison
+operator (e.g., `HealthyHostCount` uses `LessThanThreshold`, `FreeMemoryGB` uses `LessThanThreshold`).
+
+### Affected Metrics
+"Higher is better" metrics where `LessThanThreshold` would be correct:
+- `BufferCacheHitRatio` (Aurora) — high = good, alert when low
+- `HealthyHostCount` (TG) — already hardcoded, but if used dynamically would be inverted
+- Any custom metric where lower values indicate problems
+
+### Current Workaround
+- Use hardcoded alarm definitions for "higher is better" metrics instead of dynamic tags
+- Or accept the inverted alarm and interpret ALARM state as "metric is healthy" (not recommended)
+
+### Future Fix Options
+1. Tag-based direction: `Threshold_LT_BufferCacheHitRatio=95` (LT prefix = LessThanThreshold)
+2. Separate tag for direction: `ThresholdDirection_BufferCacheHitRatio=LT`
+3. Add commonly needed "higher is better" metrics to hardcoded alarm definitions
