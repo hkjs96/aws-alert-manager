@@ -584,30 +584,25 @@ _AURORA_SERVERLESS_CAPACITY = {
 def _get_aurora_alarm_defs(resource_tags: dict) -> list[dict]:
     """Aurora 인스턴스 변형별 알람 정의 동적 빌드.
 
-    Base(CPU, FreeMemoryGB, Connections) + 조건부 추가:
-    - Provisioned: +FreeLocalStorageGB
-    - Serverless v2: +ACUUtilization, +ServerlessDatabaseCapacity
-    - Writer w/ readers: +ReplicaLag
-    - Reader: +ReaderReplicaLag
-    - Writer w/o readers: lag 알람 없음
+    Provisioned: CPU, FreeMemoryGB, Connections, FreeLocalStorageGB + lag
+    Serverless v2: CPU, ACUUtilization, Connections + lag
+      - FreeMemoryGB 제외: Serverless v2에서 이 메트릭은 "max ACU까지 남은 여유"를 의미하며
+        ACUUtilization과 중복됨 (AWS 공식 문서 참조)
+      - ServerlessDatabaseCapacity 제외: ACUUtilization이 이미 비율로 커버
     """
-    # base: 첫 3개 (CPU, FreeMemoryGB, Connections)
-    alarms = list(_AURORA_RDS_ALARMS[:3])
-
     is_serverless = resource_tags.get("_is_serverless_v2") == "true"
     is_writer = resource_tags.get("_is_cluster_writer") == "true"
     has_readers = resource_tags.get("_has_readers") == "true"
 
     if is_serverless:
-        alarms.append(_AURORA_ACU_UTILIZATION)
-        alarms.append(_AURORA_SERVERLESS_CAPACITY)
+        # Serverless v2: CPU + ACUUtilization + Connections (3개)
+        alarms = [_AURORA_RDS_ALARMS[0], _AURORA_ACU_UTILIZATION, _AURORA_RDS_ALARMS[2]]
     else:
-        # Provisioned: FreeLocalStorageGB (index 3 in _AURORA_RDS_ALARMS)
-        alarms.append(_AURORA_RDS_ALARMS[3])
+        # Provisioned: CPU + FreeMemoryGB + Connections + FreeLocalStorageGB
+        alarms = list(_AURORA_RDS_ALARMS[:4])
 
     if is_writer and has_readers:
-        # ReplicaLag (index 4 in _AURORA_RDS_ALARMS)
-        alarms.append(_AURORA_RDS_ALARMS[4])
+        alarms.append(_AURORA_RDS_ALARMS[4])  # ReplicaLag
     elif not is_writer:
         alarms.append(_AURORA_READER_REPLICA_LAG)
 

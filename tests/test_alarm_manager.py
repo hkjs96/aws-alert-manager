@@ -2827,7 +2827,7 @@ class TestAuroraAlarmVariantRouting:
         assert metrics == {"CPU", "FreeMemoryGB", "Connections", "FreeLocalStorageGB", "ReaderReplicaLag"}
 
     def test_serverless_v2_writer_with_readers(self):
-        """Serverless v2 Writer (w/ readers): CPU, FreeMemoryGB, Connections, ACUUtilization, ServerlessDatabaseCapacity, ReplicaLag."""
+        """Serverless v2 Writer (w/ readers): CPU, ACUUtilization, Connections, ReplicaLag."""
         tags = {
             "_is_serverless_v2": "true",
             "_is_cluster_writer": "true",
@@ -2835,10 +2835,10 @@ class TestAuroraAlarmVariantRouting:
         }
         defs = _get_alarm_defs("AuroraRDS", tags)
         metrics = {d["metric"] for d in defs}
-        assert metrics == {"CPU", "FreeMemoryGB", "Connections", "ACUUtilization", "ServerlessDatabaseCapacity", "ReplicaLag"}
+        assert metrics == {"CPU", "ACUUtilization", "Connections", "ReplicaLag"}
 
     def test_serverless_v2_writer_no_readers(self):
-        """Serverless v2 Writer (no readers): CPU, FreeMemoryGB, Connections, ACUUtilization, ServerlessDatabaseCapacity."""
+        """Serverless v2 Writer (no readers): CPU, ACUUtilization, Connections."""
         tags = {
             "_is_serverless_v2": "true",
             "_is_cluster_writer": "true",
@@ -2846,10 +2846,10 @@ class TestAuroraAlarmVariantRouting:
         }
         defs = _get_alarm_defs("AuroraRDS", tags)
         metrics = {d["metric"] for d in defs}
-        assert metrics == {"CPU", "FreeMemoryGB", "Connections", "ACUUtilization", "ServerlessDatabaseCapacity"}
+        assert metrics == {"CPU", "ACUUtilization", "Connections"}
 
     def test_serverless_v2_reader(self):
-        """Serverless v2 Reader: CPU, FreeMemoryGB, Connections, ACUUtilization, ServerlessDatabaseCapacity, ReaderReplicaLag."""
+        """Serverless v2 Reader: CPU, ACUUtilization, Connections, ReaderReplicaLag."""
         tags = {
             "_is_serverless_v2": "true",
             "_is_cluster_writer": "false",
@@ -2857,7 +2857,7 @@ class TestAuroraAlarmVariantRouting:
         }
         defs = _get_alarm_defs("AuroraRDS", tags)
         metrics = {d["metric"] for d in defs}
-        assert metrics == {"CPU", "FreeMemoryGB", "Connections", "ACUUtilization", "ServerlessDatabaseCapacity", "ReaderReplicaLag"}
+        assert metrics == {"CPU", "ACUUtilization", "Connections", "ReaderReplicaLag"}
 
     def test_aurora_reader_replica_lag_alarm_def_schema(self):
         """_AURORA_READER_REPLICA_LAG 상수 스키마 검증."""

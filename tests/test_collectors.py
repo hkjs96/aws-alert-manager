@@ -872,8 +872,8 @@ class TestAuroraMetricsConditionalBranching:
         return mock_cw
 
     def test_serverless_v2_collects_acu_skips_free_local_storage(self):
-        """Serverless v2: ACUUtilization, ServerlessDatabaseCapacity 수집,
-        FreeLocalStorageGB 미수집 — Req 10.1, 10.2, 10.3"""
+        """Serverless v2: ACUUtilization 수집,
+        FreeMemoryGB/FreeLocalStorageGB/ServerlessDatabaseCapacity 미수집"""
         from common.collectors.rds import get_aurora_metrics
 
         tags = {
@@ -887,17 +887,15 @@ class TestAuroraMetricsConditionalBranching:
             result = get_aurora_metrics("aurora-sv2-1", resource_tags=tags)
 
         assert result is not None
-        # Always collected
         assert "CPU" in result
-        assert "FreeMemoryGB" in result
         assert "Connections" in result
         # Serverless v2 specific
         assert "ACUUtilization" in result
         assert result["ACUUtilization"] == pytest.approx(65.0)
-        assert "ServerlessDatabaseCapacity" in result
-        assert result["ServerlessDatabaseCapacity"] == pytest.approx(32.0)
-        # Must NOT collect FreeLocalStorageGB
+        # Must NOT collect these for Serverless v2
+        assert "FreeMemoryGB" not in result
         assert "FreeLocalStorageGB" not in result
+        assert "ServerlessDatabaseCapacity" not in result
 
     def test_provisioned_collects_free_local_storage_skips_acu(self):
         """Provisioned: FreeLocalStorageGB 수집,

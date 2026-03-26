@@ -248,11 +248,9 @@ def get_aurora_metrics(db_instance_id: str, resource_tags: dict | None = None) -
     dim = [{"Name": "DBInstanceIdentifier", "Value": db_instance_id}]
     metrics: dict[str, float] = {}
 
-    # Always: CPU, FreeMemoryGB, Connections
+    # Always: CPU, Connections
     _collect_metric("AWS/RDS", "CPUUtilization", dim, start_time, end_time,
                     "CPU", metrics, transform=None)
-    _collect_metric("AWS/RDS", "FreeableMemory", dim, start_time, end_time,
-                    "FreeMemoryGB", metrics, transform=lambda v: v / _BYTES_PER_GB)
     _collect_metric("AWS/RDS", "DatabaseConnections", dim, start_time, end_time,
                     "Connections", metrics, transform=None)
 
@@ -260,17 +258,17 @@ def get_aurora_metrics(db_instance_id: str, resource_tags: dict | None = None) -
     is_writer = resource_tags.get("_is_cluster_writer") == "true"
     has_readers = resource_tags.get("_has_readers") == "true"
 
-    # Provisioned: FreeLocalStorage
+    # Provisioned: FreeMemoryGB, FreeLocalStorageGB
     if not is_serverless:
+        _collect_metric("AWS/RDS", "FreeableMemory", dim, start_time, end_time,
+                        "FreeMemoryGB", metrics, transform=lambda v: v / _BYTES_PER_GB)
         _collect_metric("AWS/RDS", "FreeLocalStorage", dim, start_time, end_time,
                         "FreeLocalStorageGB", metrics, transform=lambda v: v / _BYTES_PER_GB)
 
-    # Serverless v2: ACUUtilization, ServerlessDatabaseCapacity
+    # Serverless v2: ACUUtilization only (FreeableMemory/ServerlessDatabaseCapacity 제외)
     if is_serverless:
         _collect_metric("AWS/RDS", "ACUUtilization", dim, start_time, end_time,
                         "ACUUtilization", metrics, transform=None)
-        _collect_metric("AWS/RDS", "ServerlessDatabaseCapacity", dim, start_time, end_time,
-                        "ServerlessDatabaseCapacity", metrics, transform=None)
 
     # Writer with readers: AuroraReplicaLagMaximum → ReplicaLag
     if is_writer and has_readers:
