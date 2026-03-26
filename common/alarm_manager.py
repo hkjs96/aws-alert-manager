@@ -955,16 +955,23 @@ def _resolve_free_memory_threshold(
     """FreeMemoryGB 임계치를 퍼센트 또는 GB 기반으로 해석.
 
     우선순위:
-    1. Threshold_FreeMemoryPct 태그 (명시적 퍼센트)
-    2. _total_memory_bytes 존재 시 HARDCODED_DEFAULTS["FreeMemoryPct"] 자동 적용
+    1. Threshold_FreeMemoryPct 태그 (명시적 퍼센트, 프로비저닝 인스턴스만)
+    2. _total_memory_bytes 존재 + 비서버리스 시 HARDCODED_DEFAULTS["FreeMemoryPct"] 자동 적용
     3. Threshold_FreeMemoryGB 태그 또는 HARDCODED_DEFAULTS["FreeMemoryGB"] (절대값 폴백)
 
+    Serverless v2는 ACU에 따라 메모리가 동적 변동하므로 퍼센트 기반 임계치를 적용하지 않는다.
+    Serverless v2에서는 ACUUtilization 알람이 메모리 압박을 대신 감지한다.
+
     Returns:
-        (display_threshold, cw_threshold_bytes) 튜플.
-        - 퍼센트 사용 시: display = pct 값, cw = (pct/100) * total_memory_bytes
-        - GB 폴백 시: display = GB 값, cw = GB * 1073741824
+        (display_threshold_gb, cw_threshold_bytes) 튜플.
     """
+    is_serverless = resource_tags.get("_is_serverless_v2") == "true"
     total_mem_raw = resource_tags.get("_total_memory_bytes")
+
+    # Serverless v2: 퍼센트 기반 스킵 → GB 절대값만 사용
+    if is_serverless:
+        gb = get_threshold(resource_tags, "FreeMemoryGB")
+        return (gb, gb * 1073741824)
 
     # 1단계: 명시적 Threshold_FreeMemoryPct 태그
     pct_raw = resource_tags.get("Threshold_FreeMemoryPct")
