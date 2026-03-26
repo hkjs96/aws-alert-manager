@@ -64,6 +64,8 @@ _METRIC_DISPLAY = {
     "ReadLatency": ("ReadLatency", ">", "s"),
     "WriteLatency": ("WriteLatency", ">", "s"),
     "ELB5XX": ("HTTPCode_ELB_5XX_Count", ">", ""),
+    "ELB4XX": ("HTTPCode_ELB_4XX_Count", ">", ""),
+    "TargetConnectionError": ("TargetConnectionErrorCount", ">", ""),
     "TargetResponseTime": ("TargetResponseTime", ">", "s"),
     "TCPClientReset": ("TCP_Client_Reset_Count", ">", ""),
     "TCPTargetReset": ("TCP_Target_Reset_Count", ">", ""),
@@ -74,6 +76,7 @@ _METRIC_DISPLAY = {
     "ReaderReplicaLag": ("AuroraReplicaLag", ">", "μs"),
     "ACUUtilization": ("ACUUtilization", ">", "%"),
     "ServerlessDatabaseCapacity": ("ServerlessDatabaseCapacity", ">", "ACU"),
+    "ConnectionAttempts": ("ConnectionAttempts", ">", ""),
 }
 
 
@@ -360,6 +363,16 @@ _RDS_ALARMS = [
         "period": 300,
         "evaluation_periods": 1,
     },
+    {
+        "metric": "ConnectionAttempts",
+        "namespace": "AWS/RDS",
+        "metric_name": "ConnectionAttempts",
+        "dimension_key": "DBInstanceIdentifier",
+        "stat": "Sum",
+        "comparison": "GreaterThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+    },
 ]
 
 _ALB_ALARMS = [
@@ -389,6 +402,26 @@ _ALB_ALARMS = [
         "metric_name": "TargetResponseTime",
         "dimension_key": "LoadBalancer",
         "stat": "Average",
+        "comparison": "GreaterThanThreshold",
+        "period": 60,
+        "evaluation_periods": 1,
+    },
+    {
+        "metric": "ELB4XX",
+        "namespace": "AWS/ApplicationELB",
+        "metric_name": "HTTPCode_ELB_4XX_Count",
+        "dimension_key": "LoadBalancer",
+        "stat": "Sum",
+        "comparison": "GreaterThanThreshold",
+        "period": 60,
+        "evaluation_periods": 1,
+    },
+    {
+        "metric": "TargetConnectionError",
+        "namespace": "AWS/ApplicationELB",
+        "metric_name": "TargetConnectionErrorCount",
+        "dimension_key": "LoadBalancer",
+        "stat": "Sum",
         "comparison": "GreaterThanThreshold",
         "period": 60,
         "evaluation_periods": 1,
@@ -637,8 +670,8 @@ def _get_alarm_defs(resource_type: str, resource_tags: dict | None = None) -> li
 # resource_type별 하드코딩 메트릭 키
 _HARDCODED_METRIC_KEYS: dict[str, set[str]] = {
     "EC2": {"CPU", "Memory", "Disk", "StatusCheckFailed"},
-    "RDS": {"CPU", "FreeMemoryGB", "FreeStorageGB", "Connections", "ReadLatency", "WriteLatency"},
-    "ALB": {"RequestCount", "ELB5XX", "TargetResponseTime"},
+    "RDS": {"CPU", "FreeMemoryGB", "FreeStorageGB", "Connections", "ReadLatency", "WriteLatency", "ConnectionAttempts"},
+    "ALB": {"RequestCount", "ELB5XX", "TargetResponseTime", "ELB4XX", "TargetConnectionError"},
     "NLB": {"ProcessedBytes", "ActiveFlowCount", "NewFlowCount", "TCPClientReset", "TCPTargetReset"},
     "TG": {"HealthyHostCount", "UnHealthyHostCount", "RequestCountPerTarget", "TGResponseTime"},
     "AuroraRDS": {"CPU", "FreeMemoryGB", "Connections", "FreeLocalStorageGB", "ReplicaLag", "ReaderReplicaLag", "ACUUtilization", "ServerlessDatabaseCapacity"},
@@ -1361,6 +1394,8 @@ def _metric_name_to_key(metric_name: str) -> str:
         "ReadLatency": "ReadLatency",
         "WriteLatency": "WriteLatency",
         "HTTPCode_ELB_5XX_Count": "ELB5XX",
+        "HTTPCode_ELB_4XX_Count": "ELB4XX",
+        "TargetConnectionErrorCount": "TargetConnectionError",
         "TargetResponseTime": "TargetResponseTime",
         "TCP_Client_Reset_Count": "TCPClientReset",
         "TCP_Target_Reset_Count": "TCPTargetReset",
@@ -1370,6 +1405,7 @@ def _metric_name_to_key(metric_name: str) -> str:
         "AuroraReplicaLag": "ReaderReplicaLag",
         "ACUUtilization": "ACUUtilization",
         "ServerlessDatabaseCapacity": "ServerlessDatabaseCapacity",
+        "ConnectionAttempts": "ConnectionAttempts",
     }
     return mapping.get(metric_name, metric_name)
 

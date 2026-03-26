@@ -34,8 +34,9 @@ _HARDCODED_METRICS = {
     "RDS": [
         "CPU", "FreeMemoryGB", "FreeStorageGB",
         "Connections", "ReadLatency", "WriteLatency",
+        "ConnectionAttempts",
     ],
-    "ALB": ["RequestCount", "ELB5XX", "TargetResponseTime"],
+    "ALB": ["RequestCount", "ELB5XX", "TargetResponseTime", "ELB4XX", "TargetConnectionError"],
     "NLB": [
         "ProcessedBytes", "ActiveFlowCount", "NewFlowCount",
         "TCPClientReset", "TCPTargetReset",
@@ -49,8 +50,8 @@ _HARDCODED_METRICS = {
 # 알람 개수 기대값 (Disk는 CWAgent 메트릭 등록 시 1개)
 _EXPECTED_ALARM_COUNTS = {
     "EC2": 4,  # CPU + Memory + Disk(/) + StatusCheckFailed
-    "RDS": 6,  # CPU + FreeMemoryGB + FreeStorageGB + Connections + ReadLatency + WriteLatency
-    "ALB": 3,  # RequestCount + ELB5XX + TargetResponseTime
+    "RDS": 7,  # CPU + FreeMemoryGB + FreeStorageGB + Connections + ReadLatency + WriteLatency + ConnectionAttempts
+    "ALB": 5,  # RequestCount + ELB5XX + TargetResponseTime + ELB4XX + TargetConnectionError
     "NLB": 5,  # ProcessedBytes + ActiveFlowCount + NewFlowCount + TCPClientReset + TCPTargetReset
     "TG": 4,   # RequestCount + HealthyHostCount + RequestCountPerTarget + TGResponseTime
 }
@@ -70,11 +71,14 @@ _METRIC_NAMESPACE = {
         "Connections": "AWS/RDS",
         "ReadLatency": "AWS/RDS",
         "WriteLatency": "AWS/RDS",
+        "ConnectionAttempts": "AWS/RDS",
     },
     "ALB": {
         "RequestCount": "AWS/ApplicationELB",
         "ELB5XX": "AWS/ApplicationELB",
         "TargetResponseTime": "AWS/ApplicationELB",
+        "ELB4XX": "AWS/ApplicationELB",
+        "TargetConnectionError": "AWS/ApplicationELB",
     },
     "NLB": {
         "ProcessedBytes": "AWS/NetworkELB",
@@ -109,11 +113,14 @@ _METRIC_DISPLAY = {
     "ReadLatency": "ReadLatency",
     "WriteLatency": "WriteLatency",
     "ELB5XX": "HTTPCode_ELB_5XX_Count",
+    "ELB4XX": "HTTPCode_ELB_4XX_Count",
+    "TargetConnectionError": "TargetConnectionErrorCount",
     "TargetResponseTime": "TargetResponseTime",
     "TCPClientReset": "TCP_Client_Reset_Count",
     "TCPTargetReset": "TCP_Target_Reset_Count",
     "RequestCountPerTarget": "RequestCountPerTarget",
     "TGResponseTime": "TargetResponseTime",
+    "ConnectionAttempts": "ConnectionAttempts",
 }
 
 # 메트릭별 방향/단위
@@ -134,11 +141,14 @@ _METRIC_DIRECTION_UNIT = {
     "ReadLatency": (">", "s"),
     "WriteLatency": (">", "s"),
     "ELB5XX": (">", ""),
+    "ELB4XX": (">", ""),
+    "TargetConnectionError": (">", ""),
     "TargetResponseTime": (">", "s"),
     "TCPClientReset": (">", ""),
     "TCPTargetReset": (">", ""),
     "RequestCountPerTarget": (">", ""),
     "TGResponseTime": (">", "s"),
+    "ConnectionAttempts": (">", ""),
 }
 
 # resource_type별 샘플 resource_id

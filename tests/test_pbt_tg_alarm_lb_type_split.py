@@ -166,8 +166,8 @@ _alb_names = st.from_regex(r"[a-z][a-z0-9\-]{0,30}[a-z0-9]", fullmatch=True)
 
 _EXPECTED_NON_TG_METRICS: dict[str, tuple[int, set[str]]] = {
     "EC2": (4, {"CPU", "Memory", "Disk", "StatusCheckFailed"}),
-    "RDS": (6, {"CPU", "FreeMemoryGB", "FreeStorageGB", "Connections", "ReadLatency", "WriteLatency"}),
-    "ALB": (3, {"RequestCount", "ELB5XX", "TargetResponseTime"}),
+    "RDS": (7, {"CPU", "FreeMemoryGB", "FreeStorageGB", "Connections", "ReadLatency", "WriteLatency", "ConnectionAttempts"}),
+    "ALB": (5, {"RequestCount", "ELB5XX", "TargetResponseTime", "ELB4XX", "TargetConnectionError"}),
     "NLB": (5, {"ProcessedBytes", "ActiveFlowCount", "NewFlowCount", "TCPClientReset", "TCPTargetReset"}),
 }
 

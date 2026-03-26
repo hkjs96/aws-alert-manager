@@ -185,9 +185,9 @@ class TestHelpers:
 
     def test_get_alarm_defs_rds(self):
         defs = _get_alarm_defs("RDS")
-        assert len(defs) == 6
+        assert len(defs) == 7
         metrics = {d["metric"] for d in defs}
-        assert metrics == {"CPU", "FreeMemoryGB", "FreeStorageGB", "Connections", "ReadLatency", "WriteLatency"}
+        assert metrics == {"CPU", "FreeMemoryGB", "FreeStorageGB", "Connections", "ReadLatency", "WriteLatency", "ConnectionAttempts"}
 
     def test_get_alarm_defs_elb(self):
         defs = _get_alarm_defs("ELB")
@@ -199,13 +199,13 @@ class TestHelpers:
     # ── Task 3.1: ALB/NLB/TG 알람 정의 분리 검증 ──
 
     def test_get_alarm_defs_alb(self):
-        """_get_alarm_defs('ALB') → RequestCount, ELB5XX, TargetResponseTime (AWS/ApplicationELB) 반환.
+        """_get_alarm_defs('ALB') → RequestCount, ELB5XX, TargetResponseTime, ELB4XX, TargetConnectionError (AWS/ApplicationELB) 반환.
         Validates: Requirements 4.1
         """
         defs = _get_alarm_defs("ALB")
-        assert len(defs) == 3
+        assert len(defs) == 5
         metrics = {d["metric"] for d in defs}
-        assert metrics == {"RequestCount", "ELB5XX", "TargetResponseTime"}
+        assert metrics == {"RequestCount", "ELB5XX", "TargetResponseTime", "ELB4XX", "TargetConnectionError"}
         for d in defs:
             assert d["namespace"] == "AWS/ApplicationELB"
             assert d["dimension_key"] == "LoadBalancer"
@@ -246,7 +246,7 @@ class TestHelpers:
         """
         from common.alarm_manager import _HARDCODED_METRIC_KEYS
         assert "ALB" in _HARDCODED_METRIC_KEYS
-        assert _HARDCODED_METRIC_KEYS["ALB"] == {"RequestCount", "ELB5XX", "TargetResponseTime"}
+        assert _HARDCODED_METRIC_KEYS["ALB"] == {"RequestCount", "ELB5XX", "TargetResponseTime", "ELB4XX", "TargetConnectionError"}
         assert "NLB" in _HARDCODED_METRIC_KEYS
         assert _HARDCODED_METRIC_KEYS["NLB"] == {"ProcessedBytes", "ActiveFlowCount", "NewFlowCount", "TCPClientReset", "TCPTargetReset"}
         assert "TG" in _HARDCODED_METRIC_KEYS
@@ -316,9 +316,9 @@ def test_rds_read_write_latency_alarm_def():
     """RDS ReadLatency/WriteLatency 알람 정의가 올바르게 등록되어 있는지 검증.
     Validates: Requirements 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 4.7
     """
-    # _get_alarm_defs("RDS") → 6개 (CPU, FreeMemoryGB, FreeStorageGB, Connections, ReadLatency, WriteLatency)
+    # _get_alarm_defs("RDS") → 7개 (CPU, FreeMemoryGB, FreeStorageGB, Connections, ReadLatency, WriteLatency, ConnectionAttempts)
     defs = _get_alarm_defs("RDS")
-    assert len(defs) == 6
+    assert len(defs) == 7
     metrics = {d["metric"] for d in defs}
     assert "ReadLatency" in metrics
     assert "WriteLatency" in metrics
@@ -326,7 +326,7 @@ def test_rds_read_write_latency_alarm_def():
     # _HARDCODED_METRIC_KEYS["RDS"] 검증
     assert _HARDCODED_METRIC_KEYS["RDS"] == {
         "CPU", "FreeMemoryGB", "FreeStorageGB", "Connections",
-        "ReadLatency", "WriteLatency",
+        "ReadLatency", "WriteLatency", "ConnectionAttempts",
     }
 
     # _METRIC_DISPLAY 매핑 검증
@@ -357,6 +357,43 @@ def test_rds_read_write_latency_alarm_def():
 
 
 # ──────────────────────────────────────────────
+# RDS ConnectionAttempts 알람 정의 검증 (TDD Red)
+# ──────────────────────────────────────────────
+
+def test_rds_connection_attempts_alarm_def():
+    """RDS ConnectionAttempts 알람 정의가 올바르게 등록되어 있는지 검증.
+    Validates: Requirements 3.1, 3.2, 3.3, 3.4, 3.5, 3.6
+    """
+    # _get_alarm_defs("RDS") → 7개 (CPU, FreeMemoryGB, FreeStorageGB, Connections, ReadLatency, WriteLatency, ConnectionAttempts)
+    defs = _get_alarm_defs("RDS")
+    assert len(defs) == 7
+    metrics = {d["metric"] for d in defs}
+    assert "ConnectionAttempts" in metrics
+
+    # _HARDCODED_METRIC_KEYS["RDS"] 검증
+    assert _HARDCODED_METRIC_KEYS["RDS"] == {
+        "CPU", "FreeMemoryGB", "FreeStorageGB", "Connections",
+        "ReadLatency", "WriteLatency", "ConnectionAttempts",
+    }
+
+    # _METRIC_DISPLAY 매핑 검증
+    assert _METRIC_DISPLAY["ConnectionAttempts"] == ("ConnectionAttempts", ">", "")
+
+    # _metric_name_to_key 변환 검증
+    assert _metric_name_to_key("ConnectionAttempts") == "ConnectionAttempts"
+
+    # HARDCODED_DEFAULTS 기본 임계치 검증
+    assert HARDCODED_DEFAULTS["ConnectionAttempts"] == 500.0
+
+    # ConnectionAttempts 알람 정의 상세 검증
+    ca_def = next(d for d in defs if d["metric"] == "ConnectionAttempts")
+    assert ca_def["dimension_key"] == "DBInstanceIdentifier"
+    assert ca_def["stat"] == "Sum"
+    assert ca_def["comparison"] == "GreaterThanThreshold"
+    assert ca_def["namespace"] == "AWS/RDS"
+
+
+# ──────────────────────────────────────────────
 # ALB ELB5XX/TargetResponseTime 알람 정의 검증 (TDD Red)
 # ──────────────────────────────────────────────
 
@@ -364,15 +401,15 @@ def test_alb_elb5xx_target_response_time_alarm_def():
     """ALB ELB5XX/TargetResponseTime 알람 정의가 올바르게 등록되어 있는지 검증.
     Validates: Requirements 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 8.4
     """
-    # _get_alarm_defs("ALB") → 3개 (RequestCount, ELB5XX, TargetResponseTime)
+    # _get_alarm_defs("ALB") → 5개 (RequestCount, ELB5XX, TargetResponseTime, ELB4XX, TargetConnectionError)
     defs = _get_alarm_defs("ALB")
-    assert len(defs) == 3
+    assert len(defs) == 5
     metrics = {d["metric"] for d in defs}
     assert "ELB5XX" in metrics
     assert "TargetResponseTime" in metrics
 
     # _HARDCODED_METRIC_KEYS["ALB"] 검증
-    assert _HARDCODED_METRIC_KEYS["ALB"] == {"RequestCount", "ELB5XX", "TargetResponseTime"}
+    assert _HARDCODED_METRIC_KEYS["ALB"] == {"RequestCount", "ELB5XX", "TargetResponseTime", "ELB4XX", "TargetConnectionError"}
 
     # _METRIC_DISPLAY 매핑 검증
     assert _METRIC_DISPLAY["ELB5XX"] == ("HTTPCode_ELB_5XX_Count", ">", "")
@@ -397,6 +434,53 @@ def test_alb_elb5xx_target_response_time_alarm_def():
     assert trt_def["dimension_key"] == "LoadBalancer"
     assert trt_def["stat"] == "Average"
     assert trt_def["namespace"] == "AWS/ApplicationELB"
+
+
+# ──────────────────────────────────────────────
+# ALB ELB4XX/TargetConnectionError 알람 정의 검증 (TDD Red)
+# ──────────────────────────────────────────────
+
+def test_alb_elb4xx_target_connection_error_alarm_def():
+    """ALB ELB4XX/TargetConnectionError 알람 정의가 올바르게 등록되어 있는지 검증.
+    Validates: Requirements 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 2.1, 2.2, 2.3, 2.4, 2.5, 2.6
+    """
+    # _get_alarm_defs("ALB") → 5개 (RequestCount, ELB5XX, TargetResponseTime, ELB4XX, TargetConnectionError)
+    defs = _get_alarm_defs("ALB")
+    assert len(defs) == 5
+    metrics = {d["metric"] for d in defs}
+    assert metrics == {"RequestCount", "ELB5XX", "TargetResponseTime", "ELB4XX", "TargetConnectionError"}
+
+    # _HARDCODED_METRIC_KEYS["ALB"] 검증
+    assert _HARDCODED_METRIC_KEYS["ALB"] == {
+        "RequestCount", "ELB5XX", "TargetResponseTime",
+        "ELB4XX", "TargetConnectionError",
+    }
+
+    # _METRIC_DISPLAY 매핑 검증
+    assert _METRIC_DISPLAY["ELB4XX"] == ("HTTPCode_ELB_4XX_Count", ">", "")
+    assert _METRIC_DISPLAY["TargetConnectionError"] == ("TargetConnectionErrorCount", ">", "")
+
+    # _metric_name_to_key 변환 검증
+    assert _metric_name_to_key("HTTPCode_ELB_4XX_Count") == "ELB4XX"
+    assert _metric_name_to_key("TargetConnectionErrorCount") == "TargetConnectionError"
+
+    # HARDCODED_DEFAULTS 기본 임계치 검증
+    assert HARDCODED_DEFAULTS["ELB4XX"] == 100.0
+    assert HARDCODED_DEFAULTS["TargetConnectionError"] == 50.0
+
+    # ELB4XX 알람 정의 상세 검증
+    elb4xx_def = next(d for d in defs if d["metric"] == "ELB4XX")
+    assert elb4xx_def["dimension_key"] == "LoadBalancer"
+    assert elb4xx_def["stat"] == "Sum"
+    assert elb4xx_def["comparison"] == "GreaterThanThreshold"
+    assert elb4xx_def["namespace"] == "AWS/ApplicationELB"
+
+    # TargetConnectionError 알람 정의 상세 검증
+    tce_def = next(d for d in defs if d["metric"] == "TargetConnectionError")
+    assert tce_def["dimension_key"] == "LoadBalancer"
+    assert tce_def["stat"] == "Sum"
+    assert tce_def["comparison"] == "GreaterThanThreshold"
+    assert tce_def["namespace"] == "AWS/ApplicationELB"
 
 
 # ──────────────────────────────────────────────
@@ -696,7 +780,7 @@ class TestCreateAlarms:
         # 알람 이름에 90% 포함
         assert ">90%" in cpu_call.kwargs["AlarmName"]
 
-    def test_rds_creates_six_alarms(self):
+    def test_rds_creates_seven_alarms(self):
         mock_cw = MagicMock()
         mock_paginator = MagicMock()
         mock_paginator.paginate.return_value = [{"MetricAlarms": []}]
@@ -705,8 +789,8 @@ class TestCreateAlarms:
         with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
             created = create_alarms_for_resource("db-001", "RDS", tags)
 
-        assert len(created) == 6
-        assert mock_cw.put_metric_alarm.call_count == 6
+        assert len(created) == 7
+        assert mock_cw.put_metric_alarm.call_count == 7
 
     def test_rds_free_memory_threshold_converted_to_bytes(self):
         mock_cw = MagicMock()
@@ -730,7 +814,7 @@ class TestCreateAlarms:
         with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
             created = create_alarms_for_resource(arn, "ALB", {"Monitoring": "on"})
 
-        assert len(created) == 3
+        assert len(created) == 5
         # All ALB alarms use LoadBalancer single dimension (no TargetGroup)
         for call in mock_cw.put_metric_alarm.call_args_list:
             dims = call.kwargs["Dimensions"]
@@ -1354,6 +1438,33 @@ class TestParseThresholdTags:
         assert "CustomTG" in result
         assert result["CustomTG"] == (99.0, "GreaterThanThreshold")
 
+    def test_excludes_new_alb_rds_hardcoded_keys(self):
+        """새 하드코딩 키(ELB4XX, TargetConnectionError, ConnectionAttempts)가
+        _parse_threshold_tags 결과에서 제외되고, 비하드코딩 키는 정상 반환되는지 검증.
+        Validates: Requirements 4.1, 4.2, 4.3
+        """
+        # ALB: ELB4XX, TargetConnectionError 제외, CustomALBMetric 포함
+        alb_tags = {
+            "Threshold_ELB4XX": "200",
+            "Threshold_TargetConnectionError": "100",
+            "Threshold_CustomALBMetric": "42",
+        }
+        result = _parse_threshold_tags(alb_tags, "ALB")
+        assert "ELB4XX" not in result
+        assert "TargetConnectionError" not in result
+        assert "CustomALBMetric" in result
+        assert result["CustomALBMetric"] == (42.0, "GreaterThanThreshold")
+
+        # RDS: ConnectionAttempts 제외, CustomRDSMetric 포함
+        rds_tags = {
+            "Threshold_ConnectionAttempts": "1000",
+            "Threshold_CustomRDSMetric": "55",
+        }
+        result = _parse_threshold_tags(rds_tags, "RDS")
+        assert "ConnectionAttempts" not in result
+        assert "CustomRDSMetric" in result
+        assert result["CustomRDSMetric"] == (55.0, "GreaterThanThreshold")
+
     def test_lt_prefix_returns_less_than_threshold(self):
         """Threshold_LT_{MetricName} → LessThanThreshold 비교 연산자 반환.
         Validates: LT_ prefix for metrics where low values are dangerous.
@@ -1973,7 +2084,7 @@ class TestCreateAlarmsOffCheck:
         assert len(created) == 2
 
     def test_rds_off_metric_skipped(self):
-        """RDS Threshold_CPU=off → CPU 알람 스킵, 나머지 5개 정상 생성.
+        """RDS Threshold_CPU=off → CPU 알람 스킵, 나머지 6개 정상 생성.
         Validates: Requirements 3.1
         """
         mock_cw = MagicMock()
@@ -1985,7 +2096,7 @@ class TestCreateAlarmsOffCheck:
             created = create_alarms_for_resource("db-001", "RDS", tags)
 
         assert not any("CPUUtilization" in n for n in created)
-        assert len(created) == 5  # 6 total - 1 CPU = 5
+        assert len(created) == 6  # 7 total - 1 CPU = 6
 
 
 # ──────────────────────────────────────────────

@@ -28,6 +28,8 @@ HARDCODED_DEFAULTS: dict[str, float] = {
     "ReadLatency": 0.02,
     "WriteLatency": 0.02,
     "ELB5XX": 50.0,
+    "ELB4XX": 100.0,
+    "TargetConnectionError": 50.0,
     "TargetResponseTime": 5.0,
     "TCPClientReset": 100.0,
     "TCPTargetReset": 100.0,
@@ -39,6 +41,7 @@ HARDCODED_DEFAULTS: dict[str, float] = {
     "ACUUtilization": 80.0,
     "ServerlessDatabaseCapacity": 128.0,
     "FreeMemoryPct": 20.0,
+    "ConnectionAttempts": 500.0,
 }
 
 # 지원하는 AWS 리소스 유형 - Requirements 6.1
