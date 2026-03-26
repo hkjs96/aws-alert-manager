@@ -1,0 +1,255 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  EC2 x5 multi-delete test infra with CWAgent (Memory/Disk metrics).
+  Monitoring=on tag for automatic alarm creation.
+
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+  SubnetId:
+    Type: AWS::EC2::Subnet::Id
+  AmiId:
+    Type: AWS::EC2::Image::Id
+    Default: ami-02dfbd4ff395f2a1b
+  InstanceCount:
+    Type: Number
+    Default: 5
+    MinValue: 1
+    MaxValue: 10
+
+Resources:
+  Ec2Role:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${AWS::StackName}-ec2-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+
+  Ec2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles: [!Ref Ec2Role]
+
+  Ec2SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Sub '${AWS::StackName}-sg'
+      VpcId: !Ref VpcId
+
+  Ec2Instance1:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t3.micro
+      ImageId: !Ref AmiId
+      IamInstanceProfile: !Ref Ec2InstanceProfile
+      NetworkInterfaces:
+        - DeviceIndex: '0'
+          SubnetId: !Ref SubnetId
+          AssociatePublicIpAddress: true
+          GroupSet: [!Ref Ec2SecurityGroup]
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash -xe
+          dnf install -y amazon-cloudwatch-agent
+          cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json <<'CWCFG'
+          {
+            "metrics": {
+              "namespace": "CWAgent",
+              "metrics_collected": {
+                "mem": { "measurement": ["mem_used_percent"], "metrics_collection_interval": 60 },
+                "disk": {
+                  "measurement": ["disk_used_percent"],
+                  "resources": ["/"],
+                  "metrics_collection_interval": 60
+                }
+              },
+              "append_dimensions": { "InstanceId": "${!aws:InstanceId}" }
+            }
+          }
+          CWCFG
+          /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
+            -a fetch-config -m ec2 \
+            -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json -s
+      Tags:
+        - Key: Monitoring
+          Value: 'on'
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-01'
+
+  Ec2Instance2:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t3.micro
+      ImageId: !Ref AmiId
+      IamInstanceProfile: !Ref Ec2InstanceProfile
+      NetworkInterfaces:
+        - DeviceIndex: '0'
+          SubnetId: !Ref SubnetId
+          AssociatePublicIpAddress: true
+          GroupSet: [!Ref Ec2SecurityGroup]
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash -xe
+          dnf install -y amazon-cloudwatch-agent
+          cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json <<'CWCFG'
+          {
+            "metrics": {
+              "namespace": "CWAgent",
+              "metrics_collected": {
+                "mem": { "measurement": ["mem_used_percent"], "metrics_collection_interval": 60 },
+                "disk": {
+                  "measurement": ["disk_used_percent"],
+                  "resources": ["/"],
+                  "metrics_collection_interval": 60
+                }
+              },
+              "append_dimensions": { "InstanceId": "${!aws:InstanceId}" }
+            }
+          }
+          CWCFG
+          /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
+            -a fetch-config -m ec2 \
+            -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json -s
+      Tags:
+        - Key: Monitoring
+          Value: 'on'
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-02'
+
+  Ec2Instance3:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t3.micro
+      ImageId: !Ref AmiId
+      IamInstanceProfile: !Ref Ec2InstanceProfile
+      NetworkInterfaces:
+        - DeviceIndex: '0'
+          SubnetId: !Ref SubnetId
+          AssociatePublicIpAddress: true
+          GroupSet: [!Ref Ec2SecurityGroup]
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash -xe
+          dnf install -y amazon-cloudwatch-agent
+          cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json <<'CWCFG'
+          {
+            "metrics": {
+              "namespace": "CWAgent",
+              "metrics_collected": {
+                "mem": { "measurement": ["mem_used_percent"], "metrics_collection_interval": 60 },
+                "disk": {
+                  "measurement": ["disk_used_percent"],
+                  "resources": ["/"],
+                  "metrics_collection_interval": 60
+                }
+              },
+              "append_dimensions": { "InstanceId": "${!aws:InstanceId}" }
+            }
+          }
+          CWCFG
+          /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
+            -a fetch-config -m ec2 \
+            -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json -s
+      Tags:
+        - Key: Monitoring
+          Value: 'on'
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-03'
+
+  Ec2Instance4:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t3.micro
+      ImageId: !Ref AmiId
+      IamInstanceProfile: !Ref Ec2InstanceProfile
+      NetworkInterfaces:
+        - DeviceIndex: '0'
+          SubnetId: !Ref SubnetId
+          AssociatePublicIpAddress: true
+          GroupSet: [!Ref Ec2SecurityGroup]
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash -xe
+          dnf install -y amazon-cloudwatch-agent
+          cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json <<'CWCFG'
+          {
+            "metrics": {
+              "namespace": "CWAgent",
+              "metrics_collected": {
+                "mem": { "measurement": ["mem_used_percent"], "metrics_collection_interval": 60 },
+                "disk": {
+                  "measurement": ["disk_used_percent"],
+                  "resources": ["/"],
+                  "metrics_collection_interval": 60
+                }
+              },
+              "append_dimensions": { "InstanceId": "${!aws:InstanceId}" }
+            }
+          }
+          CWCFG
+          /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
+            -a fetch-config -m ec2 \
+            -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json -s
+      Tags:
+        - Key: Monitoring
+          Value: 'on'
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-04'
+
+  Ec2Instance5:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t3.micro
+      ImageId: !Ref AmiId
+      IamInstanceProfile: !Ref Ec2InstanceProfile
+      NetworkInterfaces:
+        - DeviceIndex: '0'
+          SubnetId: !Ref SubnetId
+          AssociatePublicIpAddress: true
+          GroupSet: [!Ref Ec2SecurityGroup]
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash -xe
+          dnf install -y amazon-cloudwatch-agent
+          cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json <<'CWCFG'
+          {
+            "metrics": {
+              "namespace": "CWAgent",
+              "metrics_collected": {
+                "mem": { "measurement": ["mem_used_percent"], "metrics_collection_interval": 60 },
+                "disk": {
+                  "measurement": ["disk_used_percent"],
+                  "resources": ["/"],
+                  "metrics_collection_interval": 60
+                }
+              },
+              "append_dimensions": { "InstanceId": "${!aws:InstanceId}" }
+            }
+          }
+          CWCFG
+          /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
+            -a fetch-config -m ec2 \
+            -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json -s
+      Tags:
+        - Key: Monitoring
+          Value: 'on'
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-05'
+
+Outputs:
+  InstanceIds:
+    Value: !Join
+      - ','
+      - - !Ref Ec2Instance1
+        - !Ref Ec2Instance2
+        - !Ref Ec2Instance3
+        - !Ref Ec2Instance4
+        - !Ref Ec2Instance5

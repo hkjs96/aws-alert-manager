@@ -1,0 +1,264 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  LB/TG 알람 엔진 검증용 테스트 인프라.
+  ALB/NLB/Target Group 리소스를 생성하여 aws-alert-manager의
+  알람 자동 생성 동작을 실제 AWS 환경에서 검증한다.
+
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: 배포 대상 VPC ID
+
+  SubnetId:
+    Type: AWS::EC2::Subnet::Id
+    Description: 첫 번째 서브넷 (EC2, ALB, NLB 배치용)
+
+  SubnetId2:
+    Type: AWS::EC2::Subnet::Id
+    Description: 두 번째 서브넷 (ALB 2-AZ 요구사항 충족용)
+
+  KeyPairName:
+    Type: String
+    Description: EC2 인스턴스 SSH 접속용 키페어 이름 (빈 문자열이면 SSH 없이 생성)
+    Default: ''
+
+  AmiId:
+    Type: AWS::EC2::Image::Id
+    Description: EC2 인스턴스 AMI ID (Amazon Linux 2023 권장)
+
+  AllowedIpCidr:
+    Type: String
+    Description: SSH 및 HTTP 접근을 허용할 IP CIDR 블록
+    AllowedPattern: ^(\d{1,3}\.){3}\d{1,3}/\d{1,2}$
+    ConstraintDescription: "유효한 CIDR 형식이어야 합니다 (예: 203.0.113.0/24)"
+
+Conditions:
+  HasKeyPair: !Not [!Equals [!Ref KeyPairName, '']]
+
+Resources:
+  AlbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: ALB inbound traffic control
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: !Ref AllowedIpCidr
+      SecurityGroupEgress:
+        - IpProtocol: '-1'
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Monitoring
+          Value: 'on'
+        - Key: Project
+          Value: lb-tg-alarm-lab
+        - Key: Environment
+          Value: test
+        - Key: Name
+          Value: lb-tg-alarm-lab-alb-sg
+
+  Ec2SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: EC2 inbound traffic control
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          SourceSecurityGroupId: !Ref AlbSecurityGroup
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: !Ref AllowedIpCidr
+      SecurityGroupEgress:
+        - IpProtocol: '-1'
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Monitoring
+          Value: 'on'
+        - Key: Project
+          Value: lb-tg-alarm-lab
+        - Key: Environment
+          Value: test
+        - Key: Name
+          Value: lb-tg-alarm-lab-ec2-sg
+
+  TestEc2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t3.micro
+      ImageId: !Ref AmiId
+      KeyName: !If [HasKeyPair, !Ref KeyPairName, !Ref 'AWS::NoValue']
+      NetworkInterfaces:
+        - DeviceIndex: '0'
+          SubnetId: !Ref SubnetId
+          AssociatePublicIpAddress: true
+          GroupSet:
+            - !Ref Ec2SecurityGroup
+      UserData:
+        Fn::Base64: |
+          #!/bin/bash
+          yum install -y httpd
+          echo "OK" > /var/www/html/index.html
+          systemctl enable httpd
+          systemctl start httpd
+      Tags:
+        - Key: Monitoring
+          Value: 'on'
+        - Key: Project
+          Value: lb-tg-alarm-lab
+        - Key: Environment
+          Value: test
+        - Key: Name
+          Value: lb-tg-alarm-lab-ec2
+        - Key: Threshold_CPU
+          Value: '70'
+
+  TestAlb:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Type: application
+      Scheme: internet-facing
+      Subnets:
+        - !Ref SubnetId
+        - !Ref SubnetId2
+      SecurityGroups:
+        - !Ref AlbSecurityGroup
+      Tags:
+        - Key: Monitoring
+          Value: 'on'
+        - Key: Project
+          Value: lb-tg-alarm-lab
+        - Key: Environment
+          Value: test
+        - Key: Name
+          Value: lb-tg-alarm-lab-alb
+        - Key: Threshold_RequestCount
+          Value: '5000'
+
+  TestAlbTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Protocol: HTTP
+      Port: 80
+      VpcId: !Ref VpcId
+      TargetType: instance
+      HealthCheckProtocol: HTTP
+      HealthCheckPath: /
+      HealthCheckIntervalSeconds: 30
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+      Targets:
+        - Id: !Ref TestEc2Instance
+          Port: 80
+      Tags:
+        - Key: Monitoring
+          Value: 'on'
+        - Key: Project
+          Value: lb-tg-alarm-lab
+        - Key: Environment
+          Value: test
+        - Key: Name
+          Value: lb-tg-alarm-lab-alb-tg
+        - Key: Threshold_RequestCount
+          Value: '3000'
+
+  TestAlbListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref TestAlb
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref TestAlbTargetGroup
+
+  TestNlb:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Type: network
+      Scheme: internet-facing
+      Subnets:
+        - !Ref SubnetId
+        - !Ref SubnetId2
+      Tags:
+        - Key: Monitoring
+          Value: 'on'
+        - Key: Project
+          Value: lb-tg-alarm-lab
+        - Key: Environment
+          Value: test
+        - Key: Name
+          Value: lb-tg-alarm-lab-nlb
+        - Key: Threshold_ProcessedBytes
+          Value: '1000000'
+        - Key: Threshold_ActiveFlowCount
+          Value: '100'
+
+  TestNlbTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Protocol: TCP
+      Port: 80
+      VpcId: !Ref VpcId
+      TargetType: instance
+      HealthCheckProtocol: TCP
+      HealthCheckIntervalSeconds: 30
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 2
+      Targets:
+        - Id: !Ref TestEc2Instance
+          Port: 80
+      Tags:
+        - Key: Monitoring
+          Value: 'on'
+        - Key: Project
+          Value: lb-tg-alarm-lab
+        - Key: Environment
+          Value: test
+        - Key: Name
+          Value: lb-tg-alarm-lab-nlb-tg
+        - Key: Threshold_HealthyHostCount
+          Value: '1'
+
+  TestNlbListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref TestNlb
+      Port: 80
+      Protocol: TCP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref TestNlbTargetGroup
+
+Outputs:
+  Ec2InstanceId:
+    Description: 테스트 EC2 인스턴스 ID
+    Value: !Ref TestEc2Instance
+
+  AlbArn:
+    Description: Application Load Balancer ARN
+    Value: !Ref TestAlb
+
+  AlbDnsName:
+    Description: ALB DNS 이름
+    Value: !GetAtt TestAlb.DNSName
+
+  NlbArn:
+    Description: Network Load Balancer ARN
+    Value: !Ref TestNlb
+
+  NlbDnsName:
+    Description: NLB DNS 이름
+    Value: !GetAtt TestNlb.DNSName
+
+  AlbTargetGroupArn:
+    Description: ALB Target Group ARN
+    Value: !Ref TestAlbTargetGroup
+
+  NlbTargetGroupArn:
+    Description: NLB Target Group ARN
+    Value: !Ref TestNlbTargetGroup

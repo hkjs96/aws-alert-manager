@@ -1,0 +1,390 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  NLB ? ALB ? EC2(2?) ?? ?? ??? ???.
+  EC2? CW Agent ??, ??? ???? CloudWatch ???/?? ??.
+  ??? ???: {env}-{resource_type}-{service}-{seq}
+
+Parameters:
+  Environment:
+    Type: String
+    Description: ?? (dev, stg, prod)
+    Default: dev
+    AllowedValues: [dev, stg, prod]
+
+  ServiceName:
+    Type: String
+    Description: ??? ?? (??? ???? ??)
+    Default: lab
+
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: ?? ?? VPC ID
+
+  SubnetId:
+    Type: AWS::EC2::Subnet::Id
+    Description: ? ?? ??? ??? (AZ-a)
+
+  SubnetId2:
+    Type: AWS::EC2::Subnet::Id
+    Description: ? ?? ??? ??? (AZ-b, ALB 2-AZ ????)
+
+  KeyPairName:
+    Type: String
+    Description: EC2 SSH ??? (? ????? SSH ?? ??)
+    Default: ''
+
+  AmiId:
+    Type: AWS::EC2::Image::Id
+    Description: Amazon Linux 2023 AMI ID
+
+  AllowedIpCidr:
+    Type: String
+    Description: SSH/HTTP ?? IP CIDR
+    AllowedPattern: ^(\d{1,3}\.){3}\d{1,3}/\d{1,2}$
+
+Conditions:
+  HasKeyPair: !Not [!Equals [!Ref KeyPairName, '']]
+
+Resources:
+  # --- IAM Role (CW Agent ?) ---
+  Ec2Role:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${Environment}-ec2-${ServiceName}-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Tags:
+        - Key: Project
+          Value: !Ref 'AWS::StackName'
+
+  Ec2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref Ec2Role
+
+  # --- Security Groups ---
+  NlbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Sub '${Environment}-sg-nlb-${ServiceName}'
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: !Ref AllowedIpCidr
+      SecurityGroupEgress:
+        - IpProtocol: '-1'
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Project
+          Value: !Ref 'AWS::StackName'
+        - Key: Name
+          Value: !Sub '${Environment}-sg-nlb-${ServiceName}'
+
+  AlbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Sub '${Environment}-sg-alb-${ServiceName}'
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: !Ref AllowedIpCidr
+      SecurityGroupEgress:
+        - IpProtocol: '-1'
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Monitoring
+          Value: 'on'
+        - Key: Project
+          Value: !Ref 'AWS::StackName'
+        - Key: Name
+          Value: !Sub '${Environment}-sg-alb-${ServiceName}'
+
+  Ec2SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Sub '${Environment}-sg-ec2-${ServiceName}'
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          SourceSecurityGroupId: !Ref AlbSecurityGroup
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref AllowedIpCidr
+      SecurityGroupEgress:
+        - IpProtocol: '-1'
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Project
+          Value: !Ref 'AWS::StackName'
+        - Key: Name
+          Value: !Sub '${Environment}-sg-ec2-${ServiceName}'
+
+  # --- EC2 Instances (CW Agent ??) ---
+  Ec2Instance1:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t3.micro
+      ImageId: !Ref AmiId
+      KeyName: !If [HasKeyPair, !Ref KeyPairName, !Ref 'AWS::NoValue']
+      IamInstanceProfile: !Ref Ec2InstanceProfile
+      NetworkInterfaces:
+        - DeviceIndex: '0'
+          SubnetId: !Ref SubnetId
+          AssociatePublicIpAddress: true
+          GroupSet:
+            - !Ref Ec2SecurityGroup
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash -xe
+          # --- HTTP ?? ---
+          dnf install -y httpd
+          INSTANCE_ID=$(ec2-metadata -i | awk '{print $2}')
+          cat > /var/www/html/index.html <<EOF
+          {"instance":"$INSTANCE_ID","status":"ok"}
+          EOF
+          systemctl enable httpd && systemctl start httpd
+
+          # --- CloudWatch Agent ---
+          dnf install -y amazon-cloudwatch-agent
+          cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json <<'CWCFG'
+          {
+            "metrics": {
+              "namespace": "CWAgent",
+              "metrics_collected": {
+                "mem": { "measurement": ["mem_used_percent"], "metrics_collection_interval": 60 },
+                "disk": {
+                  "measurement": ["disk_used_percent"],
+                  "metrics_collection_interval": 60,
+                  "resources": ["/"]
+                }
+              },
+              "append_dimensions": { "InstanceId": "${!aws:InstanceId}" }
+            }
+          }
+          CWCFG
+          /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
+            -a fetch-config -m ec2 \
+            -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json -s
+      Tags:
+        - Key: Monitoring
+          Value: 'on'
+        - Key: Project
+          Value: !Ref 'AWS::StackName'
+        - Key: Name
+          Value: !Sub '${Environment}-ec2-${ServiceName}-01'
+        - Key: Threshold_CPU
+          Value: '70'
+
+  Ec2Instance2:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t3.micro
+      ImageId: !Ref AmiId
+      KeyName: !If [HasKeyPair, !Ref KeyPairName, !Ref 'AWS::NoValue']
+      IamInstanceProfile: !Ref Ec2InstanceProfile
+      NetworkInterfaces:
+        - DeviceIndex: '0'
+          SubnetId: !Ref SubnetId2
+          AssociatePublicIpAddress: true
+          GroupSet:
+            - !Ref Ec2SecurityGroup
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash -xe
+          # --- HTTP ?? ---
+          dnf install -y httpd
+          INSTANCE_ID=$(ec2-metadata -i | awk '{print $2}')
+          cat > /var/www/html/index.html <<EOF
+          {"instance":"$INSTANCE_ID","status":"ok"}
+          EOF
+          systemctl enable httpd && systemctl start httpd
+
+          # --- CloudWatch Agent ---
+          dnf install -y amazon-cloudwatch-agent
+          cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json <<'CWCFG'
+          {
+            "metrics": {
+              "namespace": "CWAgent",
+              "metrics_collected": {
+                "mem": { "measurement": ["mem_used_percent"], "metrics_collection_interval": 60 },
+                "disk": {
+                  "measurement": ["disk_used_percent"],
+                  "metrics_collection_interval": 60,
+                  "resources": ["/"]
+                }
+              },
+              "append_dimensions": { "InstanceId": "${!aws:InstanceId}" }
+            }
+          }
+          CWCFG
+          /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
+            -a fetch-config -m ec2 \
+            -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json -s
+      Tags:
+        - Key: Monitoring
+          Value: 'on'
+        - Key: Project
+          Value: !Ref 'AWS::StackName'
+        - Key: Name
+          Value: !Sub '${Environment}-ec2-${ServiceName}-02'
+        - Key: Threshold_CPU
+          Value: '70'
+
+  # --- ALB + Target Group ---
+  TestAlb:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub '${Environment}-alb-${ServiceName}'
+      Type: application
+      Scheme: internet-facing
+      Subnets:
+        - !Ref SubnetId
+        - !Ref SubnetId2
+      SecurityGroups:
+        - !Ref AlbSecurityGroup
+      Tags:
+        - Key: Monitoring
+          Value: 'on'
+        - Key: Project
+          Value: !Ref 'AWS::StackName'
+        - Key: Name
+          Value: !Sub '${Environment}-alb-${ServiceName}'
+
+  AlbTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub '${Environment}-tg-alb-${ServiceName}'
+      Protocol: HTTP
+      Port: 80
+      VpcId: !Ref VpcId
+      TargetType: instance
+      HealthCheckProtocol: HTTP
+      HealthCheckPath: /
+      HealthCheckIntervalSeconds: 15
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+      Targets:
+        - Id: !Ref Ec2Instance1
+          Port: 80
+        - Id: !Ref Ec2Instance2
+          Port: 80
+      Tags:
+        - Key: Monitoring
+          Value: 'on'
+        - Key: Project
+          Value: !Ref 'AWS::StackName'
+        - Key: Name
+          Value: !Sub '${Environment}-tg-alb-${ServiceName}'
+
+  AlbListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref TestAlb
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref AlbTargetGroup
+
+  # --- NLB ? ALB (TCP 80 ? ALB IP) ---
+  TestNlb:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub '${Environment}-nlb-${ServiceName}'
+      Type: network
+      Scheme: internet-facing
+      Subnets:
+        - !Ref SubnetId
+        - !Ref SubnetId2
+      Tags:
+        - Key: Monitoring
+          Value: 'on'
+        - Key: Project
+          Value: !Ref 'AWS::StackName'
+        - Key: Name
+          Value: !Sub '${Environment}-nlb-${ServiceName}'
+
+  NlbTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub '${Environment}-tg-nlb-${ServiceName}'
+      Protocol: TCP
+      Port: 80
+      VpcId: !Ref VpcId
+      TargetType: alb
+      Targets:
+        - Id: !Ref TestAlb
+          Port: 80
+      HealthCheckProtocol: HTTP
+      HealthCheckPath: /
+      HealthCheckPort: '80'
+      Tags:
+        - Key: Monitoring
+          Value: 'on'
+        - Key: Project
+          Value: !Ref 'AWS::StackName'
+        - Key: Name
+          Value: !Sub '${Environment}-tg-nlb-${ServiceName}'
+
+  NlbListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref TestNlb
+      Port: 80
+      Protocol: TCP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref NlbTargetGroup
+
+Outputs:
+  Ec2Instance1Id:
+    Description: EC2 ???? 1 ID
+    Value: !Ref Ec2Instance1
+
+  Ec2Instance2Id:
+    Description: EC2 ???? 2 ID
+    Value: !Ref Ec2Instance2
+
+  AlbArn:
+    Description: ALB ARN
+    Value: !Ref TestAlb
+
+  AlbDnsName:
+    Description: ALB DNS
+    Value: !GetAtt TestAlb.DNSName
+
+  NlbArn:
+    Description: NLB ARN
+    Value: !Ref TestNlb
+
+  NlbDnsName:
+    Description: NLB DNS (??? ???)
+    Value: !GetAtt TestNlb.DNSName
+
+  AlbTargetGroupArn:
+    Description: ALB Target Group ARN
+    Value: !Ref AlbTargetGroup
+
+  NlbTargetGroupArn:
+    Description: NLB Target Group ARN (ALB? ????)
+    Value: !Ref NlbTargetGroup
