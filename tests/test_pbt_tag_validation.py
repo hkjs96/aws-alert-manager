@@ -145,9 +145,14 @@ class TestTagValidation:
                 f"tags={tags}\n"
                 f"result={result}"
             )
-            assert abs(result[metric_name] - expected_val) < 0.01, (
+            actual_val, actual_comp = result[metric_name]
+            assert abs(actual_val - expected_val) < 0.01, (
                 f"Threshold mismatch for '{metric_name}': "
-                f"expected={expected_val}, actual={result[metric_name]}"
+                f"expected={expected_val}, actual={actual_val}"
+            )
+            assert actual_comp == "GreaterThanThreshold", (
+                f"Comparison mismatch for '{metric_name}': "
+                f"expected='GreaterThanThreshold', actual={actual_comp!r}"
             )
 
     @given(resource_type=resource_types, value=non_numeric_values)

@@ -682,18 +682,22 @@ def _get_hardcoded_metric_keys(resource_type: str, resource_tags: dict | None = 
 def _parse_threshold_tags(
     resource_tags: dict,
     resource_type: str,
-) -> dict[str, float]:
+) -> dict[str, tuple[float, str]]:
     """Threshold_* 태그에서 하드코딩 목록에 없는 동적 메트릭을 추출.
+
+    태그 키 형식:
+    - Threshold_{MetricName}={Value} → GreaterThanThreshold (기본)
+    - Threshold_LT_{MetricName}={Value} → LessThanThreshold (낮을수록 위험)
 
     Args:
         resource_tags: 리소스 태그 딕셔너리
         resource_type: EC2 / RDS / ELB
 
     Returns:
-        {metric_name: threshold_value} 딕셔너리 (동적 메트릭만)
+        {metric_name: (threshold_value, comparison_operator)} 딕셔너리 (동적 메트릭만)
     """
     hardcoded = _get_hardcoded_metric_keys(resource_type, resource_tags)
-    result: dict[str, float] = {}
+    result: dict[str, tuple[float, str]] = {}
 
     for key, value in resource_tags.items():
         if not key.startswith("Threshold_"):
@@ -701,7 +705,20 @@ def _parse_threshold_tags(
         # Threshold_Disk_* 패턴은 기존 Disk 로직에서 처리
         if key.startswith("Threshold_Disk_"):
             continue
-        metric_name = key[len("Threshold_"):]
+        # Threshold_FreeMemoryPct는 퍼센트 기반 메모리 임계치 전용
+        if key == "Threshold_FreeMemoryPct":
+            continue
+
+        raw_metric = key[len("Threshold_"):]
+
+        # LT_ prefix 감지: Threshold_LT_{MetricName} → LessThanThreshold
+        if raw_metric.startswith("LT_"):
+            metric_name = raw_metric[len("LT_"):]
+            comparison = "LessThanThreshold"
+        else:
+            metric_name = raw_metric
+            comparison = "GreaterThanThreshold"
+
         # 메트릭 이름 최소 1자
         if not metric_name:
             continue
@@ -738,7 +755,7 @@ def _parse_threshold_tags(
                     key, value,
                 )
                 continue
-            result[metric_name] = val
+            result[metric_name] = (val, comparison)
         except (ValueError, TypeError):
             logger.warning(
                 "Skipping dynamic tag %s=%s: non-numeric value",
@@ -1117,10 +1134,11 @@ def create_alarms_for_resource(
 
     # 동적 태그 알람 생성 (하드코딩 목록 외 Threshold_* 태그)
     dynamic_metrics = _parse_threshold_tags(resource_tags, resource_type)
-    for metric_name, threshold in dynamic_metrics.items():
+    for metric_name, (threshold, comparison) in dynamic_metrics.items():
         _create_dynamic_alarm(
             resource_id, resource_type, resource_name,
             metric_name, threshold, cw, sns_arn, created,
+            comparison=comparison,
         )
 
     return created
@@ -1187,10 +1205,12 @@ def _create_dynamic_alarm(
     cw,
     sns_arn: str,
     created: list[str],
+    comparison: str = "GreaterThanThreshold",
 ) -> None:
     """동적 태그 메트릭에 대한 알람 생성.
 
     list_metrics API로 네임스페이스/디멘션을 해석하고 알람을 생성한다.
+    comparison: "GreaterThanThreshold" (기본) 또는 "LessThanThreshold" (Threshold_LT_ prefix)
     """
     resolved = _resolve_metric_dimensions(
         resource_id, metric_name, resource_type,
@@ -1200,13 +1220,14 @@ def _create_dynamic_alarm(
 
     namespace, dimensions = resolved
     thr_str = str(int(threshold)) if threshold == int(threshold) else f"{threshold:g}"
+    direction = "<" if comparison == "LessThanThreshold" else ">"
     label = resource_name or resource_id
 
     # 255자 제한 준수 (거버넌스 §6)
     _MAX_ALARM_NAME = 255
     _ELLIPSIS = "..."
     prefix = f"[{resource_type}] "
-    threshold_part = f" >{thr_str} "
+    threshold_part = f" {direction}{thr_str} "
     short_id = _shorten_elb_resource_id(resource_id, resource_type)
     suffix = f"({short_id})"
     fixed_len = len(prefix) + len(threshold_part) + len(suffix)
@@ -1242,15 +1263,15 @@ def _create_dynamic_alarm(
             Period=300,
             EvaluationPeriods=1,
             Threshold=threshold,
-            ComparisonOperator="GreaterThanThreshold",
+            ComparisonOperator=comparison,
             ActionsEnabled=True,
             AlarmActions=[sns_arn] if sns_arn else [],
             OKActions=[sns_arn] if sns_arn else [],
             TreatMissingData="missing",
         )
         logger.info(
-            "Created dynamic alarm: %s (metric=%s, threshold=%.2f)",
-            name, metric_name, threshold,
+            "Created dynamic alarm: %s (metric=%s, threshold=%.2f, comparison=%s)",
+            name, metric_name, threshold, comparison,
         )
         created.append(name)
     except ClientError as e:
@@ -1833,12 +1854,13 @@ def _sync_dynamic_alarms(
     }
 
     # 새 동적 메트릭 → 생성
-    for metric_name, threshold in dynamic_tags.items():
+    for metric_name, (threshold, comparison) in dynamic_tags.items():
         if metric_name in existing_dynamic:
             continue
         _create_dynamic_alarm(
             resource_id, resource_type, resource_name,
             metric_name, threshold, cw, sns_arn, result["created"],
+            comparison=comparison,
         )
 
     # 기존 동적 알람 처리
@@ -1851,13 +1873,14 @@ def _sync_dynamic_alarms(
             continue
         # 임계치 비교
         existing_thr = alarm_info.get("Threshold", 0)
-        tag_thr = dynamic_tags[mk]
+        tag_thr, tag_comparison = dynamic_tags[mk]
         if abs(existing_thr - tag_thr) > 0.001:
             # 임계치 변경 → 삭제 후 재생성
             _delete_alarm_names(cw, [name])
             _create_dynamic_alarm(
                 resource_id, resource_type, resource_name,
                 mk, tag_thr, cw, sns_arn, result["created"],
+                comparison=tag_comparison,
             )
             result["updated"].append(name)
         else:

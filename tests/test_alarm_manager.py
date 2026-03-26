@@ -1218,7 +1218,7 @@ class TestParseThresholdTags:
         tags = {"Threshold_NetworkIn": "1000000", "Threshold_CPU": "90"}
         result = _parse_threshold_tags(tags, "EC2")
         assert "NetworkIn" in result
-        assert result["NetworkIn"] == 1000000.0
+        assert result["NetworkIn"] == (1000000.0, "GreaterThanThreshold")
         # CPU는 하드코딩 목록에 있으므로 제외
         assert "CPU" not in result
 
@@ -1230,7 +1230,7 @@ class TestParseThresholdTags:
         assert "FreeMemoryGB" not in result
         # Non-hardcoded metric should be included
         assert "CustomRDS" in result
-        assert result["CustomRDS"] == 50.0
+        assert result["CustomRDS"] == (50.0, "GreaterThanThreshold")
 
     def test_skips_disk_prefix_tags(self):
         """Threshold_Disk_* 패턴은 기존 Disk 로직에서 처리하므로 제외."""
@@ -1308,7 +1308,7 @@ class TestParseThresholdTags:
         result = _parse_threshold_tags(tags, "EC2")
         assert "CustomMetric" not in result
         assert "NetworkIn" in result
-        assert result["NetworkIn"] == 1000.0
+        assert result["NetworkIn"] == (1000.0, "GreaterThanThreshold")
 
     def test_parse_threshold_tags_excludes_new_hardcoded_keys(self):
         """새 하드코딩 키가 _parse_threshold_tags 결과에서 제외되고,
@@ -1321,7 +1321,7 @@ class TestParseThresholdTags:
         assert "ELB5XX" not in result
         assert "TargetResponseTime" not in result
         assert "CustomALB" in result
-        assert result["CustomALB"] == 42.0
+        assert result["CustomALB"] == (42.0, "GreaterThanThreshold")
 
         # NLB: TCPClientReset, TCPTargetReset 제외, CustomNLB 포함
         tags = {"Threshold_TCPClientReset": "200", "Threshold_TCPTargetReset": "300", "Threshold_CustomNLB": "55"}
@@ -1329,14 +1329,14 @@ class TestParseThresholdTags:
         assert "TCPClientReset" not in result
         assert "TCPTargetReset" not in result
         assert "CustomNLB" in result
-        assert result["CustomNLB"] == 55.0
+        assert result["CustomNLB"] == (55.0, "GreaterThanThreshold")
 
         # EC2: StatusCheckFailed 제외, CustomEC2 포함
         tags = {"Threshold_StatusCheckFailed": "1", "Threshold_CustomEC2": "77"}
         result = _parse_threshold_tags(tags, "EC2")
         assert "StatusCheckFailed" not in result
         assert "CustomEC2" in result
-        assert result["CustomEC2"] == 77.0
+        assert result["CustomEC2"] == (77.0, "GreaterThanThreshold")
 
         # RDS: ReadLatency, WriteLatency 제외, CustomRDS 포함
         tags = {"Threshold_ReadLatency": "0.05", "Threshold_WriteLatency": "0.05", "Threshold_CustomRDS": "33"}
@@ -1344,7 +1344,7 @@ class TestParseThresholdTags:
         assert "ReadLatency" not in result
         assert "WriteLatency" not in result
         assert "CustomRDS" in result
-        assert result["CustomRDS"] == 33.0
+        assert result["CustomRDS"] == (33.0, "GreaterThanThreshold")
 
         # TG: RequestCountPerTarget, TGResponseTime 제외, CustomTG 포함
         tags = {"Threshold_RequestCountPerTarget": "500", "Threshold_TGResponseTime": "3", "Threshold_CustomTG": "99"}
@@ -1352,7 +1352,16 @@ class TestParseThresholdTags:
         assert "RequestCountPerTarget" not in result
         assert "TGResponseTime" not in result
         assert "CustomTG" in result
-        assert result["CustomTG"] == 99.0
+        assert result["CustomTG"] == (99.0, "GreaterThanThreshold")
+
+    def test_lt_prefix_returns_less_than_threshold(self):
+        """Threshold_LT_{MetricName} → LessThanThreshold 비교 연산자 반환.
+        Validates: LT_ prefix for metrics where low values are dangerous.
+        """
+        tags = {"Threshold_LT_BufferCacheHitRatio": "95"}
+        result = _parse_threshold_tags(tags, "RDS")
+        assert "BufferCacheHitRatio" in result
+        assert result["BufferCacheHitRatio"] == (95.0, "LessThanThreshold")
 
 
 # ──────────────────────────────────────────────
