@@ -24,6 +24,7 @@ _BYTES_PER_GB = 1024 ** 3
 # ──────────────────────────────────────────────
 
 _INSTANCE_CLASS_MEMORY_MAP: dict[str, int] = {
+    # T3/T4g (burstable)
     "db.t3.micro": 1 * _BYTES_PER_GB,
     "db.t3.small": 2 * _BYTES_PER_GB,
     "db.t3.medium": 4 * _BYTES_PER_GB,
@@ -32,6 +33,20 @@ _INSTANCE_CLASS_MEMORY_MAP: dict[str, int] = {
     "db.t4g.small": 2 * _BYTES_PER_GB,
     "db.t4g.medium": 4 * _BYTES_PER_GB,
     "db.t4g.large": 8 * _BYTES_PER_GB,
+    # M5/M6g/M7g (general purpose, RDS)
+    "db.m5.large": 8 * _BYTES_PER_GB,
+    "db.m5.xlarge": 16 * _BYTES_PER_GB,
+    "db.m5.2xlarge": 32 * _BYTES_PER_GB,
+    "db.m5.4xlarge": 64 * _BYTES_PER_GB,
+    "db.m6g.large": 8 * _BYTES_PER_GB,
+    "db.m6g.xlarge": 16 * _BYTES_PER_GB,
+    "db.m6g.2xlarge": 32 * _BYTES_PER_GB,
+    "db.m6g.4xlarge": 64 * _BYTES_PER_GB,
+    "db.m7g.large": 8 * _BYTES_PER_GB,
+    "db.m7g.xlarge": 16 * _BYTES_PER_GB,
+    "db.m7g.2xlarge": 32 * _BYTES_PER_GB,
+    "db.m7g.4xlarge": 64 * _BYTES_PER_GB,
+    # R6g/R7g (memory optimized, Aurora/RDS)
     "db.r6g.large": 16 * _BYTES_PER_GB,
     "db.r6g.xlarge": 32 * _BYTES_PER_GB,
     "db.r6g.2xlarge": 64 * _BYTES_PER_GB,
@@ -138,6 +153,23 @@ def _enrich_aurora_metadata(
             )
 
 
+def _enrich_rds_memory(db_instance: dict, tags: dict) -> None:
+    """일반 RDS 인스턴스에 메모리 용량 태그 추가 (퍼센트 기반 FreeMemory 임계치용)."""
+    instance_class = db_instance.get("DBInstanceClass", "")
+    if not instance_class:
+        return
+    tags["_db_instance_class"] = instance_class
+    memory = _INSTANCE_CLASS_MEMORY_MAP.get(instance_class)
+    if memory is not None:
+        tags["_total_memory_bytes"] = str(memory)
+    else:
+        logger.warning(
+            "Unknown instance class %s for %s, skipping _total_memory_bytes",
+            instance_class,
+            db_instance.get("DBInstanceIdentifier", "unknown"),
+        )
+
+
 def collect_monitored_resources() -> list[ResourceInfo]:
     """
     Monitoring=on 태그가 있는 RDS 인스턴스 목록 반환.
@@ -174,6 +206,9 @@ def collect_monitored_resources() -> list[ResourceInfo]:
 
             if resource_type == "AuroraRDS":
                 _enrich_aurora_metadata(db, tags, cluster_cache)
+            else:
+                # 일반 RDS: 인스턴스 클래스 메모리 lookup (퍼센트 기반 FreeMemory 임계치용)
+                _enrich_rds_memory(db, tags)
 
             region = boto3.session.Session().region_name or "us-east-1"
             resources.append(
