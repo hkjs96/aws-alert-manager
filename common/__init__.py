@@ -35,6 +35,10 @@ HARDCODED_DEFAULTS: dict[str, float] = {
     "TGResponseTime": 5.0,
     "FreeLocalStorageGB": 10.0,
     "ReplicaLag": 2000000.0,
+    "ReaderReplicaLag": 2000000.0,
+    "ACUUtilization": 80.0,
+    "ServerlessDatabaseCapacity": 128.0,
+    "FreeMemoryPct": 20.0,
 }
 
 # 지원하는 AWS 리소스 유형 - Requirements 6.1

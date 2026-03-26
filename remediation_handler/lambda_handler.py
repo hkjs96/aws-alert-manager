@@ -59,6 +59,8 @@ class ParsedEvent:
 
     request_params: dict        # CloudTrail requestParameters
 
+    _is_rds_fallback: bool = False  # RDS/Aurora 판별 실패 시 True (KI-008)
+
 
 
 # ──────────────────────────────────────────────
@@ -304,18 +306,27 @@ def _resolve_elb_type(resource_id: str) -> str:
     return "ELB"
 
 
-def _resolve_rds_aurora_type(db_instance_id: str) -> str:
-    """describe_db_instances로 Engine 확인 후 AuroraRDS/RDS 판별. API 오류 시 'RDS' 폴백."""
+def _resolve_rds_aurora_type(db_instance_id: str) -> tuple[str, bool]:
+    """describe_db_instances로 Engine 확인 후 AuroraRDS/RDS 판별.
+
+    Returns:
+        (resource_type, is_fallback) 튜플.
+        성공 시 ("AuroraRDS", False) 또는 ("RDS", False).
+        API 오류 시 ("RDS", True) 폴백.
+    """
     try:
         rds = boto3.client("rds")
         resp = rds.describe_db_instances(DBInstanceIdentifier=db_instance_id)
         engine = resp["DBInstances"][0].get("Engine", "")
         if "aurora" in engine.lower():
-            return "AuroraRDS"
-        return "RDS"
+            return ("AuroraRDS", False)
+        return ("RDS", False)
     except ClientError as e:
-        logger.warning("Failed to resolve RDS/Aurora type for %s: %s", db_instance_id, e)
-        return "RDS"
+        logger.warning(
+            "Failed to resolve RDS/Aurora type for %s: %s (fallback to RDS)",
+            db_instance_id, e,
+        )
+        return ("RDS", True)
 
 
 def parse_cloudtrail_event(event: dict) -> list[ParsedEvent]:
@@ -361,12 +372,13 @@ def parse_cloudtrail_event(event: dict) -> list[ParsedEvent]:
     results: list[ParsedEvent] = []
     for resource_id in resource_ids:
         rt = resource_type
+        is_rds_fallback = False
         # ELB ARN 기반 ALB/NLB 타입 세분화
         if rt == "ELB":
             rt = _resolve_elb_type(resource_id)
         # RDS → AuroraRDS 세분화 (describe_db_instances Engine 확인)
         elif rt == "RDS":
-            rt = _resolve_rds_aurora_type(resource_id)
+            rt, is_rds_fallback = _resolve_rds_aurora_type(resource_id)
 
         change_summary = (
             f"{event_name} on {rt} {resource_id}"
@@ -379,6 +391,7 @@ def parse_cloudtrail_event(event: dict) -> list[ParsedEvent]:
             event_category=event_category,
             change_summary=change_summary,
             request_params=request_params,
+            _is_rds_fallback=is_rds_fallback,
         ))
 
     return results
@@ -589,11 +602,24 @@ def _handle_delete(parsed: ParsedEvent) -> None:
     태그 확인 없이 무조건 알람 삭제를 시도한다.
     알람이 없으면 delete_alarms는 조용히 성공한다.
 
-    Requirements: 8.1, 8.2, 8.3
+    KI-008: _resolve_rds_aurora_type() 실패 시 (is_rds_fallback=True)
+    resource_type="" 으로 전체 prefix 검색하여 RDS/AuroraRDS 양쪽 알람 삭제.
+
+    Requirements: 8.1, 8.2, 8.3, 13.1, 13.2, 13.3
     """
 
+    # KI-008: 폴백 시 빈 resource_type으로 전체 prefix 검색
+    delete_type = parsed.resource_type
+    if parsed._is_rds_fallback:
+        logger.warning(
+            "RDS/Aurora type resolution failed for %s: "
+            "searching all RDS-family prefixes for alarm cleanup",
+            parsed.resource_id,
+        )
+        delete_type = ""
+
     # 태그 조회 없이 바로 알람 삭제 (삭제된 리소스는 태그 조회 불가)
-    deleted = delete_alarms_for_resource(parsed.resource_id, parsed.resource_type)
+    deleted = delete_alarms_for_resource(parsed.resource_id, delete_type)
     if deleted:
         logger.info("Deleted alarms for terminated resource %s: %s", parsed.resource_id, deleted)
     else:

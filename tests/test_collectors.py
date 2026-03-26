@@ -723,7 +723,7 @@ class TestAuroraMetrics:
         return mock_cw
 
     def test_all_five_metrics_returned(self):
-        """5개 메트릭 모두 반환 — Req 4.1"""
+        """Provisioned Writer (w/ readers) 5개 메트릭 모두 반환 — Req 4.1"""
         from common.collectors.rds import get_aurora_metrics
 
         two_gb = 2.0 * (1024 ** 3)
@@ -735,9 +735,14 @@ class TestAuroraMetrics:
             "FreeLocalStorage": five_gb,
             "AuroraReplicaLagMaximum": 1500000.0,
         })
+        tags = {
+            "_is_serverless_v2": "false",
+            "_is_cluster_writer": "true",
+            "_has_readers": "true",
+        }
 
         with patch("common.collectors.base._get_cw_client", return_value=mock_cw):
-            result = get_aurora_metrics("aurora-db-1")
+            result = get_aurora_metrics("aurora-db-1", resource_tags=tags)
 
         assert result is not None
         assert result["CPU"] == pytest.approx(75.0)
@@ -783,9 +788,14 @@ class TestAuroraMetrics:
         mock_cw = self._make_cw_mock_with_data({
             "AuroraReplicaLagMaximum": 2500000.0,
         })
+        tags = {
+            "_is_serverless_v2": "false",
+            "_is_cluster_writer": "true",
+            "_has_readers": "true",
+        }
 
         with patch("common.collectors.base._get_cw_client", return_value=mock_cw):
-            result = get_aurora_metrics("aurora-db-1")
+            result = get_aurora_metrics("aurora-db-1", resource_tags=tags)
 
         assert result is not None
         assert result["ReplicaLag"] == pytest.approx(2500000.0)
@@ -819,3 +829,452 @@ class TestAuroraMetrics:
             result = get_aurora_metrics("aurora-db-1")
 
         assert result is None
+
+
+# ──────────────────────────────────────────────
+# get_aurora_metrics() 조건부 분기 단위 테스트
+# Validates: Requirements 9.1, 9.2, 9.3, 10.1, 10.2, 10.3
+# ──────────────────────────────────────────────
+
+class TestAuroraMetricsConditionalBranching:
+    """get_aurora_metrics() 변형별 메트릭 수집 검증."""
+
+    def _make_cw_mock_all_data(self):
+        """CloudWatch mock: 모든 Aurora 메트릭에 데이터 반환."""
+        mock_cw = MagicMock()
+        two_gb = 2.0 * (1024 ** 3)
+        five_gb = 5.0 * (1024 ** 3)
+
+        data = {
+            "CPUUtilization": 75.0,
+            "FreeableMemory": two_gb,
+            "DatabaseConnections": 50.0,
+            "FreeLocalStorage": five_gb,
+            "AuroraReplicaLagMaximum": 1500000.0,
+            "AuroraReplicaLag": 800000.0,
+            "ACUUtilization": 65.0,
+            "ServerlessDatabaseCapacity": 32.0,
+        }
+
+        def get_metric_stats(**kwargs):
+            metric_name = kwargs.get("MetricName", "")
+            if metric_name in data:
+                return {
+                    "Datapoints": [{
+                        "Timestamp": datetime(2024, 1, 1, tzinfo=timezone.utc),
+                        "Average": data[metric_name],
+                        "Maximum": data[metric_name],
+                    }]
+                }
+            return {"Datapoints": []}
+
+        mock_cw.get_metric_statistics.side_effect = get_metric_stats
+        return mock_cw
+
+    def test_serverless_v2_collects_acu_skips_free_local_storage(self):
+        """Serverless v2: ACUUtilization, ServerlessDatabaseCapacity 수집,
+        FreeLocalStorageGB 미수집 — Req 10.1, 10.2, 10.3"""
+        from common.collectors.rds import get_aurora_metrics
+
+        tags = {
+            "_is_serverless_v2": "true",
+            "_is_cluster_writer": "true",
+            "_has_readers": "false",
+        }
+        mock_cw = self._make_cw_mock_all_data()
+
+        with patch("common.collectors.base._get_cw_client", return_value=mock_cw):
+            result = get_aurora_metrics("aurora-sv2-1", resource_tags=tags)
+
+        assert result is not None
+        # Always collected
+        assert "CPU" in result
+        assert "FreeMemoryGB" in result
+        assert "Connections" in result
+        # Serverless v2 specific
+        assert "ACUUtilization" in result
+        assert result["ACUUtilization"] == pytest.approx(65.0)
+        assert "ServerlessDatabaseCapacity" in result
+        assert result["ServerlessDatabaseCapacity"] == pytest.approx(32.0)
+        # Must NOT collect FreeLocalStorageGB
+        assert "FreeLocalStorageGB" not in result
+
+    def test_provisioned_collects_free_local_storage_skips_acu(self):
+        """Provisioned: FreeLocalStorageGB 수집,
+        ACUUtilization/ServerlessDatabaseCapacity 미수집 — Req 10.3"""
+        from common.collectors.rds import get_aurora_metrics
+
+        tags = {
+            "_is_serverless_v2": "false",
+            "_is_cluster_writer": "true",
+            "_has_readers": "true",
+        }
+        mock_cw = self._make_cw_mock_all_data()
+
+        with patch("common.collectors.base._get_cw_client", return_value=mock_cw):
+            result = get_aurora_metrics("aurora-prov-1", resource_tags=tags)
+
+        assert result is not None
+        # Always collected
+        assert "CPU" in result
+        assert "FreeMemoryGB" in result
+        assert "Connections" in result
+        # Provisioned specific
+        assert "FreeLocalStorageGB" in result
+        # Must NOT collect Serverless v2 metrics
+        assert "ACUUtilization" not in result
+        assert "ServerlessDatabaseCapacity" not in result
+
+    def test_writer_with_readers_collects_replica_lag(self):
+        """Writer (w/ readers): ReplicaLag (AuroraReplicaLagMaximum) 수집
+        — Req 9.2"""
+        from common.collectors.rds import get_aurora_metrics
+
+        tags = {
+            "_is_serverless_v2": "false",
+            "_is_cluster_writer": "true",
+            "_has_readers": "true",
+        }
+        mock_cw = self._make_cw_mock_all_data()
+
+        with patch("common.collectors.base._get_cw_client", return_value=mock_cw):
+            result = get_aurora_metrics("aurora-writer-1", resource_tags=tags)
+
+        assert result is not None
+        assert "ReplicaLag" in result
+        assert result["ReplicaLag"] == pytest.approx(1500000.0)
+        # Should NOT have ReaderReplicaLag
+        assert "ReaderReplicaLag" not in result
+
+    def test_reader_collects_reader_replica_lag(self):
+        """Reader: ReaderReplicaLag (AuroraReplicaLag) 수집 — Req 9.1"""
+        from common.collectors.rds import get_aurora_metrics
+
+        tags = {
+            "_is_serverless_v2": "false",
+            "_is_cluster_writer": "false",
+            "_has_readers": "true",
+        }
+        mock_cw = self._make_cw_mock_all_data()
+
+        with patch("common.collectors.base._get_cw_client", return_value=mock_cw):
+            result = get_aurora_metrics("aurora-reader-1", resource_tags=tags)
+
+        assert result is not None
+        assert "ReaderReplicaLag" in result
+        assert result["ReaderReplicaLag"] == pytest.approx(800000.0)
+        # Should NOT have writer ReplicaLag
+        assert "ReplicaLag" not in result
+
+    def test_writer_no_readers_skips_replica_lag(self):
+        """Writer (no readers): replica lag 메트릭 미수집 — Req 9.3"""
+        from common.collectors.rds import get_aurora_metrics
+
+        tags = {
+            "_is_serverless_v2": "false",
+            "_is_cluster_writer": "true",
+            "_has_readers": "false",
+        }
+        mock_cw = self._make_cw_mock_all_data()
+
+        with patch("common.collectors.base._get_cw_client", return_value=mock_cw):
+            result = get_aurora_metrics("aurora-solo-writer", resource_tags=tags)
+
+        assert result is not None
+        # No replica lag metrics at all
+        assert "ReplicaLag" not in result
+        assert "ReaderReplicaLag" not in result
+
+
+# ──────────────────────────────────────────────
+# Aurora Metadata Enrichment 단위 테스트
+# Validates: Requirements 1.1, 1.2, 1.3, 1.4, 1.5, 4.1, 4.2, 4.3, 6.1, 6.2, 6.3, 6.4, 8.1, 8.2, 8.3
+# ──────────────────────────────────────────────
+
+def _make_aurora_instance(
+    db_id: str,
+    db_arn: str,
+    instance_class: str = "db.r6g.large",
+    engine: str = "aurora-mysql",
+    cluster_id: str = "my-aurora-cluster",
+    status: str = "available",
+) -> dict:
+    """Aurora DB 인스턴스 응답 생성 (DBInstanceClass, DBClusterIdentifier 포함)."""
+    return {
+        "DBInstanceIdentifier": db_id,
+        "DBInstanceArn": db_arn,
+        "DBInstanceStatus": status,
+        "Engine": engine,
+        "DBInstanceClass": instance_class,
+        "DBClusterIdentifier": cluster_id,
+    }
+
+
+def _make_cluster_response(
+    cluster_id: str,
+    members: list[dict],
+    serverless_v2_config: dict | None = None,
+) -> dict:
+    """describe_db_clusters 응답 생성."""
+    cluster = {
+        "DBClusterIdentifier": cluster_id,
+        "DBClusterMembers": members,
+    }
+    if serverless_v2_config is not None:
+        cluster["ServerlessV2ScalingConfiguration"] = serverless_v2_config
+    return {"DBClusters": [cluster]}
+
+
+def _make_cluster_member(db_id: str, is_writer: bool = False) -> dict:
+    """DBClusterMembers 항목 생성."""
+    return {
+        "DBInstanceIdentifier": db_id,
+        "IsClusterWriter": is_writer,
+    }
+
+
+class TestAuroraMetadataEnrichment:
+    """_enrich_aurora_metadata() 및 _INSTANCE_CLASS_MEMORY_MAP 검증."""
+
+    def _mock_rds_with_cluster(self, instances, tag_map, cluster_response):
+        """RDS 클라이언트 mock: paginator + list_tags + describe_db_clusters."""
+        mock_rds = MagicMock()
+        mock_paginator = MagicMock()
+        mock_rds.get_paginator.return_value = mock_paginator
+        mock_paginator.paginate.return_value = [{"DBInstances": instances}]
+
+        def mock_list_tags(ResourceName):
+            tags = tag_map.get(ResourceName, {})
+            return {"TagList": [{"Key": k, "Value": v} for k, v in tags.items()]}
+
+        mock_rds.list_tags_for_resource.side_effect = mock_list_tags
+        mock_rds.describe_db_clusters.return_value = cluster_response
+        return mock_rds
+
+    def test_provisioned_writer_with_readers(self):
+        """Provisioned Writer (w/ readers): 모든 내부 태그 검증 — Req 1.1, 1.2, 1.3, 4.2, 4.3, 6.1"""
+        from common.collectors.rds import collect_monitored_resources
+
+        arn = "arn:aws:rds:us-east-1:123:db:aurora-writer-1"
+        instances = [_make_aurora_instance(
+            "aurora-writer-1", arn, instance_class="db.r6g.large",
+        )]
+        cluster_resp = _make_cluster_response(
+            "my-aurora-cluster",
+            members=[
+                _make_cluster_member("aurora-writer-1", is_writer=True),
+                _make_cluster_member("aurora-reader-1", is_writer=False),
+            ],
+        )
+        mock_rds = self._mock_rds_with_cluster(
+            instances, {arn: {"Monitoring": "on"}}, cluster_resp,
+        )
+
+        with patch("common.collectors.rds._get_rds_client", return_value=mock_rds), \
+             patch("common.collectors.rds.boto3.session.Session") as ms:
+            ms.return_value.region_name = "us-east-1"
+            result = collect_monitored_resources()
+
+        assert len(result) == 1
+        tags = result[0]["tags"]
+        assert tags["_db_instance_class"] == "db.r6g.large"
+        assert tags["_is_serverless_v2"] == "false"
+        assert tags["_is_cluster_writer"] == "true"
+        assert tags["_has_readers"] == "true"
+        assert tags["_total_memory_bytes"] == str(16 * 1073741824)
+
+    def test_provisioned_reader(self):
+        """Provisioned Reader: _is_cluster_writer='false' — Req 1.2, 4.2"""
+        from common.collectors.rds import collect_monitored_resources
+
+        arn = "arn:aws:rds:us-east-1:123:db:aurora-reader-1"
+        instances = [_make_aurora_instance(
+            "aurora-reader-1", arn, instance_class="db.r6g.large",
+        )]
+        cluster_resp = _make_cluster_response(
+            "my-aurora-cluster",
+            members=[
+                _make_cluster_member("aurora-writer-1", is_writer=True),
+                _make_cluster_member("aurora-reader-1", is_writer=False),
+            ],
+        )
+        mock_rds = self._mock_rds_with_cluster(
+            instances, {arn: {"Monitoring": "on"}}, cluster_resp,
+        )
+
+        with patch("common.collectors.rds._get_rds_client", return_value=mock_rds), \
+             patch("common.collectors.rds.boto3.session.Session") as ms:
+            ms.return_value.region_name = "us-east-1"
+            result = collect_monitored_resources()
+
+        assert len(result) == 1
+        tags = result[0]["tags"]
+        assert tags["_is_cluster_writer"] == "false"
+        assert tags["_has_readers"] == "true"
+
+    def test_writer_only_cluster(self):
+        """Writer-only 클러스터: _has_readers='false' — Req 4.2, 4.3"""
+        from common.collectors.rds import collect_monitored_resources
+
+        arn = "arn:aws:rds:us-east-1:123:db:aurora-solo-writer"
+        instances = [_make_aurora_instance(
+            "aurora-solo-writer", arn, instance_class="db.r6g.large",
+        )]
+        cluster_resp = _make_cluster_response(
+            "my-aurora-cluster",
+            members=[
+                _make_cluster_member("aurora-solo-writer", is_writer=True),
+            ],
+        )
+        mock_rds = self._mock_rds_with_cluster(
+            instances, {arn: {"Monitoring": "on"}}, cluster_resp,
+        )
+
+        with patch("common.collectors.rds._get_rds_client", return_value=mock_rds), \
+             patch("common.collectors.rds.boto3.session.Session") as ms:
+            ms.return_value.region_name = "us-east-1"
+            result = collect_monitored_resources()
+
+        assert len(result) == 1
+        tags = result[0]["tags"]
+        assert tags["_is_cluster_writer"] == "true"
+        assert tags["_has_readers"] == "false"
+
+    def test_serverless_v2_instance(self):
+        """Serverless v2: _is_serverless_v2='true', ACU 태그, 메모리 계산 — Req 1.3, 6.2, 8.1, 8.2"""
+        from common.collectors.rds import collect_monitored_resources
+
+        arn = "arn:aws:rds:us-east-1:123:db:aurora-sv2-1"
+        instances = [_make_aurora_instance(
+            "aurora-sv2-1", arn, instance_class="db.serverless",
+        )]
+        cluster_resp = _make_cluster_response(
+            "my-aurora-cluster",
+            members=[
+                _make_cluster_member("aurora-sv2-1", is_writer=True),
+            ],
+            serverless_v2_config={"MaxCapacity": 64.0, "MinCapacity": 0.5},
+        )
+        mock_rds = self._mock_rds_with_cluster(
+            instances, {arn: {"Monitoring": "on"}}, cluster_resp,
+        )
+
+        with patch("common.collectors.rds._get_rds_client", return_value=mock_rds), \
+             patch("common.collectors.rds.boto3.session.Session") as ms:
+            ms.return_value.region_name = "us-east-1"
+            result = collect_monitored_resources()
+
+        assert len(result) == 1
+        tags = result[0]["tags"]
+        assert tags["_is_serverless_v2"] == "true"
+        assert tags["_max_acu"] == "64.0"
+        assert tags["_min_acu"] == "0.5"
+        expected_memory = int(64.0 * 2 * 1073741824)
+        assert tags["_total_memory_bytes"] == str(expected_memory)
+
+    def test_regular_rds_no_aurora_tags(self):
+        """일반 RDS 인스턴스: Aurora 전용 내부 태그 미포함 — Req 1.5"""
+        from common.collectors.rds import collect_monitored_resources
+
+        arn = "arn:aws:rds:us-east-1:123:db:mysql-db-1"
+        instances = [_make_rds_instance("mysql-db-1", arn, engine="mysql")]
+        # Regular RDS — no cluster response needed
+        mock_rds = MagicMock()
+        mock_paginator = MagicMock()
+        mock_rds.get_paginator.return_value = mock_paginator
+        mock_paginator.paginate.return_value = [{"DBInstances": instances}]
+
+        def mock_list_tags(ResourceName):
+            return {"TagList": [{"Key": "Monitoring", "Value": "on"}]}
+
+        mock_rds.list_tags_for_resource.side_effect = mock_list_tags
+
+        with patch("common.collectors.rds._get_rds_client", return_value=mock_rds), \
+             patch("common.collectors.rds.boto3.session.Session") as ms:
+            ms.return_value.region_name = "us-east-1"
+            result = collect_monitored_resources()
+
+        assert len(result) == 1
+        tags = result[0]["tags"]
+        aurora_keys = {
+            "_db_instance_class", "_is_serverless_v2",
+            "_is_cluster_writer", "_has_readers",
+            "_max_acu", "_min_acu", "_total_memory_bytes",
+        }
+        for key in aurora_keys:
+            assert key not in tags, f"{key} should not be in regular RDS tags"
+
+    def test_instance_class_memory_map_entries(self):
+        """_INSTANCE_CLASS_MEMORY_MAP 주요 엔트리 검증 — Req 6.1, 6.3"""
+        from common.collectors.rds import _INSTANCE_CLASS_MEMORY_MAP
+
+        gib = 1073741824
+        assert _INSTANCE_CLASS_MEMORY_MAP["db.r6g.large"] == 16 * gib
+        assert _INSTANCE_CLASS_MEMORY_MAP["db.r6g.xlarge"] == 32 * gib
+        assert _INSTANCE_CLASS_MEMORY_MAP["db.r6g.16xlarge"] == 512 * gib
+        assert _INSTANCE_CLASS_MEMORY_MAP["db.r7g.large"] == 16 * gib
+        assert _INSTANCE_CLASS_MEMORY_MAP["db.t3.micro"] == 1 * gib
+        assert _INSTANCE_CLASS_MEMORY_MAP["db.t4g.large"] == 8 * gib
+
+    def test_describe_db_clusters_failure_graceful_degradation(self):
+        """describe_db_clusters 실패 시 graceful degradation — Req 8.3"""
+        from common.collectors.rds import collect_monitored_resources
+        from botocore.exceptions import ClientError
+
+        arn = "arn:aws:rds:us-east-1:123:db:aurora-fail-1"
+        instances = [_make_aurora_instance("aurora-fail-1", arn)]
+
+        mock_rds = MagicMock()
+        mock_paginator = MagicMock()
+        mock_rds.get_paginator.return_value = mock_paginator
+        mock_paginator.paginate.return_value = [{"DBInstances": instances}]
+
+        def mock_list_tags(ResourceName):
+            return {"TagList": [{"Key": "Monitoring", "Value": "on"}]}
+
+        mock_rds.list_tags_for_resource.side_effect = mock_list_tags
+        mock_rds.describe_db_clusters.side_effect = ClientError(
+            {"Error": {"Code": "DBClusterNotFoundFault", "Message": "not found"}},
+            "describe_db_clusters",
+        )
+
+        with patch("common.collectors.rds._get_rds_client", return_value=mock_rds), \
+             patch("common.collectors.rds.boto3.session.Session") as ms:
+            ms.return_value.region_name = "us-east-1"
+            result = collect_monitored_resources()
+
+        # Should still collect the instance, just without cluster-derived tags
+        assert len(result) == 1
+        tags = result[0]["tags"]
+        assert tags["_db_instance_class"] == "db.r6g.large"
+        assert tags["_is_serverless_v2"] == "false"
+        # Cluster-derived tags should be absent
+        assert "_is_cluster_writer" not in tags
+        assert "_has_readers" not in tags
+
+    def test_unknown_instance_class_no_memory_with_warning(self):
+        """알 수 없는 인스턴스 클래스: _total_memory_bytes 미포함 + warning — Req 6.4"""
+        from common.collectors.rds import collect_monitored_resources
+
+        arn = "arn:aws:rds:us-east-1:123:db:aurora-unknown-1"
+        instances = [_make_aurora_instance(
+            "aurora-unknown-1", arn, instance_class="db.x99g.mega",
+        )]
+        cluster_resp = _make_cluster_response(
+            "my-aurora-cluster",
+            members=[_make_cluster_member("aurora-unknown-1", is_writer=True)],
+        )
+        mock_rds = self._mock_rds_with_cluster(
+            instances, {arn: {"Monitoring": "on"}}, cluster_resp,
+        )
+
+        with patch("common.collectors.rds._get_rds_client", return_value=mock_rds), \
+             patch("common.collectors.rds.boto3.session.Session") as ms, \
+             patch("common.collectors.rds.logger") as mock_logger:
+            ms.return_value.region_name = "us-east-1"
+            result = collect_monitored_resources()
+
+        assert len(result) == 1
+        tags = result[0]["tags"]
+        assert "_total_memory_bytes" not in tags
+        mock_logger.warning.assert_called()

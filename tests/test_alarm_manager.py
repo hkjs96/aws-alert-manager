@@ -23,6 +23,7 @@ from common.alarm_manager import (
     _parse_alarm_metadata,
     _parse_threshold_tags,
     _pretty_alarm_name,
+    _resolve_free_memory_threshold,
     _resolve_metric_dimensions,
     _resolve_tg_namespace,
     _select_best_dimensions,
@@ -2313,10 +2314,15 @@ class TestSyncHardcodedOffDeletion:
 # ──────────────────────────────────────────────
 
 def test_aurora_rds_alarm_defs():
-    """_get_alarm_defs('AuroraRDS') → 5개 정의 반환 검증.
+    """_get_alarm_defs('AuroraRDS') → Provisioned Writer (w/ readers) 5개 정의 반환 검증.
     Validates: Requirements 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7
     """
-    defs = _get_alarm_defs("AuroraRDS")
+    tags = {
+        "_is_serverless_v2": "false",
+        "_is_cluster_writer": "true",
+        "_has_readers": "true",
+    }
+    defs = _get_alarm_defs("AuroraRDS", tags)
     assert len(defs) == 5
     metrics = {d["metric"] for d in defs}
     assert metrics == {"CPU", "FreeMemoryGB", "Connections", "FreeLocalStorageGB", "ReplicaLag"}
@@ -2375,6 +2381,7 @@ def test_aurora_rds_constant_mappings():
     assert "AuroraRDS" in _HARDCODED_METRIC_KEYS
     assert _HARDCODED_METRIC_KEYS["AuroraRDS"] == {
         "CPU", "FreeMemoryGB", "Connections", "FreeLocalStorageGB", "ReplicaLag",
+        "ReaderReplicaLag", "ACUUtilization", "ServerlessDatabaseCapacity",
     }
 
     # _NAMESPACE_MAP
@@ -2516,7 +2523,13 @@ class TestAuroraRDSIntegration:
         Validates: Requirements 6.2, 10.1, 10.2, 10.3, 10.4, 10.5
         """
         mock_cw = self._make_mock_cw()
-        tags = {"Monitoring": "on", "Name": "my-aurora"}
+        tags = {
+            "Monitoring": "on",
+            "Name": "my-aurora",
+            "_is_serverless_v2": "false",
+            "_is_cluster_writer": "true",
+            "_has_readers": "true",
+        }
         db_id = "aurora-db-001"
 
         with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
@@ -2587,7 +2600,12 @@ class TestAuroraRDSIntegration:
 
         with patch("common.alarm_manager._get_cw_client", return_value=mock_cw), \
              patch("common.alarm_manager._find_alarms_for_resource", return_value=existing):
-            result = sync_alarms_for_resource(db_id, "AuroraRDS", {"Name": "my-aurora"})
+            result = sync_alarms_for_resource(db_id, "AuroraRDS", {
+                "Name": "my-aurora",
+                "_is_serverless_v2": "false",
+                "_is_cluster_writer": "true",
+                "_has_readers": "true",
+            })
 
         assert len(result["ok"]) == 5
         assert result["created"] == []
@@ -2652,6 +2670,9 @@ class TestAuroraRDSIntegration:
             "Threshold_Connections": "200",
             "Threshold_FreeLocalStorageGB": "20",
             "Threshold_ReplicaLag": "3000000",
+            "_is_serverless_v2": "false",
+            "_is_cluster_writer": "true",
+            "_has_readers": "true",
         }
 
         with patch("common.alarm_manager._get_cw_client", return_value=mock_cw), \
@@ -2717,7 +2738,13 @@ class TestAuroraRDSIntegration:
         """
         mock_cw = self._make_mock_cw()
         db_id = "aurora-db-006"
-        tags = {"Monitoring": "on", "Name": "my-aurora"}
+        tags = {
+            "Monitoring": "on",
+            "Name": "my-aurora",
+            "_is_cluster_writer": "true",
+            "_has_readers": "true",
+            "_is_serverless_v2": "false",
+        }
 
         with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
             create_alarms_for_resource(db_id, "AuroraRDS", tags)
@@ -2755,3 +2782,296 @@ class TestAuroraRDSIntegration:
         # 5개 하드코딩 + 1개 동적 = 6개
         assert len(created) == 6
         assert any("CommitLatency" in n for n in created)
+
+
+# ──────────────────────────────────────────────
+# Task 4.1: _get_aurora_alarm_defs() 6개 변형 검증
+# ──────────────────────────────────────────────
+
+class TestAuroraAlarmVariantRouting:
+    """Aurora 인스턴스 변형별 알람 라우팅 검증.
+    Validates: Requirements 2.1, 2.2, 3.1, 3.2, 4.4, 7.1, 7.2, 7.3, 11.1, 11.2
+    """
+
+    def test_provisioned_writer_with_readers(self):
+        """Provisioned Writer (w/ readers): CPU, FreeMemoryGB, Connections, FreeLocalStorageGB, ReplicaLag."""
+        tags = {
+            "_is_serverless_v2": "false",
+            "_is_cluster_writer": "true",
+            "_has_readers": "true",
+        }
+        defs = _get_alarm_defs("AuroraRDS", tags)
+        metrics = {d["metric"] for d in defs}
+        assert metrics == {"CPU", "FreeMemoryGB", "Connections", "FreeLocalStorageGB", "ReplicaLag"}
+
+    def test_provisioned_writer_no_readers(self):
+        """Provisioned Writer (no readers): CPU, FreeMemoryGB, Connections, FreeLocalStorageGB."""
+        tags = {
+            "_is_serverless_v2": "false",
+            "_is_cluster_writer": "true",
+            "_has_readers": "false",
+        }
+        defs = _get_alarm_defs("AuroraRDS", tags)
+        metrics = {d["metric"] for d in defs}
+        assert metrics == {"CPU", "FreeMemoryGB", "Connections", "FreeLocalStorageGB"}
+
+    def test_provisioned_reader(self):
+        """Provisioned Reader: CPU, FreeMemoryGB, Connections, FreeLocalStorageGB, ReaderReplicaLag."""
+        tags = {
+            "_is_serverless_v2": "false",
+            "_is_cluster_writer": "false",
+            "_has_readers": "true",
+        }
+        defs = _get_alarm_defs("AuroraRDS", tags)
+        metrics = {d["metric"] for d in defs}
+        assert metrics == {"CPU", "FreeMemoryGB", "Connections", "FreeLocalStorageGB", "ReaderReplicaLag"}
+
+    def test_serverless_v2_writer_with_readers(self):
+        """Serverless v2 Writer (w/ readers): CPU, FreeMemoryGB, Connections, ACUUtilization, ServerlessDatabaseCapacity, ReplicaLag."""
+        tags = {
+            "_is_serverless_v2": "true",
+            "_is_cluster_writer": "true",
+            "_has_readers": "true",
+        }
+        defs = _get_alarm_defs("AuroraRDS", tags)
+        metrics = {d["metric"] for d in defs}
+        assert metrics == {"CPU", "FreeMemoryGB", "Connections", "ACUUtilization", "ServerlessDatabaseCapacity", "ReplicaLag"}
+
+    def test_serverless_v2_writer_no_readers(self):
+        """Serverless v2 Writer (no readers): CPU, FreeMemoryGB, Connections, ACUUtilization, ServerlessDatabaseCapacity."""
+        tags = {
+            "_is_serverless_v2": "true",
+            "_is_cluster_writer": "true",
+            "_has_readers": "false",
+        }
+        defs = _get_alarm_defs("AuroraRDS", tags)
+        metrics = {d["metric"] for d in defs}
+        assert metrics == {"CPU", "FreeMemoryGB", "Connections", "ACUUtilization", "ServerlessDatabaseCapacity"}
+
+    def test_serverless_v2_reader(self):
+        """Serverless v2 Reader: CPU, FreeMemoryGB, Connections, ACUUtilization, ServerlessDatabaseCapacity, ReaderReplicaLag."""
+        tags = {
+            "_is_serverless_v2": "true",
+            "_is_cluster_writer": "false",
+            "_has_readers": "true",
+        }
+        defs = _get_alarm_defs("AuroraRDS", tags)
+        metrics = {d["metric"] for d in defs}
+        assert metrics == {"CPU", "FreeMemoryGB", "Connections", "ACUUtilization", "ServerlessDatabaseCapacity", "ReaderReplicaLag"}
+
+    def test_aurora_reader_replica_lag_alarm_def_schema(self):
+        """_AURORA_READER_REPLICA_LAG 상수 스키마 검증."""
+        from common.alarm_manager import _AURORA_READER_REPLICA_LAG
+        assert _AURORA_READER_REPLICA_LAG["metric"] == "ReaderReplicaLag"
+        assert _AURORA_READER_REPLICA_LAG["namespace"] == "AWS/RDS"
+        assert _AURORA_READER_REPLICA_LAG["metric_name"] == "AuroraReplicaLag"
+        assert _AURORA_READER_REPLICA_LAG["dimension_key"] == "DBInstanceIdentifier"
+        assert _AURORA_READER_REPLICA_LAG["stat"] == "Maximum"
+        assert _AURORA_READER_REPLICA_LAG["comparison"] == "GreaterThanThreshold"
+        assert _AURORA_READER_REPLICA_LAG["period"] == 300
+        assert _AURORA_READER_REPLICA_LAG["evaluation_periods"] == 1
+
+    def test_aurora_acu_utilization_alarm_def_schema(self):
+        """_AURORA_ACU_UTILIZATION 상수 스키마 검증."""
+        from common.alarm_manager import _AURORA_ACU_UTILIZATION
+        assert _AURORA_ACU_UTILIZATION["metric"] == "ACUUtilization"
+        assert _AURORA_ACU_UTILIZATION["namespace"] == "AWS/RDS"
+        assert _AURORA_ACU_UTILIZATION["metric_name"] == "ACUUtilization"
+        assert _AURORA_ACU_UTILIZATION["dimension_key"] == "DBInstanceIdentifier"
+        assert _AURORA_ACU_UTILIZATION["stat"] == "Average"
+        assert _AURORA_ACU_UTILIZATION["comparison"] == "GreaterThanThreshold"
+        assert _AURORA_ACU_UTILIZATION["period"] == 300
+        assert _AURORA_ACU_UTILIZATION["evaluation_periods"] == 1
+
+    def test_aurora_serverless_capacity_alarm_def_schema(self):
+        """_AURORA_SERVERLESS_CAPACITY 상수 스키마 검증."""
+        from common.alarm_manager import _AURORA_SERVERLESS_CAPACITY
+        assert _AURORA_SERVERLESS_CAPACITY["metric"] == "ServerlessDatabaseCapacity"
+        assert _AURORA_SERVERLESS_CAPACITY["namespace"] == "AWS/RDS"
+        assert _AURORA_SERVERLESS_CAPACITY["metric_name"] == "ServerlessDatabaseCapacity"
+        assert _AURORA_SERVERLESS_CAPACITY["dimension_key"] == "DBInstanceIdentifier"
+        assert _AURORA_SERVERLESS_CAPACITY["stat"] == "Average"
+        assert _AURORA_SERVERLESS_CAPACITY["comparison"] == "GreaterThanThreshold"
+        assert _AURORA_SERVERLESS_CAPACITY["period"] == 300
+        assert _AURORA_SERVERLESS_CAPACITY["evaluation_periods"] == 1
+
+    def test_aurora_no_tags_falls_back_to_base(self):
+        """resource_tags 없이 호출 시 기존 _AURORA_RDS_ALARMS 호환 (base + FreeLocalStorageGB + ReplicaLag)."""
+        defs = _get_alarm_defs("AuroraRDS", {})
+        metrics = {d["metric"] for d in defs}
+        # 태그 없으면 _is_serverless_v2 != "true" → FreeLocalStorageGB 포함
+        # _is_cluster_writer != "true" 이므로 ReaderReplicaLag 아님
+        # _is_cluster_writer == "false" 도 아님 (키 없음) → 기존 호환: base만
+        assert "CPU" in metrics
+        assert "FreeMemoryGB" in metrics
+        assert "Connections" in metrics
+
+
+# ──────────────────────────────────────────────
+# Task 4.3: 상수 매핑 업데이트 검증
+# ──────────────────────────────────────────────
+
+class TestAuroraConstantMappings:
+    """Aurora 신규 메트릭 상수 매핑 검증.
+    Validates: Requirements 3.5, 7.6, 12.3
+    """
+
+    def test_metric_display_reader_replica_lag(self):
+        """_METRIC_DISPLAY에 ReaderReplicaLag 엔트리 존재."""
+        assert "ReaderReplicaLag" in _METRIC_DISPLAY
+        assert _METRIC_DISPLAY["ReaderReplicaLag"] == ("AuroraReplicaLag", ">", "μs")
+
+    def test_metric_display_acu_utilization(self):
+        """_METRIC_DISPLAY에 ACUUtilization 엔트리 존재."""
+        assert "ACUUtilization" in _METRIC_DISPLAY
+        assert _METRIC_DISPLAY["ACUUtilization"] == ("ACUUtilization", ">", "%")
+
+    def test_metric_display_serverless_database_capacity(self):
+        """_METRIC_DISPLAY에 ServerlessDatabaseCapacity 엔트리 존재."""
+        assert "ServerlessDatabaseCapacity" in _METRIC_DISPLAY
+        assert _METRIC_DISPLAY["ServerlessDatabaseCapacity"] == ("ServerlessDatabaseCapacity", ">", "ACU")
+
+    def test_hardcoded_metric_keys_aurora_rds_8_keys(self):
+        """_HARDCODED_METRIC_KEYS['AuroraRDS']에 8개 키 전체 포함."""
+        expected = {
+            "CPU", "FreeMemoryGB", "Connections", "FreeLocalStorageGB",
+            "ReplicaLag", "ReaderReplicaLag", "ACUUtilization", "ServerlessDatabaseCapacity",
+        }
+        assert _HARDCODED_METRIC_KEYS["AuroraRDS"] == expected
+
+    def test_metric_name_to_key_aurora_replica_lag(self):
+        """_metric_name_to_key('AuroraReplicaLag') → 'ReaderReplicaLag'."""
+        assert _metric_name_to_key("AuroraReplicaLag") == "ReaderReplicaLag"
+
+    def test_metric_name_to_key_acu_utilization(self):
+        """_metric_name_to_key('ACUUtilization') → 'ACUUtilization'."""
+        assert _metric_name_to_key("ACUUtilization") == "ACUUtilization"
+
+    def test_metric_name_to_key_serverless_database_capacity(self):
+        """_metric_name_to_key('ServerlessDatabaseCapacity') → 'ServerlessDatabaseCapacity'."""
+        assert _metric_name_to_key("ServerlessDatabaseCapacity") == "ServerlessDatabaseCapacity"
+
+
+# ──────────────────────────────────────────────
+# Task 6.1: _resolve_free_memory_threshold() 검증
+# ──────────────────────────────────────────────
+
+class TestResolveFreeMemoryThreshold:
+    """퍼센트 기반 FreeableMemory 임계치 해석 검증.
+    Validates: Requirements 5.1, 5.2, 5.3, 5.5, 6.5
+    """
+
+    def test_pct_with_total_memory(self):
+        """Threshold_FreeMemoryPct=20, _total_memory_bytes=16GiB → bytes 계산.
+        Validates: Requirements 5.1, 5.2
+        """
+        tags = {
+            "Threshold_FreeMemoryPct": "20",
+            "_total_memory_bytes": "17179869184",  # 16 GiB
+        }
+        display_gb, cw_bytes = _resolve_free_memory_threshold(tags)
+        assert display_gb == 20  # pct value for alarm name display
+        assert cw_bytes == pytest.approx(3435973836.8)  # 0.2 * 17179869184
+
+    def test_pct_takes_precedence_over_gb(self):
+        """Threshold_FreeMemoryPct + Threshold_FreeMemoryGB 동시 → 퍼센트 우선.
+        Validates: Requirements 5.3
+        """
+        tags = {
+            "Threshold_FreeMemoryPct": "20",
+            "Threshold_FreeMemoryGB": "4",
+            "_total_memory_bytes": "17179869184",
+        }
+        display_gb, cw_bytes = _resolve_free_memory_threshold(tags)
+        assert display_gb == 20
+        assert cw_bytes == pytest.approx(3435973836.8)
+
+    def test_invalid_pct_falls_back_to_gb(self, caplog):
+        """Threshold_FreeMemoryPct=150 (무효) → GB 폴백 + warning 로그.
+        Validates: Requirements 5.5
+        """
+        tags = {
+            "Threshold_FreeMemoryPct": "150",
+            "Threshold_FreeMemoryGB": "4",
+            "_total_memory_bytes": "17179869184",
+        }
+        import logging
+        with caplog.at_level(logging.WARNING):
+            display_gb, cw_bytes = _resolve_free_memory_threshold(tags)
+        assert display_gb == 4
+        assert cw_bytes == pytest.approx(4 * 1024 * 1024 * 1024)
+        assert any("FreeMemoryPct" in msg for msg in caplog.messages)
+
+    def test_missing_total_memory_falls_back_to_gb(self, caplog):
+        """Threshold_FreeMemoryPct=20 + _total_memory_bytes 미존재 → GB 폴백 + warning.
+        Validates: Requirements 6.5
+        """
+        tags = {
+            "Threshold_FreeMemoryPct": "20",
+            "Threshold_FreeMemoryGB": "4",
+        }
+        import logging
+        with caplog.at_level(logging.WARNING):
+            display_gb, cw_bytes = _resolve_free_memory_threshold(tags)
+        assert display_gb == 4
+        assert cw_bytes == pytest.approx(4 * 1024 * 1024 * 1024)
+        assert any("total_memory" in msg.lower() or "_total_memory_bytes" in msg for msg in caplog.messages)
+
+    def test_no_pct_tag_uses_gb_logic(self):
+        """Threshold_FreeMemoryPct 미존재 → 기존 GB 로직 유지.
+        Validates: Requirements 5.1 (negative case)
+        """
+        tags = {
+            "Threshold_FreeMemoryGB": "3",
+            "_total_memory_bytes": "17179869184",
+        }
+        display_gb, cw_bytes = _resolve_free_memory_threshold(tags)
+        assert display_gb == 3
+        assert cw_bytes == pytest.approx(3 * 1024 * 1024 * 1024)
+
+    def test_no_pct_no_gb_uses_hardcoded_default(self):
+        """Threshold_FreeMemoryPct/GB 모두 미존재 → HARDCODED_DEFAULTS 폴백."""
+        tags = {"_total_memory_bytes": "17179869184"}
+        display_gb, cw_bytes = _resolve_free_memory_threshold(tags)
+        default_gb = HARDCODED_DEFAULTS["FreeMemoryGB"]
+        assert display_gb == default_gb
+        assert cw_bytes == pytest.approx(default_gb * 1024 * 1024 * 1024)
+
+    def test_pct_zero_invalid(self, caplog):
+        """Threshold_FreeMemoryPct=0 (경계값, 무효) → GB 폴백."""
+        tags = {
+            "Threshold_FreeMemoryPct": "0",
+            "Threshold_FreeMemoryGB": "2",
+            "_total_memory_bytes": "17179869184",
+        }
+        import logging
+        with caplog.at_level(logging.WARNING):
+            display_gb, cw_bytes = _resolve_free_memory_threshold(tags)
+        assert display_gb == 2
+        assert cw_bytes == pytest.approx(2 * 1024 * 1024 * 1024)
+
+    def test_pct_100_invalid(self, caplog):
+        """Threshold_FreeMemoryPct=100 (경계값, 무효) → GB 폴백."""
+        tags = {
+            "Threshold_FreeMemoryPct": "100",
+            "Threshold_FreeMemoryGB": "2",
+            "_total_memory_bytes": "17179869184",
+        }
+        import logging
+        with caplog.at_level(logging.WARNING):
+            display_gb, cw_bytes = _resolve_free_memory_threshold(tags)
+        assert display_gb == 2
+        assert cw_bytes == pytest.approx(2 * 1024 * 1024 * 1024)
+
+    def test_pct_non_numeric_falls_back(self, caplog):
+        """Threshold_FreeMemoryPct='abc' (비숫자) → GB 폴백 + warning."""
+        tags = {
+            "Threshold_FreeMemoryPct": "abc",
+            "Threshold_FreeMemoryGB": "3",
+            "_total_memory_bytes": "17179869184",
+        }
+        import logging
+        with caplog.at_level(logging.WARNING):
+            display_gb, cw_bytes = _resolve_free_memory_threshold(tags)
+        assert display_gb == 3
+        assert cw_bytes == pytest.approx(3 * 1024 * 1024 * 1024)

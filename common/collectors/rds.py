@@ -19,6 +19,35 @@ logger = logging.getLogger(__name__)
 
 _BYTES_PER_GB = 1024 ** 3
 
+# ──────────────────────────────────────────────
+# 인스턴스 클래스 → 메모리 bytes 매핑 (design §1)
+# ──────────────────────────────────────────────
+
+_INSTANCE_CLASS_MEMORY_MAP: dict[str, int] = {
+    "db.t3.micro": 1 * _BYTES_PER_GB,
+    "db.t3.small": 2 * _BYTES_PER_GB,
+    "db.t3.medium": 4 * _BYTES_PER_GB,
+    "db.t3.large": 8 * _BYTES_PER_GB,
+    "db.t4g.micro": 1 * _BYTES_PER_GB,
+    "db.t4g.small": 2 * _BYTES_PER_GB,
+    "db.t4g.medium": 4 * _BYTES_PER_GB,
+    "db.t4g.large": 8 * _BYTES_PER_GB,
+    "db.r6g.large": 16 * _BYTES_PER_GB,
+    "db.r6g.xlarge": 32 * _BYTES_PER_GB,
+    "db.r6g.2xlarge": 64 * _BYTES_PER_GB,
+    "db.r6g.4xlarge": 128 * _BYTES_PER_GB,
+    "db.r6g.8xlarge": 256 * _BYTES_PER_GB,
+    "db.r6g.12xlarge": 384 * _BYTES_PER_GB,
+    "db.r6g.16xlarge": 512 * _BYTES_PER_GB,
+    "db.r7g.large": 16 * _BYTES_PER_GB,
+    "db.r7g.xlarge": 32 * _BYTES_PER_GB,
+    "db.r7g.2xlarge": 64 * _BYTES_PER_GB,
+    "db.r7g.4xlarge": 128 * _BYTES_PER_GB,
+    "db.r7g.8xlarge": 256 * _BYTES_PER_GB,
+    "db.r7g.12xlarge": 384 * _BYTES_PER_GB,
+    "db.r7g.16xlarge": 512 * _BYTES_PER_GB,
+}
+
 
 # ──────────────────────────────────────────────
 # boto3 클라이언트 싱글턴 (코딩 거버넌스 §1)
@@ -28,6 +57,85 @@ _BYTES_PER_GB = 1024 ** 3
 def _get_rds_client():
     """RDS 클라이언트 싱글턴. 테스트 시 cache_clear()로 리셋."""
     return boto3.client("rds")
+
+
+def _get_cluster_info(cluster_id: str) -> dict | None:
+    """describe_db_clusters 래퍼. ClientError 시 None 반환 + error 로그."""
+    try:
+        rds = _get_rds_client()
+        resp = rds.describe_db_clusters(
+            DBClusterIdentifier=cluster_id,
+        )
+        clusters = resp.get("DBClusters", [])
+        return clusters[0] if clusters else None
+    except ClientError as e:
+        logger.error(
+            "describe_db_clusters failed for %s: %s", cluster_id, e,
+        )
+        return None
+
+
+def _enrich_aurora_metadata(
+    db_instance: dict, tags: dict, cluster_cache: dict,
+) -> None:
+    """Aurora 인스턴스 태그에 내부 메타데이터 추가."""
+    instance_class = db_instance.get("DBInstanceClass", "")
+    tags["_db_instance_class"] = instance_class
+
+    is_serverless = instance_class == "db.serverless"
+    tags["_is_serverless_v2"] = "true" if is_serverless else "false"
+
+    # 클러스터 정보 조회 (캐싱)
+    cluster_id = db_instance.get("DBClusterIdentifier", "")
+    if not cluster_id:
+        return
+
+    if cluster_id not in cluster_cache:
+        cluster_cache[cluster_id] = _get_cluster_info(cluster_id)
+
+    cluster = cluster_cache[cluster_id]
+    if cluster is None:
+        return
+
+    # writer/reader 판별
+    db_id = db_instance["DBInstanceIdentifier"]
+    members = cluster.get("DBClusterMembers", [])
+    for member in members:
+        if member["DBInstanceIdentifier"] == db_id:
+            is_writer = member.get("IsClusterWriter", False)
+            tags["_is_cluster_writer"] = "true" if is_writer else "false"
+            break
+
+    tags["_has_readers"] = "true" if len(members) > 1 else "false"
+
+    # Serverless v2 ACU 정보
+    if is_serverless:
+        sv2_config = cluster.get("ServerlessV2ScalingConfiguration")
+        if sv2_config:
+            max_acu = sv2_config.get("MaxCapacity", 0)
+            min_acu = sv2_config.get("MinCapacity", 0)
+            tags["_max_acu"] = str(max_acu)
+            tags["_min_acu"] = str(min_acu)
+            tags["_total_memory_bytes"] = str(
+                int(max_acu * 2 * 1073741824)
+            )
+        else:
+            logger.warning(
+                "ServerlessV2ScalingConfiguration missing for %s",
+                cluster_id,
+            )
+    else:
+        # Provisioned: 인스턴스 클래스 메모리 lookup
+        memory = _INSTANCE_CLASS_MEMORY_MAP.get(instance_class)
+        if memory is not None:
+            tags["_total_memory_bytes"] = str(memory)
+        else:
+            logger.warning(
+                "Unknown instance class %s for %s, "
+                "skipping _total_memory_bytes",
+                instance_class,
+                db_id,
+            )
 
 
 def collect_monitored_resources() -> list[ResourceInfo]:
@@ -44,6 +152,7 @@ def collect_monitored_resources() -> list[ResourceInfo]:
         raise
 
     resources: list[ResourceInfo] = []
+    cluster_cache: dict[str, dict | None] = {}
     for page in pages:
         for db in page.get("DBInstances", []):
             db_id = db["DBInstanceIdentifier"]
@@ -62,6 +171,9 @@ def collect_monitored_resources() -> list[ResourceInfo]:
 
             engine = db.get("Engine", "")
             resource_type = "AuroraRDS" if "aurora" in engine.lower() else "RDS"
+
+            if resource_type == "AuroraRDS":
+                _enrich_aurora_metadata(db, tags, cluster_cache)
 
             region = boto3.session.Session().region_name or "us-east-1"
             resources.append(
@@ -111,14 +223,19 @@ def get_metrics(db_instance_id: str, resource_tags: dict | None = None) -> dict[
 
 def get_aurora_metrics(db_instance_id: str, resource_tags: dict | None = None) -> dict[str, float] | None:
     """
-    CloudWatch에서 Aurora RDS 메트릭 조회.
+    CloudWatch에서 Aurora RDS 메트릭 조회 (변형별 조건부 분기).
 
-    수집 메트릭:
+    Always 수집:
     - CPUUtilization → 'CPU'
     - FreeableMemory (bytes → GB) → 'FreeMemoryGB'
     - DatabaseConnections → 'Connections'
-    - FreeLocalStorage (bytes → GB) → 'FreeLocalStorageGB'
-    - AuroraReplicaLagMaximum (raw μs) → 'ReplicaLag'
+
+    조건부 수집:
+    - _is_serverless_v2 != "true": FreeLocalStorage → 'FreeLocalStorageGB'
+    - _is_serverless_v2 == "true": ACUUtilization, ServerlessDatabaseCapacity
+    - _is_cluster_writer == "true" & _has_readers == "true":
+      AuroraReplicaLagMaximum → 'ReplicaLag'
+    - _is_cluster_writer == "false": AuroraReplicaLag → 'ReaderReplicaLag'
 
     데이터 없으면 해당 메트릭 skip. 모두 없으면 None 반환.
     """
@@ -131,16 +248,39 @@ def get_aurora_metrics(db_instance_id: str, resource_tags: dict | None = None) -
     dim = [{"Name": "DBInstanceIdentifier", "Value": db_instance_id}]
     metrics: dict[str, float] = {}
 
+    # Always: CPU, FreeMemoryGB, Connections
     _collect_metric("AWS/RDS", "CPUUtilization", dim, start_time, end_time,
                     "CPU", metrics, transform=None)
     _collect_metric("AWS/RDS", "FreeableMemory", dim, start_time, end_time,
                     "FreeMemoryGB", metrics, transform=lambda v: v / _BYTES_PER_GB)
     _collect_metric("AWS/RDS", "DatabaseConnections", dim, start_time, end_time,
                     "Connections", metrics, transform=None)
-    _collect_metric("AWS/RDS", "FreeLocalStorage", dim, start_time, end_time,
-                    "FreeLocalStorageGB", metrics, transform=lambda v: v / _BYTES_PER_GB)
-    _collect_metric("AWS/RDS", "AuroraReplicaLagMaximum", dim, start_time, end_time,
-                    "ReplicaLag", metrics, transform=None)
+
+    is_serverless = resource_tags.get("_is_serverless_v2") == "true"
+    is_writer = resource_tags.get("_is_cluster_writer") == "true"
+    has_readers = resource_tags.get("_has_readers") == "true"
+
+    # Provisioned: FreeLocalStorage
+    if not is_serverless:
+        _collect_metric("AWS/RDS", "FreeLocalStorage", dim, start_time, end_time,
+                        "FreeLocalStorageGB", metrics, transform=lambda v: v / _BYTES_PER_GB)
+
+    # Serverless v2: ACUUtilization, ServerlessDatabaseCapacity
+    if is_serverless:
+        _collect_metric("AWS/RDS", "ACUUtilization", dim, start_time, end_time,
+                        "ACUUtilization", metrics, transform=None)
+        _collect_metric("AWS/RDS", "ServerlessDatabaseCapacity", dim, start_time, end_time,
+                        "ServerlessDatabaseCapacity", metrics, transform=None)
+
+    # Writer with readers: AuroraReplicaLagMaximum → ReplicaLag
+    if is_writer and has_readers:
+        _collect_metric("AWS/RDS", "AuroraReplicaLagMaximum", dim, start_time, end_time,
+                        "ReplicaLag", metrics, transform=None)
+
+    # Reader: AuroraReplicaLag → ReaderReplicaLag
+    if not is_writer:
+        _collect_metric("AWS/RDS", "AuroraReplicaLag", dim, start_time, end_time,
+                        "ReaderReplicaLag", metrics, transform=None)
 
     return metrics if metrics else None
 

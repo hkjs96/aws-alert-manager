@@ -150,6 +150,10 @@ fileMatchPattern: '**/*.py'
 | Threshold_Connections | Connections | DatabaseConnections | AWS/RDS | 100 | Count | - |
 | Threshold_FreeLocalStorageGB | FreeLocalStorageGB | FreeLocalStorage | AWS/RDS | 10 | GB | GB→bytes |
 | Threshold_ReplicaLag | ReplicaLag | AuroraReplicaLagMaximum | AWS/RDS | 2000000 | μs | - |
+| Threshold_ReaderReplicaLag | ReaderReplicaLag | AuroraReplicaLag | AWS/RDS | 2000000 | μs | - |
+| Threshold_ACUUtilization | ACUUtilization | ACUUtilization | AWS/RDS | 80 | % | - |
+| Threshold_ServerlessDatabaseCapacity | ServerlessDatabaseCapacity | ServerlessDatabaseCapacity | AWS/RDS | 128 | ACU | - |
+| Threshold_FreeMemoryPct | FreeMemoryPct | (FreeableMemory 퍼센트 변환) | AWS/RDS | 20 | % | pct→bytes |
 
 ### 동적 알람 (Threshold_* 태그)
 

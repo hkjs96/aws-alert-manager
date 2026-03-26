@@ -332,7 +332,7 @@ class TestParseCloudTrailEvent:
     def test_parse_delete_rds(self):
         """RDS DeleteDBInstance 파싱"""
         event = _make_event("DeleteDBInstance", "db-prod")
-        with patch("remediation_handler.lambda_handler._resolve_rds_aurora_type", return_value="RDS"):
+        with patch("remediation_handler.lambda_handler._resolve_rds_aurora_type", return_value=("RDS", False)):
             parsed = parse_cloudtrail_event(event)[0]
         assert parsed.resource_id == "db-prod"
         assert parsed.resource_type == "RDS"
@@ -357,7 +357,7 @@ class TestParseCloudTrailEvent:
     def test_parse_rds_add_tags(self):
         """RDS AddTagsToResource 파싱"""
         event = _make_event("AddTagsToResource", "my-rds-db")
-        with patch("remediation_handler.lambda_handler._resolve_rds_aurora_type", return_value="RDS"):
+        with patch("remediation_handler.lambda_handler._resolve_rds_aurora_type", return_value=("RDS", False)):
             parsed = parse_cloudtrail_event(event)[0]
         assert parsed.resource_id == "my-rds-db"
         assert parsed.resource_type == "RDS"
@@ -366,7 +366,7 @@ class TestParseCloudTrailEvent:
     def test_parse_rds_remove_tags(self):
         """RDS RemoveTagsFromResource 파싱"""
         event = _make_event("RemoveTagsFromResource", "my-rds-db")
-        with patch("remediation_handler.lambda_handler._resolve_rds_aurora_type", return_value="RDS"):
+        with patch("remediation_handler.lambda_handler._resolve_rds_aurora_type", return_value=("RDS", False)):
             parsed = parse_cloudtrail_event(event)[0]
         assert parsed.resource_id == "my-rds-db"
         assert parsed.resource_type == "RDS"
@@ -527,7 +527,7 @@ class TestRdsElbTagEvents:
                 },
             }
         }
-        with patch("remediation_handler.lambda_handler._resolve_rds_aurora_type", return_value="RDS"), \
+        with patch("remediation_handler.lambda_handler._resolve_rds_aurora_type", return_value=("RDS", False)), \
              patch("remediation_handler.lambda_handler.get_resource_tags",
                    return_value={"Monitoring": "on"}), \
              patch("remediation_handler.lambda_handler.create_alarms_for_resource",
@@ -551,7 +551,7 @@ class TestRdsElbTagEvents:
                 },
             }
         }
-        with patch("remediation_handler.lambda_handler._resolve_rds_aurora_type", return_value="RDS"), \
+        with patch("remediation_handler.lambda_handler._resolve_rds_aurora_type", return_value=("RDS", False)), \
              patch("remediation_handler.lambda_handler.send_lifecycle_alert") as mock_alert, \
              patch("remediation_handler.lambda_handler.delete_alarms_for_resource",
                    return_value=[]) as mock_delete:
@@ -619,7 +619,7 @@ class TestRdsElbTagEvents:
                 },
             }
         }
-        with patch("remediation_handler.lambda_handler._resolve_rds_aurora_type", return_value="RDS"), \
+        with patch("remediation_handler.lambda_handler._resolve_rds_aurora_type", return_value=("RDS", False)), \
              patch("remediation_handler.lambda_handler.send_lifecycle_alert") as mock_alert, \
              patch("remediation_handler.lambda_handler.send_error_alert") as mock_err:
             result = lambda_handler(event, MagicMock())
@@ -962,7 +962,7 @@ class TestCreateEventParsing:
                 "responseElements": {},
             }
         }
-        with patch("remediation_handler.lambda_handler._resolve_rds_aurora_type", return_value="RDS"):
+        with patch("remediation_handler.lambda_handler._resolve_rds_aurora_type", return_value=("RDS", False)):
             parsed = parse_cloudtrail_event(event)[0]
         assert parsed.resource_id == "mydb-prod"
         assert parsed.resource_type == "RDS"
@@ -1293,7 +1293,7 @@ class TestResolveRdsAuroraType:
         with patch("remediation_handler.lambda_handler.boto3.client", return_value=mock_rds):
             result = _resolve_rds_aurora_type("my-aurora-db")
 
-        assert result == "AuroraRDS"
+        assert result == ("AuroraRDS", False)
         mock_rds.describe_db_instances.assert_called_once_with(
             DBInstanceIdentifier="my-aurora-db"
         )
@@ -1309,7 +1309,7 @@ class TestResolveRdsAuroraType:
         with patch("remediation_handler.lambda_handler.boto3.client", return_value=mock_rds):
             result = _resolve_rds_aurora_type("my-aurora-pg")
 
-        assert result == "AuroraRDS"
+        assert result == ("AuroraRDS", False)
 
     def test_mysql_engine_returns_rds(self):
         """Engine 'mysql' → 'RDS' 반환"""
@@ -1322,7 +1322,7 @@ class TestResolveRdsAuroraType:
         with patch("remediation_handler.lambda_handler.boto3.client", return_value=mock_rds):
             result = _resolve_rds_aurora_type("my-mysql-db")
 
-        assert result == "RDS"
+        assert result == ("RDS", False)
 
     def test_postgres_engine_returns_rds(self):
         """Engine 'postgres' → 'RDS' 반환"""
@@ -1335,7 +1335,7 @@ class TestResolveRdsAuroraType:
         with patch("remediation_handler.lambda_handler.boto3.client", return_value=mock_rds):
             result = _resolve_rds_aurora_type("my-pg-db")
 
-        assert result == "RDS"
+        assert result == ("RDS", False)
 
     def test_api_error_falls_back_to_rds(self, caplog):
         """ClientError 발생 시 'RDS' 폴백 + warning 로그"""
@@ -1350,7 +1350,7 @@ class TestResolveRdsAuroraType:
              patch("remediation_handler.lambda_handler.boto3.client", return_value=mock_rds):
             result = _resolve_rds_aurora_type("nonexistent-db")
 
-        assert result == "RDS"
+        assert result == ("RDS", True)
         warning_msgs = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
         assert warning_msgs, "Expected warning log on API error fallback"
 
@@ -1365,17 +1365,17 @@ class TestParseCloudTrailAuroraRds:
     """parse_cloudtrail_event()가 Aurora RDS 이벤트를 올바르게 AuroraRDS로 해석하는지 검증."""
 
     def _mock_resolve_aurora(self):
-        """_resolve_rds_aurora_type → 'AuroraRDS' 반환 mock."""
+        """_resolve_rds_aurora_type → ('AuroraRDS', False) 반환 mock."""
         return patch(
             "remediation_handler.lambda_handler._resolve_rds_aurora_type",
-            return_value="AuroraRDS",
+            return_value=("AuroraRDS", False),
         )
 
     def _mock_resolve_rds(self):
-        """_resolve_rds_aurora_type → 'RDS' 반환 mock."""
+        """_resolve_rds_aurora_type → ('RDS', False) 반환 mock."""
         return patch(
             "remediation_handler.lambda_handler._resolve_rds_aurora_type",
-            return_value="RDS",
+            return_value=("RDS", False),
         )
 
     def test_create_db_instance_aurora_resolves_aurora_rds(self):
@@ -1462,3 +1462,183 @@ class TestParseCloudTrailAuroraRds:
 
         assert parsed.resource_type == "EC2"
         mock_resolve.assert_not_called()
+
+
+# ──────────────────────────────────────────────
+# KI-008: Aurora 삭제 이벤트 알람 정리 검증
+# Validates: Requirements 13.1, 13.2, 13.3
+# ──────────────────────────────────────────────
+
+
+class TestResolveRdsAuroraTypeTuple:
+    """_resolve_rds_aurora_type() 튜플 반환 검증 (KI-008)."""
+
+    def test_aurora_engine_returns_tuple_no_fallback(self):
+        """Aurora engine → ('AuroraRDS', False) 튜플 반환"""
+        from remediation_handler.lambda_handler import _resolve_rds_aurora_type
+
+        mock_rds = MagicMock()
+        mock_rds.describe_db_instances.return_value = {
+            "DBInstances": [{"Engine": "aurora-mysql"}]
+        }
+        with patch("remediation_handler.lambda_handler.boto3.client", return_value=mock_rds):
+            result = _resolve_rds_aurora_type("my-aurora-db")
+
+        assert isinstance(result, tuple), f"Expected tuple, got {type(result)}"
+        assert result == ("AuroraRDS", False)
+
+    def test_rds_engine_returns_tuple_no_fallback(self):
+        """Non-Aurora engine → ('RDS', False) 튜플 반환"""
+        from remediation_handler.lambda_handler import _resolve_rds_aurora_type
+
+        mock_rds = MagicMock()
+        mock_rds.describe_db_instances.return_value = {
+            "DBInstances": [{"Engine": "mysql"}]
+        }
+        with patch("remediation_handler.lambda_handler.boto3.client", return_value=mock_rds):
+            result = _resolve_rds_aurora_type("my-mysql-db")
+
+        assert isinstance(result, tuple), f"Expected tuple, got {type(result)}"
+        assert result == ("RDS", False)
+
+    def test_api_error_returns_tuple_with_fallback(self, caplog):
+        """ClientError → ('RDS', True) 폴백 튜플 + warning 로그"""
+        from remediation_handler.lambda_handler import _resolve_rds_aurora_type
+
+        mock_rds = MagicMock()
+        mock_rds.describe_db_instances.side_effect = ClientError(
+            {"Error": {"Code": "DBInstanceNotFound", "Message": "not found"}},
+            "DescribeDBInstances",
+        )
+        with caplog.at_level(logging.WARNING, logger="remediation_handler.lambda_handler"), \
+             patch("remediation_handler.lambda_handler.boto3.client", return_value=mock_rds):
+            result = _resolve_rds_aurora_type("deleted-db")
+
+        assert isinstance(result, tuple), f"Expected tuple, got {type(result)}"
+        assert result == ("RDS", True)
+        warning_msgs = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
+        assert warning_msgs, "Expected warning log on API error fallback"
+
+
+class TestHandleDeleteAuroraFallback:
+    """_handle_delete() Aurora 삭제 이벤트 알람 정리 검증 (KI-008)."""
+
+    def test_delete_with_fallback_calls_empty_resource_type(self):
+        """is_fallback=True + DELETE → delete_alarms_for_resource(resource_id, '') 호출"""
+        parsed = ParsedEvent(
+            resource_id="my-aurora-db",
+            resource_type="RDS",
+            event_name="DeleteDBInstance",
+            event_category="DELETE",
+            change_summary="DeleteDBInstance on RDS my-aurora-db",
+            request_params={},
+            _is_rds_fallback=True,
+        )
+
+        with patch("remediation_handler.lambda_handler.get_resource_tags",
+                   return_value={}) as mock_tags, \
+             patch("remediation_handler.lambda_handler.send_lifecycle_alert") as mock_alert, \
+             patch("remediation_handler.lambda_handler.delete_alarms_for_resource",
+                   return_value=[]) as mock_delete:
+            from remediation_handler.lambda_handler import _handle_delete
+            _handle_delete(parsed)
+
+        # is_fallback=True → resource_type="" 으로 호출하여 전체 prefix 검색
+        mock_delete.assert_called_once_with("my-aurora-db", "")
+
+    def test_delete_without_fallback_uses_original_type(self):
+        """is_fallback=False + DELETE → delete_alarms_for_resource(resource_id, resource_type) 호출"""
+        parsed = ParsedEvent(
+            resource_id="my-aurora-db",
+            resource_type="AuroraRDS",
+            event_name="DeleteDBInstance",
+            event_category="DELETE",
+            change_summary="DeleteDBInstance on AuroraRDS my-aurora-db",
+            request_params={},
+            _is_rds_fallback=False,
+        )
+
+        with patch("remediation_handler.lambda_handler.get_resource_tags",
+                   return_value={"Monitoring": "on"}) as mock_tags, \
+             patch("remediation_handler.lambda_handler.send_lifecycle_alert") as mock_alert, \
+             patch("remediation_handler.lambda_handler.delete_alarms_for_resource",
+                   return_value=["alarm1"]) as mock_delete:
+            from remediation_handler.lambda_handler import _handle_delete
+            _handle_delete(parsed)
+
+        # is_fallback=False → 원래 resource_type 사용
+        mock_delete.assert_called_once_with("my-aurora-db", "AuroraRDS")
+
+    def test_delete_fallback_with_alarms_found_sends_lifecycle_alert(self):
+        """is_fallback=True + 알람 발견 → lifecycle 알림 발송"""
+        parsed = ParsedEvent(
+            resource_id="my-aurora-db",
+            resource_type="RDS",
+            event_name="DeleteDBInstance",
+            event_category="DELETE",
+            change_summary="DeleteDBInstance on RDS my-aurora-db",
+            request_params={},
+            _is_rds_fallback=True,
+        )
+
+        with patch("remediation_handler.lambda_handler.get_resource_tags",
+                   side_effect=Exception("instance deleted")), \
+             patch("remediation_handler.lambda_handler.send_lifecycle_alert") as mock_alert, \
+             patch("remediation_handler.lambda_handler.delete_alarms_for_resource",
+                   return_value=["[AuroraRDS] my-aurora-db CPU"]) as mock_delete:
+            from remediation_handler.lambda_handler import _handle_delete
+            _handle_delete(parsed)
+
+        mock_delete.assert_called_once_with("my-aurora-db", "")
+        mock_alert.assert_called_once()
+        assert mock_alert.call_args.kwargs["event_type"] == "RESOURCE_DELETED"
+
+    def test_delete_fallback_warning_log(self, caplog):
+        """is_fallback=True → warning 로그 출력"""
+        parsed = ParsedEvent(
+            resource_id="my-aurora-db",
+            resource_type="RDS",
+            event_name="DeleteDBInstance",
+            event_category="DELETE",
+            change_summary="DeleteDBInstance on RDS my-aurora-db",
+            request_params={},
+            _is_rds_fallback=True,
+        )
+
+        with caplog.at_level(logging.WARNING, logger="remediation_handler.lambda_handler"), \
+             patch("remediation_handler.lambda_handler.get_resource_tags",
+                   return_value={}) as mock_tags, \
+             patch("remediation_handler.lambda_handler.send_lifecycle_alert"), \
+             patch("remediation_handler.lambda_handler.delete_alarms_for_resource",
+                   return_value=[]):
+            from remediation_handler.lambda_handler import _handle_delete
+            _handle_delete(parsed)
+
+        warning_msgs = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
+        assert any("fallback" in m.lower() or "prefix" in m.lower() for m in warning_msgs), \
+            f"Expected warning about fallback/prefix search, got: {warning_msgs}"
+
+    def test_non_rds_delete_no_fallback_field(self):
+        """EC2 DELETE 이벤트 → _is_rds_fallback=False (기본값)"""
+        parsed = ParsedEvent(
+            resource_id="i-001",
+            resource_type="EC2",
+            event_name="TerminateInstances",
+            event_category="DELETE",
+            change_summary="TerminateInstances on EC2 i-001",
+            request_params={},
+        )
+
+        # _is_rds_fallback 기본값은 False
+        assert parsed._is_rds_fallback is False
+
+        with patch("remediation_handler.lambda_handler.get_resource_tags",
+                   return_value={"Monitoring": "on"}) as mock_tags, \
+             patch("remediation_handler.lambda_handler.send_lifecycle_alert") as mock_alert, \
+             patch("remediation_handler.lambda_handler.delete_alarms_for_resource",
+                   return_value=["alarm1"]) as mock_delete:
+            from remediation_handler.lambda_handler import _handle_delete
+            _handle_delete(parsed)
+
+        # EC2는 원래 resource_type 사용
+        mock_delete.assert_called_once_with("i-001", "EC2")

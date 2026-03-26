@@ -71,6 +71,9 @@ _METRIC_DISPLAY = {
     "TGResponseTime": ("TargetResponseTime", ">", "s"),
     "FreeLocalStorageGB": ("FreeLocalStorage", "<", "GB"),
     "ReplicaLag": ("AuroraReplicaLagMaximum", ">", "μs"),
+    "ReaderReplicaLag": ("AuroraReplicaLag", ">", "μs"),
+    "ACUUtilization": ("ACUUtilization", ">", "%"),
+    "ServerlessDatabaseCapacity": ("ServerlessDatabaseCapacity", ">", "ACU"),
 }
 
 
@@ -544,6 +547,73 @@ _AURORA_RDS_ALARMS = [
     },
 ]
 
+_AURORA_READER_REPLICA_LAG = {
+    "metric": "ReaderReplicaLag",
+    "namespace": "AWS/RDS",
+    "metric_name": "AuroraReplicaLag",
+    "dimension_key": "DBInstanceIdentifier",
+    "stat": "Maximum",
+    "comparison": "GreaterThanThreshold",
+    "period": 300,
+    "evaluation_periods": 1,
+}
+
+_AURORA_ACU_UTILIZATION = {
+    "metric": "ACUUtilization",
+    "namespace": "AWS/RDS",
+    "metric_name": "ACUUtilization",
+    "dimension_key": "DBInstanceIdentifier",
+    "stat": "Average",
+    "comparison": "GreaterThanThreshold",
+    "period": 300,
+    "evaluation_periods": 1,
+}
+
+_AURORA_SERVERLESS_CAPACITY = {
+    "metric": "ServerlessDatabaseCapacity",
+    "namespace": "AWS/RDS",
+    "metric_name": "ServerlessDatabaseCapacity",
+    "dimension_key": "DBInstanceIdentifier",
+    "stat": "Average",
+    "comparison": "GreaterThanThreshold",
+    "period": 300,
+    "evaluation_periods": 1,
+}
+
+
+def _get_aurora_alarm_defs(resource_tags: dict) -> list[dict]:
+    """Aurora 인스턴스 변형별 알람 정의 동적 빌드.
+
+    Base(CPU, FreeMemoryGB, Connections) + 조건부 추가:
+    - Provisioned: +FreeLocalStorageGB
+    - Serverless v2: +ACUUtilization, +ServerlessDatabaseCapacity
+    - Writer w/ readers: +ReplicaLag
+    - Reader: +ReaderReplicaLag
+    - Writer w/o readers: lag 알람 없음
+    """
+    # base: 첫 3개 (CPU, FreeMemoryGB, Connections)
+    alarms = list(_AURORA_RDS_ALARMS[:3])
+
+    is_serverless = resource_tags.get("_is_serverless_v2") == "true"
+    is_writer = resource_tags.get("_is_cluster_writer") == "true"
+    has_readers = resource_tags.get("_has_readers") == "true"
+
+    if is_serverless:
+        alarms.append(_AURORA_ACU_UTILIZATION)
+        alarms.append(_AURORA_SERVERLESS_CAPACITY)
+    else:
+        # Provisioned: FreeLocalStorageGB (index 3 in _AURORA_RDS_ALARMS)
+        alarms.append(_AURORA_RDS_ALARMS[3])
+
+    if is_writer and has_readers:
+        # ReplicaLag (index 4 in _AURORA_RDS_ALARMS)
+        alarms.append(_AURORA_RDS_ALARMS[4])
+    elif not is_writer:
+        alarms.append(_AURORA_READER_REPLICA_LAG)
+
+    return alarms
+
+
 _NLB_TG_EXCLUDED_METRICS = {"RequestCountPerTarget", "TGResponseTime"}
 
 
@@ -553,7 +623,7 @@ def _get_alarm_defs(resource_type: str, resource_tags: dict | None = None) -> li
     elif resource_type == "RDS":
         return _RDS_ALARMS
     elif resource_type == "AuroraRDS":
-        return _AURORA_RDS_ALARMS
+        return _get_aurora_alarm_defs(resource_tags or {})
     elif resource_type == "ALB":
         return _ALB_ALARMS
     elif resource_type == "NLB":
@@ -576,7 +646,7 @@ _HARDCODED_METRIC_KEYS: dict[str, set[str]] = {
     "ALB": {"RequestCount", "ELB5XX", "TargetResponseTime"},
     "NLB": {"ProcessedBytes", "ActiveFlowCount", "NewFlowCount", "TCPClientReset", "TCPTargetReset"},
     "TG": {"HealthyHostCount", "UnHealthyHostCount", "RequestCountPerTarget", "TGResponseTime"},
-    "AuroraRDS": {"CPU", "FreeMemoryGB", "Connections", "FreeLocalStorageGB", "ReplicaLag"},
+    "AuroraRDS": {"CPU", "FreeMemoryGB", "Connections", "FreeLocalStorageGB", "ReplicaLag", "ReaderReplicaLag", "ACUUtilization", "ServerlessDatabaseCapacity"},
 }
 
 # resource_type별 CloudWatch 네임스페이스 목록
@@ -879,6 +949,51 @@ def _resolve_tg_namespace(alarm_def: dict, resource_tags: dict) -> str:
     return alarm_def["namespace"]
 
 
+def _resolve_free_memory_threshold(
+    resource_tags: dict,
+) -> tuple[float, float]:
+    """FreeMemoryGB 임계치를 퍼센트 또는 GB 기반으로 해석.
+
+    Returns:
+        (display_threshold, cw_threshold_bytes) 튜플.
+        - 퍼센트 사용 시: display = pct 값, cw = (pct/100) * total_memory_bytes
+        - GB 폴백 시: display = GB 값, cw = GB * 1073741824
+    """
+    pct_raw = resource_tags.get("Threshold_FreeMemoryPct")
+    if pct_raw is not None:
+        try:
+            pct = float(pct_raw)
+        except (ValueError, TypeError):
+            logger.warning(
+                "Invalid Threshold_FreeMemoryPct=%r (non-numeric): falling back to GB",
+                pct_raw,
+            )
+            pct = None
+        else:
+            if not (0 < pct < 100):
+                logger.warning(
+                    "Invalid Threshold_FreeMemoryPct=%s (must be 0 < pct < 100): falling back to GB",
+                    pct_raw,
+                )
+                pct = None
+            else:
+                total_mem_raw = resource_tags.get("_total_memory_bytes")
+                if total_mem_raw is None:
+                    logger.warning(
+                        "Threshold_FreeMemoryPct=%s but _total_memory_bytes missing: falling back to GB",
+                        pct_raw,
+                    )
+                    pct = None
+                else:
+                    total_mem = float(total_mem_raw)
+                    cw_bytes = (pct / 100) * total_mem
+                    return (pct, cw_bytes)
+
+    # GB 폴백
+    gb = get_threshold(resource_tags, "FreeMemoryGB")
+    return (gb, gb * 1073741824)
+
+
 def _create_standard_alarm(
     alarm_def: dict,
     resource_id: str,
@@ -890,10 +1005,14 @@ def _create_standard_alarm(
     sns_arn = _get_sns_alert_arn()
     resource_name = resource_tags.get("Name", "")
     metric = alarm_def["metric"]
-    threshold = get_threshold(resource_tags, metric)
 
-    transform = alarm_def.get("transform_threshold")
-    cw_threshold = transform(threshold) if transform else threshold
+    # FreeMemoryGB: 퍼센트 기반 임계치 해석
+    if metric == "FreeMemoryGB":
+        threshold, cw_threshold = _resolve_free_memory_threshold(resource_tags)
+    else:
+        threshold = get_threshold(resource_tags, metric)
+        transform = alarm_def.get("transform_threshold")
+        cw_threshold = transform(threshold) if transform else threshold
 
     dimensions = _build_dimensions(alarm_def, resource_id, resource_type, resource_tags)
 
@@ -1211,6 +1330,9 @@ def _metric_name_to_key(metric_name: str) -> str:
         "RequestCountPerTarget": "RequestCountPerTarget",
         "FreeLocalStorage": "FreeLocalStorageGB",
         "AuroraReplicaLagMaximum": "ReplicaLag",
+        "AuroraReplicaLag": "ReaderReplicaLag",
+        "ACUUtilization": "ACUUtilization",
+        "ServerlessDatabaseCapacity": "ServerlessDatabaseCapacity",
     }
     return mapping.get(metric_name, metric_name)
 
@@ -1242,9 +1364,13 @@ def _create_single_alarm(
         logger.warning("No alarm definition found for metric %s", metric)
         return
 
-    threshold = get_threshold(resource_tags, metric)
-    transform = alarm_def.get("transform_threshold")
-    cw_threshold = transform(threshold) if transform else threshold
+    # FreeMemoryGB: 퍼센트 기반 임계치 해석
+    if metric == "FreeMemoryGB":
+        threshold, cw_threshold = _resolve_free_memory_threshold(resource_tags)
+    else:
+        threshold = get_threshold(resource_tags, metric)
+        transform = alarm_def.get("transform_threshold")
+        cw_threshold = transform(threshold) if transform else threshold
 
     dimensions = _build_dimensions(alarm_def, resource_id, resource_type, resource_tags)
 
@@ -1392,9 +1518,13 @@ def _recreate_standard_alarm(
     sns_arn: str,
 ) -> None:
     """표준(하드코딩) 알람 재생성."""
-    threshold = get_threshold(resource_tags, metric_key)
-    transform = alarm_def.get("transform_threshold")
-    cw_threshold = transform(threshold) if transform else threshold
+    # FreeMemoryGB: 퍼센트 기반 임계치 해석
+    if metric_key == "FreeMemoryGB":
+        threshold, cw_threshold = _resolve_free_memory_threshold(resource_tags)
+    else:
+        threshold = get_threshold(resource_tags, metric_key)
+        transform = alarm_def.get("transform_threshold")
+        cw_threshold = transform(threshold) if transform else threshold
 
     dimensions = _build_dimensions(alarm_def, resource_id, resource_type, resource_tags)
 
@@ -1606,9 +1736,14 @@ def _sync_standard_alarms(
     # off 태그 설정 시 _sync_off_hardcoded()에서 처리 → 여기서는 스킵
     if is_threshold_off(resource_tags, metric):
         return False
-    threshold = get_threshold(resource_tags, metric)
-    transform = alarm_def.get("transform_threshold")
-    cw_threshold = transform(threshold) if transform else threshold
+
+    # FreeMemoryGB: 퍼센트 기반 임계치 해석
+    if metric == "FreeMemoryGB":
+        threshold, cw_threshold = _resolve_free_memory_threshold(resource_tags)
+    else:
+        threshold = get_threshold(resource_tags, metric)
+        transform = alarm_def.get("transform_threshold")
+        cw_threshold = transform(threshold) if transform else threshold
 
     alarm_info = key_to_alarm.get(metric)
     if not alarm_info:

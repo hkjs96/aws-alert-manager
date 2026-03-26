@@ -695,3 +695,118 @@ class TestCleanupOrphanAlarmsAuroraRDS:
             DBInstanceIdentifier="aurora-db-001",
         )
         assert len(deleted) == 1
+
+
+# ──────────────────────────────────────────────
+# Task 12.1: _process_resource() 신규 메트릭 임계치 비교 검증
+# Requirements: 9.1, 10.1, 10.2
+# ──────────────────────────────────────────────
+
+
+class TestProcessResourceNewAuroraMetrics:
+    """_process_resource() 신규 Aurora 메트릭 greater-than 비교 검증."""
+
+    def test_reader_replica_lag_above_threshold_alerts(self):
+        """ReaderReplicaLag > threshold → 알림 발송 (높을수록 위험)."""
+        collector_mod = MagicMock()
+        collector_mod.get_aurora_metrics.return_value = {"ReaderReplicaLag": 3000000.0}
+
+        with patch("daily_monitor.lambda_handler.get_threshold", return_value=2000000.0), \
+             patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
+            alerts = _process_resource(
+                "aurora-reader-001", "AuroraRDS", {"Monitoring": "on"}, collector_mod,
+            )
+
+        assert alerts == 1
+        mock_alert.assert_called_once_with(
+            resource_id="aurora-reader-001",
+            resource_type="AuroraRDS",
+            metric_name="ReaderReplicaLag",
+            current_value=3000000.0,
+            threshold=2000000.0,
+            tag_name="",
+        )
+
+    def test_reader_replica_lag_below_threshold_no_alert(self):
+        """ReaderReplicaLag <= threshold → 알림 미발송."""
+        collector_mod = MagicMock()
+        collector_mod.get_aurora_metrics.return_value = {"ReaderReplicaLag": 1000000.0}
+
+        with patch("daily_monitor.lambda_handler.get_threshold", return_value=2000000.0), \
+             patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
+            alerts = _process_resource(
+                "aurora-reader-001", "AuroraRDS", {"Monitoring": "on"}, collector_mod,
+            )
+
+        assert alerts == 0
+        mock_alert.assert_not_called()
+
+    def test_acu_utilization_above_threshold_alerts(self):
+        """ACUUtilization > threshold → 알림 발송 (높을수록 위험)."""
+        collector_mod = MagicMock()
+        collector_mod.get_aurora_metrics.return_value = {"ACUUtilization": 95.0}
+
+        with patch("daily_monitor.lambda_handler.get_threshold", return_value=80.0), \
+             patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
+            alerts = _process_resource(
+                "aurora-sv2-001", "AuroraRDS", {"Monitoring": "on"}, collector_mod,
+            )
+
+        assert alerts == 1
+        mock_alert.assert_called_once_with(
+            resource_id="aurora-sv2-001",
+            resource_type="AuroraRDS",
+            metric_name="ACUUtilization",
+            current_value=95.0,
+            threshold=80.0,
+            tag_name="",
+        )
+
+    def test_acu_utilization_below_threshold_no_alert(self):
+        """ACUUtilization <= threshold → 알림 미발송."""
+        collector_mod = MagicMock()
+        collector_mod.get_aurora_metrics.return_value = {"ACUUtilization": 50.0}
+
+        with patch("daily_monitor.lambda_handler.get_threshold", return_value=80.0), \
+             patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
+            alerts = _process_resource(
+                "aurora-sv2-001", "AuroraRDS", {"Monitoring": "on"}, collector_mod,
+            )
+
+        assert alerts == 0
+        mock_alert.assert_not_called()
+
+    def test_serverless_database_capacity_above_threshold_alerts(self):
+        """ServerlessDatabaseCapacity > threshold → 알림 발송 (높을수록 위험)."""
+        collector_mod = MagicMock()
+        collector_mod.get_aurora_metrics.return_value = {"ServerlessDatabaseCapacity": 150.0}
+
+        with patch("daily_monitor.lambda_handler.get_threshold", return_value=128.0), \
+             patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
+            alerts = _process_resource(
+                "aurora-sv2-001", "AuroraRDS", {"Monitoring": "on"}, collector_mod,
+            )
+
+        assert alerts == 1
+        mock_alert.assert_called_once_with(
+            resource_id="aurora-sv2-001",
+            resource_type="AuroraRDS",
+            metric_name="ServerlessDatabaseCapacity",
+            current_value=150.0,
+            threshold=128.0,
+            tag_name="",
+        )
+
+    def test_serverless_database_capacity_below_threshold_no_alert(self):
+        """ServerlessDatabaseCapacity <= threshold → 알림 미발송."""
+        collector_mod = MagicMock()
+        collector_mod.get_aurora_metrics.return_value = {"ServerlessDatabaseCapacity": 64.0}
+
+        with patch("daily_monitor.lambda_handler.get_threshold", return_value=128.0), \
+             patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
+            alerts = _process_resource(
+                "aurora-sv2-001", "AuroraRDS", {"Monitoring": "on"}, collector_mod,
+            )
+
+        assert alerts == 0
+        mock_alert.assert_not_called()

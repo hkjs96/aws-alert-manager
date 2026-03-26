@@ -141,7 +141,7 @@ class TestExistingEventPreservation:
         event = _make_event("DeleteDBInstance", {
             "dBInstanceIdentifier": db_id,
         })
-        with patch("remediation_handler.lambda_handler._resolve_rds_aurora_type", return_value="RDS"):
+        with patch("remediation_handler.lambda_handler._resolve_rds_aurora_type", return_value=("RDS", False)):
             parsed = parse_cloudtrail_event(event)
         assert parsed[0].resource_type == "RDS"
         assert parsed[0].event_category == "DELETE"
@@ -232,7 +232,7 @@ class TestExistingEventPreservation:
         event = _make_event("ModifyDBInstance", {
             "dBInstanceIdentifier": db_id,
         })
-        with patch("remediation_handler.lambda_handler._resolve_rds_aurora_type", return_value="RDS"):
+        with patch("remediation_handler.lambda_handler._resolve_rds_aurora_type", return_value=("RDS", False)):
             parsed = parse_cloudtrail_event(event)
         assert parsed[0].resource_type == "RDS"
         assert parsed[0].event_category == "MODIFY"
@@ -341,7 +341,7 @@ class TestExistingEventPreservation:
         event = _make_event("AddTagsToResource", {
             "resourceName": arn,
         })
-        with patch("remediation_handler.lambda_handler._resolve_rds_aurora_type", return_value="RDS"):
+        with patch("remediation_handler.lambda_handler._resolve_rds_aurora_type", return_value=("RDS", False)):
             parsed = parse_cloudtrail_event(event)
         assert parsed[0].resource_type == "RDS"
         assert parsed[0].event_category == "TAG_CHANGE"
@@ -362,7 +362,7 @@ class TestExistingEventPreservation:
         event = _make_event("RemoveTagsFromResource", {
             "resourceName": arn,
         })
-        with patch("remediation_handler.lambda_handler._resolve_rds_aurora_type", return_value="RDS"):
+        with patch("remediation_handler.lambda_handler._resolve_rds_aurora_type", return_value=("RDS", False)):
             parsed = parse_cloudtrail_event(event)
         assert parsed[0].resource_type == "RDS"
         assert parsed[0].event_category == "TAG_CHANGE"

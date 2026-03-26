@@ -194,7 +194,7 @@ Add Aurora RDS as a new monitored resource type (`"AuroraRDS"`) by extending exi
 - [ ] 11. Checkpoint — Remediation + Tag Resolver 테스트 통과 확인
   - Ensure all tests pass, ask the user if questions arise.
 
-- [~] 12. 통합 와이어링 및 §12 매핑 테이블 업데이트
+- [ ] 12. 통합 와이어링 및 §12 매핑 테이블 업데이트
   - [ ] 12.1 통합 시나리오 테스트 작성
     - `tests/test_alarm_manager.py`에 AuroraRDS 알람 생성 → sync → 삭제 end-to-end 테스트 추가
     - `sync_alarms_for_resource()` 호출 시 5개 알람 생성 검증
