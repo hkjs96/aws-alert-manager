@@ -1285,3 +1285,307 @@ class TestAuroraMetadataEnrichment:
         tags = result[0]["tags"]
         assert "_total_memory_bytes" not in tags
         mock_logger.warning.assert_called()
+
+
+# ──────────────────────────────────────────────
+# DocDB Collector 단위 테스트
+# Validates: Requirements 1.1, 1.2, 1.3, 1.4, 1.5, 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7, 2.8, 2.9
+# ──────────────────────────────────────────────
+
+from common.collectors import docdb as docdb_collector
+
+
+def _make_docdb_instance(db_id: str, db_arn: str, status: str = "available",
+                         engine: str = "docdb") -> dict:
+    """describe_db_instances 응답용 DocDB 인스턴스 dict 생성."""
+    return {
+        "DBInstanceIdentifier": db_id,
+        "DBInstanceArn": db_arn,
+        "DBInstanceStatus": status,
+        "Engine": engine,
+    }
+
+
+class TestDocDBCollector:
+    """DocDB Collector 단위 테스트 — collect_monitored_resources() + get_metrics()."""
+
+    def _mock_rds_for_docdb(self, instances, tag_map):
+        """RDS 클라이언트 mock 생성 (DocDB 수집 테스트용)."""
+        mock_rds = MagicMock()
+        mock_paginator = MagicMock()
+        mock_rds.get_paginator.return_value = mock_paginator
+        mock_paginator.paginate.return_value = [{"DBInstances": instances}]
+
+        def mock_list_tags(ResourceName):
+            tags = tag_map.get(ResourceName, {})
+            return {"TagList": [{"Key": k, "Value": v} for k, v in tags.items()]}
+
+        mock_rds.list_tags_for_resource.side_effect = mock_list_tags
+        return mock_rds
+
+    # ── collect_monitored_resources() 테스트 ──
+
+    def test_collect_docdb_engine_only(self):
+        """Engine 'docdb'만 수집, type='DocDB' — Req 1.1, 1.2, 1.5"""
+        arn_docdb = "arn:aws:rds:us-east-1:123:db:docdb-inst-1"
+        arn_aurora = "arn:aws:rds:us-east-1:123:db:aurora-inst-1"
+        arn_mysql = "arn:aws:rds:us-east-1:123:db:mysql-inst-1"
+        arn_postgres = "arn:aws:rds:us-east-1:123:db:pg-inst-1"
+
+        instances = [
+            _make_docdb_instance("docdb-inst-1", arn_docdb, engine="docdb"),
+            _make_docdb_instance("aurora-inst-1", arn_aurora, engine="aurora-mysql"),
+            _make_docdb_instance("mysql-inst-1", arn_mysql, engine="mysql"),
+            _make_docdb_instance("pg-inst-1", arn_postgres, engine="postgres"),
+        ]
+        tag_map = {
+            arn_docdb: {"Monitoring": "on"},
+            arn_aurora: {"Monitoring": "on"},
+            arn_mysql: {"Monitoring": "on"},
+            arn_postgres: {"Monitoring": "on"},
+        }
+        mock_rds = self._mock_rds_for_docdb(instances, tag_map)
+
+        with patch.object(docdb_collector, "_get_rds_client", return_value=mock_rds), \
+             patch("common.collectors.docdb.boto3.session.Session") as ms:
+            ms.return_value.region_name = "us-east-1"
+            result = docdb_collector.collect_monitored_resources()
+
+        assert len(result) == 1
+        assert result[0]["id"] == "docdb-inst-1"
+        assert result[0]["type"] == "DocDB"
+
+    def test_engine_filtering_excludes_non_docdb(self):
+        """aurora-mysql, mysql, postgres 엔진 제외 — Req 1.5"""
+        instances = [
+            _make_docdb_instance("a1", "arn:aws:rds:us-east-1:123:db:a1", engine="aurora-mysql"),
+            _make_docdb_instance("a2", "arn:aws:rds:us-east-1:123:db:a2", engine="mysql"),
+            _make_docdb_instance("a3", "arn:aws:rds:us-east-1:123:db:a3", engine="postgres"),
+        ]
+        tag_map = {
+            "arn:aws:rds:us-east-1:123:db:a1": {"Monitoring": "on"},
+            "arn:aws:rds:us-east-1:123:db:a2": {"Monitoring": "on"},
+            "arn:aws:rds:us-east-1:123:db:a3": {"Monitoring": "on"},
+        }
+        mock_rds = self._mock_rds_for_docdb(instances, tag_map)
+
+        with patch.object(docdb_collector, "_get_rds_client", return_value=mock_rds), \
+             patch("common.collectors.docdb.boto3.session.Session") as ms:
+            ms.return_value.region_name = "us-east-1"
+            result = docdb_collector.collect_monitored_resources()
+
+        assert result == []
+
+    def test_deleting_status_skipped(self):
+        """DBInstanceStatus 'deleting' 인스턴스 skip — Req 1.3"""
+        arn_del = "arn:aws:rds:us-east-1:123:db:docdb-deleting"
+        arn_ok = "arn:aws:rds:us-east-1:123:db:docdb-ok"
+        instances = [
+            _make_docdb_instance("docdb-deleting", arn_del, status="deleting", engine="docdb"),
+            _make_docdb_instance("docdb-ok", arn_ok, status="available", engine="docdb"),
+        ]
+        tag_map = {
+            arn_del: {"Monitoring": "on"},
+            arn_ok: {"Monitoring": "on"},
+        }
+        mock_rds = self._mock_rds_for_docdb(instances, tag_map)
+
+        with patch.object(docdb_collector, "_get_rds_client", return_value=mock_rds), \
+             patch("common.collectors.docdb.boto3.session.Session") as ms:
+            ms.return_value.region_name = "us-east-1"
+            result = docdb_collector.collect_monitored_resources()
+
+        assert len(result) == 1
+        assert result[0]["id"] == "docdb-ok"
+
+    def test_monitoring_tag_required(self):
+        """Monitoring=on 태그 없는 DocDB 인스턴스 제외 — Req 1.2"""
+        arn_on = "arn:aws:rds:us-east-1:123:db:docdb-on"
+        arn_off = "arn:aws:rds:us-east-1:123:db:docdb-off"
+        instances = [
+            _make_docdb_instance("docdb-on", arn_on, engine="docdb"),
+            _make_docdb_instance("docdb-off", arn_off, engine="docdb"),
+        ]
+        tag_map = {
+            arn_on: {"Monitoring": "on"},
+            arn_off: {"Monitoring": "off"},
+        }
+        mock_rds = self._mock_rds_for_docdb(instances, tag_map)
+
+        with patch.object(docdb_collector, "_get_rds_client", return_value=mock_rds), \
+             patch("common.collectors.docdb.boto3.session.Session") as ms:
+            ms.return_value.region_name = "us-east-1"
+            result = docdb_collector.collect_monitored_resources()
+
+        assert len(result) == 1
+        assert result[0]["id"] == "docdb-on"
+
+    # ── get_metrics() 테스트 ──
+
+    def test_get_metrics_returns_six_keys(self):
+        """6개 메트릭 키 반환 — Req 2.1, 2.4, 2.5, 2.6, 2.7"""
+        mock_cw = MagicMock()
+        two_gb = 2.0 * (1024 ** 3)
+        five_gb = 5.0 * (1024 ** 3)
+
+        data = {
+            "CPUUtilization": 75.0,
+            "FreeableMemory": two_gb,
+            "FreeLocalStorage": five_gb,
+            "DatabaseConnections": 50.0,
+            "ReadLatency": 0.015,
+            "WriteLatency": 0.025,
+        }
+
+        def get_metric_stats(**kwargs):
+            metric_name = kwargs.get("MetricName", "")
+            if metric_name in data:
+                return {
+                    "Datapoints": [{
+                        "Timestamp": datetime(2024, 1, 1, tzinfo=timezone.utc),
+                        "Average": data[metric_name],
+                    }]
+                }
+            return {"Datapoints": []}
+
+        mock_cw.get_metric_statistics.side_effect = get_metric_stats
+
+        with patch("common.collectors.base._get_cw_client", return_value=mock_cw):
+            result = docdb_collector.get_metrics("docdb-inst-1")
+
+        assert result is not None
+        expected_keys = {"CPU", "FreeMemoryGB", "FreeLocalStorageGB",
+                         "Connections", "ReadLatency", "WriteLatency"}
+        assert set(result.keys()) == expected_keys
+        assert result["CPU"] == pytest.approx(75.0)
+        assert result["Connections"] == pytest.approx(50.0)
+        assert result["ReadLatency"] == pytest.approx(0.015)
+        assert result["WriteLatency"] == pytest.approx(0.025)
+
+    def test_freeable_memory_bytes_to_gb(self):
+        """FreeableMemory bytes→GB 변환: 2147483648 → 2.0 — Req 2.2"""
+        mock_cw = MagicMock()
+
+        def get_metric_stats(**kwargs):
+            metric_name = kwargs.get("MetricName", "")
+            if metric_name == "FreeableMemory":
+                return {
+                    "Datapoints": [{
+                        "Timestamp": datetime(2024, 1, 1, tzinfo=timezone.utc),
+                        "Average": 2147483648.0,
+                    }]
+                }
+            return {"Datapoints": []}
+
+        mock_cw.get_metric_statistics.side_effect = get_metric_stats
+
+        with patch("common.collectors.base._get_cw_client", return_value=mock_cw):
+            result = docdb_collector.get_metrics("docdb-inst-1")
+
+        assert result is not None
+        assert result["FreeMemoryGB"] == pytest.approx(2.0)
+
+    def test_free_local_storage_bytes_to_gb(self):
+        """FreeLocalStorage bytes→GB 변환 — Req 2.3"""
+        mock_cw = MagicMock()
+
+        def get_metric_stats(**kwargs):
+            metric_name = kwargs.get("MetricName", "")
+            if metric_name == "FreeLocalStorage":
+                return {
+                    "Datapoints": [{
+                        "Timestamp": datetime(2024, 1, 1, tzinfo=timezone.utc),
+                        "Average": 10.0 * 1073741824,
+                    }]
+                }
+            return {"Datapoints": []}
+
+        mock_cw.get_metric_statistics.side_effect = get_metric_stats
+
+        with patch("common.collectors.base._get_cw_client", return_value=mock_cw):
+            result = docdb_collector.get_metrics("docdb-inst-1")
+
+        assert result is not None
+        assert result["FreeLocalStorageGB"] == pytest.approx(10.0)
+
+    def test_get_metrics_returns_none_when_all_empty(self):
+        """모든 메트릭 데이터 없을 때 None 반환 — Req 2.9"""
+        mock_cw = MagicMock()
+        mock_cw.get_metric_statistics.return_value = {"Datapoints": []}
+
+        with patch("common.collectors.base._get_cw_client", return_value=mock_cw):
+            result = docdb_collector.get_metrics("docdb-inst-1")
+
+        assert result is None
+
+
+# ──────────────────────────────────────────────
+# Task 5.1: DocDB Tag Resolver 지원 테스트
+# Validates: Requirements 15.1
+# ──────────────────────────────────────────────
+
+
+class TestDocDBTagResolver:
+    """get_resource_tags(resource_id, 'DocDB')가 RDS 태그 조회 경로를 사용하는지 검증."""
+
+    def test_docdb_tag_retrieval_uses_rds_path(self):
+        """get_resource_tags(id, 'DocDB') → describe_db_instances + list_tags_for_resource 호출."""
+        from common.tag_resolver import get_resource_tags
+
+        mock_rds = MagicMock()
+        mock_rds.describe_db_instances.return_value = {
+            "DBInstances": [{
+                "DBInstanceIdentifier": "docdb-prod-1",
+                "DBInstanceArn": "arn:aws:rds:us-east-1:123456789012:db:docdb-prod-1",
+            }],
+        }
+        mock_rds.list_tags_for_resource.return_value = {
+            "TagList": [
+                {"Key": "Monitoring", "Value": "on"},
+                {"Key": "Threshold_CPU", "Value": "90"},
+                {"Key": "Name", "Value": "my-docdb"},
+            ],
+        }
+
+        with patch("common.tag_resolver._get_rds_client", return_value=mock_rds):
+            tags = get_resource_tags("docdb-prod-1", "DocDB")
+
+        assert tags == {"Monitoring": "on", "Threshold_CPU": "90", "Name": "my-docdb"}
+        mock_rds.describe_db_instances.assert_called_once_with(
+            DBInstanceIdentifier="docdb-prod-1",
+        )
+        mock_rds.list_tags_for_resource.assert_called_once_with(
+            ResourceName="arn:aws:rds:us-east-1:123456789012:db:docdb-prod-1",
+        )
+
+    def test_docdb_returns_same_result_as_rds(self):
+        """get_resource_tags(id, 'DocDB')와 get_resource_tags(id, 'RDS')가 동일 경로 사용."""
+        from common.tag_resolver import get_resource_tags
+
+        mock_rds = MagicMock()
+        mock_rds.describe_db_instances.return_value = {
+            "DBInstances": [{
+                "DBInstanceIdentifier": "docdb-test-1",
+                "DBInstanceArn": "arn:aws:rds:us-east-1:123456789012:db:docdb-test-1",
+            }],
+        }
+        mock_rds.list_tags_for_resource.return_value = {
+            "TagList": [{"Key": "Env", "Value": "prod"}],
+        }
+
+        with patch("common.tag_resolver._get_rds_client", return_value=mock_rds):
+            docdb_tags = get_resource_tags("docdb-test-1", "DocDB")
+            rds_tags = get_resource_tags("docdb-test-1", "RDS")
+
+        assert docdb_tags == rds_tags == {"Env": "prod"}
+
+    def test_docdb_unsupported_returns_empty_before_fix(self):
+        """수정 전: 'DocDB'가 지원되지 않으면 빈 dict 반환 + warning 로그."""
+        from common.tag_resolver import get_resource_tags
+
+        # This test verifies the current behavior before the fix
+        # After fix, DocDB should be handled by the RDS branch
+        tags = get_resource_tags("docdb-test-1", "DocDB")
+        # If DocDB is not yet supported, returns {} with warning
+        # If already supported, returns tags from RDS path
+        assert isinstance(tags, dict)

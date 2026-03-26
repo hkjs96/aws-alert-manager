@@ -20,6 +20,7 @@ logging.getLogger().setLevel(logging.INFO)
 logger = logging.getLogger(__name__)
 
 from common.alarm_manager import sync_alarms_for_resource
+from common.collectors import docdb as docdb_collector
 from common.collectors import ec2 as ec2_collector
 from common.collectors import elb as elb_collector
 from common.collectors import rds as rds_collector
@@ -27,7 +28,7 @@ from common.sns_notifier import send_alert, send_error_alert
 from common.tag_resolver import get_threshold
 
 # collector 모듈 목록 (런타임에 .get_metrics 참조하여 패치 가능하도록)
-_COLLECTOR_MODULES = [ec2_collector, rds_collector, elb_collector]
+_COLLECTOR_MODULES = [ec2_collector, rds_collector, elb_collector, docdb_collector]
 
 # 새 포맷 알람에서 resource_type과 resource_id를 추출하는 정규식
 # 예: "[EC2] MyServer CPU >=80% (i-1234567890abcdef0)"
@@ -342,6 +343,7 @@ def _cleanup_orphan_alarms() -> list[str]:
         "EC2": _find_alive_ec2_instances,
         "RDS": _find_alive_rds_instances,
         "AuroraRDS": _find_alive_rds_instances,
+        "DocDB": _find_alive_rds_instances,
         "ELB": _find_alive_elb_resources,
         "ALB": _find_alive_elb_resources,
         "NLB": _find_alive_elb_resources,

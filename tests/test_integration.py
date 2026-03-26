@@ -32,6 +32,7 @@ class TestDailyMonitorIntegration:
         with patch("common.collectors.ec2.collect_monitored_resources", return_value=[ec2_resource]), \
              patch("common.collectors.rds.collect_monitored_resources", return_value=[]), \
              patch("common.collectors.elb.collect_monitored_resources", return_value=[]), \
+             patch("common.collectors.docdb.collect_monitored_resources", return_value=[]), \
              patch("common.collectors.ec2.get_metrics", return_value={"CPU": 95.0}), \
              patch("common.tag_resolver.get_threshold", return_value=80.0), \
              patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
@@ -60,6 +61,7 @@ class TestDailyMonitorIntegration:
         with patch("common.collectors.ec2.collect_monitored_resources", return_value=[]), \
              patch("common.collectors.rds.collect_monitored_resources", return_value=[rds_resource]), \
              patch("common.collectors.elb.collect_monitored_resources", return_value=[]), \
+             patch("common.collectors.docdb.collect_monitored_resources", return_value=[]), \
              patch("common.collectors.rds.get_metrics", return_value={"CPU": 90.0, "Connections": 150.0}), \
              patch("common.tag_resolver.get_threshold", side_effect=mock_threshold), \
              patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
@@ -77,6 +79,7 @@ class TestDailyMonitorIntegration:
         with patch("common.collectors.ec2.collect_monitored_resources", return_value=[ec2_resource]), \
              patch("common.collectors.rds.collect_monitored_resources", return_value=[]), \
              patch("common.collectors.elb.collect_monitored_resources", return_value=[]), \
+             patch("common.collectors.docdb.collect_monitored_resources", return_value=[]), \
              patch("common.collectors.ec2.get_metrics", return_value={"CPU": 50.0}), \
              patch("common.tag_resolver.get_threshold", return_value=80.0), \
              patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
@@ -94,6 +97,7 @@ class TestDailyMonitorIntegration:
         with patch("common.collectors.ec2.collect_monitored_resources", return_value=[ec2_resource]), \
              patch("common.collectors.rds.collect_monitored_resources", return_value=[]), \
              patch("common.collectors.elb.collect_monitored_resources", return_value=[]), \
+             patch("common.collectors.docdb.collect_monitored_resources", return_value=[]), \
              patch("common.collectors.ec2.get_metrics", return_value=None), \
              patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
 
@@ -110,6 +114,7 @@ class TestDailyMonitorIntegration:
         with patch("common.collectors.ec2.collect_monitored_resources", side_effect=Exception("EC2 API error")), \
              patch("common.collectors.rds.collect_monitored_resources", return_value=[rds_resource]), \
              patch("common.collectors.elb.collect_monitored_resources", return_value=[]), \
+             patch("common.collectors.docdb.collect_monitored_resources", return_value=[]), \
              patch("common.collectors.rds.get_metrics", return_value={"CPU": 50.0}), \
              patch("common.tag_resolver.get_threshold", return_value=80.0), \
              patch("daily_monitor.lambda_handler.send_error_alert") as mock_err, \

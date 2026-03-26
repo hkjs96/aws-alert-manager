@@ -45,7 +45,7 @@ HARDCODED_DEFAULTS: dict[str, float] = {
 }
 
 # 지원하는 AWS 리소스 유형 - Requirements 6.1
-SUPPORTED_RESOURCE_TYPES: list[str] = ["EC2", "RDS", "ALB", "NLB", "TG", "AuroraRDS"]
+SUPPORTED_RESOURCE_TYPES: list[str] = ["EC2", "RDS", "ALB", "NLB", "TG", "AuroraRDS", "DocDB"]
 
 # CloudTrail 모니터링 대상 API 이벤트 - Requirements 4.1, 8.1, 8.4
 MONITORED_API_EVENTS: dict[str, list[str]] = {
@@ -86,7 +86,7 @@ MONITORED_API_EVENTS: dict[str, list[str]] = {
 class ResourceInfo(TypedDict):
     """수집된 AWS 리소스 정보"""
     id: str           # 리소스 ID (예: "i-1234567890abcdef0")
-    type: str         # "EC2" | "RDS" | "ALB" | "NLB" | "TG" | "AuroraRDS"
+    type: str         # "EC2" | "RDS" | "ALB" | "NLB" | "TG" | "AuroraRDS" | "DocDB"
     tags: dict        # {"Monitoring": "on", "Threshold_CPU": "90", ...}
     region: str       # AWS 리전
 
@@ -95,7 +95,7 @@ class AlertMessage(TypedDict):
     """임계치 초과 SNS 알림 메시지"""
     alert_type: str       # "THRESHOLD_EXCEEDED"
     resource_id: str
-    resource_type: str    # "EC2" | "RDS" | "ALB" | "NLB" | "TG" | "AuroraRDS"
+    resource_type: str    # "EC2" | "RDS" | "ALB" | "NLB" | "TG" | "AuroraRDS" | "DocDB"
     metric_name: str      # "CPU" | "Memory" | "Connections" 등
     current_value: float
     threshold: float
@@ -107,7 +107,7 @@ class RemediationAlertMessage(TypedDict):
     """Auto-Remediation 완료 SNS 알림 메시지"""
     alert_type: str       # "REMEDIATION_PERFORMED"
     resource_id: str
-    resource_type: str    # "EC2" | "RDS" | "ALB" | "NLB" | "TG" | "AuroraRDS"
+    resource_type: str    # "EC2" | "RDS" | "ALB" | "NLB" | "TG" | "AuroraRDS" | "DocDB"
     change_summary: str   # 감지된 변경 내용 요약
     action_taken: str     # "STOPPED" | "DELETED"
     timestamp: str        # ISO 8601
@@ -117,6 +117,6 @@ class LifecycleAlertMessage(TypedDict):
     """리소스 생명주기 변경 SNS 알림 메시지"""
     alert_type: str       # "RESOURCE_DELETED" | "MONITORING_REMOVED"
     resource_id: str
-    resource_type: str    # "EC2" | "RDS" | "ALB" | "NLB" | "TG" | "AuroraRDS"
+    resource_type: str    # "EC2" | "RDS" | "ALB" | "NLB" | "TG" | "AuroraRDS" | "DocDB"
     message: str          # 사람이 읽을 수 있는 요약
     timestamp: str        # ISO 8601

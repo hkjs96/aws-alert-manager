@@ -237,7 +237,7 @@ def _find_alarms_for_resource(
     type_prefixes = (
         [f"[{resource_type}] "]
         if resource_type
-        else [f"[{rt}] " for rt in ("EC2", "RDS", "ALB", "NLB", "TG", "AuroraRDS")]
+        else [f"[{rt}] " for rt in ("EC2", "RDS", "ALB", "NLB", "TG", "AuroraRDS", "DocDB")]
     )
     for p in type_prefixes:
         _collect(p, filter_suffix=True)
@@ -642,6 +642,71 @@ def _get_aurora_alarm_defs(resource_tags: dict) -> list[dict]:
     return alarms
 
 
+_DOCDB_ALARMS = [
+    {
+        "metric": "CPU",
+        "namespace": "AWS/DocDB",
+        "metric_name": "CPUUtilization",
+        "dimension_key": "DBInstanceIdentifier",
+        "stat": "Average",
+        "comparison": "GreaterThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+    },
+    {
+        "metric": "FreeMemoryGB",
+        "namespace": "AWS/DocDB",
+        "metric_name": "FreeableMemory",
+        "dimension_key": "DBInstanceIdentifier",
+        "stat": "Average",
+        "comparison": "LessThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+        "transform_threshold": lambda gb: gb * 1073741824,
+    },
+    {
+        "metric": "FreeLocalStorageGB",
+        "namespace": "AWS/DocDB",
+        "metric_name": "FreeLocalStorage",
+        "dimension_key": "DBInstanceIdentifier",
+        "stat": "Average",
+        "comparison": "LessThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+        "transform_threshold": lambda gb: gb * 1073741824,
+    },
+    {
+        "metric": "Connections",
+        "namespace": "AWS/DocDB",
+        "metric_name": "DatabaseConnections",
+        "dimension_key": "DBInstanceIdentifier",
+        "stat": "Average",
+        "comparison": "GreaterThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+    },
+    {
+        "metric": "ReadLatency",
+        "namespace": "AWS/DocDB",
+        "metric_name": "ReadLatency",
+        "dimension_key": "DBInstanceIdentifier",
+        "stat": "Average",
+        "comparison": "GreaterThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+    },
+    {
+        "metric": "WriteLatency",
+        "namespace": "AWS/DocDB",
+        "metric_name": "WriteLatency",
+        "dimension_key": "DBInstanceIdentifier",
+        "stat": "Average",
+        "comparison": "GreaterThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+    },
+]
+
 _NLB_TG_EXCLUDED_METRICS = {"RequestCountPerTarget", "TGResponseTime"}
 
 
@@ -656,6 +721,8 @@ def _get_alarm_defs(resource_type: str, resource_tags: dict | None = None) -> li
         return _ALB_ALARMS
     elif resource_type == "NLB":
         return _NLB_ALARMS
+    elif resource_type == "DocDB":
+        return _DOCDB_ALARMS
     elif resource_type == "TG":
         # TargetType=alb인 TG는 HealthyHostCount/UnHealthyHostCount 메트릭이
         # CloudWatch에서 발행되지 않음 (AWS 제약사항) → 알람 생성 스킵
@@ -675,6 +742,7 @@ _HARDCODED_METRIC_KEYS: dict[str, set[str]] = {
     "NLB": {"ProcessedBytes", "ActiveFlowCount", "NewFlowCount", "TCPClientReset", "TCPTargetReset"},
     "TG": {"HealthyHostCount", "UnHealthyHostCount", "RequestCountPerTarget", "TGResponseTime"},
     "AuroraRDS": {"CPU", "FreeMemoryGB", "Connections", "FreeLocalStorageGB", "ReplicaLag", "ReaderReplicaLag", "ACUUtilization", "ServerlessDatabaseCapacity"},
+    "DocDB": {"CPU", "FreeMemoryGB", "FreeLocalStorageGB", "Connections", "ReadLatency", "WriteLatency"},
 }
 
 # resource_type별 CloudWatch 네임스페이스 목록
@@ -685,6 +753,7 @@ _NAMESPACE_MAP: dict[str, list[str]] = {
     "NLB": ["AWS/NetworkELB"],
     "TG": ["AWS/ApplicationELB", "AWS/NetworkELB"],
     "AuroraRDS": ["AWS/RDS"],
+    "DocDB": ["AWS/DocDB"],
 }
 
 # resource_type별 디멘션 키
@@ -695,6 +764,7 @@ _DIMENSION_KEY_MAP: dict[str, str] = {
     "NLB": "LoadBalancer",
     "TG": "TargetGroup",
     "AuroraRDS": "DBInstanceIdentifier",
+    "DocDB": "DBInstanceIdentifier",
 }
 
 # AWS 태그 허용 문자 패턴 (메트릭 이름 부분)

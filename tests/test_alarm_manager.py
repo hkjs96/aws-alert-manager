@@ -3196,3 +3196,262 @@ class TestResolveFreeMemoryThreshold:
             display_gb, cw_bytes = _resolve_free_memory_threshold(tags)
         assert display_gb == pytest.approx(3.2)
         assert cw_bytes == pytest.approx(0.2 * 17179869184)
+
+
+# ──────────────────────────────────────────────
+# DocDB 알람 정의 검증 (TDD Red — Task 3.1)
+# ──────────────────────────────────────────────
+
+class TestDocDBAlarmDefs:
+    """DocDB 알람 정의 및 매핑 테이블 검증.
+    Validates: Requirements 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 3.8, 4.1, 4.2, 6.1, 6.2, 6.3, 6.4
+    """
+
+    def test_get_alarm_defs_docdb_returns_six(self):
+        """_get_alarm_defs('DocDB') → 6개 알람 정의 반환."""
+        defs = _get_alarm_defs("DocDB")
+        assert len(defs) == 6
+
+    def test_get_alarm_defs_docdb_metric_keys(self):
+        """DocDB 알람 메트릭 키 집합 검증."""
+        defs = _get_alarm_defs("DocDB")
+        metrics = {d["metric"] for d in defs}
+        assert metrics == {"CPU", "FreeMemoryGB", "FreeLocalStorageGB", "Connections", "ReadLatency", "WriteLatency"}
+
+    def test_get_alarm_defs_docdb_namespace(self):
+        """모든 DocDB 알람 정의의 namespace == 'AWS/DocDB'."""
+        defs = _get_alarm_defs("DocDB")
+        for d in defs:
+            assert d["namespace"] == "AWS/DocDB", f"{d['metric']} namespace mismatch"
+
+    def test_get_alarm_defs_docdb_dimension_key(self):
+        """모든 DocDB 알람 정의의 dimension_key == 'DBInstanceIdentifier'."""
+        defs = _get_alarm_defs("DocDB")
+        for d in defs:
+            assert d["dimension_key"] == "DBInstanceIdentifier", f"{d['metric']} dimension_key mismatch"
+
+    def test_docdb_memory_storage_less_than_threshold(self):
+        """FreeMemoryGB, FreeLocalStorageGB: comparison == 'LessThanThreshold'."""
+        defs = _get_alarm_defs("DocDB")
+        for d in defs:
+            if d["metric"] in ("FreeMemoryGB", "FreeLocalStorageGB"):
+                assert d["comparison"] == "LessThanThreshold", f"{d['metric']} comparison mismatch"
+
+    def test_docdb_memory_storage_transform_threshold_exists(self):
+        """FreeMemoryGB, FreeLocalStorageGB: transform_threshold 존재."""
+        defs = _get_alarm_defs("DocDB")
+        for d in defs:
+            if d["metric"] in ("FreeMemoryGB", "FreeLocalStorageGB"):
+                assert "transform_threshold" in d, f"{d['metric']} missing transform_threshold"
+                # GB→bytes 변환 검증: 1 GB → 1073741824 bytes
+                assert d["transform_threshold"](1) == 1073741824, f"{d['metric']} transform_threshold(1) mismatch"
+                assert d["transform_threshold"](2) == 2 * 1073741824, f"{d['metric']} transform_threshold(2) mismatch"
+
+    def test_docdb_other_metrics_greater_than_threshold(self):
+        """CPU, Connections, ReadLatency, WriteLatency: comparison == 'GreaterThanThreshold'."""
+        defs = _get_alarm_defs("DocDB")
+        for d in defs:
+            if d["metric"] in ("CPU", "Connections", "ReadLatency", "WriteLatency"):
+                assert d["comparison"] == "GreaterThanThreshold", f"{d['metric']} comparison mismatch"
+
+    def test_hardcoded_metric_keys_docdb(self):
+        """_HARDCODED_METRIC_KEYS['DocDB'] == 예상 집합."""
+        assert _HARDCODED_METRIC_KEYS["DocDB"] == {
+            "CPU", "FreeMemoryGB", "FreeLocalStorageGB",
+            "Connections", "ReadLatency", "WriteLatency",
+        }
+
+    def test_namespace_map_docdb(self):
+        """_NAMESPACE_MAP['DocDB'] == ['AWS/DocDB']."""
+        from common.alarm_manager import _NAMESPACE_MAP
+        assert _NAMESPACE_MAP["DocDB"] == ["AWS/DocDB"]
+
+    def test_dimension_key_map_docdb(self):
+        """_DIMENSION_KEY_MAP['DocDB'] == 'DBInstanceIdentifier'."""
+        from common.alarm_manager import _DIMENSION_KEY_MAP
+        assert _DIMENSION_KEY_MAP["DocDB"] == "DBInstanceIdentifier"
+
+    def test_supported_resource_types_includes_docdb(self):
+        """SUPPORTED_RESOURCE_TYPES에 'DocDB' 포함."""
+        from common import SUPPORTED_RESOURCE_TYPES
+        assert "DocDB" in SUPPORTED_RESOURCE_TYPES
+
+
+# ──────────────────────────────────────────────
+# DocDB 알람 생성 통합 테스트 (Task 11)
+# ──────────────────────────────────────────────
+
+class TestDocDBAlarmCreation:
+    """DocDB 알람 생성 통합 테스트: 이름 접두사, 메타데이터, 디멘션, 태그 임계치 오버라이드 검증.
+    Validates: Requirements 5.1, 5.2, 5.3, 11.1, 11.2, 11.3, 11.4, 11.5, 11.6
+    """
+
+    def _mock_cw(self):
+        mock_cw = MagicMock()
+        mock_paginator = MagicMock()
+        mock_paginator.paginate.return_value = [{"MetricAlarms": []}]
+        mock_cw.get_paginator.return_value = mock_paginator
+        return mock_cw
+
+    def test_docdb_creates_six_alarms(self):
+        """DocDB 인스턴스에 6개 알람 생성 검증."""
+        mock_cw = self._mock_cw()
+        tags = {"Monitoring": "on", "Name": "my-docdb"}
+        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+            created = create_alarms_for_resource("docdb-inst-1", "DocDB", tags)
+
+        assert len(created) == 6
+        assert mock_cw.put_metric_alarm.call_count == 6
+
+    def test_docdb_alarm_name_prefix(self):
+        """모든 DocDB 알람 이름이 '[DocDB] '로 시작하는지 검증 — Req 5.1."""
+        mock_cw = self._mock_cw()
+        tags = {"Monitoring": "on", "Name": "my-docdb"}
+        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+            created = create_alarms_for_resource("docdb-inst-1", "DocDB", tags)
+
+        for name in created:
+            assert name.startswith("[DocDB] "), f"Alarm name missing [DocDB] prefix: {name}"
+
+    def test_docdb_alarm_description_metadata(self):
+        """AlarmDescription JSON에 'resource_type':'DocDB' 포함 검증 — Req 5.2."""
+        import json
+        mock_cw = self._mock_cw()
+        tags = {"Monitoring": "on", "Name": "my-docdb"}
+        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+            create_alarms_for_resource("docdb-inst-1", "DocDB", tags)
+
+        for call in mock_cw.put_metric_alarm.call_args_list:
+            desc = call.kwargs["AlarmDescription"]
+            # JSON 메타데이터는 " | " 뒤에 위치
+            idx = desc.rfind(" | {")
+            json_str = desc[idx + 3:] if idx >= 0 else desc
+            metadata = json.loads(json_str)
+            assert metadata["resource_type"] == "DocDB", f"Missing resource_type in: {desc}"
+
+    def test_docdb_alarm_dimensions(self):
+        """디멘션: [{'Name': 'DBInstanceIdentifier', 'Value': db_id}] 검증 — Req 5.3."""
+        mock_cw = self._mock_cw()
+        db_id = "docdb-inst-1"
+        tags = {"Monitoring": "on"}
+        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+            create_alarms_for_resource(db_id, "DocDB", tags)
+
+        for call in mock_cw.put_metric_alarm.call_args_list:
+            dims = call.kwargs["Dimensions"]
+            assert dims == [{"Name": "DBInstanceIdentifier", "Value": db_id}], (
+                f"Unexpected dimensions: {dims}"
+            )
+
+    def test_docdb_threshold_cpu_tag_override(self):
+        """Threshold_CPU=90 태그 → CPU 알람 임계치 90.0 검증 — Req 11.1."""
+        mock_cw = self._mock_cw()
+        tags = {"Monitoring": "on", "Threshold_CPU": "90"}
+        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+            create_alarms_for_resource("docdb-inst-1", "DocDB", tags)
+
+        calls = mock_cw.put_metric_alarm.call_args_list
+        cpu_call = [c for c in calls if c.kwargs["MetricName"] == "CPUUtilization"][0]
+        assert cpu_call.kwargs["Threshold"] == 90.0
+
+    def test_docdb_threshold_free_memory_gb_tag_override(self):
+        """Threshold_FreeMemoryGB=4 태그 → FreeableMemory 알람 임계치 4*1073741824 bytes 검증 — Req 11.2."""
+        mock_cw = self._mock_cw()
+        tags = {"Monitoring": "on", "Threshold_FreeMemoryGB": "4"}
+        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+            create_alarms_for_resource("docdb-inst-1", "DocDB", tags)
+
+        calls = mock_cw.put_metric_alarm.call_args_list
+        mem_call = [c for c in calls if c.kwargs["MetricName"] == "FreeableMemory"][0]
+        assert mem_call.kwargs["Threshold"] == 4 * 1073741824
+
+    def test_docdb_alarm_name_contains_resource_id_suffix(self):
+        """모든 DocDB 알람 이름이 '(docdb-inst-1)'로 끝나는지 검증."""
+        mock_cw = self._mock_cw()
+        tags = {"Monitoring": "on"}
+        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+            created = create_alarms_for_resource("docdb-inst-1", "DocDB", tags)
+
+        for name in created:
+            assert name.endswith("(docdb-inst-1)"), f"Alarm name missing suffix: {name}"
+
+
+# ──────────────────────────────────────────────
+# DocDB E2E 통합 테스트 (Task 13)
+# ──────────────────────────────────────────────
+
+class TestDocDBEndToEnd:
+    """DocDB 전체 통합 와이어링 검증: 알람 생성 + 동기화 + 이름 접두사.
+    Validates: Requirements 7.1, 7.2, 7.3, 8.1, 8.3, 10.1, 10.2, 12.1, 12.2
+    """
+
+    def _mock_cw(self):
+        mock_cw = MagicMock()
+        mock_paginator = MagicMock()
+        mock_paginator.paginate.return_value = [{"MetricAlarms": []}]
+        mock_cw.get_paginator.return_value = mock_paginator
+        return mock_cw
+
+    def test_docdb_create_alarms_six_with_prefix(self):
+        """create_alarms_for_resource('docdb-inst-1', 'DocDB', ...) → 6개 알람, 모두 [DocDB] 접두사."""
+        mock_cw = self._mock_cw()
+        tags = {"Monitoring": "on"}
+        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+            created = create_alarms_for_resource("docdb-inst-1", "DocDB", tags)
+
+        assert len(created) == 6
+        for name in created:
+            assert name.startswith("[DocDB] "), f"Missing [DocDB] prefix: {name}"
+
+    def test_docdb_sync_alarms_creates_when_none_exist(self):
+        """sync_alarms_for_resource('docdb-inst-1', 'DocDB', ...) → 알람 없으면 6개 생성."""
+        mock_cw = self._mock_cw()
+        tags = {"Monitoring": "on"}
+        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+            result = sync_alarms_for_resource("docdb-inst-1", "DocDB", tags)
+
+        assert len(result["created"]) == 6
+        for name in result["created"]:
+            assert name.startswith("[DocDB] "), f"Missing [DocDB] prefix: {name}"
+
+    def test_docdb_sync_alarms_all_ok_when_matching(self):
+        """sync_alarms_for_resource() — 기존 알람이 임계치와 일치하면 ok 목록에 포함."""
+        import json
+        mock_cw = self._mock_cw()
+        db_id = "docdb-inst-1"
+        tags = {"Monitoring": "on", "Name": "my-docdb"}
+
+        # 먼저 알람 생성하여 이름 목록 확보
+        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+            created = create_alarms_for_resource(db_id, "DocDB", tags)
+
+        # 기존 알람 describe 결과 mock 구성
+        existing_alarms = []
+        for call in mock_cw.put_metric_alarm.call_args_list:
+            kw = call.kwargs
+            existing_alarms.append({
+                "AlarmName": kw["AlarmName"],
+                "Namespace": kw["Namespace"],
+                "MetricName": kw["MetricName"],
+                "Dimensions": kw["Dimensions"],
+                "Threshold": kw["Threshold"],
+                "ComparisonOperator": kw["ComparisonOperator"],
+                "Statistic": kw["Statistic"],
+                "Period": kw["Period"],
+                "EvaluationPeriods": kw["EvaluationPeriods"],
+                "AlarmDescription": kw.get("AlarmDescription", ""),
+                "AlarmActions": kw.get("AlarmActions", []),
+                "OKActions": kw.get("OKActions", []),
+            })
+
+        # 새 mock_cw 구성: describe_alarms가 기존 알람 반환
+        mock_cw2 = MagicMock()
+        mock_cw2.describe_alarms.return_value = {"MetricAlarms": existing_alarms}
+
+        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw2), \
+             patch("common.alarm_manager._find_alarms_for_resource", return_value=created):
+            result = sync_alarms_for_resource(db_id, "DocDB", tags)
+
+        assert len(result["ok"]) == 6
+        assert result["created"] == []
+        assert result["updated"] == []
