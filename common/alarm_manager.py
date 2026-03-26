@@ -954,44 +954,58 @@ def _resolve_free_memory_threshold(
 ) -> tuple[float, float]:
     """FreeMemoryGB 임계치를 퍼센트 또는 GB 기반으로 해석.
 
+    우선순위:
+    1. Threshold_FreeMemoryPct 태그 (명시적 퍼센트)
+    2. _total_memory_bytes 존재 시 HARDCODED_DEFAULTS["FreeMemoryPct"] 자동 적용
+    3. Threshold_FreeMemoryGB 태그 또는 HARDCODED_DEFAULTS["FreeMemoryGB"] (절대값 폴백)
+
     Returns:
         (display_threshold, cw_threshold_bytes) 튜플.
         - 퍼센트 사용 시: display = pct 값, cw = (pct/100) * total_memory_bytes
         - GB 폴백 시: display = GB 값, cw = GB * 1073741824
     """
+    total_mem_raw = resource_tags.get("_total_memory_bytes")
+
+    # 1단계: 명시적 Threshold_FreeMemoryPct 태그
     pct_raw = resource_tags.get("Threshold_FreeMemoryPct")
     if pct_raw is not None:
         try:
             pct = float(pct_raw)
         except (ValueError, TypeError):
             logger.warning(
-                "Invalid Threshold_FreeMemoryPct=%r (non-numeric): falling back to GB",
+                "Invalid Threshold_FreeMemoryPct=%r (non-numeric): falling back",
                 pct_raw,
             )
-            pct = None
         else:
             if not (0 < pct < 100):
                 logger.warning(
-                    "Invalid Threshold_FreeMemoryPct=%s (must be 0 < pct < 100): falling back to GB",
+                    "Invalid Threshold_FreeMemoryPct=%s (must be 0 < pct < 100): falling back",
                     pct_raw,
                 )
-                pct = None
+            elif total_mem_raw is None:
+                logger.warning(
+                    "Threshold_FreeMemoryPct=%s but _total_memory_bytes missing: falling back to GB",
+                    pct_raw,
+                )
             else:
-                total_mem_raw = resource_tags.get("_total_memory_bytes")
-                if total_mem_raw is None:
-                    logger.warning(
-                        "Threshold_FreeMemoryPct=%s but _total_memory_bytes missing: falling back to GB",
-                        pct_raw,
-                    )
-                    pct = None
-                else:
-                    total_mem = float(total_mem_raw)
-                    cw_bytes = (pct / 100) * total_mem
-                    return (pct, cw_bytes)
+                total_mem = float(total_mem_raw)
+                cw_bytes = (pct / 100) * total_mem
+                display_gb = round(cw_bytes / 1073741824, 2)
+                return (display_gb, cw_bytes)
 
-    # GB 폴백
+    # 2단계: _total_memory_bytes 있으면 기본 퍼센트(20%) 자동 적용
+    if total_mem_raw is not None:
+        from common import HARDCODED_DEFAULTS
+        default_pct = HARDCODED_DEFAULTS.get("FreeMemoryPct", 20.0)
+        total_mem = float(total_mem_raw)
+        cw_bytes = (default_pct / 100) * total_mem
+        display_gb = round(cw_bytes / 1073741824, 2)
+        return (display_gb, cw_bytes)
+
+    # 3단계: GB 절대값 폴백
     gb = get_threshold(resource_tags, "FreeMemoryGB")
     return (gb, gb * 1073741824)
+
 
 
 def _create_standard_alarm(

@@ -2970,7 +2970,7 @@ class TestResolveFreeMemoryThreshold:
             "_total_memory_bytes": "17179869184",  # 16 GiB
         }
         display_gb, cw_bytes = _resolve_free_memory_threshold(tags)
-        assert display_gb == 20  # pct value for alarm name display
+        assert display_gb == pytest.approx(3.2)  # 20% of 16GiB = 3.2GB
         assert cw_bytes == pytest.approx(3435973836.8)  # 0.2 * 17179869184
 
     def test_pct_takes_precedence_over_gb(self):
@@ -2983,11 +2983,11 @@ class TestResolveFreeMemoryThreshold:
             "_total_memory_bytes": "17179869184",
         }
         display_gb, cw_bytes = _resolve_free_memory_threshold(tags)
-        assert display_gb == 20
+        assert display_gb == pytest.approx(3.2)  # 20% of 16GiB
         assert cw_bytes == pytest.approx(3435973836.8)
 
-    def test_invalid_pct_falls_back_to_gb(self, caplog):
-        """Threshold_FreeMemoryPct=150 (무효) → GB 폴백 + warning 로그.
+    def test_invalid_pct_falls_back_to_default_pct(self, caplog):
+        """Threshold_FreeMemoryPct=150 (무효) + _total_memory_bytes 있음 → 기본 20% 적용.
         Validates: Requirements 5.5
         """
         tags = {
@@ -2998,8 +2998,9 @@ class TestResolveFreeMemoryThreshold:
         import logging
         with caplog.at_level(logging.WARNING):
             display_gb, cw_bytes = _resolve_free_memory_threshold(tags)
-        assert display_gb == 4
-        assert cw_bytes == pytest.approx(4 * 1024 * 1024 * 1024)
+        # 무효 pct → 2단계 기본 20% 적용 (16GiB * 20% = 3.2GB)
+        assert display_gb == pytest.approx(3.2)
+        assert cw_bytes == pytest.approx(0.2 * 17179869184)
         assert any("FreeMemoryPct" in msg for msg in caplog.messages)
 
     def test_missing_total_memory_falls_back_to_gb(self, caplog):
@@ -3018,7 +3019,7 @@ class TestResolveFreeMemoryThreshold:
         assert any("total_memory" in msg.lower() or "_total_memory_bytes" in msg for msg in caplog.messages)
 
     def test_no_pct_tag_uses_gb_logic(self):
-        """Threshold_FreeMemoryPct 미존재 → 기존 GB 로직 유지.
+        """Threshold_FreeMemoryPct 미존재 + _total_memory_bytes 있음 → 기본 20% 적용.
         Validates: Requirements 5.1 (negative case)
         """
         tags = {
@@ -3026,19 +3027,19 @@ class TestResolveFreeMemoryThreshold:
             "_total_memory_bytes": "17179869184",
         }
         display_gb, cw_bytes = _resolve_free_memory_threshold(tags)
-        assert display_gb == 3
-        assert cw_bytes == pytest.approx(3 * 1024 * 1024 * 1024)
+        assert display_gb == pytest.approx(3.2)
+        assert cw_bytes == pytest.approx(0.2 * 17179869184)
 
     def test_no_pct_no_gb_uses_hardcoded_default(self):
-        """Threshold_FreeMemoryPct/GB 모두 미존재 → HARDCODED_DEFAULTS 폴백."""
+        """Threshold_FreeMemoryPct/GB 모두 미존재 + _total_memory_bytes 있음 → 기본 20% 적용."""
         tags = {"_total_memory_bytes": "17179869184"}
         display_gb, cw_bytes = _resolve_free_memory_threshold(tags)
-        default_gb = HARDCODED_DEFAULTS["FreeMemoryGB"]
-        assert display_gb == default_gb
-        assert cw_bytes == pytest.approx(default_gb * 1024 * 1024 * 1024)
+        # 20% of 16GiB = 3.2GB
+        assert display_gb == pytest.approx(3.2)
+        assert cw_bytes == pytest.approx(0.2 * 17179869184)
 
     def test_pct_zero_invalid(self, caplog):
-        """Threshold_FreeMemoryPct=0 (경계값, 무효) → GB 폴백."""
+        """Threshold_FreeMemoryPct=0 (경계값, 무효) + _total_memory_bytes → 기본 20%."""
         tags = {
             "Threshold_FreeMemoryPct": "0",
             "Threshold_FreeMemoryGB": "2",
@@ -3047,11 +3048,11 @@ class TestResolveFreeMemoryThreshold:
         import logging
         with caplog.at_level(logging.WARNING):
             display_gb, cw_bytes = _resolve_free_memory_threshold(tags)
-        assert display_gb == 2
-        assert cw_bytes == pytest.approx(2 * 1024 * 1024 * 1024)
+        assert display_gb == pytest.approx(3.2)
+        assert cw_bytes == pytest.approx(0.2 * 17179869184)
 
     def test_pct_100_invalid(self, caplog):
-        """Threshold_FreeMemoryPct=100 (경계값, 무효) → GB 폴백."""
+        """Threshold_FreeMemoryPct=100 (경계값, 무효) + _total_memory_bytes → 기본 20%."""
         tags = {
             "Threshold_FreeMemoryPct": "100",
             "Threshold_FreeMemoryGB": "2",
@@ -3060,11 +3061,11 @@ class TestResolveFreeMemoryThreshold:
         import logging
         with caplog.at_level(logging.WARNING):
             display_gb, cw_bytes = _resolve_free_memory_threshold(tags)
-        assert display_gb == 2
-        assert cw_bytes == pytest.approx(2 * 1024 * 1024 * 1024)
+        assert display_gb == pytest.approx(3.2)
+        assert cw_bytes == pytest.approx(0.2 * 17179869184)
 
     def test_pct_non_numeric_falls_back(self, caplog):
-        """Threshold_FreeMemoryPct='abc' (비숫자) → GB 폴백 + warning."""
+        """Threshold_FreeMemoryPct='abc' (비숫자) + _total_memory_bytes → 기본 20%."""
         tags = {
             "Threshold_FreeMemoryPct": "abc",
             "Threshold_FreeMemoryGB": "3",
@@ -3073,5 +3074,5 @@ class TestResolveFreeMemoryThreshold:
         import logging
         with caplog.at_level(logging.WARNING):
             display_gb, cw_bytes = _resolve_free_memory_threshold(tags)
-        assert display_gb == 3
-        assert cw_bytes == pytest.approx(3 * 1024 * 1024 * 1024)
+        assert display_gb == pytest.approx(3.2)
+        assert cw_bytes == pytest.approx(0.2 * 17179869184)
