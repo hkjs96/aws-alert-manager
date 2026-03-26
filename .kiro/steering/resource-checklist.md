@@ -71,3 +71,68 @@ fileMatchPattern: '**/*.py'
 - `collect_monitored_resources()`: `Monitoring=on` 태그 필터링 + 리소스 정보 수집
 - `get_metrics()`: CloudWatch 메트릭 조회 (§6-1 디멘션 규칙 준수)
 - `daily_monitor/lambda_handler.py`에 새 Collector 등록
+
+### 11-7. SRE 골든 시그널 기반 메트릭 선정 (필수 검토)
+
+새 리소스 타입의 하드코딩 알람을 정의할 때, SRE 4대 골든 시그널을 기준으로 메트릭 커버리지를 검토한다.
+모든 시그널을 반드시 하드코딩할 필요는 없지만, 각 시그널에 해당하는 메트릭이 있는지 확인하고 판단 근거를 기록한다.
+
+| 시그널 | 설명 | 하드코딩 기준 | 동적 알람 후보 기준 |
+|--------|------|-------------|-------------------|
+| **Latency** (응답 시간) | 요청 처리 지연 | 사용자 체감 직결 메트릭 (예: TargetResponseTime) | DB 쿼리 레이턴시 등 워크로드별 차이가 큰 메트릭 |
+| **Traffic** (처리량) | 요청/데이터 처리량 | 과부하 감지용 (예: RequestCount) | 급증/급감 감지가 필요한 세부 메트릭 |
+| **Errors** (에러율) | 실패/에러 발생 | 서비스 가용성 직결 (예: 5XX, StatusCheckFailed) | 애플리케이션 레벨 에러 (Deadlocks, LoginFailures 등) |
+| **Saturation** (포화도) | 리소스 사용률 | CPU, 메모리, 스토리지, 연결 수 | I/O 병목 (DiskQueueDepth), 스왑 등 |
+
+#### 검토 절차
+
+1. AWS CloudWatch 공식 문서에서 해당 리소스의 전체 메트릭 목록을 확인한다
+2. 각 메트릭을 4대 시그널로 분류한다
+3. 시그널별 최소 1개 이상의 하드코딩 메트릭을 선정한다:
+   - Latency: 사용자 체감 응답 시간 메트릭 우선
+   - Traffic: 전체 처리량 메트릭 (Count 또는 Bytes)
+   - Errors: 서비스 중단 직결 에러 메트릭
+   - Saturation: CPU, 메모리, 스토리지 중 해당 리소스에 적용 가능한 것
+4. 하드코딩에 포함하지 않는 메트릭은 동적 알람(`Threshold_*` 태그)으로 활용 가능한지 확인한다
+5. 메트릭별 비교 방향(GreaterThan vs LessThan)을 명시한다:
+   - "높을수록 위험": `GreaterThanThreshold` (CPU, Latency, Errors, Connections 등)
+   - "낮을수록 위험": `LessThanThreshold` (FreeMemory, FreeStorage, HealthyHostCount 등)
+   - 동적 알람에서 "낮을수록 위험" 메트릭은 `Threshold_LT_` prefix 사용 안내 필요
+
+#### 현재 리소스별 골든 시그널 커버리지
+
+| 리소스 | Latency | Traffic | Errors | Saturation |
+|--------|---------|---------|--------|------------|
+| EC2 | - | - | StatusCheckFailed | CPU, Memory, Disk |
+| RDS | ReadLatency, WriteLatency | - | - | CPU, FreeMemoryGB, FreeStorageGB, Connections |
+| Aurora Prov. | ReadLatency, WriteLatency | - | - | CPU, FreeMemoryGB, FreeLocalStorageGB, Connections, ReplicaLag |
+| Aurora SV2 | - | - | - | CPU, ACUUtilization, Connections |
+| ALB | TargetResponseTime | RequestCount | ELB5XX | - |
+| NLB | - | ProcessedBytes | - | ActiveFlowCount, NewFlowCount, TCPClientReset, TCPTargetReset |
+| TG | TGResponseTime | RequestCountPerTarget | - | HealthyHostCount, UnHealthyHostCount |
+
+**빈 칸은 동적 알람으로 커버 가능** (예: Aurora `CommitLatency`, `Deadlocks` 등)
+
+### 11-8. 인스턴스 변형별 메트릭 가용성 확인
+
+동일 리소스 타입이라도 인스턴스 클래스/역할에 따라 발행되는 메트릭이 다를 수 있다.
+새 리소스 추가 시 아래 사항을 확인한다:
+
+- **인스턴스 클래스별 차이**: 예) Aurora Serverless v2는 `FreeLocalStorage` 미발행 (KI-006)
+- **역할별 차이**: 예) Aurora Writer만 `AuroraReplicaLagMaximum` 발행, Reader만 `AuroraReplicaLag` 발행 (KI-007)
+- **구성별 차이**: 예) Writer-only 클러스터는 ReplicaLag 메트릭 미발행
+- 확인된 차이는 `_get_alarm_defs()`에서 `resource_tags` 기반 조건부 분기로 처리한다
+- 메트릭 가용성 매트릭스를 스펙 문서에 기록하고, E2E 테스트로 검증한다
+
+### 11-9. 퍼센트 기반 임계치 검토
+
+메모리, 스토리지 등 절대값 메트릭은 인스턴스 사양에 따라 의미가 달라진다.
+새 리소스 추가 시 아래 사항을 검토한다:
+
+- 인스턴스 클래스별 총 용량이 다른 메트릭이 있는지 확인 (예: FreeableMemory, FreeStorageSpace)
+- 해당 메트릭에 퍼센트 기반 임계치가 적합한지 판단
+- 적합한 경우:
+  1. Collector에서 `_total_{resource}_bytes` 내부 태그를 설정
+  2. `_INSTANCE_CLASS_MEMORY_MAP` 등 lookup 테이블에 인스턴스 클래스 추가
+  3. `_resolve_free_memory_threshold()` 패턴을 참고하여 퍼센트 해석 로직 구현
+- Serverless/Auto-scaling 리소스는 용량이 동적 변동하므로 퍼센트 기반이 부적합할 수 있음 (ACUUtilization 등 대체 메트릭 사용)
