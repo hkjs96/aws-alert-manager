@@ -3208,16 +3208,16 @@ class TestDocDBAlarmDefs:
     Validates: Requirements 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 3.8, 4.1, 4.2, 6.1, 6.2, 6.3, 6.4
     """
 
-    def test_get_alarm_defs_docdb_returns_six(self):
-        """_get_alarm_defs('DocDB') → 6개 알람 정의 반환."""
+    def test_get_alarm_defs_docdb_returns_three(self):
+        """_get_alarm_defs('DocDB') → 3개 알람 정의 반환 (표준 메트릭 기준)."""
         defs = _get_alarm_defs("DocDB")
-        assert len(defs) == 6
+        assert len(defs) == 3
 
     def test_get_alarm_defs_docdb_metric_keys(self):
-        """DocDB 알람 메트릭 키 집합 검증."""
+        """DocDB 알람 메트릭 키 집합 검증 (CPU, FreeMemoryGB, Connections)."""
         defs = _get_alarm_defs("DocDB")
         metrics = {d["metric"] for d in defs}
-        assert metrics == {"CPU", "FreeMemoryGB", "FreeLocalStorageGB", "Connections", "ReadLatency", "WriteLatency"}
+        assert metrics == {"CPU", "FreeMemoryGB", "Connections"}
 
     def test_get_alarm_defs_docdb_namespace(self):
         """모든 DocDB 알람 정의의 namespace == 'AWS/DocDB'."""
@@ -3231,35 +3231,40 @@ class TestDocDBAlarmDefs:
         for d in defs:
             assert d["dimension_key"] == "DBInstanceIdentifier", f"{d['metric']} dimension_key mismatch"
 
-    def test_docdb_memory_storage_less_than_threshold(self):
-        """FreeMemoryGB, FreeLocalStorageGB: comparison == 'LessThanThreshold'."""
+    def test_docdb_memory_less_than_threshold(self):
+        """FreeMemoryGB: comparison == 'LessThanThreshold'."""
         defs = _get_alarm_defs("DocDB")
-        for d in defs:
-            if d["metric"] in ("FreeMemoryGB", "FreeLocalStorageGB"):
-                assert d["comparison"] == "LessThanThreshold", f"{d['metric']} comparison mismatch"
+        mem_def = next(d for d in defs if d["metric"] == "FreeMemoryGB")
+        assert mem_def["comparison"] == "LessThanThreshold"
 
-    def test_docdb_memory_storage_transform_threshold_exists(self):
-        """FreeMemoryGB, FreeLocalStorageGB: transform_threshold 존재."""
+    def test_docdb_memory_transform_threshold_exists(self):
+        """FreeMemoryGB: transform_threshold 존재."""
         defs = _get_alarm_defs("DocDB")
-        for d in defs:
-            if d["metric"] in ("FreeMemoryGB", "FreeLocalStorageGB"):
-                assert "transform_threshold" in d, f"{d['metric']} missing transform_threshold"
-                # GB→bytes 변환 검증: 1 GB → 1073741824 bytes
-                assert d["transform_threshold"](1) == 1073741824, f"{d['metric']} transform_threshold(1) mismatch"
-                assert d["transform_threshold"](2) == 2 * 1073741824, f"{d['metric']} transform_threshold(2) mismatch"
+        mem_def = next(d for d in defs if d["metric"] == "FreeMemoryGB")
+        assert "transform_threshold" in mem_def
+        # GB→bytes 변환 검증: 1 GB → 1073741824 bytes
+        assert mem_def["transform_threshold"](1) == 1073741824
+        assert mem_def["transform_threshold"](2) == 2 * 1073741824
 
     def test_docdb_other_metrics_greater_than_threshold(self):
-        """CPU, Connections, ReadLatency, WriteLatency: comparison == 'GreaterThanThreshold'."""
+        """CPU, Connections: comparison == 'GreaterThanThreshold'."""
         defs = _get_alarm_defs("DocDB")
         for d in defs:
-            if d["metric"] in ("CPU", "Connections", "ReadLatency", "WriteLatency"):
+            if d["metric"] in ("CPU", "Connections"):
                 assert d["comparison"] == "GreaterThanThreshold", f"{d['metric']} comparison mismatch"
 
+    def test_docdb_excluded_metrics_not_in_hardcoded(self):
+        """FreeLocalStorageGB, ReadLatency, WriteLatency는 하드코딩에서 제거됨 (동적 알람으로 전환)."""
+        defs = _get_alarm_defs("DocDB")
+        metrics = {d["metric"] for d in defs}
+        assert "FreeLocalStorageGB" not in metrics
+        assert "ReadLatency" not in metrics
+        assert "WriteLatency" not in metrics
+
     def test_hardcoded_metric_keys_docdb(self):
-        """_HARDCODED_METRIC_KEYS['DocDB'] == 예상 집합."""
+        """_HARDCODED_METRIC_KEYS['DocDB'] == 예상 집합 (3개)."""
         assert _HARDCODED_METRIC_KEYS["DocDB"] == {
-            "CPU", "FreeMemoryGB", "FreeLocalStorageGB",
-            "Connections", "ReadLatency", "WriteLatency",
+            "CPU", "FreeMemoryGB", "Connections",
         }
 
     def test_namespace_map_docdb(self):
@@ -3294,15 +3299,15 @@ class TestDocDBAlarmCreation:
         mock_cw.get_paginator.return_value = mock_paginator
         return mock_cw
 
-    def test_docdb_creates_six_alarms(self):
-        """DocDB 인스턴스에 6개 알람 생성 검증."""
+    def test_docdb_creates_three_alarms(self):
+        """DocDB 인스턴스에 3개 알람 생성 검증 (표준 메트릭 기준)."""
         mock_cw = self._mock_cw()
         tags = {"Monitoring": "on", "Name": "my-docdb"}
         with patch("common._clients._get_cw_client", return_value=mock_cw):
             created = create_alarms_for_resource("docdb-inst-1", "DocDB", tags)
 
-        assert len(created) == 6
-        assert mock_cw.put_metric_alarm.call_count == 6
+        assert len(created) == 3
+        assert mock_cw.put_metric_alarm.call_count == 3
 
     def test_docdb_alarm_name_prefix(self):
         """모든 DocDB 알람 이름이 '[DocDB] '로 시작하는지 검증 — Req 5.1."""
@@ -3393,25 +3398,25 @@ class TestDocDBEndToEnd:
         mock_cw.get_paginator.return_value = mock_paginator
         return mock_cw
 
-    def test_docdb_create_alarms_six_with_prefix(self):
-        """create_alarms_for_resource('docdb-inst-1', 'DocDB', ...) → 6개 알람, 모두 [DocDB] 접두사."""
+    def test_docdb_create_alarms_three_with_prefix(self):
+        """create_alarms_for_resource('docdb-inst-1', 'DocDB', ...) → 3개 알람, 모두 [DocDB] 접두사."""
         mock_cw = self._mock_cw()
         tags = {"Monitoring": "on"}
         with patch("common._clients._get_cw_client", return_value=mock_cw):
             created = create_alarms_for_resource("docdb-inst-1", "DocDB", tags)
 
-        assert len(created) == 6
+        assert len(created) == 3
         for name in created:
             assert name.startswith("[DocDB] "), f"Missing [DocDB] prefix: {name}"
 
     def test_docdb_sync_alarms_creates_when_none_exist(self):
-        """sync_alarms_for_resource('docdb-inst-1', 'DocDB', ...) → 알람 없으면 6개 생성."""
+        """sync_alarms_for_resource('docdb-inst-1', 'DocDB', ...) → 알람 없으면 3개 생성."""
         mock_cw = self._mock_cw()
         tags = {"Monitoring": "on"}
         with patch("common._clients._get_cw_client", return_value=mock_cw):
             result = sync_alarms_for_resource("docdb-inst-1", "DocDB", tags)
 
-        assert len(result["created"]) == 6
+        assert len(result["created"]) == 3
         for name in result["created"]:
             assert name.startswith("[DocDB] "), f"Missing [DocDB] prefix: {name}"
 
@@ -3453,6 +3458,6 @@ class TestDocDBEndToEnd:
              patch("common.alarm_manager._find_alarms_for_resource", return_value=created):
             result = sync_alarms_for_resource(db_id, "DocDB", tags)
 
-        assert len(result["ok"]) == 6
+        assert len(result["ok"]) == 3
         assert result["created"] == []
         assert result["updated"] == []

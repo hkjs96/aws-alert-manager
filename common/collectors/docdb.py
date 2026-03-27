@@ -15,7 +15,6 @@ from botocore.exceptions import ClientError
 
 from common import ResourceInfo
 from common.collectors.base import query_metric, CW_LOOKBACK_MINUTES, CW_STAT_AVG
-from common.collectors.rds import _lookup_instance_class_local_storage
 
 logger = logging.getLogger(__name__)
 
@@ -67,20 +66,6 @@ def collect_monitored_resources() -> list[ResourceInfo]:
 
             if tags.get("Monitoring", "").lower() != "on":
                 continue
-
-            # DocDB: 로컬 스토리지 용량 lookup (퍼센트 기반 FreeLocalStorage 임계치용)
-            instance_class = db.get("DBInstanceClass", "")
-            if instance_class:
-                local_storage = _lookup_instance_class_local_storage(instance_class)
-                if local_storage is not None:
-                    tags["_total_local_storage_bytes"] = str(local_storage)
-                else:
-                    logger.warning(
-                        "Unknown local storage for %s (%s), "
-                        "skipping _total_local_storage_bytes",
-                        instance_class,
-                        db_id,
-                    )
 
             region = boto3.session.Session().region_name or "us-east-1"
             resources.append(
