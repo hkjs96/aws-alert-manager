@@ -656,73 +656,37 @@ def test_collect_rds():
 
 ## Correctness Properties
 
-### CP-1: 하위 호환성 (Backward Compatibility)
+*A property is a characteristic or behavior that should hold true across all valid executions of a system-essentially, a formal statement about what the system should do. Properties serve as the bridge between human-readable specifications and machine-verifiable correctness guarantees.*
 
-```python
-# ∀ function f with DI parameter:
-#   f(...) == f(..., cw=None)
-# cw=None일 때 기존 lru_cache 싱글턴을 사용하므로 동작이 동일해야 한다.
+### Property 1: cw=None equivalence
 
-# Property: 기존 테스트가 DI 파라미터 없이 호출해도 모두 통과
-def property_backward_compatible(func, args):
-    result_without_di = func(*args)
-    result_with_none = func(*args, cw=None)
-    assert result_without_di == result_with_none
-```
+*For any* DI-enabled function and any valid arguments, calling the function without the `cw` argument and calling it with `cw=None` shall produce identical results and identical side effects.
 
-### CP-2: 클라이언트 격리 (Client Isolation)
+**Validates: Requirements 7.1, 7.2**
 
-```python
-# ∀ function f, ∀ mock_client m:
-#   f(..., cw=m) 호출 시 _clients._get_cw_client()가 호출되지 않아야 한다.
+### Property 2: Client isolation
 
-def property_client_isolation(func, args, mock_client):
-    with patch("common._clients._get_cw_client") as patched:
-        func(*args, cw=mock_client)
-        patched.assert_not_called()  # 싱글턴 미사용 확인
-```
+*For any* DI-enabled function and any mock client object, when the function is called with `cw=<mock>`, the singleton factory `_clients._get_cw_client()` shall not be invoked during that call.
 
-### CP-3: 클라이언트 전파 (Client Propagation)
+**Validates: Requirements 1.2, 1.4, 1.6, 2.2, 2.4, 3.2, 3.4, 4.1, 5.1, 5.2, 8.2**
 
-```python
-# ∀ facade function F that calls internal function G:
-#   F(..., cw=m) → G(..., cw=m)
-# Facade에 주입된 클라이언트가 내부 함수까지 전달되어야 한다.
+### Property 3: Client propagation through call chain
 
-def property_client_propagation(mock_cw):
-    create_alarms_for_resource("i-1234", "EC2", tags, cw=mock_cw)
-    # mock_cw가 put_metric_alarm, describe_alarms 등에 사용됨
-    assert mock_cw.put_metric_alarm.called or mock_cw.delete_alarms.called
-```
+*For any* Facade function and any mock client object, when the Facade is called with `cw=<mock>`, all CloudWatch API calls within the entire call chain (search, builder, sync, dimension_builder) shall be made through the provided mock client.
 
-### CP-4: 멀티 어카운트 격리 (Multi-Account Isolation)
+**Validates: Requirements 2.3, 4.2, 4.3, 8.1**
 
-```python
-# ∀ account_a, account_b:
-#   clients_a = create_clients_for_account(role_arn_a)
-#   clients_b = create_clients_for_account(role_arn_b)
-#   clients_a["cw"] is not clients_b["cw"]
-# 서로 다른 계정의 클라이언트는 독립적이어야 한다.
+### Property 4: Keyword-only parameter declaration
 
-def property_multi_account_isolation(role_arn_a, role_arn_b):
-    clients_a = create_clients_for_account(role_arn_a)
-    clients_b = create_clients_for_account(role_arn_b)
-    assert clients_a["cw"] is not clients_b["cw"]
-    assert clients_a["rds"] is not clients_b["rds"]
-```
+*For any* DI-enabled function in the Phase 1 scope, the `cw` parameter shall be declared as keyword-only (after `*`) with default value `None`, verifiable via `inspect.signature`.
 
-### CP-5: None 폴백 일관성 (None Fallback Consistency)
+**Validates: Requirements 1.7, 2.5, 3.5, 4.5, 5.4**
 
-```python
-# ∀ function f with *, cw=None:
-#   cw=None일 때 사용되는 클라이언트는 항상 동일한 싱글턴 인스턴스
-# lru_cache 특성상 동일 객체 반환 보장
+### Property 5: Factory return structure
 
-def property_none_fallback_consistency():
-    client_1 = _clients._get_cw_client()
-    client_2 = _clients._get_cw_client()
-    assert client_1 is client_2  # 동일 인스턴스
-```
+*For any* valid role ARN, `create_clients_for_account` shall return a dictionary containing exactly the keys `"cw"`, `"ec2"`, `"rds"`, `"elbv2"`, each mapping to a distinct boto3 client object.
+
+**Validates: Requirements 6.1, 6.2, 6.3**
 
 ## Error Handling
 

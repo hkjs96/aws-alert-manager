@@ -107,9 +107,11 @@ def _sync_off_hardcoded(
     key_to_alarm: dict[str, dict],
     resource_tags: dict,
     result: dict[str, list],
+    *,
+    cw=None,
 ) -> None:
     """하드코딩 알람 off 체크: 기존 알람이 있으면 삭제 + deleted 추가."""
-    cw = _clients._get_cw_client()
+    cw = cw or _clients._get_cw_client()
     for alarm_def in alarm_defs:
         metric = alarm_def["metric"]
         if not is_threshold_off(resource_tags, metric):
@@ -141,12 +143,14 @@ def _sync_dynamic_alarms(
     resource_type: str,
     resource_tags: dict,
     result: dict[str, list],
+    *,
+    cw=None,
 ) -> None:
     """동적 알람 동기화: 생성/삭제/업데이트."""
     # Avoid circular import: _parse_threshold_tags lives in alarm_manager
     from common.alarm_manager import _get_sns_alert_arn, _parse_threshold_tags
 
-    cw = _clients._get_cw_client()
+    cw = cw or _clients._get_cw_client()
     sns_arn = _get_sns_alert_arn()
     resource_name = resource_tags.get("Name", "")
     hardcoded_keys = _get_hardcoded_metric_keys(resource_type, resource_tags)
@@ -193,16 +197,21 @@ def _apply_sync_changes(
     resource_type: str,
     resource_tags: dict,
     existing_names: list[str],
+    *,
+    cw=None,
 ) -> None:
     """동기화 결과에 따라 알람 재생성/생성 적용."""
     from common.alarm_manager import create_alarms_for_resource
 
+    _fwd: dict = {"cw": cw} if cw is not None else {}
+    cw = cw or _clients._get_cw_client()
+
     if "Disk" in result["created"] or not existing_names:
-        created = create_alarms_for_resource(resource_id, resource_type, resource_tags)
+        created = create_alarms_for_resource(resource_id, resource_type, resource_tags, **_fwd)
         result["created"] = created
     else:
         for alarm_name in result["updated"]:
-            _recreate_alarm_by_name(alarm_name, resource_id, resource_type, resource_tags)
+            _recreate_alarm_by_name(alarm_name, resource_id, resource_type, resource_tags, **_fwd)
         for metric in result["created"]:
             if metric != "Disk":
-                _create_single_alarm(metric, resource_id, resource_type, resource_tags)
+                _create_single_alarm(metric, resource_id, resource_type, resource_tags, **_fwd)

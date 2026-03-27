@@ -108,6 +108,8 @@ def _resolve_metric_dimensions(
     resource_id: str,
     metric_name: str,
     resource_type: str,
+    *,
+    cw=None,
 ) -> tuple[str, list[dict]] | None:
     """list_metrics API로 네임스페이스/디멘션 자동 해석.
 
@@ -119,7 +121,7 @@ def _resolve_metric_dimensions(
     Returns:
         (namespace, dimensions) 튜플 또는 None (미발견 시)
     """
-    cw = _clients._get_cw_client()
+    cw = cw or _clients._get_cw_client()
     namespaces = _NAMESPACE_MAP.get(resource_type, [])
     dim_key = _DIMENSION_KEY_MAP.get(resource_type, "")
 
@@ -154,7 +156,7 @@ def _resolve_metric_dimensions(
     return None
 
 
-def _get_disk_dimensions(instance_id: str, extra_paths: set[str] | None = None) -> list[list[dict]]:
+def _get_disk_dimensions(instance_id: str, extra_paths: set[str] | None = None, *, cw=None) -> list[list[dict]]:
     """
     CloudWatch에서 해당 인스턴스의 실제 disk_used_percent dimension 조합 조회.
 
@@ -172,7 +174,7 @@ def _get_disk_dimensions(instance_id: str, extra_paths: set[str] | None = None) 
     if extra_paths:
         target_paths.update(extra_paths)
 
-    cw = _clients._get_cw_client()
+    cw = cw or _clients._get_cw_client()
     try:
         resp = cw.list_metrics(
             Namespace="CWAgent",

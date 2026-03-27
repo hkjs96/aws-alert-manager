@@ -275,9 +275,11 @@ def _create_single_alarm(
     resource_id: str,
     resource_type: str,
     resource_tags: dict,
+    *,
+    cw=None,
 ) -> None:
     """전체 삭제 없이 단일 메트릭 알람만 생성 (result["created"] 처리용)."""
-    cw = _clients._get_cw_client()
+    cw = cw or _clients._get_cw_client()
     sns_arn = _get_sns_alert_arn()
     alarm_defs = _get_alarm_defs(resource_type, resource_tags)
     resource_name = resource_tags.get("Name", "")
@@ -329,12 +331,14 @@ def _recreate_alarm_by_name(
     resource_id: str,
     resource_type: str,
     resource_tags: dict,
+    *,
+    cw=None,
 ) -> None:
     """알람 이름에서 메트릭 타입을 파악하여 해당 알람만 삭제 후 재생성.
 
     Disk 알람의 경우 기존 Dimensions(path, device, fstype 등)를 재사용한다.
     """
-    cw = _clients._get_cw_client()
+    cw = cw or _clients._get_cw_client()
     sns_arn = _get_sns_alert_arn()
     resource_name = resource_tags.get("Name", "")
 

@@ -18,6 +18,8 @@ logger = logging.getLogger("common.alarm_manager")
 def _find_alarms_for_resource(
     resource_id: str,
     resource_type: str = "",
+    *,
+    cw=None,
 ) -> list[str]:
     """resource_id에 해당하는 모든 알람 이름 조회 (새/레거시 포맷).
 
@@ -26,7 +28,7 @@ def _find_alarms_for_resource(
     2) 새 포맷: AlarmNamePrefix="[{resource_type}] " + suffix 필터
        resource_type 지정 시 해당 타입만, 미지정 시 EC2/RDS/ELB 검색
     """
-    cw = _clients._get_cw_client()
+    cw = cw or _clients._get_cw_client()
     seen: set[str] = set()
     alarm_names: list[str] = []
     short_id = _shorten_elb_resource_id(resource_id, resource_type)
@@ -74,10 +76,12 @@ def _find_alarms_for_resource(
 def _delete_all_alarms_for_resource(
     resource_id: str,
     resource_type: str = "",
+    *,
+    cw=None,
 ) -> list[str]:
     """리소스의 모든 알람 삭제 (레거시 + 새 포맷). 내부용."""
-    cw = _clients._get_cw_client()
-    alarm_names = _find_alarms_for_resource(resource_id, resource_type)
+    cw = cw or _clients._get_cw_client()
+    alarm_names = _find_alarms_for_resource(resource_id, resource_type, cw=cw)
     if not alarm_names:
         return []
     deleted = []
@@ -92,9 +96,9 @@ def _delete_all_alarms_for_resource(
     return deleted
 
 
-def _describe_alarms_batch(alarm_names: list[str]) -> dict[str, dict]:
+def _describe_alarms_batch(alarm_names: list[str], *, cw=None) -> dict[str, dict]:
     """알람 이름 목록으로 describe_alarms 1회 호출 (100개씩 배치)."""
-    cw = _clients._get_cw_client()
+    cw = cw or _clients._get_cw_client()
     alarm_map: dict[str, dict] = {}
     for i in range(0, len(alarm_names), 100):
         batch = alarm_names[i:i + 100]

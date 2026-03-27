@@ -181,15 +181,18 @@ def create_alarms_for_resource(
     resource_id: str,
     resource_type: str,
     resource_tags: dict,
+    *,
+    cw=None,
 ) -> list[str]:
     """리소스에 대한 CloudWatch Alarm을 생성한다."""
-    cw = _clients._get_cw_client()
+    _fwd: dict = {"cw": cw} if cw is not None else {}
+    cw = cw or _clients._get_cw_client()
     sns_arn = _get_sns_alert_arn()
     alarm_defs = _get_alarm_defs(resource_type, resource_tags)
     created: list[str] = []
     resource_name = resource_tags.get("Name", "")
 
-    _delete_all_alarms_for_resource(resource_id, resource_type)
+    _delete_all_alarms_for_resource(resource_id, resource_type, **_fwd)
 
     for alarm_def in alarm_defs:
         if alarm_def.get("dynamic_dimensions") and alarm_def["metric"] == "Disk":
@@ -225,29 +228,36 @@ def create_alarms_for_resource(
 def delete_alarms_for_resource(
     resource_id: str,
     resource_type: str,
+    *,
+    cw=None,
 ) -> list[str]:
     """리소스에 대한 CloudWatch Alarm을 삭제한다."""
-    return _delete_all_alarms_for_resource(resource_id, resource_type)
+    _fwd: dict = {"cw": cw} if cw is not None else {}
+    return _delete_all_alarms_for_resource(resource_id, resource_type, **_fwd)
 
 
 def sync_alarms_for_resource(
     resource_id: str,
     resource_type: str,
     resource_tags: dict,
+    *,
+    cw=None,
 ) -> dict:
     """리소스의 알람이 현재 태그 임계치와 일치하는지 확인하고 불일치 시 업데이트."""
+    _fwd: dict = {"cw": cw} if cw is not None else {}
+    cw = cw or _clients._get_cw_client()
     result: dict[str, list] = {
         "created": [], "updated": [], "ok": [], "deleted": [],
     }
 
-    existing_names = _find_alarms_for_resource(resource_id, resource_type)
+    existing_names = _find_alarms_for_resource(resource_id, resource_type, **_fwd)
 
     if not existing_names:
-        created = create_alarms_for_resource(resource_id, resource_type, resource_tags)
+        created = create_alarms_for_resource(resource_id, resource_type, resource_tags, **_fwd)
         result["created"] = created
         return result
 
-    alarm_map = _describe_alarms_batch(existing_names)
+    alarm_map = _describe_alarms_batch(existing_names, **_fwd)
 
     key_to_alarm: dict[str, dict] = {}
     for alarm_info in alarm_map.values():
@@ -257,7 +267,7 @@ def sync_alarms_for_resource(
     alarm_defs = _get_alarm_defs(resource_type, resource_tags)
 
     if not alarm_defs and existing_names:
-        _delete_all_alarms_for_resource(resource_id, resource_type)
+        _delete_all_alarms_for_resource(resource_id, resource_type, **_fwd)
         return result
 
     needs_recreate = False
@@ -272,10 +282,10 @@ def sync_alarms_for_resource(
             if changed:
                 needs_recreate = True
 
-    _sync_off_hardcoded(alarm_defs, key_to_alarm, resource_tags, result)
-    _sync_dynamic_alarms(key_to_alarm, resource_id, resource_type, resource_tags, result)
+    _sync_off_hardcoded(alarm_defs, key_to_alarm, resource_tags, result, **_fwd)
+    _sync_dynamic_alarms(key_to_alarm, resource_id, resource_type, resource_tags, result, **_fwd)
 
     if needs_recreate:
-        _apply_sync_changes(result, resource_id, resource_type, resource_tags, existing_names)
+        _apply_sync_changes(result, resource_id, resource_type, resource_tags, existing_names, **_fwd)
 
     return result
