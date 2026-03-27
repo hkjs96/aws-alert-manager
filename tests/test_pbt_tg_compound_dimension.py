@@ -99,10 +99,10 @@ def _env_vars(monkeypatch):
 @pytest.fixture(autouse=True)
 def _reset_cw_client():
     """각 테스트마다 캐시된 CloudWatch 클라이언트 초기화."""
-    import common.alarm_manager as am
-    am._get_cw_client.cache_clear()
+    from common._clients import _get_cw_client
+    _get_cw_client.cache_clear()
     yield
-    am._get_cw_client.cache_clear()
+    _get_cw_client.cache_clear()
 
 
 # ──────────────────────────────────────────────
@@ -143,7 +143,7 @@ class TestTGCompoundDimension:
         assert len(alarm_defs) > 0, "TG alarm definitions should exist"
         alarm_def = alarm_defs[0]
 
-        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+        with patch("common._clients._get_cw_client", return_value=mock_cw):
             _create_standard_alarm(
                 alarm_def, tg_arn, "TG", resource_tags, mock_cw,
             )
@@ -197,7 +197,7 @@ class TestTGCompoundDimension:
         alarm_defs = _get_alarm_defs("TG")
         alarm_def = alarm_defs[0]
 
-        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+        with patch("common._clients._get_cw_client", return_value=mock_cw):
             _create_standard_alarm(
                 alarm_def, tg_arn, "TG", resource_tags, mock_cw,
             )
@@ -351,7 +351,7 @@ class TestPreservationNonTGDimensions:
             alarm_defs[0],
         )
 
-        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+        with patch("common._clients._get_cw_client", return_value=mock_cw):
             _create_standard_alarm(
                 alarm_def, resource_id, resource_type, resource_tags, mock_cw,
             )
@@ -401,7 +401,7 @@ class TestPreservationNonTGDimensions:
         alarm_defs = _get_alarm_defs(resource_type)
         alarm_def = alarm_defs[0]
 
-        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+        with patch("common._clients._get_cw_client", return_value=mock_cw):
             _create_standard_alarm(
                 alarm_def, resource_id, resource_type, resource_tags, mock_cw,
             )

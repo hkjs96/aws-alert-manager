@@ -57,7 +57,7 @@ class TestInitialCreationPreservation:
         iid = "i-preserve001"
         tags = {"Monitoring": "on", "Name": "srv"}
 
-        with patch("common.alarm_manager._get_cw_client", return_value=MagicMock()), \
+        with patch("common._clients._get_cw_client", return_value=MagicMock()), \
              patch("common.alarm_manager._find_alarms_for_resource", return_value=[]), \
              patch("common.alarm_manager.create_alarms_for_resource", return_value=["alarm1"]) as mock_create, \
              patch.dict(os.environ, _ENV):
@@ -133,7 +133,7 @@ class TestAllAlarmsOkPreservation:
             ]
         }
 
-        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw), \
+        with patch("common._clients._get_cw_client", return_value=mock_cw), \
              patch("common.alarm_manager._find_alarms_for_resource", return_value=existing_alarms), \
              patch.dict(os.environ, _ENV):
             result = sync_alarms_for_resource(iid, "EC2", tags)
@@ -211,7 +211,7 @@ class TestOkAlarmsPreservedAfterSync:
             ]
         }
 
-        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw), \
+        with patch("common._clients._get_cw_client", return_value=mock_cw), \
              patch("common.alarm_manager._find_alarms_for_resource", return_value=existing_alarms), \
              patch.dict(os.environ, _ENV):
             result = sync_alarms_for_resource(iid, "EC2", tags)
@@ -250,7 +250,7 @@ class TestCreateAlarmsForResourceUnchanged:
         mock_cw = MagicMock()
         mock_cw.list_metrics.return_value = {"Metrics": []}
 
-        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw), \
+        with patch("common._clients._get_cw_client", return_value=mock_cw), \
              patch("common.alarm_manager._delete_all_alarms_for_resource") as mock_delete_all, \
              patch("common.alarm_manager._find_alarms_for_resource", return_value=["old-alarm"]), \
              patch.dict(os.environ, _ENV):

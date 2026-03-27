@@ -15,6 +15,15 @@ from common import ResourceInfo
 # AWS 자격증명 픽스처
 # ──────────────────────────────────────────────
 
+@pytest.fixture(autouse=True)
+def _reset_all_cw_clients():
+    """모든 모듈의 캐시된 CloudWatch 클라이언트 초기화."""
+    from common._clients import _get_cw_client
+    _get_cw_client.cache_clear()
+    yield
+    _get_cw_client.cache_clear()
+
+
 @pytest.fixture
 def aws_credentials():
     """moto 사용을 위한 가짜 AWS 자격증명 환경변수 설정"""

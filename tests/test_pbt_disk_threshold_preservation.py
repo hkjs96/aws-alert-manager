@@ -105,7 +105,7 @@ class TestNonDiskMetricPreservation:
 
         with (
             patch(
-                "common.alarm_manager._get_cw_client",
+                "common._clients._get_cw_client",
                 return_value=mock_cw,
             ),
             patch(
@@ -179,7 +179,7 @@ class TestDefaultFallbackPreservation:
 
         with (
             patch(
-                "common.alarm_manager._get_cw_client",
+                "common._clients._get_cw_client",
                 return_value=mock_cw,
             ),
             patch(
@@ -247,7 +247,7 @@ class TestNoDiskAlarmsTriggersRecreate:
 
         with (
             patch(
-                "common.alarm_manager._get_cw_client",
+                "common._clients._get_cw_client",
                 return_value=mock_cw,
             ),
             patch(

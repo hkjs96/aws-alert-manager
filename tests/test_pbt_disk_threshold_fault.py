@@ -96,7 +96,7 @@ class TestDiskThresholdSync:
 
         with (
             patch(
-                "common.alarm_manager._get_cw_client",
+                "common._clients._get_cw_client",
                 return_value=mock_cw,
             ),
             patch(

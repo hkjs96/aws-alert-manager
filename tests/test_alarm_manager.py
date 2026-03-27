@@ -38,10 +38,10 @@ from common.alarm_manager import (
 @pytest.fixture(autouse=True)
 def _reset_cw_client():
     """각 테스트마다 캐시된 CloudWatch 클라이언트 초기화."""
-    import common.alarm_manager as am
-    am._get_cw_client.cache_clear()
+    from common._clients import _get_cw_client
+    _get_cw_client.cache_clear()
     yield
-    am._get_cw_client.cache_clear()
+    _get_cw_client.cache_clear()
 
 
 @pytest.fixture(autouse=True)
@@ -755,7 +755,7 @@ class TestCreateAlarms:
     def test_ec2_creates_cpu_memory_disk_alarms(self):
         mock_cw = self._mock_cw_with_disk()
         tags = {"Monitoring": "on", "Name": "my-server"}
-        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+        with patch("common._clients._get_cw_client", return_value=mock_cw):
             created = create_alarms_for_resource("i-001", "EC2", tags)
 
         assert len(created) == 4
@@ -771,7 +771,7 @@ class TestCreateAlarms:
     def test_ec2_custom_threshold_from_tag(self):
         mock_cw = self._mock_cw_with_disk()
         tags = {"Monitoring": "on", "Threshold_CPU": "90"}
-        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+        with patch("common._clients._get_cw_client", return_value=mock_cw):
             created = create_alarms_for_resource("i-001", "EC2", tags)
 
         calls = mock_cw.put_metric_alarm.call_args_list
@@ -786,7 +786,7 @@ class TestCreateAlarms:
         mock_paginator.paginate.return_value = [{"MetricAlarms": []}]
         mock_cw.get_paginator.return_value = mock_paginator
         tags = {"Monitoring": "on", "Name": "my-db"}
-        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+        with patch("common._clients._get_cw_client", return_value=mock_cw):
             created = create_alarms_for_resource("db-001", "RDS", tags)
 
         assert len(created) == 7
@@ -798,7 +798,7 @@ class TestCreateAlarms:
         mock_paginator.paginate.return_value = [{"MetricAlarms": []}]
         mock_cw.get_paginator.return_value = mock_paginator
         tags = {"Monitoring": "on", "Threshold_FreeMemoryGB": "4"}
-        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+        with patch("common._clients._get_cw_client", return_value=mock_cw):
             create_alarms_for_resource("db-001", "RDS", tags)
 
         calls = mock_cw.put_metric_alarm.call_args_list
@@ -811,7 +811,7 @@ class TestCreateAlarms:
         mock_paginator.paginate.return_value = [{"MetricAlarms": []}]
         mock_cw.get_paginator.return_value = mock_paginator
         arn = "arn:aws:elasticloadbalancing:us-east-1:123:loadbalancer/app/my-alb/abc"
-        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+        with patch("common._clients._get_cw_client", return_value=mock_cw):
             created = create_alarms_for_resource(arn, "ALB", {"Monitoring": "on"})
 
         assert len(created) == 5
@@ -824,7 +824,7 @@ class TestCreateAlarms:
 
     def test_sns_arn_set_as_alarm_action(self):
         mock_cw = self._mock_cw_with_disk()
-        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+        with patch("common._clients._get_cw_client", return_value=mock_cw):
             create_alarms_for_resource("i-001", "EC2", {})
 
         kwargs = mock_cw.put_metric_alarm.call_args_list[0].kwargs
@@ -834,7 +834,7 @@ class TestCreateAlarms:
     def test_no_sns_arn_empty_actions(self, monkeypatch):
         monkeypatch.setenv("SNS_TOPIC_ARN_ALERT", "")
         mock_cw = self._mock_cw_with_disk()
-        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+        with patch("common._clients._get_cw_client", return_value=mock_cw):
             create_alarms_for_resource("i-001", "EC2", {})
 
         kwargs = mock_cw.put_metric_alarm.call_args_list[0].kwargs
@@ -849,7 +849,7 @@ class TestCreateAlarms:
         mock_cw.put_metric_alarm.side_effect = ClientError(
             {"Error": {"Code": "LimitExceeded", "Message": "too many"}}, "PutMetricAlarm"
         )
-        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+        with patch("common._clients._get_cw_client", return_value=mock_cw):
             created = create_alarms_for_resource("i-001", "EC2", {})
 
         assert created == []
@@ -859,13 +859,13 @@ class TestCreateAlarms:
         mock_paginator = MagicMock()
         mock_paginator.paginate.return_value = [{"MetricAlarms": []}]
         mock_cw.get_paginator.return_value = mock_paginator
-        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+        with patch("common._clients._get_cw_client", return_value=mock_cw):
             created = create_alarms_for_resource("x-001", "UNKNOWN", {})
         assert created == []
 
     def test_ec2_disk_alarm_has_extra_dimensions(self):
         mock_cw = self._mock_cw_with_disk()
-        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+        with patch("common._clients._get_cw_client", return_value=mock_cw):
             create_alarms_for_resource("i-001", "EC2", {})
 
         calls = mock_cw.put_metric_alarm.call_args_list
@@ -879,7 +879,7 @@ class TestCreateAlarms:
 
     def test_ec2_no_name_tag_uses_resource_id(self):
         mock_cw = self._mock_cw_with_disk()
-        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+        with patch("common._clients._get_cw_client", return_value=mock_cw):
             created = create_alarms_for_resource("i-001", "EC2", {})
 
         # Name 태그 없으면 resource_id가 label로 사용됨
@@ -906,7 +906,7 @@ class TestDeleteAlarms:
             [{"MetricAlarms": [shared_alarm, new_alarm]}],
         ]
         mock_cw.get_paginator.return_value = mock_paginator
-        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+        with patch("common._clients._get_cw_client", return_value=mock_cw):
             result = _find_alarms_for_resource("i-001", "EC2")
 
         # shared_alarm should appear only once
@@ -929,7 +929,7 @@ class TestDeleteAlarms:
         # 첫 번째 paginate: prefix 검색, 두 번째: 전체 검색
         mock_paginator.paginate.side_effect = [[legacy_page], [new_page]]
         mock_cw.get_paginator.return_value = mock_paginator
-        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+        with patch("common._clients._get_cw_client", return_value=mock_cw):
             deleted = delete_alarms_for_resource("i-001", "EC2")
 
         assert len(deleted) == 4
@@ -940,7 +940,7 @@ class TestDeleteAlarms:
         mock_paginator = MagicMock()
         mock_paginator.paginate.return_value = [{"MetricAlarms": []}]
         mock_cw.get_paginator.return_value = mock_paginator
-        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+        with patch("common._clients._get_cw_client", return_value=mock_cw):
             deleted = delete_alarms_for_resource("x-001", "UNKNOWN")
         assert deleted == []
 
@@ -955,7 +955,7 @@ class TestDeleteAlarms:
         mock_cw.delete_alarms.side_effect = ClientError(
             {"Error": {"Code": "ResourceNotFound", "Message": "nope"}}, "DeleteAlarms"
         )
-        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+        with patch("common._clients._get_cw_client", return_value=mock_cw):
             deleted = delete_alarms_for_resource("i-001", "EC2")
 
         assert deleted == []
@@ -976,7 +976,7 @@ class TestDeleteAlarms:
             [{"MetricAlarms": [legacy_alarm]}], # [ELB] prefix search
         ]
         mock_cw.get_paginator.return_value = mock_paginator
-        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+        with patch("common._clients._get_cw_client", return_value=mock_cw):
             result = _find_alarms_for_resource(alb_arn, "ALB")
 
         assert new_alarm["AlarmName"] in result
@@ -995,7 +995,7 @@ class TestDeleteAlarms:
             [{"MetricAlarms": [legacy_alarm]}], # [ELB] prefix search
         ]
         mock_cw.get_paginator.return_value = mock_paginator
-        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+        with patch("common._clients._get_cw_client", return_value=mock_cw):
             result = _find_alarms_for_resource(nlb_arn, "NLB")
 
         assert legacy_alarm["AlarmName"] in result
@@ -1016,7 +1016,7 @@ class TestDeleteAlarms:
             [{"MetricAlarms": [legacy_alarm]}], # [ELB] prefix search
         ]
         mock_cw.get_paginator.return_value = mock_paginator
-        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+        with patch("common._clients._get_cw_client", return_value=mock_cw):
             result = _find_alarms_for_resource(tg_arn, "TG")
 
         assert new_alarm["AlarmName"] in result
@@ -1032,7 +1032,7 @@ class TestDeleteAlarms:
             [{"MetricAlarms": []}],  # [EC2] prefix search
         ]
         mock_cw.get_paginator.return_value = mock_paginator
-        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+        with patch("common._clients._get_cw_client", return_value=mock_cw):
             result = _find_alarms_for_resource("i-001", "EC2")
 
         assert result == []
@@ -1053,7 +1053,7 @@ class TestSyncAlarms:
         mock_cw.get_paginator.return_value = mock_paginator
         mock_cw.put_metric_alarm.return_value = {}
         mock_cw.list_metrics.return_value = {"Metrics": []}
-        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw), \
+        with patch("common._clients._get_cw_client", return_value=mock_cw), \
              patch("common.alarm_manager._find_alarms_for_resource", return_value=[]):
             result = sync_alarms_for_resource("i-001", "EC2", {})
 
@@ -1096,7 +1096,7 @@ class TestSyncAlarms:
             return {"MetricAlarms": alarms}
 
         mock_cw.describe_alarms.side_effect = describe_side_effect
-        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw), \
+        with patch("common._clients._get_cw_client", return_value=mock_cw), \
              patch("common.alarm_manager._find_alarms_for_resource", return_value=existing):
             result = sync_alarms_for_resource("i-001", "EC2", {})
 
@@ -1143,7 +1143,7 @@ class TestSyncAlarms:
         mock_paginator.paginate.return_value = [{"MetricAlarms": []}]
         mock_cw.get_paginator.return_value = mock_paginator
         tags = {"Threshold_CPU": "90"}
-        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw), \
+        with patch("common._clients._get_cw_client", return_value=mock_cw), \
              patch("common.alarm_manager._find_alarms_for_resource", return_value=existing):
             result = sync_alarms_for_resource("i-001", "EC2", tags)
 
@@ -1175,7 +1175,7 @@ class TestSyncAlarms:
 
         # Threshold_RequestCount=8000 태그로 threshold 불일치 유도
         tags = {"Monitoring": "on", "Name": "my-alb", "Threshold_RequestCount": "8000"}
-        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw), \
+        with patch("common._clients._get_cw_client", return_value=mock_cw), \
              patch("common.alarm_manager._find_alarms_for_resource", return_value=[legacy_name]):
             result = sync_alarms_for_resource(alb_arn, "ALB", tags)
 
@@ -1237,7 +1237,7 @@ class TestAlarmMetadata:
         mock_paginator = MagicMock()
         mock_paginator.paginate.return_value = [{"MetricAlarms": []}]
         mock_cw.get_paginator.return_value = mock_paginator
-        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+        with patch("common._clients._get_cw_client", return_value=mock_cw):
             create_alarms_for_resource("i-001", "EC2", {"Name": "srv"})
 
         # 모든 put_metric_alarm 호출에 JSON 메타데이터가 포함되어야 함
@@ -1487,7 +1487,7 @@ class TestResolveMetricDimensions:
         mock_cw.list_metrics.return_value = {"Metrics": [
             {"Dimensions": [{"Name": "InstanceId", "Value": "i-001"}]}
         ]}
-        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+        with patch("common._clients._get_cw_client", return_value=mock_cw):
             result = _resolve_metric_dimensions("i-001", "NetworkIn", "EC2")
 
         assert result is not None
@@ -1499,7 +1499,7 @@ class TestResolveMetricDimensions:
         """메트릭이 없으면 None 반환."""
         mock_cw = MagicMock()
         mock_cw.list_metrics.return_value = {"Metrics": []}
-        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+        with patch("common._clients._get_cw_client", return_value=mock_cw):
             result = _resolve_metric_dimensions("i-001", "NonExistent", "EC2")
 
         assert result is None
@@ -1509,7 +1509,7 @@ class TestResolveMetricDimensions:
         mock_cw.list_metrics.return_value = {"Metrics": [
             {"Dimensions": [{"Name": "DBInstanceIdentifier", "Value": "db-001"}]}
         ]}
-        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+        with patch("common._clients._get_cw_client", return_value=mock_cw):
             result = _resolve_metric_dimensions("db-001", "ReadLatency", "RDS")
 
         assert result is not None
@@ -1523,7 +1523,7 @@ class TestResolveMetricDimensions:
             {"Dimensions": [{"Name": "LoadBalancer", "Value": "app/my-alb/abc"}]}
         ]}
         arn = "arn:aws:elasticloadbalancing:us-east-1:123:loadbalancer/app/my-alb/abc"
-        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+        with patch("common._clients._get_cw_client", return_value=mock_cw):
             result = _resolve_metric_dimensions(arn, "ProcessedBytes", "ALB")
 
         assert result is not None
@@ -1534,7 +1534,7 @@ class TestResolveMetricDimensions:
         mock_cw.list_metrics.side_effect = ClientError(
             {"Error": {"Code": "InternalError", "Message": "fail"}}, "ListMetrics"
         )
-        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+        with patch("common._clients._get_cw_client", return_value=mock_cw):
             result = _resolve_metric_dimensions("i-001", "NetworkIn", "EC2")
 
         assert result is None
@@ -1553,7 +1553,7 @@ class TestCreateDynamicAlarm:
             {"Dimensions": [{"Name": "InstanceId", "Value": "i-001"}]}
         ]}
         created = []
-        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+        with patch("common._clients._get_cw_client", return_value=mock_cw):
             _create_dynamic_alarm(
                 "i-001", "EC2", "my-server",
                 "NetworkIn", 1000000.0, mock_cw,
@@ -1572,7 +1572,7 @@ class TestCreateDynamicAlarm:
         mock_cw = MagicMock()
         mock_cw.list_metrics.return_value = {"Metrics": []}
         created = []
-        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+        with patch("common._clients._get_cw_client", return_value=mock_cw):
             _create_dynamic_alarm(
                 "i-001", "EC2", "my-server",
                 "NonExistent", 100.0, mock_cw,
@@ -1590,7 +1590,7 @@ class TestCreateDynamicAlarm:
         ]}
         created = []
         long_name = "x" * 200
-        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+        with patch("common._clients._get_cw_client", return_value=mock_cw):
             _create_dynamic_alarm(
                 "i-001", "EC2", long_name,
                 "NetworkIn", 100.0, mock_cw, "", created,
@@ -1610,7 +1610,7 @@ class TestCreateDynamicAlarm:
             "PutMetricAlarm",
         )
         created = []
-        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+        with patch("common._clients._get_cw_client", return_value=mock_cw):
             _create_dynamic_alarm(
                 "i-001", "EC2", "srv",
                 "NetworkIn", 100.0, mock_cw, "", created,
@@ -1630,7 +1630,7 @@ class TestCreateDynamicAlarm:
             {"Dimensions": [{"Name": "LoadBalancer", "Value": "app/my-alb/1234567890abcdef"}]}
         ]}
         created = []
-        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+        with patch("common._clients._get_cw_client", return_value=mock_cw):
             _create_dynamic_alarm(
                 alb_arn, "ALB", "my-alb",
                 "CustomMetric", 100.0, mock_cw,
@@ -1650,7 +1650,7 @@ class TestCreateDynamicAlarm:
             {"Dimensions": [{"Name": "TargetGroup", "Value": "targetgroup/my-tg/abcdef1234567890"}]}
         ]}
         created = []
-        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+        with patch("common._clients._get_cw_client", return_value=mock_cw):
             _create_dynamic_alarm(
                 tg_arn, "TG", "my-tg",
                 "CustomMetric", 50.0, mock_cw,
@@ -1669,7 +1669,7 @@ class TestCreateDynamicAlarm:
             {"Dimensions": [{"Name": "InstanceId", "Value": "i-001"}]}
         ]}
         created = []
-        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+        with patch("common._clients._get_cw_client", return_value=mock_cw):
             _create_dynamic_alarm(
                 "i-001", "EC2", "my-server",
                 "NetworkIn", 1000.0, mock_cw,
@@ -1770,7 +1770,7 @@ class TestFindAlarmsForResourceMoto:
         _put_alarm(cw, f"[ALB] my-alb RequestCount >100 ({short_id})")
         _put_alarm(cw, f"[ALB] my-alb HTTPCode_ELB_5XX_Count >50 ({short_id})")
 
-        with patch("common.alarm_manager._get_cw_client", return_value=cw):
+        with patch("common._clients._get_cw_client", return_value=cw):
             result = _find_alarms_for_resource(alb_arn, "ALB")
 
         assert len(result) == 2
@@ -1791,7 +1791,7 @@ class TestFindAlarmsForResourceMoto:
         _put_alarm(cw, f"[ALB] my-alb RequestCount >100 ({alb_arn})")
         _put_alarm(cw, f"[ALB] my-alb HTTPCode_ELB_5XX_Count >50 ({alb_arn})")
 
-        with patch("common.alarm_manager._get_cw_client", return_value=cw):
+        with patch("common._clients._get_cw_client", return_value=cw):
             result = _find_alarms_for_resource(alb_arn, "ALB")
 
         assert len(result) == 2
@@ -1814,7 +1814,7 @@ class TestFindAlarmsForResourceMoto:
         # 새 포맷 알람 (Short_ID suffix)
         _put_alarm(cw, f"[TG] my-tg UnHealthyHostCount >0 ({short_id})")
 
-        with patch("common.alarm_manager._get_cw_client", return_value=cw):
+        with patch("common._clients._get_cw_client", return_value=cw):
             result = _find_alarms_for_resource(tg_arn, "TG")
 
         assert len(result) == 2
@@ -1860,7 +1860,7 @@ class TestFindAlarmsForResourceMoto:
             ComparisonOperator="GreaterThanThreshold",
         )
 
-        with patch("common.alarm_manager._get_cw_client", return_value=cw):
+        with patch("common._clients._get_cw_client", return_value=cw):
             result = _find_alarms_for_resource(instance_id, "EC2")
 
         assert len(result) == 2
@@ -1890,7 +1890,7 @@ class TestFindAlarmsForResourceMoto:
             ComparisonOperator="GreaterThanThreshold",
         )
 
-        with patch("common.alarm_manager._get_cw_client", return_value=cw):
+        with patch("common._clients._get_cw_client", return_value=cw):
             result = _find_alarms_for_resource(db_id, "RDS")
 
         assert len(result) == 1
@@ -2009,7 +2009,7 @@ class TestCreateAlarmsOffCheck:
         """
         mock_cw = self._mock_cw_with_disk()
         tags = {"Monitoring": "on", "Name": "my-server", "Threshold_CPU": "off"}
-        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+        with patch("common._clients._get_cw_client", return_value=mock_cw):
             created = create_alarms_for_resource("i-001", "EC2", tags)
 
         # CPU 알람이 생성되지 않아야 함
@@ -2026,7 +2026,7 @@ class TestCreateAlarmsOffCheck:
         """
         mock_cw = self._mock_cw_with_disk()
         tags = {"Monitoring": "on", "Name": "my-server", "Threshold_Disk_root": "off"}
-        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+        with patch("common._clients._get_cw_client", return_value=mock_cw):
             created = create_alarms_for_resource("i-001", "EC2", tags)
 
         # Disk 알람이 생성되지 않아야 함 (root만 있으므로)
@@ -2043,7 +2043,7 @@ class TestCreateAlarmsOffCheck:
         """
         mock_cw = self._mock_cw_with_disk()
         tags = {"Monitoring": "on", "Name": "my-server"}
-        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+        with patch("common._clients._get_cw_client", return_value=mock_cw):
             created = create_alarms_for_resource("i-001", "EC2", tags)
 
         # 모든 4개 알람 정상 생성
@@ -2059,7 +2059,7 @@ class TestCreateAlarmsOffCheck:
         """
         mock_cw = self._mock_cw_with_disk()
         tags = {"Monitoring": "on", "Threshold_CPU": "OFF"}
-        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+        with patch("common._clients._get_cw_client", return_value=mock_cw):
             created = create_alarms_for_resource("i-001", "EC2", tags)
 
         assert not any("CPUUtilization" in n for n in created)
@@ -2075,7 +2075,7 @@ class TestCreateAlarmsOffCheck:
             "Threshold_CPU": "off",
             "Threshold_Memory": "off",
         }
-        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+        with patch("common._clients._get_cw_client", return_value=mock_cw):
             created = create_alarms_for_resource("i-001", "EC2", tags)
 
         assert not any("CPUUtilization" in n for n in created)
@@ -2092,7 +2092,7 @@ class TestCreateAlarmsOffCheck:
         mock_paginator.paginate.return_value = [{"MetricAlarms": []}]
         mock_cw.get_paginator.return_value = mock_paginator
         tags = {"Monitoring": "on", "Threshold_CPU": "off"}
-        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+        with patch("common._clients._get_cw_client", return_value=mock_cw):
             created = create_alarms_for_resource("db-001", "RDS", tags)
 
         assert not any("CPUUtilization" in n for n in created)
@@ -2159,7 +2159,7 @@ class TestSyncDynamicAlarms:
         ]}
 
         tags = {"Threshold_NetworkIn": "1000000"}
-        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw), \
+        with patch("common._clients._get_cw_client", return_value=mock_cw), \
              patch("common.alarm_manager._find_alarms_for_resource", return_value=existing):
             result = sync_alarms_for_resource("i-001", "EC2", tags)
 
@@ -2207,7 +2207,7 @@ class TestSyncDynamicAlarms:
 
         # 태그에 NetworkIn 없음 → 동적 알람 삭제 대상
         tags = {}
-        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw), \
+        with patch("common._clients._get_cw_client", return_value=mock_cw), \
              patch("common.alarm_manager._find_alarms_for_resource", return_value=existing):
             result = sync_alarms_for_resource("i-001", "EC2", tags)
 
@@ -2260,7 +2260,7 @@ class TestSyncDynamicAlarms:
 
         # 임계치 변경: 1000000 → 2000000
         tags = {"Threshold_NetworkIn": "2000000"}
-        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw), \
+        with patch("common._clients._get_cw_client", return_value=mock_cw), \
              patch("common.alarm_manager._find_alarms_for_resource", return_value=existing):
             result = sync_alarms_for_resource("i-001", "EC2", tags)
 
@@ -2307,7 +2307,7 @@ class TestSyncDynamicAlarms:
 
         # 임계치 동일
         tags = {"Threshold_NetworkIn": "1000000"}
-        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw), \
+        with patch("common._clients._get_cw_client", return_value=mock_cw), \
              patch("common.alarm_manager._find_alarms_for_resource", return_value=existing):
             result = sync_alarms_for_resource("i-001", "EC2", tags)
 
@@ -2370,7 +2370,7 @@ class TestSyncHardcodedOffDeletion:
         mock_cw.delete_alarms.return_value = {}
 
         tags = {"Threshold_CPU": "off"}
-        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw), \
+        with patch("common._clients._get_cw_client", return_value=mock_cw), \
              patch("common.alarm_manager._find_alarms_for_resource", return_value=existing):
             result = sync_alarms_for_resource("i-001", "EC2", tags)
 
@@ -2416,9 +2416,10 @@ class TestSyncHardcodedOffDeletion:
         mock_cw.delete_alarms.return_value = {}
 
         tags = {"Threshold_CPU": "off"}
-        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw), \
+        with patch("common._clients._get_cw_client", return_value=mock_cw), \
              patch("common.alarm_manager._find_alarms_for_resource", return_value=existing), \
-             patch("common.alarm_manager.logger") as mock_logger:
+             patch("common.alarm_manager.logger") as mock_logger, \
+             patch("common.alarm_sync.logger", mock_logger):
             result = sync_alarms_for_resource("i-001", "EC2", tags)
 
         assert cpu_alarm_name in result["deleted"]
@@ -2576,7 +2577,7 @@ class TestFindAlarmsForResourceAuroraRDS:
             ComparisonOperator="GreaterThanThreshold",
         )
 
-        with patch("common.alarm_manager._get_cw_client", return_value=cw):
+        with patch("common._clients._get_cw_client", return_value=cw):
             result = _find_alarms_for_resource(db_id, "AuroraRDS")
 
         assert len(result) == 2
@@ -2608,7 +2609,7 @@ class TestFindAlarmsForResourceAuroraRDS:
         )
 
         # resource_type 미지정 → default fallback
-        with patch("common.alarm_manager._get_cw_client", return_value=cw):
+        with patch("common._clients._get_cw_client", return_value=cw):
             result = _find_alarms_for_resource(db_id)
 
         assert len(result) >= 1
@@ -2652,7 +2653,7 @@ class TestAuroraRDSIntegration:
         }
         db_id = "aurora-db-001"
 
-        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+        with patch("common._clients._get_cw_client", return_value=mock_cw):
             result = sync_alarms_for_resource(db_id, "AuroraRDS", tags)
 
         assert len(result["created"]) == 5
@@ -2718,7 +2719,7 @@ class TestAuroraRDSIntegration:
 
         mock_cw.describe_alarms.side_effect = describe_side_effect
 
-        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw), \
+        with patch("common._clients._get_cw_client", return_value=mock_cw), \
              patch("common.alarm_manager._find_alarms_for_resource", return_value=existing):
             result = sync_alarms_for_resource(db_id, "AuroraRDS", {
                 "Name": "my-aurora",
@@ -2795,7 +2796,7 @@ class TestAuroraRDSIntegration:
             "_has_readers": "true",
         }
 
-        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw), \
+        with patch("common._clients._get_cw_client", return_value=mock_cw), \
              patch("common.alarm_manager._find_alarms_for_resource", return_value=existing):
             result = sync_alarms_for_resource(db_id, "AuroraRDS", tags)
 
@@ -2820,7 +2821,7 @@ class TestAuroraRDSIntegration:
         ]
         mock_cw.get_paginator.return_value = mock_paginator
 
-        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+        with patch("common._clients._get_cw_client", return_value=mock_cw):
             deleted = delete_alarms_for_resource(db_id, "AuroraRDS")
 
         assert len(deleted) == 2
@@ -2840,7 +2841,7 @@ class TestAuroraRDSIntegration:
             "Threshold_FreeLocalStorageGB": "20",
         }
 
-        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+        with patch("common._clients._get_cw_client", return_value=mock_cw):
             create_alarms_for_resource(db_id, "AuroraRDS", tags)
 
         put_calls = mock_cw.put_metric_alarm.call_args_list
@@ -2866,7 +2867,7 @@ class TestAuroraRDSIntegration:
             "_is_serverless_v2": "false",
         }
 
-        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+        with patch("common._clients._get_cw_client", return_value=mock_cw):
             create_alarms_for_resource(db_id, "AuroraRDS", tags)
 
         put_calls = mock_cw.put_metric_alarm.call_args_list
@@ -2896,7 +2897,7 @@ class TestAuroraRDSIntegration:
             "Threshold_CommitLatency": "500",
         }
 
-        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+        with patch("common._clients._get_cw_client", return_value=mock_cw):
             created = create_alarms_for_resource(db_id, "AuroraRDS", tags)
 
         # 5개 하드코딩 + 1개 동적 = 6개
@@ -3297,7 +3298,7 @@ class TestDocDBAlarmCreation:
         """DocDB 인스턴스에 6개 알람 생성 검증."""
         mock_cw = self._mock_cw()
         tags = {"Monitoring": "on", "Name": "my-docdb"}
-        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+        with patch("common._clients._get_cw_client", return_value=mock_cw):
             created = create_alarms_for_resource("docdb-inst-1", "DocDB", tags)
 
         assert len(created) == 6
@@ -3307,7 +3308,7 @@ class TestDocDBAlarmCreation:
         """모든 DocDB 알람 이름이 '[DocDB] '로 시작하는지 검증 — Req 5.1."""
         mock_cw = self._mock_cw()
         tags = {"Monitoring": "on", "Name": "my-docdb"}
-        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+        with patch("common._clients._get_cw_client", return_value=mock_cw):
             created = create_alarms_for_resource("docdb-inst-1", "DocDB", tags)
 
         for name in created:
@@ -3318,7 +3319,7 @@ class TestDocDBAlarmCreation:
         import json
         mock_cw = self._mock_cw()
         tags = {"Monitoring": "on", "Name": "my-docdb"}
-        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+        with patch("common._clients._get_cw_client", return_value=mock_cw):
             create_alarms_for_resource("docdb-inst-1", "DocDB", tags)
 
         for call in mock_cw.put_metric_alarm.call_args_list:
@@ -3334,7 +3335,7 @@ class TestDocDBAlarmCreation:
         mock_cw = self._mock_cw()
         db_id = "docdb-inst-1"
         tags = {"Monitoring": "on"}
-        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+        with patch("common._clients._get_cw_client", return_value=mock_cw):
             create_alarms_for_resource(db_id, "DocDB", tags)
 
         for call in mock_cw.put_metric_alarm.call_args_list:
@@ -3347,7 +3348,7 @@ class TestDocDBAlarmCreation:
         """Threshold_CPU=90 태그 → CPU 알람 임계치 90.0 검증 — Req 11.1."""
         mock_cw = self._mock_cw()
         tags = {"Monitoring": "on", "Threshold_CPU": "90"}
-        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+        with patch("common._clients._get_cw_client", return_value=mock_cw):
             create_alarms_for_resource("docdb-inst-1", "DocDB", tags)
 
         calls = mock_cw.put_metric_alarm.call_args_list
@@ -3358,7 +3359,7 @@ class TestDocDBAlarmCreation:
         """Threshold_FreeMemoryGB=4 태그 → FreeableMemory 알람 임계치 4*1073741824 bytes 검증 — Req 11.2."""
         mock_cw = self._mock_cw()
         tags = {"Monitoring": "on", "Threshold_FreeMemoryGB": "4"}
-        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+        with patch("common._clients._get_cw_client", return_value=mock_cw):
             create_alarms_for_resource("docdb-inst-1", "DocDB", tags)
 
         calls = mock_cw.put_metric_alarm.call_args_list
@@ -3369,7 +3370,7 @@ class TestDocDBAlarmCreation:
         """모든 DocDB 알람 이름이 '(docdb-inst-1)'로 끝나는지 검증."""
         mock_cw = self._mock_cw()
         tags = {"Monitoring": "on"}
-        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+        with patch("common._clients._get_cw_client", return_value=mock_cw):
             created = create_alarms_for_resource("docdb-inst-1", "DocDB", tags)
 
         for name in created:
@@ -3396,7 +3397,7 @@ class TestDocDBEndToEnd:
         """create_alarms_for_resource('docdb-inst-1', 'DocDB', ...) → 6개 알람, 모두 [DocDB] 접두사."""
         mock_cw = self._mock_cw()
         tags = {"Monitoring": "on"}
-        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+        with patch("common._clients._get_cw_client", return_value=mock_cw):
             created = create_alarms_for_resource("docdb-inst-1", "DocDB", tags)
 
         assert len(created) == 6
@@ -3407,7 +3408,7 @@ class TestDocDBEndToEnd:
         """sync_alarms_for_resource('docdb-inst-1', 'DocDB', ...) → 알람 없으면 6개 생성."""
         mock_cw = self._mock_cw()
         tags = {"Monitoring": "on"}
-        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+        with patch("common._clients._get_cw_client", return_value=mock_cw):
             result = sync_alarms_for_resource("docdb-inst-1", "DocDB", tags)
 
         assert len(result["created"]) == 6
@@ -3422,7 +3423,7 @@ class TestDocDBEndToEnd:
         tags = {"Monitoring": "on", "Name": "my-docdb"}
 
         # 먼저 알람 생성하여 이름 목록 확보
-        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw):
+        with patch("common._clients._get_cw_client", return_value=mock_cw):
             created = create_alarms_for_resource(db_id, "DocDB", tags)
 
         # 기존 알람 describe 결과 mock 구성
@@ -3448,7 +3449,7 @@ class TestDocDBEndToEnd:
         mock_cw2 = MagicMock()
         mock_cw2.describe_alarms.return_value = {"MetricAlarms": existing_alarms}
 
-        with patch("common.alarm_manager._get_cw_client", return_value=mock_cw2), \
+        with patch("common._clients._get_cw_client", return_value=mock_cw2), \
              patch("common.alarm_manager._find_alarms_for_resource", return_value=created):
             result = sync_alarms_for_resource(db_id, "DocDB", tags)
 

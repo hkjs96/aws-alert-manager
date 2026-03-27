@@ -10,7 +10,6 @@ create_alarms_for_resource()가 기존과 동일한 알람 개수, 이름 포맷
 EXPECTED: These tests PASS on unfixed code (existing behavior is correct).
 """
 
-import os
 import re
 
 import boto3
@@ -24,6 +23,7 @@ from common.alarm_manager import (
     _shorten_elb_resource_id,
     create_alarms_for_resource,
 )
+from common.alarm_registry import _get_alarm_defs
 
 # ──────────────────────────────────────────────
 # 하드코딩 메트릭 정의 (alarm_manager.py 기준)
@@ -47,14 +47,9 @@ _HARDCODED_METRICS = {
     ],
 }
 
-# 알람 개수 기대값 (Disk는 CWAgent 메트릭 등록 시 1개)
-_EXPECTED_ALARM_COUNTS = {
-    "EC2": 4,  # CPU + Memory + Disk(/) + StatusCheckFailed
-    "RDS": 7,  # CPU + FreeMemoryGB + FreeStorageGB + Connections + ReadLatency + WriteLatency + ConnectionAttempts
-    "ALB": 5,  # RequestCount + ELB5XX + TargetResponseTime + ELB4XX + TargetConnectionError
-    "NLB": 5,  # ProcessedBytes + ActiveFlowCount + NewFlowCount + TCPClientReset + TCPTargetReset
-    "TG": 4,   # RequestCount + HealthyHostCount + RequestCountPerTarget + TGResponseTime
-}
+# 알람 개수 기대값 — 레지스트리 기반 동적 계산 (Disk는 CWAgent 메트릭 등록 시 1개)
+def _expected_alarm_count(resource_type: str) -> int:
+    return len(_get_alarm_defs(resource_type))
 
 # 메트릭별 네임스페이스 매핑
 _METRIC_NAMESPACE = {
@@ -350,7 +345,7 @@ class TestHardcodedAlarmPreservation:
             )
 
         # ── 1. 알람 개수 검증 ──
-        expected_count = _EXPECTED_ALARM_COUNTS[resource_type]
+        expected_count = _expected_alarm_count(resource_type)
         assert len(result) == expected_count, (
             f"알람 개수 불일치: expected={expected_count}, "
             f"actual={len(result)}\n"
