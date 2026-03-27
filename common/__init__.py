@@ -41,6 +41,7 @@ HARDCODED_DEFAULTS: dict[str, float] = {
     "ACUUtilization": 80.0,
     "ServerlessDatabaseCapacity": 128.0,
     "FreeMemoryPct": 20.0,
+    "FreeLocalStoragePct": 20.0,
     "ConnectionAttempts": 500.0,
 }
 

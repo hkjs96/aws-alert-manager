@@ -69,6 +69,7 @@ _INSTANCE_CLASS_MEMORY_MAP: dict[str, int] = {
 # ──────────────────────────────────────────────
 
 _instance_class_memory_cache: dict[str, int | None] = {}
+_instance_class_local_storage_cache: dict[str, int | None] = {}
 
 
 @functools.lru_cache(maxsize=None)
@@ -114,6 +115,45 @@ def _lookup_instance_class_memory(instance_class: str) -> int | None:
             instance_class, e,
         )
         _instance_class_memory_cache[instance_class] = None
+        return None
+
+
+def _lookup_instance_class_local_storage(instance_class: str) -> int | None:
+    """인스턴스 클래스의 로컬 스토리지 용량(bytes) 조회.
+
+    조회 우선순위:
+    1. _instance_class_local_storage_cache 캐시 (API 실패 None 포함)
+    2. describe_db_instance_classes API → StorageInfo.StorageSizeRange.Maximum (GiB → bytes)
+    """
+    # 1순위: 캐시 (None도 캐시됨 → API 실패 반복 방지)
+    if instance_class in _instance_class_local_storage_cache:
+        return _instance_class_local_storage_cache[instance_class]
+
+    # 2순위: describe_db_instance_classes API
+    try:
+        rds = _get_rds_client()
+        resp = rds.describe_db_instance_classes(
+            DBInstanceClass=instance_class,
+        )
+        db_classes = resp.get("DBInstanceClasses", [])
+        if db_classes:
+            storage_info = db_classes[0].get("StorageInfo", {})
+            if isinstance(storage_info, dict):
+                size_range = storage_info.get("StorageSizeRange", {})
+                if isinstance(size_range, dict):
+                    max_gib = size_range.get("Maximum", 0)
+                    if isinstance(max_gib, (int, float)) and max_gib > 0:
+                        storage_bytes = int(max_gib) * _BYTES_PER_GB
+                        _instance_class_local_storage_cache[instance_class] = storage_bytes
+                        return storage_bytes
+        _instance_class_local_storage_cache[instance_class] = None
+        return None
+    except (ClientError, AttributeError) as e:
+        logger.warning(
+            "describe_db_instance_classes failed for %s (local storage): %s",
+            instance_class, e,
+        )
+        _instance_class_local_storage_cache[instance_class] = None
         return None
 
 
@@ -191,6 +231,18 @@ def _enrich_aurora_metadata(
             logger.warning(
                 "Unknown instance class %s for %s, "
                 "skipping _total_memory_bytes",
+                instance_class,
+                db_id,
+            )
+
+        # Provisioned: 로컬 스토리지 용량 lookup (API 동적 조회)
+        local_storage = _lookup_instance_class_local_storage(instance_class)
+        if local_storage is not None:
+            tags["_total_local_storage_bytes"] = str(local_storage)
+        else:
+            logger.warning(
+                "Unknown local storage for %s (%s), "
+                "skipping _total_local_storage_bytes",
                 instance_class,
                 db_id,
             )
