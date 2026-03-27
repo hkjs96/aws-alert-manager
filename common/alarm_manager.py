@@ -237,7 +237,7 @@ def _find_alarms_for_resource(
     type_prefixes = (
         [f"[{resource_type}] "]
         if resource_type
-        else [f"[{rt}] " for rt in ("EC2", "RDS", "ALB", "NLB", "TG", "AuroraRDS")]
+        else [f"[{rt}] " for rt in ("EC2", "RDS", "ALB", "NLB", "TG", "AuroraRDS", "DocDB")]
     )
     for p in type_prefixes:
         _collect(p, filter_suffix=True)
@@ -642,6 +642,71 @@ def _get_aurora_alarm_defs(resource_tags: dict) -> list[dict]:
     return alarms
 
 
+_DOCDB_ALARMS = [
+    {
+        "metric": "CPU",
+        "namespace": "AWS/DocDB",
+        "metric_name": "CPUUtilization",
+        "dimension_key": "DBInstanceIdentifier",
+        "stat": "Average",
+        "comparison": "GreaterThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+    },
+    {
+        "metric": "FreeMemoryGB",
+        "namespace": "AWS/DocDB",
+        "metric_name": "FreeableMemory",
+        "dimension_key": "DBInstanceIdentifier",
+        "stat": "Average",
+        "comparison": "LessThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+        "transform_threshold": lambda gb: gb * 1073741824,
+    },
+    {
+        "metric": "FreeLocalStorageGB",
+        "namespace": "AWS/DocDB",
+        "metric_name": "FreeLocalStorage",
+        "dimension_key": "DBInstanceIdentifier",
+        "stat": "Average",
+        "comparison": "LessThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+        "transform_threshold": lambda gb: gb * 1073741824,
+    },
+    {
+        "metric": "Connections",
+        "namespace": "AWS/DocDB",
+        "metric_name": "DatabaseConnections",
+        "dimension_key": "DBInstanceIdentifier",
+        "stat": "Average",
+        "comparison": "GreaterThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+    },
+    {
+        "metric": "ReadLatency",
+        "namespace": "AWS/DocDB",
+        "metric_name": "ReadLatency",
+        "dimension_key": "DBInstanceIdentifier",
+        "stat": "Average",
+        "comparison": "GreaterThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+    },
+    {
+        "metric": "WriteLatency",
+        "namespace": "AWS/DocDB",
+        "metric_name": "WriteLatency",
+        "dimension_key": "DBInstanceIdentifier",
+        "stat": "Average",
+        "comparison": "GreaterThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+    },
+]
+
 _NLB_TG_EXCLUDED_METRICS = {"RequestCountPerTarget", "TGResponseTime"}
 
 
@@ -656,6 +721,8 @@ def _get_alarm_defs(resource_type: str, resource_tags: dict | None = None) -> li
         return _ALB_ALARMS
     elif resource_type == "NLB":
         return _NLB_ALARMS
+    elif resource_type == "DocDB":
+        return _DOCDB_ALARMS
     elif resource_type == "TG":
         # TargetType=alb인 TG는 HealthyHostCount/UnHealthyHostCount 메트릭이
         # CloudWatch에서 발행되지 않음 (AWS 제약사항) → 알람 생성 스킵
@@ -675,6 +742,7 @@ _HARDCODED_METRIC_KEYS: dict[str, set[str]] = {
     "NLB": {"ProcessedBytes", "ActiveFlowCount", "NewFlowCount", "TCPClientReset", "TCPTargetReset"},
     "TG": {"HealthyHostCount", "UnHealthyHostCount", "RequestCountPerTarget", "TGResponseTime"},
     "AuroraRDS": {"CPU", "FreeMemoryGB", "Connections", "FreeLocalStorageGB", "ReplicaLag", "ReaderReplicaLag", "ACUUtilization", "ServerlessDatabaseCapacity"},
+    "DocDB": {"CPU", "FreeMemoryGB", "FreeLocalStorageGB", "Connections", "ReadLatency", "WriteLatency"},
 }
 
 # resource_type별 CloudWatch 네임스페이스 목록
@@ -685,6 +753,7 @@ _NAMESPACE_MAP: dict[str, list[str]] = {
     "NLB": ["AWS/NetworkELB"],
     "TG": ["AWS/ApplicationELB", "AWS/NetworkELB"],
     "AuroraRDS": ["AWS/RDS"],
+    "DocDB": ["AWS/DocDB"],
 }
 
 # resource_type별 디멘션 키
@@ -695,6 +764,7 @@ _DIMENSION_KEY_MAP: dict[str, str] = {
     "NLB": "LoadBalancer",
     "TG": "TargetGroup",
     "AuroraRDS": "DBInstanceIdentifier",
+    "DocDB": "DBInstanceIdentifier",
 }
 
 # AWS 태그 허용 문자 패턴 (메트릭 이름 부분)
@@ -739,7 +809,7 @@ def _parse_threshold_tags(
         if key.startswith("Threshold_Disk_"):
             continue
         # Threshold_FreeMemoryPct는 퍼센트 기반 메모리 임계치 전용
-        if key == "Threshold_FreeMemoryPct":
+        if key in ("Threshold_FreeMemoryPct", "Threshold_FreeLocalStoragePct"):
             continue
 
         raw_metric = key[len("Threshold_"):]
@@ -1060,6 +1130,63 @@ def _resolve_free_memory_threshold(
 
 
 
+def _resolve_free_local_storage_threshold(
+    resource_tags: dict,
+) -> tuple[float, float]:
+    """FreeLocalStorageGB 임계치를 퍼센트 또는 GB 기반으로 해석.
+
+    우선순위:
+    1. Threshold_FreeLocalStoragePct 태그 (명시적 퍼센트) + _total_local_storage_bytes 필요
+    2. _total_local_storage_bytes 존재 시 HARDCODED_DEFAULTS["FreeLocalStoragePct"] 자동 적용
+    3. Threshold_FreeLocalStorageGB 태그 또는 HARDCODED_DEFAULTS["FreeLocalStorageGB"] (절대값 폴백)
+
+    Returns:
+        (display_threshold_gb, cw_threshold_bytes) 튜플.
+    """
+    total_storage_raw = resource_tags.get("_total_local_storage_bytes")
+
+    # 1단계: 명시적 Threshold_FreeLocalStoragePct 태그
+    pct_raw = resource_tags.get("Threshold_FreeLocalStoragePct")
+    if pct_raw is not None:
+        try:
+            pct = float(pct_raw)
+        except (ValueError, TypeError):
+            logger.warning(
+                "Invalid Threshold_FreeLocalStoragePct=%r (non-numeric): falling back",
+                pct_raw,
+            )
+        else:
+            if not (0 < pct < 100):
+                logger.warning(
+                    "Invalid Threshold_FreeLocalStoragePct=%s (must be 0 < pct < 100): falling back",
+                    pct_raw,
+                )
+            elif total_storage_raw is None:
+                logger.warning(
+                    "Threshold_FreeLocalStoragePct=%s but _total_local_storage_bytes missing: "
+                    "falling back to GB",
+                    pct_raw,
+                )
+            else:
+                total_storage = float(total_storage_raw)
+                cw_bytes = (pct / 100) * total_storage
+                display_gb = round(cw_bytes / 1073741824, 2)
+                return (display_gb, cw_bytes)
+
+    # 2단계: _total_local_storage_bytes 있으면 기본 퍼센트(20%) 자동 적용
+    if total_storage_raw is not None:
+        from common import HARDCODED_DEFAULTS
+        default_pct = HARDCODED_DEFAULTS.get("FreeLocalStoragePct", 20.0)
+        total_storage = float(total_storage_raw)
+        cw_bytes = (default_pct / 100) * total_storage
+        display_gb = round(cw_bytes / 1073741824, 2)
+        return (display_gb, cw_bytes)
+
+    # 3단계: GB 절대값 폴백
+    gb = get_threshold(resource_tags, "FreeLocalStorageGB")
+    return (gb, gb * 1073741824)
+
+
 def _create_standard_alarm(
     alarm_def: dict,
     resource_id: str,
@@ -1075,6 +1202,8 @@ def _create_standard_alarm(
     # FreeMemoryGB: 퍼센트 기반 임계치 해석
     if metric == "FreeMemoryGB":
         threshold, cw_threshold = _resolve_free_memory_threshold(resource_tags)
+    elif metric == "FreeLocalStorageGB":
+        threshold, cw_threshold = _resolve_free_local_storage_threshold(resource_tags)
     else:
         threshold = get_threshold(resource_tags, metric)
         transform = alarm_def.get("transform_threshold")
@@ -1440,6 +1569,8 @@ def _create_single_alarm(
     # FreeMemoryGB: 퍼센트 기반 임계치 해석
     if metric == "FreeMemoryGB":
         threshold, cw_threshold = _resolve_free_memory_threshold(resource_tags)
+    elif metric == "FreeLocalStorageGB":
+        threshold, cw_threshold = _resolve_free_local_storage_threshold(resource_tags)
     else:
         threshold = get_threshold(resource_tags, metric)
         transform = alarm_def.get("transform_threshold")
@@ -1594,6 +1725,8 @@ def _recreate_standard_alarm(
     # FreeMemoryGB: 퍼센트 기반 임계치 해석
     if metric_key == "FreeMemoryGB":
         threshold, cw_threshold = _resolve_free_memory_threshold(resource_tags)
+    elif metric_key == "FreeLocalStorageGB":
+        threshold, cw_threshold = _resolve_free_local_storage_threshold(resource_tags)
     else:
         threshold = get_threshold(resource_tags, metric_key)
         transform = alarm_def.get("transform_threshold")
@@ -1813,6 +1946,8 @@ def _sync_standard_alarms(
     # FreeMemoryGB: 퍼센트 기반 임계치 해석
     if metric == "FreeMemoryGB":
         threshold, cw_threshold = _resolve_free_memory_threshold(resource_tags)
+    elif metric == "FreeLocalStorageGB":
+        threshold, cw_threshold = _resolve_free_local_storage_threshold(resource_tags)
     else:
         threshold = get_threshold(resource_tags, metric)
         transform = alarm_def.get("transform_threshold")

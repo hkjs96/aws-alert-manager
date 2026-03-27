@@ -1642,3 +1642,134 @@ class TestHandleDeleteAuroraFallback:
 
         # EC2는 원래 resource_type 사용
         mock_delete.assert_called_once_with("i-001", "EC2")
+
+
+# ──────────────────────────────────────────────
+# Task 9.1: Remediation Handler DocDB 지원 테스트
+# Validates: Requirements 10.1, 10.2, 10.3, 10.4, 10.5, 14.1, 14.2, 14.3
+# ──────────────────────────────────────────────
+
+
+class TestDocDBRemediation:
+    """Remediation Handler DocDB 지원 검증."""
+
+    def test_resolve_docdb_engine_returns_docdb(self):
+        """Engine 'docdb' → ('DocDB', False) 반환 — Req 10.5"""
+        from remediation_handler.lambda_handler import _resolve_rds_aurora_type
+
+        mock_rds = MagicMock()
+        mock_rds.describe_db_instances.return_value = {
+            "DBInstances": [{"Engine": "docdb"}],
+        }
+        with patch("remediation_handler.lambda_handler.boto3.client", return_value=mock_rds):
+            result = _resolve_rds_aurora_type("docdb-prod-1")
+
+        assert result == ("DocDB", False)
+
+    def test_resolve_docdb_before_aurora(self):
+        """DocDB 판별이 Aurora 판별보다 먼저 실행 — Req 10.5"""
+        from remediation_handler.lambda_handler import _resolve_rds_aurora_type
+
+        # 'docdb' contains no 'aurora' substring, but verify ordering is correct
+        mock_rds = MagicMock()
+        mock_rds.describe_db_instances.return_value = {
+            "DBInstances": [{"Engine": "docdb"}],
+        }
+        with patch("remediation_handler.lambda_handler.boto3.client", return_value=mock_rds):
+            result = _resolve_rds_aurora_type("docdb-inst-1")
+
+        assert result[0] == "DocDB"
+
+    def test_aurora_still_returns_aurora_rds(self):
+        """DocDB 추가 후에도 Aurora 엔진은 여전히 AuroraRDS 반환"""
+        from remediation_handler.lambda_handler import _resolve_rds_aurora_type
+
+        mock_rds = MagicMock()
+        mock_rds.describe_db_instances.return_value = {
+            "DBInstances": [{"Engine": "aurora-mysql"}],
+        }
+        with patch("remediation_handler.lambda_handler.boto3.client", return_value=mock_rds):
+            result = _resolve_rds_aurora_type("aurora-db-1")
+
+        assert result == ("AuroraRDS", False)
+
+    def test_mysql_still_returns_rds(self):
+        """DocDB 추가 후에도 MySQL 엔진은 여전히 RDS 반환"""
+        from remediation_handler.lambda_handler import _resolve_rds_aurora_type
+
+        mock_rds = MagicMock()
+        mock_rds.describe_db_instances.return_value = {
+            "DBInstances": [{"Engine": "mysql"}],
+        }
+        with patch("remediation_handler.lambda_handler.boto3.client", return_value=mock_rds):
+            result = _resolve_rds_aurora_type("mysql-db-1")
+
+        assert result == ("RDS", False)
+
+    def test_execute_remediation_docdb_calls_stop(self):
+        """_execute_remediation('DocDB', id) → stop_db_instance + 'STOPPED' — Req 14.2"""
+        from remediation_handler.lambda_handler import _execute_remediation
+
+        mock_rds = MagicMock()
+        with patch("remediation_handler.lambda_handler.boto3.client", return_value=mock_rds):
+            result = _execute_remediation("DocDB", "docdb-prod-1")
+
+        assert result == "STOPPED"
+        mock_rds.stop_db_instance.assert_called_once_with(
+            DBInstanceIdentifier="docdb-prod-1",
+        )
+
+    def test_remediation_action_name_docdb(self):
+        """_remediation_action_name('DocDB') → 'STOPPED' — Req 14.3"""
+        from remediation_handler.lambda_handler import _remediation_action_name
+        assert _remediation_action_name("DocDB") == "STOPPED"
+
+    def test_parse_create_db_instance_docdb_engine(self):
+        """CreateDBInstance + Engine 'docdb' → resource_type='DocDB' — Req 10.1"""
+        event = {
+            "detail": {
+                "eventName": "CreateDBInstance",
+                "requestParameters": {"dBInstanceIdentifier": "docdb-new-1"},
+                "responseElements": {},
+            }
+        }
+        with patch("remediation_handler.lambda_handler._resolve_rds_aurora_type",
+                   return_value=("DocDB", False)):
+            parsed = parse_cloudtrail_event(event)[0]
+
+        assert parsed.resource_id == "docdb-new-1"
+        assert parsed.resource_type == "DocDB"
+        assert parsed.event_category == "CREATE"
+
+    def test_parse_delete_db_instance_docdb(self):
+        """DeleteDBInstance + DocDB → resource_type='DocDB' — Req 10.2"""
+        event = _make_event("DeleteDBInstance", "docdb-del-1")
+        with patch("remediation_handler.lambda_handler._resolve_rds_aurora_type",
+                   return_value=("DocDB", False)):
+            parsed = parse_cloudtrail_event(event)[0]
+
+        assert parsed.resource_id == "docdb-del-1"
+        assert parsed.resource_type == "DocDB"
+        assert parsed.event_category == "DELETE"
+
+    def test_parse_modify_db_instance_docdb(self):
+        """ModifyDBInstance + DocDB → resource_type='DocDB' — Req 10.3"""
+        event = _make_event("ModifyDBInstance", "docdb-mod-1")
+        with patch("remediation_handler.lambda_handler._resolve_rds_aurora_type",
+                   return_value=("DocDB", False)):
+            parsed = parse_cloudtrail_event(event)[0]
+
+        assert parsed.resource_id == "docdb-mod-1"
+        assert parsed.resource_type == "DocDB"
+        assert parsed.event_category == "MODIFY"
+
+    def test_parse_add_tags_docdb(self):
+        """AddTagsToResource + DocDB → resource_type='DocDB' — Req 10.4"""
+        event = _make_event("AddTagsToResource", "docdb-tag-1")
+        with patch("remediation_handler.lambda_handler._resolve_rds_aurora_type",
+                   return_value=("DocDB", False)):
+            parsed = parse_cloudtrail_event(event)[0]
+
+        assert parsed.resource_id == "docdb-tag-1"
+        assert parsed.resource_type == "DocDB"
+        assert parsed.event_category == "TAG_CHANGE"

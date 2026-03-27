@@ -318,6 +318,8 @@ def _resolve_rds_aurora_type(db_instance_id: str) -> tuple[str, bool]:
         rds = boto3.client("rds")
         resp = rds.describe_db_instances(DBInstanceIdentifier=db_instance_id)
         engine = resp["DBInstances"][0].get("Engine", "")
+        if engine.lower() == "docdb":
+            return ("DocDB", False)
         if "aurora" in engine.lower():
             return ("AuroraRDS", False)
         return ("RDS", False)
@@ -522,7 +524,7 @@ def perform_remediation(resource_type: str, resource_id: str, change_summary: st
 
 def _remediation_action_name(resource_type: str) -> str:
 
-    return {"EC2": "STOPPED", "RDS": "STOPPED", "AuroraRDS": "STOPPED", "ELB": "DELETED", "ALB": "DELETED", "NLB": "DELETED"}.get(
+    return {"EC2": "STOPPED", "RDS": "STOPPED", "AuroraRDS": "STOPPED", "DocDB": "STOPPED", "ELB": "DELETED", "ALB": "DELETED", "NLB": "DELETED"}.get(
 
         resource_type, "UNKNOWN"
 
@@ -557,6 +559,15 @@ def _execute_remediation(resource_type: str, resource_id: str) -> str:
 
 
     if resource_type == "AuroraRDS":
+
+        rds = boto3.client("rds")
+
+        rds.stop_db_instance(DBInstanceIdentifier=resource_id)
+
+        return "STOPPED"
+
+
+    if resource_type == "DocDB":
 
         rds = boto3.client("rds")
 

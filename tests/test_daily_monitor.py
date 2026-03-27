@@ -32,8 +32,9 @@ def _make_resource(resource_id, resource_type="EC2", tags=None):
     }
 
 
-def _patch_all_collectors(ec2_resources=None, rds_resources=None, elb_resources=None):
-    """세 collector 모두 패치하는 컨텍스트 매니저 반환."""
+def _patch_all_collectors(ec2_resources=None, rds_resources=None, elb_resources=None,
+                         docdb_resources=None):
+    """모든 collector를 패치하는 컨텍스트 매니저 반환."""
     return (
         patch("daily_monitor.lambda_handler.ec2_collector.collect_monitored_resources",
               return_value=ec2_resources or []),
@@ -41,6 +42,8 @@ def _patch_all_collectors(ec2_resources=None, rds_resources=None, elb_resources=
               return_value=rds_resources or []),
         patch("daily_monitor.lambda_handler.elb_collector.collect_monitored_resources",
               return_value=elb_resources or []),
+        patch("daily_monitor.lambda_handler.docdb_collector.collect_monitored_resources",
+              return_value=docdb_resources or []),
     )
 
 
@@ -62,8 +65,8 @@ def test_property_6_insufficient_data_no_alert(resource_ids):
     """Feature: aws-monitoring-engine, Property 6: InsufficientData 메트릭 알림 건너뛰기"""
     resources = [_make_resource(rid) for rid in resource_ids]
 
-    p1, p2, p3 = _patch_all_collectors(ec2_resources=resources)
-    with p1, p2, p3, \
+    p1, p2, p3, p4 = _patch_all_collectors(ec2_resources=resources)
+    with p1, p2, p3, p4, \
          patch("common.collectors.ec2.get_metrics", return_value=None), \
          patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
         result = handler({}, MagicMock())
@@ -92,8 +95,8 @@ def test_property_8_multiple_resources_individual_alerts(cpu_values):
     # 각 리소스마다 CPU 임계치 초과 메트릭 반환
     metrics_list = [{"CPU": v} for v in cpu_values]
 
-    p1, p2, p3 = _patch_all_collectors(ec2_resources=resources)
-    with p1, p2, p3, \
+    p1, p2, p3, p4 = _patch_all_collectors(ec2_resources=resources)
+    with p1, p2, p3, p4, \
          patch("common.collectors.ec2.get_metrics", side_effect=metrics_list), \
          patch("daily_monitor.lambda_handler.send_alert") as mock_alert, \
          patch("daily_monitor.lambda_handler.get_threshold", return_value=80.0):
@@ -112,8 +115,8 @@ class TestDailyMonitorHandler:
 
     def test_no_resources_no_alert(self):
         """수집 대상 0개 시 알림 미발송 - Requirements 1.3"""
-        p1, p2, p3 = _patch_all_collectors()
-        with p1, p2, p3, \
+        p1, p2, p3, p4 = _patch_all_collectors()
+        with p1, p2, p3, p4, \
              patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
             result = handler({}, MagicMock())
 
@@ -124,8 +127,8 @@ class TestDailyMonitorHandler:
     def test_threshold_exceeded_sends_alert(self):
         """임계치 초과 시 SNS 알림 발송 - Requirements 3.1"""
         resources = [_make_resource("i-001")]
-        p1, p2, p3 = _patch_all_collectors(ec2_resources=resources)
-        with p1, p2, p3, \
+        p1, p2, p3, p4 = _patch_all_collectors(ec2_resources=resources)
+        with p1, p2, p3, p4, \
              patch("common.collectors.ec2.get_metrics",
                    return_value={"CPU": 95.0}), \
              patch("daily_monitor.lambda_handler.get_threshold", return_value=80.0), \
@@ -145,8 +148,8 @@ class TestDailyMonitorHandler:
     def test_threshold_not_exceeded_no_alert(self):
         """임계치 미초과 시 알림 미발송"""
         resources = [_make_resource("i-001")]
-        p1, p2, p3 = _patch_all_collectors(ec2_resources=resources)
-        with p1, p2, p3, \
+        p1, p2, p3, p4 = _patch_all_collectors(ec2_resources=resources)
+        with p1, p2, p3, p4, \
              patch("common.collectors.ec2.get_metrics",
                    return_value={"CPU": 50.0}), \
              patch("daily_monitor.lambda_handler.get_threshold", return_value=80.0), \
@@ -165,6 +168,8 @@ class TestDailyMonitorHandler:
              patch("daily_monitor.lambda_handler.rds_collector.collect_monitored_resources",
                    return_value=rds_resources), \
              patch("daily_monitor.lambda_handler.elb_collector.collect_monitored_resources",
+                   return_value=[]), \
+             patch("daily_monitor.lambda_handler.docdb_collector.collect_monitored_resources",
                    return_value=[]), \
              patch("common.collectors.rds.get_metrics",
                    return_value={"CPU": 50.0}), \
@@ -194,8 +199,8 @@ class TestDailyMonitorHandler:
                 raise Exception("metric error")
             return {"CPU": 50.0}
 
-        p1, p2, p3 = _patch_all_collectors(ec2_resources=resources)
-        with p1, p2, p3, \
+        p1, p2, p3, p4 = _patch_all_collectors(ec2_resources=resources)
+        with p1, p2, p3, p4, \
              patch("common.collectors.ec2.get_metrics",
                    side_effect=get_metrics_side_effect), \
              patch("daily_monitor.lambda_handler.get_threshold", return_value=80.0), \
@@ -211,8 +216,8 @@ class TestDailyMonitorHandler:
     def test_free_memory_below_threshold_sends_alert(self):
         """FreeMemoryGB가 임계치 미만일 때 알림 발송 (낮을수록 위험)"""
         resources = [_make_resource("db-001", "RDS")]
-        p1, p2, p3 = _patch_all_collectors(rds_resources=resources)
-        with p1, p2, p3, \
+        p1, p2, p3, p4 = _patch_all_collectors(rds_resources=resources)
+        with p1, p2, p3, p4, \
              patch("common.collectors.rds.get_metrics",
                    return_value={"FreeMemoryGB": 1.0}), \
              patch("daily_monitor.lambda_handler.get_threshold", return_value=2.0), \
@@ -232,8 +237,8 @@ class TestDailyMonitorHandler:
     def test_free_memory_above_threshold_no_alert(self):
         """FreeMemoryGB가 임계치 이상이면 알림 미발송"""
         resources = [_make_resource("db-001", "RDS")]
-        p1, p2, p3 = _patch_all_collectors(rds_resources=resources)
-        with p1, p2, p3, \
+        p1, p2, p3, p4 = _patch_all_collectors(rds_resources=resources)
+        with p1, p2, p3, p4, \
              patch("common.collectors.rds.get_metrics",
                    return_value={"FreeMemoryGB": 5.0}), \
              patch("daily_monitor.lambda_handler.get_threshold", return_value=2.0), \
@@ -244,8 +249,8 @@ class TestDailyMonitorHandler:
 
     def test_returns_ok_status(self):
         """핸들러가 항상 status=ok 반환"""
-        p1, p2, p3 = _patch_all_collectors()
-        with p1, p2, p3:
+        p1, p2, p3, p4 = _patch_all_collectors()
+        with p1, p2, p3, p4:
             result = handler({}, MagicMock())
 
         assert result["status"] == "ok"
@@ -254,8 +259,8 @@ class TestDailyMonitorHandler:
         """ALB 리소스 임계치 초과 시 SNS 알림 발송"""
         alb_arn = "arn:aws:elasticloadbalancing:us-east-1:123:loadbalancer/app/my-alb/abc"
         resources = [_make_resource(alb_arn, resource_type="ALB")]
-        p1, p2, p3 = _patch_all_collectors(elb_resources=resources)
-        with p1, p2, p3, \
+        p1, p2, p3, p4 = _patch_all_collectors(elb_resources=resources)
+        with p1, p2, p3, p4, \
              patch("common.collectors.elb.get_metrics",
                    return_value={"RequestCount": 6000.0}), \
              patch("daily_monitor.lambda_handler.get_threshold", return_value=5000.0), \
@@ -276,8 +281,8 @@ class TestDailyMonitorHandler:
         """NLB 리소스 메트릭 없으면 알림 미발송"""
         nlb_arn = "arn:aws:elasticloadbalancing:us-east-1:123:loadbalancer/net/my-nlb/def"
         resources = [_make_resource(nlb_arn, resource_type="NLB")]
-        p1, p2, p3 = _patch_all_collectors(elb_resources=resources)
-        with p1, p2, p3, \
+        p1, p2, p3, p4 = _patch_all_collectors(elb_resources=resources)
+        with p1, p2, p3, p4, \
              patch("common.collectors.elb.get_metrics", return_value=None), \
              patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
             result = handler({}, MagicMock())
@@ -810,3 +815,139 @@ class TestProcessResourceNewAuroraMetrics:
 
         assert alerts == 0
         mock_alert.assert_not_called()
+
+
+# ──────────────────────────────────────────────
+# Task 7.1: Daily Monitor DocDB 통합 테스트
+# Validates: Requirements 7.1, 7.2, 7.3, 7.4, 8.1, 8.2, 8.3
+# ──────────────────────────────────────────────
+
+
+class TestDailyMonitorDocDBIntegration:
+    """Daily Monitor DocDB Collector 통합 검증."""
+
+    def test_collector_modules_includes_docdb(self):
+        """_COLLECTOR_MODULES에 docdb_collector 포함 검증 — Req 7.1"""
+        from daily_monitor.lambda_handler import _COLLECTOR_MODULES
+        module_names = [m.__name__ for m in _COLLECTOR_MODULES]
+        assert "common.collectors.docdb" in module_names, (
+            f"docdb_collector not in _COLLECTOR_MODULES: {module_names}"
+        )
+
+    def test_alive_checkers_includes_docdb(self):
+        """_cleanup_orphan_alarms()의 alive_checkers에 'DocDB' 키 존재 검증 — Req 8.1"""
+        # We verify by checking that a DocDB alarm triggers the RDS alive checker
+        from botocore.exceptions import ClientError
+
+        mock_cw = MagicMock()
+        mock_paginator = MagicMock()
+        mock_paginator.paginate.return_value = [{"MetricAlarms": [
+            {"AlarmName": "[DocDB] my-docdb CPU >80% (docdb-gone)"},
+        ]}]
+        mock_cw.get_paginator.return_value = mock_paginator
+
+        mock_rds = MagicMock()
+        mock_rds.describe_db_instances.side_effect = ClientError(
+            {"Error": {"Code": "DBInstanceNotFound", "Message": "not found"}},
+            "DescribeDBInstances",
+        )
+
+        with patch("daily_monitor.lambda_handler._get_cw_client", return_value=mock_cw), \
+             patch("daily_monitor.lambda_handler._get_rds_client", return_value=mock_rds):
+            deleted = _cleanup_orphan_alarms()
+
+        assert "[DocDB] my-docdb CPU >80% (docdb-gone)" in deleted
+        mock_rds.describe_db_instances.assert_called_once_with(
+            DBInstanceIdentifier="docdb-gone",
+        )
+
+    def test_docdb_alive_instance_not_deleted(self):
+        """존재하는 DocDB 인스턴스의 알람은 삭제하지 않음 — Req 8.3"""
+        mock_cw = MagicMock()
+        mock_paginator = MagicMock()
+        mock_paginator.paginate.return_value = [{"MetricAlarms": [
+            {"AlarmName": "[DocDB] my-docdb CPU >80% (docdb-alive)"},
+        ]}]
+        mock_cw.get_paginator.return_value = mock_paginator
+
+        mock_rds = MagicMock()
+        mock_rds.describe_db_instances.return_value = {
+            "DBInstances": [{"DBInstanceIdentifier": "docdb-alive"}],
+        }
+
+        with patch("daily_monitor.lambda_handler._get_cw_client", return_value=mock_cw), \
+             patch("daily_monitor.lambda_handler._get_rds_client", return_value=mock_rds):
+            deleted = _cleanup_orphan_alarms()
+
+        assert deleted == []
+
+    def test_classify_alarm_docdb_format(self):
+        """_classify_alarm()이 [DocDB] 접두사 알람을 올바르게 분류 — Req 8.2"""
+        result = {}
+        _classify_alarm("[DocDB] my-docdb CPU >80% (docdb-inst-1)", result)
+        assert "DocDB" in result
+        assert "docdb-inst-1" in result["DocDB"]
+
+    def test_process_resource_docdb_uses_get_metrics(self):
+        """DocDB 리소스는 기존 else 분기에서 get_metrics() 호출 — Req 7.3"""
+        collector_mod = MagicMock()
+        collector_mod.get_metrics.return_value = {"CPU": 50.0}
+
+        with patch("daily_monitor.lambda_handler.get_threshold", return_value=80.0), \
+             patch("daily_monitor.lambda_handler.send_alert"):
+            _process_resource(
+                "docdb-inst-1", "DocDB", {"Monitoring": "on"}, collector_mod,
+            )
+
+        collector_mod.get_metrics.assert_called_once_with(
+            "docdb-inst-1", {"Monitoring": "on"},
+        )
+
+    def test_docdb_free_memory_below_threshold_alerts(self):
+        """DocDB FreeMemoryGB < threshold → 알림 발송 (낮을수록 위험) — Req 7.4"""
+        collector_mod = MagicMock()
+        collector_mod.get_metrics.return_value = {"FreeMemoryGB": 1.0}
+
+        with patch("daily_monitor.lambda_handler.get_threshold", return_value=2.0), \
+             patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
+            alerts = _process_resource(
+                "docdb-inst-1", "DocDB", {"Monitoring": "on"}, collector_mod,
+            )
+
+        assert alerts == 1
+        mock_alert.assert_called_once_with(
+            resource_id="docdb-inst-1",
+            resource_type="DocDB",
+            metric_name="FreeMemoryGB",
+            current_value=1.0,
+            threshold=2.0,
+            tag_name="",
+        )
+
+    def test_docdb_free_local_storage_below_threshold_alerts(self):
+        """DocDB FreeLocalStorageGB < threshold → 알림 발송 (낮을수록 위험) — Req 7.4"""
+        collector_mod = MagicMock()
+        collector_mod.get_metrics.return_value = {"FreeLocalStorageGB": 5.0}
+
+        with patch("daily_monitor.lambda_handler.get_threshold", return_value=10.0), \
+             patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
+            alerts = _process_resource(
+                "docdb-inst-1", "DocDB", {"Monitoring": "on"}, collector_mod,
+            )
+
+        assert alerts == 1
+        mock_alert.assert_called_once()
+
+    def test_docdb_cpu_above_threshold_alerts(self):
+        """DocDB CPU > threshold → 알림 발송 — Req 7.3"""
+        collector_mod = MagicMock()
+        collector_mod.get_metrics.return_value = {"CPU": 95.0}
+
+        with patch("daily_monitor.lambda_handler.get_threshold", return_value=80.0), \
+             patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
+            alerts = _process_resource(
+                "docdb-inst-1", "DocDB", {"Monitoring": "on"}, collector_mod,
+            )
+
+        assert alerts == 1
+        mock_alert.assert_called_once()
