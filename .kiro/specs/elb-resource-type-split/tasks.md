@@ -132,14 +132,14 @@
 - [x] 9. Checkpoint — 전체 테스트 통과 확인
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 10. 기존 PBT 확장 및 추가 Property 테스트
-  - [ ]* 10.1 Property 3 테스트: 새 리소스 타입에 대한 알람 이름 255자 제한
+- [x] 10. 기존 PBT 확장 및 추가 Property 테스트
+  - [x]* 10.1 Property 3 테스트: 새 리소스 타입에 대한 알람 이름 255자 제한
     - **Property 3: 새 리소스 타입에 대한 알람 이름 255자 제한**
     - **Validates: Requirements 6.1, 6.2**
     - `tests/test_pbt_alarm_name_constraint.py`의 `resource_types` 전략에 `"ALB"`, `"NLB"`, `"TG"` 추가
     - 기존 255자 제한 + resource_id 보존 테스트가 새 타입에도 적용되는지 검증
 
-  - [ ]* 10.2 Property 6 테스트: ARN suffix 디멘션 추출 일관성
+  - [x]* 10.2 Property 6 테스트: ARN suffix 디멘션 추출 일관성
     - **Property 6: ARN suffix 디멘션 추출 일관성**
     - **Validates: Requirements 4.4**
     - 테스트 파일: `tests/test_pbt_elb_type_split.py`

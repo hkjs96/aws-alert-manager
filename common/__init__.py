@@ -21,6 +21,7 @@ HARDCODED_DEFAULTS: dict[str, float] = {
     "Disk": 80.0,
     "RequestCount": 10000.0,
     "HealthyHostCount": 1.0,
+    "UnHealthyHostCount": 1.0,
     "ProcessedBytes": 100000000.0,
     "ActiveFlowCount": 10000.0,
     "NewFlowCount": 5000.0,

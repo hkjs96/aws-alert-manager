@@ -116,8 +116,8 @@ AWS 리소스(EC2, RDS, ALB, NLB, TG) 생성 시 CloudTrail CREATE 이벤트를 
   - 기존 테스트 회귀 없음 확인
   - 문제 발생 시 사용자에게 확인 요청
 
-- [ ] 6. CREATE-TAG_CHANGE 멱등성 검증
-  - [ ]* 6.1 Property 3 PBT 작성 — CREATE-TAG_CHANGE 멱등성
+- [x] 6. CREATE-TAG_CHANGE 멱등성 검증
+  - [x]* 6.1 Property 3 PBT 작성 — CREATE-TAG_CHANGE 멱등성
     - **Property 3: CREATE와 TAG_CHANGE 이벤트 간 멱등성 (CREATE-TAG_CHANGE Idempotency)**
     - **Validates: Requirements 5.1, 5.2, 5.3**
     - 테스트 파일: `tests/test_pbt_create_event.py`에 추가

@@ -22,7 +22,7 @@
     - `_HARDCODED_METRIC_KEYS`, `_METRIC_DISPLAY`, `_NAMESPACE_MAP`, `_DIMENSION_KEY_MAP`, `_metric_name_to_key` 등 모든 참조 심볼 re-export
     - 원본 데이터/함수 정의를 `alarm_manager.py`에서 제거
     - _Requirements: 3.4, 3.5, 8.1_
-  - [ ]* 1.3 Property test: 레지스트리 완전성 검증
+  - [x]* 1.3 Property test: 레지스트리 완전성 검증
     - **Property 2: 레지스트리 완전성 (Registry Completeness)**
     - `tests/test_pbt_registry_completeness.py` 생성
     - ∀ resource_type ∈ SUPPORTED_RESOURCE_TYPES: `get_alarm_defs(resource_type)` 반환 메트릭 집합이 리팩터링 전과 동일
@@ -63,7 +63,7 @@
     - `from common.threshold_resolver import resolve_free_memory_threshold as _resolve_free_memory_threshold` 등 re-export
     - 원본 함수 정의를 `alarm_manager.py`에서 제거
     - _Requirements: 3.4, 3.5, 8.1_
-  - [ ]* 5.3 Property test: 임계치 해석 동등성 검증
+  - [x]* 5.3 Property test: 임계치 해석 동등성 검증
     - **Property 3: 임계치 해석 동등성 (Threshold Resolution Equivalence)**
     - `tests/test_pbt_threshold_equivalence.py` 생성
     - ∀ alarm_def, resource_tags: `resolve_threshold(alarm_def, tags)` == 기존 4곳 if/elif 분기 결과
@@ -95,7 +95,7 @@
 
 ### Phase 2: 로직 모듈 추출
 
-- [ ] 9. `common/alarm_search.py` 추출 — alarm_naming만 의존
+- [x] 9. `common/alarm_search.py` 추출 — alarm_naming만 의존
   - [x] 9.1 `common/alarm_search.py` 생성 및 검색/삭제 함수 이동
     - `_find_alarms_for_resource()`, `_delete_all_alarms_for_resource()`, `_describe_alarms_batch()`, `_delete_alarm_names()` 함수 이동
     - `alarm_naming`에서 `shorten_elb_resource_id` import
@@ -113,7 +113,7 @@
   - 실패 시 즉시 롤백하고 원인 분석
   - _Requirements: 8.1, 8.2_
 
-- [ ] 11. `common/alarm_builder.py` 추출 — alarm_registry, threshold_resolver, dimension_builder, alarm_naming 의존
+- [x] 11. `common/alarm_builder.py` 추출 — alarm_registry, threshold_resolver, dimension_builder, alarm_naming 의존
   - [x] 11.1 `common/alarm_builder.py` 생성 및 알람 생성 함수 이동
     - `_create_standard_alarm()`, `_create_disk_alarms()`, `_create_dynamic_alarm()`, `_create_single_alarm()`, `_recreate_alarm_by_name()`, `_recreate_standard_alarm()`, `_recreate_disk_alarm()` 함수 이동
     - 기존 4곳 FreeMemoryGB/FreeLocalStorageGB if/elif 분기를 `threshold_resolver.resolve_threshold()` 단일 호출로 교체
@@ -132,7 +132,7 @@
   - 실패 시 즉시 롤백하고 원인 분석
   - _Requirements: 8.1, 8.2_
 
-- [ ] 13. `common/alarm_sync.py` 추출 — alarm_registry, threshold_resolver, alarm_builder, alarm_search 의존
+- [x] 13. `common/alarm_sync.py` 추출 — alarm_registry, threshold_resolver, alarm_builder, alarm_search 의존
   - [x] 13.1 `common/alarm_sync.py` 생성 및 동기화 함수 이동
     - `_sync_standard_alarms()`, `_sync_disk_alarms()`, `_sync_off_hardcoded()`, `_sync_dynamic_alarms()`, `_apply_sync_changes()` 함수 이동
     - 기존 FreeMemoryGB/FreeLocalStorageGB if/elif 분기를 `threshold_resolver.resolve_threshold()` 단일 호출로 교체
@@ -154,7 +154,7 @@
 
 ### Phase 3: Facade 전환 + 호환성
 
-- [ ] 15. `alarm_manager.py`를 Facade로 전환
+- [x] 15. `alarm_manager.py`를 Facade로 전환
   - [x] 15.1 `alarm_manager.py`를 Facade 모듈로 정리
     - `create_alarms_for_resource()`, `delete_alarms_for_resource()`, `sync_alarms_for_resource()` 3개 public 함수가 내부 모듈에 위임하도록 전환
     - `_parse_threshold_tags()` 함수는 `alarm_manager.py`에 잔류하거나 `alarm_registry.py`로 이동 (설계 문서 기준)
@@ -172,8 +172,8 @@
   - 실패 시 즉시 롤백하고 원인 분석
   - _Requirements: 3.5, 8.1, 8.2_
 
-- [ ] 17. 테스트 자동 참조 전환 (선택적 개선)
-  - [ ] 17.1 기존 테스트의 하드코딩 알람 개수를 레지스트리 참조로 전환
+- [x] 17. 테스트 자동 참조 전환 (선택적 개선)
+  - [x] 17.1 기존 테스트의 하드코딩 알람 개수를 레지스트리 참조로 전환
     - `tests/test_pbt_dynamic_alarm_preservation.py` 등에서 `_EXPECTED_ALARM_COUNTS` 하드코딩을 `get_alarm_defs()` 기반 동적 계산으로 교체
     - `from common.alarm_registry import get_alarm_defs` 사용
     - 새 메트릭 추가 시 테스트 코드 수동 업데이트 불필요하도록 개선

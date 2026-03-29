@@ -119,8 +119,8 @@ ALB/NLB/TG 알람 이름 suffix에 Full_ARN 대신 Short_ID(`{name}/{hash}`)를 
 - [x] 7. Checkpoint — 전체 테스트 통과 확인
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 8. 기존 PBT 확장: 255자 제한에 ALB/NLB/TG Short_ID 반영
-  - [ ]* 8.1 Property 4 테스트: 255자 제한 (ALB/NLB/TG 포함)
+- [x] 8. 기존 PBT 확장: 255자 제한에 ALB/NLB/TG Short_ID 반영
+  - [x]* 8.1 Property 4 테스트: 255자 제한 (ALB/NLB/TG 포함)
     - **Property 4: 255자 제한 (ALB/NLB/TG 포함)**
     - **Validates: Requirements 2.3**
     - `tests/test_pbt_alarm_name_constraint.py`의 `resource_types` 전략에 `"ALB"`, `"NLB"`, `"TG"` 추가

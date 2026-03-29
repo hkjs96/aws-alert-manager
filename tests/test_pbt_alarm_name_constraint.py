@@ -11,14 +11,14 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from common.alarm_manager import _pretty_alarm_name, _METRIC_DISPLAY
+from common.alarm_manager import _pretty_alarm_name, _METRIC_DISPLAY, _shorten_elb_resource_id
 
 
 # ──────────────────────────────────────────────
 # Hypothesis 전략
 # ──────────────────────────────────────────────
 
-resource_types = st.sampled_from(["EC2", "RDS", "ELB"])
+resource_types = st.sampled_from(["EC2", "RDS", "ALB", "NLB", "TG"])
 
 # resource_id: 짧은 EC2 ID부터 긴 ELB ARN까지
 resource_ids = st.one_of(
@@ -30,12 +30,24 @@ resource_ids = st.one_of(
         min_size=3,
         max_size=63,
     ).map(lambda s: f"db-{s}"),
-    # ELB ARN style: very long
+    # ALB ARN style
     st.text(
-        alphabet=st.characters(whitelist_categories=("L", "N"), whitelist_characters="-_/"),
-        min_size=10,
-        max_size=120,
-    ).map(lambda s: f"arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/{s}"),
+        alphabet=st.characters(whitelist_categories=("L", "N"), whitelist_characters="-_"),
+        min_size=3,
+        max_size=60,
+    ).map(lambda s: f"arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/{s}/1234567890abcdef"),
+    # NLB ARN style
+    st.text(
+        alphabet=st.characters(whitelist_categories=("L", "N"), whitelist_characters="-_"),
+        min_size=3,
+        max_size=60,
+    ).map(lambda s: f"arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/net/{s}/1234567890abcdef"),
+    # TG ARN style
+    st.text(
+        alphabet=st.characters(whitelist_categories=("L", "N"), whitelist_characters="-_"),
+        min_size=3,
+        max_size=60,
+    ).map(lambda s: f"arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/{s}/1234567890abcdef"),
 )
 
 # resource_name (label): 빈 문자열부터 매우 긴 이름까지
@@ -143,7 +155,9 @@ class TestAlarmNameConstraint:
             resource_type, resource_id, resource_name, metric, threshold,
         )
 
-        assert name.endswith(f"({resource_id})"), (
-            f"Alarm name does not end with ({resource_id})\n"
+        # ALB/NLB/TG는 Short_ID suffix, EC2/RDS는 원본 resource_id suffix
+        expected_suffix = _shorten_elb_resource_id(resource_id, resource_type)
+        assert name.endswith(f"({expected_suffix})"), (
+            f"Alarm name does not end with ({expected_suffix})\n"
             f"name={name!r}"
         )

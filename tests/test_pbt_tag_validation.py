@@ -15,18 +15,16 @@ from hypothesis import given, settings, assume
 from hypothesis import strategies as st
 
 from common.alarm_manager import _parse_threshold_tags
+from common.alarm_registry import _get_alarm_defs
 
 
 # ──────────────────────────────────────────────
-# 상수
+# 레지스트리 기반 동적 메트릭 정의
 # ──────────────────────────────────────────────
 
 _HARDCODED_METRICS = {
-    "EC2": {"CPU", "Memory", "Disk", "StatusCheckFailed"},
-    "RDS": {"CPU", "FreeMemoryGB", "FreeStorageGB", "Connections", "ReadLatency", "WriteLatency"},
-    "ALB": {"RequestCount", "ELB5XX", "TargetResponseTime", "ELB4XX", "TargetConnectionError"},
-    "NLB": {"ProcessedBytes", "ActiveFlowCount", "NewFlowCount", "TCPClientReset", "TCPTargetReset"},
-    "TG": {"HealthyHostCount", "UnHealthyHostCount", "RequestCountPerTarget", "TGResponseTime"},
+    rt: {d["metric"] for d in _get_alarm_defs(rt)}
+    for rt in ["EC2", "RDS", "ALB", "NLB", "TG"]
 }
 
 # AWS 태그 허용 문자 (메트릭 이름 부분)

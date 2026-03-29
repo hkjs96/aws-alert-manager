@@ -26,25 +26,12 @@ from common.alarm_manager import (
 from common.alarm_registry import _get_alarm_defs
 
 # ──────────────────────────────────────────────
-# 하드코딩 메트릭 정의 (alarm_manager.py 기준)
+# 레지스트리 기반 동적 메트릭 정의
 # ──────────────────────────────────────────────
 
 _HARDCODED_METRICS = {
-    "EC2": ["CPU", "Memory", "Disk", "StatusCheckFailed"],
-    "RDS": [
-        "CPU", "FreeMemoryGB", "FreeStorageGB",
-        "Connections", "ReadLatency", "WriteLatency",
-        "ConnectionAttempts",
-    ],
-    "ALB": ["RequestCount", "ELB5XX", "TargetResponseTime", "ELB4XX", "TargetConnectionError"],
-    "NLB": [
-        "ProcessedBytes", "ActiveFlowCount", "NewFlowCount",
-        "TCPClientReset", "TCPTargetReset",
-    ],
-    "TG": [
-        "HealthyHostCount", "UnHealthyHostCount",
-        "RequestCountPerTarget", "TGResponseTime",
-    ],
+    rt: [d["metric"] for d in _get_alarm_defs(rt)]
+    for rt in ["EC2", "RDS", "ALB", "NLB", "TG"]
 }
 
 # 알람 개수 기대값 — 레지스트리 기반 동적 계산 (Disk는 CWAgent 메트릭 등록 시 1개)

@@ -155,8 +155,8 @@
 - [x] 9. Checkpoint — 전체 데이터 정의 및 단위 테스트 완료 확인
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 10. Property-Based Tests 작성
-  - [ ]* 10.1 PBT Property 1: 알람 정의 완전성 (Alarm Definition Completeness)
+- [x] 10. Property-Based Tests 작성
+  - [x]* 10.1 PBT Property 1: 알람 정의 완전성 (Alarm Definition Completeness)
     - **Property 1: 알람 정의 완전성**
     - **Validates: Requirements 1.1, 1.2, 2.1, 2.2, 3.1, 4.1, 4.2, 5.1, 5.2, 6.3**
     - 파일: `tests/test_pbt_expand_alarm_defs.py`
@@ -164,7 +164,7 @@
     - `_get_alarm_defs(resource_type)` 반환값의 메트릭 키 집합이 기대 집합의 상위집합인지 검증
     - 각 알람 정의에 `namespace`, `metric_name`, `dimension_key`, `stat`, `comparison` 필드 존재 검증
 
-  - [ ]* 10.2 PBT Property 2: LB 레벨 메트릭 단일 디멘션 (LB-Level Single Dimension)
+  - [x]* 10.2 PBT Property 2: LB 레벨 메트릭 단일 디멘션 (LB-Level Single Dimension)
     - **Property 2: LB 레벨 단일 디멘션**
     - **Validates: Requirements 1.3, 1.4, 2.3, 8.4**
     - 파일: `tests/test_pbt_expand_alarm_defs.py`
@@ -172,7 +172,7 @@
     - `dimension_key == "LoadBalancer"`인 알람 정의에 대해 `_build_dimensions()` 호출
     - 결과 디멘션이 `LoadBalancer` 단일이고 `TargetGroup` 미포함 검증
 
-  - [ ]* 10.3 PBT Property 3: TG 메트릭 복합 디멘션 (TG Compound Dimension)
+  - [x]* 10.3 PBT Property 3: TG 메트릭 복합 디멘션 (TG Compound Dimension)
     - **Property 3: TG 복합 디멘션**
     - **Validates: Requirements 5.3, 5.4, 8.2, 8.5**
     - 파일: `tests/test_pbt_expand_alarm_defs.py`
@@ -180,7 +180,7 @@
     - 모든 TG 알람 정의(`RequestCountPerTarget`, `TGResponseTime` 포함)에 대해 `_build_dimensions()` 호출
     - 결과에 `TargetGroup` + `LoadBalancer` 복합 디멘션 존재 검증
 
-  - [ ]* 10.4 PBT Property 4: TG 네임스페이스 동적 결정 (TG Namespace Resolution)
+  - [x]* 10.4 PBT Property 4: TG 네임스페이스 동적 결정 (TG Namespace Resolution)
     - **Property 4: TG 네임스페이스 동적 결정**
     - **Validates: Requirements 5.5, 5.6**
     - 파일: `tests/test_pbt_expand_alarm_defs.py`
@@ -188,7 +188,7 @@
     - 모든 TG 알람 정의에 대해 `_resolve_tg_namespace()` 호출
     - `_lb_type == "network"` → `"AWS/NetworkELB"`, 그 외 → `"AWS/ApplicationELB"` 검증
 
-  - [ ]* 10.5 PBT Property 5: 태그 임계치 오버라이드 (Tag Threshold Override)
+  - [x]* 10.5 PBT Property 5: 태그 임계치 오버라이드 (Tag Threshold Override)
     - **Property 5: 태그 임계치 오버라이드**
     - **Validates: Requirements 6.1**
     - 파일: `tests/test_pbt_expand_alarm_defs.py`
@@ -196,7 +196,7 @@
     - `Threshold_{metric_key}` 태그 설정 후 `get_threshold()` 호출
     - 반환값이 태그 값과 일치하는지 검증 (하드코딩 기본값이 아닌)
 
-  - [ ]* 10.6 PBT Property 6: 동적 태그 하드코딩 키 제외 (Dynamic Tag Hardcoded Key Exclusion)
+  - [x]* 10.6 PBT Property 6: 동적 태그 하드코딩 키 제외 (Dynamic Tag Hardcoded Key Exclusion)
     - **Property 6: 동적 태그 하드코딩 키 제외**
     - **Validates: Requirements 6.2**
     - 파일: `tests/test_pbt_expand_alarm_defs.py`
