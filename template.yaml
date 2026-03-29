@@ -190,6 +190,7 @@ Resources:
           - aws.ec2
           - aws.rds
           - aws.elasticloadbalancing
+          - aws.elasticache
         detail-type:
           - AWS API Call via CloudTrail
         detail:
@@ -213,6 +214,11 @@ Resources:
             - CreateDBInstance
             - CreateLoadBalancer
             - CreateTargetGroup
+            - CreateCacheCluster
+            - DeleteCacheCluster
+            - ModifyCacheCluster
+            - CreateNatGateway
+            - DeleteNatGateway
       Targets:
         - Id: RemediationHandlerTarget
           Arn: !GetAtt RemediationHandlerFunction.Arn
@@ -307,6 +313,7 @@ Resources:
                 Action:
                   - ec2:DescribeInstances
                   - ec2:DescribeTags
+                  - ec2:DescribeNatGateways
                 Resource: "*"
               - Effect: Allow
                 Action:
@@ -320,6 +327,11 @@ Resources:
                   - elasticloadbalancing:DescribeTags
                   - elasticloadbalancing:DescribeTargetGroups
                   - elasticloadbalancing:DescribeTargetGroupAttributes
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - elasticache:DescribeCacheClusters
+                  - elasticache:ListTagsForResource
                 Resource: "*"
               - Effect: Allow
                 Action:
@@ -376,6 +388,11 @@ Resources:
                   - elasticloadbalancing:DescribeTags
                   - elasticloadbalancing:DescribeLoadBalancers
                   - elasticloadbalancing:DeleteLoadBalancer
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - elasticache:DescribeCacheClusters
+                  - elasticache:ListTagsForResource
                 Resource: "*"
               - Effect: Allow
                 Action:

@@ -1589,3 +1589,503 @@ class TestDocDBTagResolver:
         # If DocDB is not yet supported, returns {} with warning
         # If already supported, returns tags from RDS path
         assert isinstance(tags, dict)
+
+
+# ──────────────────────────────────────────────
+# ElastiCache Collector 단위 테스트
+# Validates: Requirements 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 4.7
+# ──────────────────────────────────────────────
+
+from botocore.exceptions import ClientError as _ClientError
+from common.collectors import elasticache as elasticache_collector
+
+
+def _make_elasticache_cluster(cluster_id: str, arn: str, status: str = "available",
+                              engine: str = "redis") -> dict:
+    """describe_cache_clusters 응답용 ElastiCache 클러스터 dict 생성."""
+    return {
+        "CacheClusterId": cluster_id,
+        "ARN": arn,
+        "CacheClusterStatus": status,
+        "Engine": engine,
+    }
+
+
+class TestElastiCacheCollector:
+    """ElastiCache Collector 단위 테스트 — collect_monitored_resources() + get_metrics()."""
+
+    def _mock_elasticache_for_collection(self, clusters, tag_map):
+        """ElastiCache 클라이언트 mock 생성 (수집 테스트용)."""
+        mock_client = MagicMock()
+        mock_paginator = MagicMock()
+        mock_client.get_paginator.return_value = mock_paginator
+        mock_paginator.paginate.return_value = [{"CacheClusters": clusters}]
+
+        def mock_list_tags(ResourceName):
+            tags = tag_map.get(ResourceName, {})
+            return {"TagList": [{"Key": k, "Value": v} for k, v in tags.items()]}
+
+        mock_client.list_tags_for_resource.side_effect = mock_list_tags
+        return mock_client
+
+    # ── collect_monitored_resources() 테스트 ──
+
+    def test_collect_redis_engine_only(self):
+        """Engine 'redis'만 수집, type='ElastiCache' — Req 4.1, 4.5"""
+        arn_redis = "arn:aws:elasticache:us-east-1:123:cluster:redis-1"
+        arn_memcached = "arn:aws:elasticache:us-east-1:123:cluster:memcached-1"
+
+        clusters = [
+            _make_elasticache_cluster("redis-1", arn_redis, engine="redis"),
+            _make_elasticache_cluster("memcached-1", arn_memcached, engine="memcached"),
+        ]
+        tag_map = {
+            arn_redis: {"Monitoring": "on"},
+            arn_memcached: {"Monitoring": "on"},
+        }
+        mock_client = self._mock_elasticache_for_collection(clusters, tag_map)
+
+        with patch.object(elasticache_collector, "_get_elasticache_client",
+                          return_value=mock_client), \
+             patch("common.collectors.elasticache.boto3.session.Session") as ms:
+            ms.return_value.region_name = "us-east-1"
+            result = elasticache_collector.collect_monitored_resources()
+
+        assert len(result) == 1
+        assert result[0]["id"] == "redis-1"
+        assert result[0]["type"] == "ElastiCache"
+
+    def test_deleting_status_skipped(self):
+        """CacheClusterStatus 'deleting'/'deleted' 클러스터 skip — Req 4.4"""
+        arn_del = "arn:aws:elasticache:us-east-1:123:cluster:redis-deleting"
+        arn_deleted = "arn:aws:elasticache:us-east-1:123:cluster:redis-deleted"
+        arn_ok = "arn:aws:elasticache:us-east-1:123:cluster:redis-ok"
+
+        clusters = [
+            _make_elasticache_cluster("redis-deleting", arn_del, status="deleting"),
+            _make_elasticache_cluster("redis-deleted", arn_deleted, status="deleted"),
+            _make_elasticache_cluster("redis-ok", arn_ok, status="available"),
+        ]
+        tag_map = {
+            arn_del: {"Monitoring": "on"},
+            arn_deleted: {"Monitoring": "on"},
+            arn_ok: {"Monitoring": "on"},
+        }
+        mock_client = self._mock_elasticache_for_collection(clusters, tag_map)
+
+        with patch.object(elasticache_collector, "_get_elasticache_client",
+                          return_value=mock_client), \
+             patch("common.collectors.elasticache.boto3.session.Session") as ms:
+            ms.return_value.region_name = "us-east-1"
+            result = elasticache_collector.collect_monitored_resources()
+
+        assert len(result) == 1
+        assert result[0]["id"] == "redis-ok"
+
+    def test_monitoring_tag_required(self):
+        """Monitoring=on 태그 없는 클러스터 제외 — Req 4.1"""
+        arn_on = "arn:aws:elasticache:us-east-1:123:cluster:redis-on"
+        arn_off = "arn:aws:elasticache:us-east-1:123:cluster:redis-off"
+
+        clusters = [
+            _make_elasticache_cluster("redis-on", arn_on),
+            _make_elasticache_cluster("redis-off", arn_off),
+        ]
+        tag_map = {
+            arn_on: {"Monitoring": "on"},
+            arn_off: {"Monitoring": "off"},
+        }
+        mock_client = self._mock_elasticache_for_collection(clusters, tag_map)
+
+        with patch.object(elasticache_collector, "_get_elasticache_client",
+                          return_value=mock_client), \
+             patch("common.collectors.elasticache.boto3.session.Session") as ms:
+            ms.return_value.region_name = "us-east-1"
+            result = elasticache_collector.collect_monitored_resources()
+
+        assert len(result) == 1
+        assert result[0]["id"] == "redis-on"
+
+    def test_monitoring_tag_case_insensitive(self):
+        """Monitoring=ON (대문자) 태그도 수집 — Req 4.1"""
+        arn = "arn:aws:elasticache:us-east-1:123:cluster:redis-upper"
+        clusters = [_make_elasticache_cluster("redis-upper", arn)]
+        tag_map = {arn: {"Monitoring": "ON"}}
+        mock_client = self._mock_elasticache_for_collection(clusters, tag_map)
+
+        with patch.object(elasticache_collector, "_get_elasticache_client",
+                          return_value=mock_client), \
+             patch("common.collectors.elasticache.boto3.session.Session") as ms:
+            ms.return_value.region_name = "us-east-1"
+            result = elasticache_collector.collect_monitored_resources()
+
+        assert len(result) == 1
+
+    def test_empty_result_when_no_monitored(self):
+        """수집 대상 0개 시 빈 리스트 반환 — Req 4.1"""
+        mock_client = self._mock_elasticache_for_collection([], {})
+
+        with patch.object(elasticache_collector, "_get_elasticache_client",
+                          return_value=mock_client), \
+             patch("common.collectors.elasticache.boto3.session.Session") as ms:
+            ms.return_value.region_name = "us-east-1"
+            result = elasticache_collector.collect_monitored_resources()
+
+        assert result == []
+
+    def test_api_error_raises(self):
+        """describe_cache_clusters API 오류 시 예외 전파 — Req 4.7"""
+        mock_client = MagicMock()
+        mock_paginator = MagicMock()
+        mock_client.get_paginator.return_value = mock_paginator
+        mock_paginator.paginate.side_effect = _ClientError(
+            {"Error": {"Code": "InvalidParameterValue", "Message": "error"}},
+            "describe_cache_clusters",
+        )
+
+        with patch.object(elasticache_collector, "_get_elasticache_client",
+                          return_value=mock_client):
+            with pytest.raises(_ClientError):
+                elasticache_collector.collect_monitored_resources()
+
+    def test_tag_error_returns_empty_dict(self):
+        """list_tags_for_resource 실패 시 빈 dict → 해당 노드 skip — Req 4.7"""
+        arn = "arn:aws:elasticache:us-east-1:123:cluster:redis-tag-err"
+        clusters = [_make_elasticache_cluster("redis-tag-err", arn)]
+
+        mock_client = MagicMock()
+        mock_paginator = MagicMock()
+        mock_client.get_paginator.return_value = mock_paginator
+        mock_paginator.paginate.return_value = [{"CacheClusters": clusters}]
+        mock_client.list_tags_for_resource.side_effect = _ClientError(
+            {"Error": {"Code": "CacheClusterNotFound", "Message": "not found"}},
+            "list_tags_for_resource",
+        )
+
+        with patch.object(elasticache_collector, "_get_elasticache_client",
+                          return_value=mock_client), \
+             patch("common.collectors.elasticache.boto3.session.Session") as ms:
+            ms.return_value.region_name = "us-east-1"
+            result = elasticache_collector.collect_monitored_resources()
+
+        # Tag error → empty dict → Monitoring tag absent → skip
+        assert result == []
+
+    # ── get_metrics() 테스트 ──
+
+    def test_get_metrics_returns_five_keys(self):
+        """5개 메트릭 키 반환 — Req 4.2"""
+        mock_cw = MagicMock()
+        data = {
+            "CPUUtilization": 75.0,
+            "EngineCPUUtilization": 60.0,
+            "SwapUsage": 0.5,
+            "Evictions": 2.0,
+            "CurrConnections": 150.0,
+        }
+
+        def get_metric_stats(**kwargs):
+            metric_name = kwargs.get("MetricName", "")
+            if metric_name in data:
+                return {
+                    "Datapoints": [{
+                        "Timestamp": datetime(2024, 1, 1, tzinfo=timezone.utc),
+                        "Average": data[metric_name],
+                    }]
+                }
+            return {"Datapoints": []}
+
+        mock_cw.get_metric_statistics.side_effect = get_metric_stats
+
+        with patch("common.collectors.base._get_cw_client", return_value=mock_cw):
+            result = elasticache_collector.get_metrics("redis-1")
+
+        assert result is not None
+        expected_keys = {"CPU", "EngineCPU", "SwapUsage", "Evictions", "CurrConnections"}
+        assert set(result.keys()) == expected_keys
+        assert result["CPU"] == pytest.approx(75.0)
+        assert result["EngineCPU"] == pytest.approx(60.0)
+        assert result["SwapUsage"] == pytest.approx(0.5)
+        assert result["Evictions"] == pytest.approx(2.0)
+        assert result["CurrConnections"] == pytest.approx(150.0)
+
+    def test_get_metrics_returns_none_when_all_empty(self):
+        """모든 메트릭 데이터 없을 때 None 반환 — Req 4.6"""
+        mock_cw = MagicMock()
+        mock_cw.get_metric_statistics.return_value = {"Datapoints": []}
+
+        with patch("common.collectors.base._get_cw_client", return_value=mock_cw):
+            result = elasticache_collector.get_metrics("redis-1")
+
+        assert result is None
+
+    def test_get_metrics_skips_empty_metrics(self):
+        """일부 메트릭만 데이터 있을 때 해당 메트릭만 반환 — Req 4.6"""
+        mock_cw = MagicMock()
+
+        def get_metric_stats(**kwargs):
+            metric_name = kwargs.get("MetricName", "")
+            if metric_name == "CPUUtilization":
+                return {
+                    "Datapoints": [{
+                        "Timestamp": datetime(2024, 1, 1, tzinfo=timezone.utc),
+                        "Average": 45.0,
+                    }]
+                }
+            return {"Datapoints": []}
+
+        mock_cw.get_metric_statistics.side_effect = get_metric_stats
+
+        with patch("common.collectors.base._get_cw_client", return_value=mock_cw):
+            result = elasticache_collector.get_metrics("redis-1")
+
+        assert result is not None
+        assert result == {"CPU": pytest.approx(45.0)}
+        assert "EngineCPU" not in result
+
+    def test_get_metrics_uses_correct_namespace_and_dimension(self):
+        """AWS/ElastiCache 네임스페이스 + CacheClusterId 디멘션 사용 — Req 4.2"""
+        mock_cw = MagicMock()
+        mock_cw.get_metric_statistics.return_value = {
+            "Datapoints": [_make_cw_datapoint(50.0)]
+        }
+
+        with patch("common.collectors.base._get_cw_client", return_value=mock_cw):
+            elasticache_collector.get_metrics("redis-test-1")
+
+        for call in mock_cw.get_metric_statistics.call_args_list:
+            assert call.kwargs.get("Namespace", call[1].get("Namespace")) \
+                == "AWS/ElastiCache"
+            dims = call.kwargs.get("Dimensions", call[1].get("Dimensions"))
+            assert dims[0]["Name"] == "CacheClusterId"
+            assert dims[0]["Value"] == "redis-test-1"
+
+
+# ──────────────────────────────────────────────
+# NAT Gateway Collector 단위 테스트
+# Validates: Requirements 5.1, 5.2, 5.3, 5.4, 5.5, 5.6
+# ──────────────────────────────────────────────
+
+from common.collectors import natgw as natgw_collector
+
+
+def _make_nat_gateway(natgw_id: str, state: str = "available",
+                      tags: dict | None = None) -> dict:
+    """describe_nat_gateways 응답용 NAT Gateway dict 생성."""
+    tag_list = [{"Key": k, "Value": v} for k, v in (tags or {}).items()]
+    return {
+        "NatGatewayId": natgw_id,
+        "State": state,
+        "Tags": tag_list,
+    }
+
+
+class TestNATGatewayCollector:
+    """NAT Gateway Collector 단위 테스트 — collect_monitored_resources() + get_metrics()."""
+
+    def _mock_ec2_for_collection(self, nat_gateways):
+        """EC2 클라이언트 mock 생성 (NAT GW 수집 테스트용)."""
+        mock_client = MagicMock()
+        mock_paginator = MagicMock()
+        mock_client.get_paginator.return_value = mock_paginator
+        mock_paginator.paginate.return_value = [{"NatGateways": nat_gateways}]
+        return mock_client
+
+    # ── collect_monitored_resources() 테스트 ──
+
+    def test_collect_available_natgw(self):
+        """state='available' + Monitoring=on NAT GW 수집, type='NATGateway' — Req 5.1"""
+        natgws = [
+            _make_nat_gateway("nat-abc123", "available", {"Monitoring": "on"}),
+        ]
+        mock_client = self._mock_ec2_for_collection(natgws)
+
+        with patch.object(natgw_collector, "_get_ec2_client",
+                          return_value=mock_client), \
+             patch("common.collectors.natgw.boto3.session.Session") as ms:
+            ms.return_value.region_name = "us-east-1"
+            result = natgw_collector.collect_monitored_resources()
+
+        assert len(result) == 1
+        assert result[0]["id"] == "nat-abc123"
+        assert result[0]["type"] == "NATGateway"
+        assert result[0]["tags"]["Monitoring"] == "on"
+
+    def test_deleting_state_skipped(self):
+        """state 'deleting'/'deleted' NAT GW skip — Req 5.4"""
+        natgws = [
+            _make_nat_gateway("nat-deleting", "deleting", {"Monitoring": "on"}),
+            _make_nat_gateway("nat-deleted", "deleted", {"Monitoring": "on"}),
+            _make_nat_gateway("nat-ok", "available", {"Monitoring": "on"}),
+        ]
+        mock_client = self._mock_ec2_for_collection(natgws)
+
+        with patch.object(natgw_collector, "_get_ec2_client",
+                          return_value=mock_client), \
+             patch("common.collectors.natgw.boto3.session.Session") as ms:
+            ms.return_value.region_name = "us-east-1"
+            result = natgw_collector.collect_monitored_resources()
+
+        assert len(result) == 1
+        assert result[0]["id"] == "nat-ok"
+
+    def test_pending_state_included(self):
+        """state 'pending' NAT GW는 수집 대상 — Req 5.4"""
+        natgws = [
+            _make_nat_gateway("nat-pending", "pending", {"Monitoring": "on"}),
+        ]
+        mock_client = self._mock_ec2_for_collection(natgws)
+
+        with patch.object(natgw_collector, "_get_ec2_client",
+                          return_value=mock_client), \
+             patch("common.collectors.natgw.boto3.session.Session") as ms:
+            ms.return_value.region_name = "us-east-1"
+            result = natgw_collector.collect_monitored_resources()
+
+        assert len(result) == 1
+        assert result[0]["id"] == "nat-pending"
+
+    def test_empty_result_when_no_monitored(self):
+        """수집 대상 0개 시 빈 리스트 반환 — Req 5.1"""
+        mock_client = self._mock_ec2_for_collection([])
+
+        with patch.object(natgw_collector, "_get_ec2_client",
+                          return_value=mock_client), \
+             patch("common.collectors.natgw.boto3.session.Session") as ms:
+            ms.return_value.region_name = "us-east-1"
+            result = natgw_collector.collect_monitored_resources()
+
+        assert result == []
+
+    def test_api_error_raises(self):
+        """describe_nat_gateways API 오류 시 예외 전파 — Req 5.6"""
+        mock_client = MagicMock()
+        mock_paginator = MagicMock()
+        mock_client.get_paginator.return_value = mock_paginator
+        mock_paginator.paginate.side_effect = _ClientError(
+            {"Error": {"Code": "InvalidParameterValue", "Message": "error"}},
+            "describe_nat_gateways",
+        )
+
+        with patch.object(natgw_collector, "_get_ec2_client",
+                          return_value=mock_client):
+            with pytest.raises(_ClientError):
+                natgw_collector.collect_monitored_resources()
+
+    def test_tags_preserved_in_resource_info(self):
+        """NAT GW 태그가 ResourceInfo에 보존 — Req 5.1"""
+        natgws = [
+            _make_nat_gateway("nat-tagged", "available", {
+                "Monitoring": "on",
+                "Name": "my-natgw",
+                "Threshold_PacketsDropCount": "5",
+            }),
+        ]
+        mock_client = self._mock_ec2_for_collection(natgws)
+
+        with patch.object(natgw_collector, "_get_ec2_client",
+                          return_value=mock_client), \
+             patch("common.collectors.natgw.boto3.session.Session") as ms:
+            ms.return_value.region_name = "us-east-1"
+            result = natgw_collector.collect_monitored_resources()
+
+        assert len(result) == 1
+        assert result[0]["tags"]["Name"] == "my-natgw"
+        assert result[0]["tags"]["Threshold_PacketsDropCount"] == "5"
+
+    # ── get_metrics() 테스트 ──
+
+    def test_get_metrics_returns_two_keys(self):
+        """2개 메트릭 키 반환 — Req 5.2"""
+        mock_cw = MagicMock()
+        data = {
+            "PacketsDropCount": 3.0,
+            "ErrorPortAllocation": 1.0,
+        }
+
+        def get_metric_stats(**kwargs):
+            metric_name = kwargs.get("MetricName", "")
+            if metric_name in data:
+                return {
+                    "Datapoints": [{
+                        "Timestamp": datetime(2024, 1, 1, tzinfo=timezone.utc),
+                        "Sum": data[metric_name],
+                    }]
+                }
+            return {"Datapoints": []}
+
+        mock_cw.get_metric_statistics.side_effect = get_metric_stats
+
+        with patch("common.collectors.base._get_cw_client", return_value=mock_cw):
+            result = natgw_collector.get_metrics("nat-abc123")
+
+        assert result is not None
+        expected_keys = {"PacketsDropCount", "ErrorPortAllocation"}
+        assert set(result.keys()) == expected_keys
+        assert result["PacketsDropCount"] == pytest.approx(3.0)
+        assert result["ErrorPortAllocation"] == pytest.approx(1.0)
+
+    def test_get_metrics_returns_none_when_all_empty(self):
+        """모든 메트릭 데이터 없을 때 None 반환 — Req 5.5"""
+        mock_cw = MagicMock()
+        mock_cw.get_metric_statistics.return_value = {"Datapoints": []}
+
+        with patch("common.collectors.base._get_cw_client", return_value=mock_cw):
+            result = natgw_collector.get_metrics("nat-abc123")
+
+        assert result is None
+
+    def test_get_metrics_skips_empty_metrics(self):
+        """일부 메트릭만 데이터 있을 때 해당 메트릭만 반환 — Req 5.5"""
+        mock_cw = MagicMock()
+
+        def get_metric_stats(**kwargs):
+            metric_name = kwargs.get("MetricName", "")
+            if metric_name == "PacketsDropCount":
+                return {
+                    "Datapoints": [{
+                        "Timestamp": datetime(2024, 1, 1, tzinfo=timezone.utc),
+                        "Sum": 5.0,
+                    }]
+                }
+            return {"Datapoints": []}
+
+        mock_cw.get_metric_statistics.side_effect = get_metric_stats
+
+        with patch("common.collectors.base._get_cw_client", return_value=mock_cw):
+            result = natgw_collector.get_metrics("nat-abc123")
+
+        assert result is not None
+        assert result == {"PacketsDropCount": pytest.approx(5.0)}
+        assert "ErrorPortAllocation" not in result
+
+    def test_get_metrics_uses_correct_namespace_and_dimension(self):
+        """AWS/NATGateway 네임스페이스 + NatGatewayId 디멘션 사용 — Req 5.2"""
+        mock_cw = MagicMock()
+        mock_cw.get_metric_statistics.return_value = {
+            "Datapoints": [_make_cw_datapoint(2.0)]
+        }
+
+        with patch("common.collectors.base._get_cw_client", return_value=mock_cw):
+            natgw_collector.get_metrics("nat-test-1")
+
+        for call in mock_cw.get_metric_statistics.call_args_list:
+            assert call.kwargs.get("Namespace", call[1].get("Namespace")) \
+                == "AWS/NATGateway"
+            dims = call.kwargs.get("Dimensions", call[1].get("Dimensions"))
+            assert dims[0]["Name"] == "NatGatewayId"
+            assert dims[0]["Value"] == "nat-test-1"
+
+    def test_get_metrics_uses_sum_statistic(self):
+        """Sum 통계 사용 — Req 5.2"""
+        mock_cw = MagicMock()
+        mock_cw.get_metric_statistics.return_value = {
+            "Datapoints": [_make_cw_datapoint(1.0)]
+        }
+
+        with patch("common.collectors.base._get_cw_client", return_value=mock_cw):
+            natgw_collector.get_metrics("nat-test-1")
+
+        for call in mock_cw.get_metric_statistics.call_args_list:
+            stats = call.kwargs.get("Statistics", call[1].get("Statistics"))
+            assert stats == ["Sum"]

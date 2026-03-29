@@ -44,10 +44,16 @@ HARDCODED_DEFAULTS: dict[str, float] = {
     "FreeMemoryPct": 20.0,
     "FreeLocalStoragePct": 20.0,
     "ConnectionAttempts": 500.0,
+    "EngineCPU": 90.0,
+    "SwapUsage": 1.0,
+    "Evictions": 5.0,
+    "CurrConnections": 200.0,
+    "PacketsDropCount": 1.0,
+    "ErrorPortAllocation": 1.0,
 }
 
 # 지원하는 AWS 리소스 유형 - Requirements 6.1
-SUPPORTED_RESOURCE_TYPES: list[str] = ["EC2", "RDS", "ALB", "NLB", "TG", "AuroraRDS", "DocDB"]
+SUPPORTED_RESOURCE_TYPES: list[str] = ["EC2", "RDS", "ALB", "NLB", "TG", "AuroraRDS", "DocDB", "ElastiCache", "NATGateway"]
 
 # CloudTrail 모니터링 대상 API 이벤트 - Requirements 4.1, 8.1, 8.4
 MONITORED_API_EVENTS: dict[str, list[str]] = {
@@ -57,12 +63,15 @@ MONITORED_API_EVENTS: dict[str, list[str]] = {
         "ModifyDBInstance",
         "ModifyLoadBalancerAttributes",
         "ModifyListener",
+        "ModifyCacheCluster",
     ],
     "DELETE": [
         "TerminateInstances",
         "DeleteDBInstance",
         "DeleteLoadBalancer",
         "DeleteTargetGroup",
+        "DeleteCacheCluster",
+        "DeleteNatGateway",
     ],
     "TAG_CHANGE": [
         "CreateTags",
@@ -77,6 +86,8 @@ MONITORED_API_EVENTS: dict[str, list[str]] = {
         "CreateDBInstance",
         "CreateLoadBalancer",
         "CreateTargetGroup",
+        "CreateCacheCluster",
+        "CreateNatGateway",
     ],
 }
 

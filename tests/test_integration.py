@@ -115,6 +115,8 @@ class TestDailyMonitorIntegration:
              patch("common.collectors.rds.collect_monitored_resources", return_value=[rds_resource]), \
              patch("common.collectors.elb.collect_monitored_resources", return_value=[]), \
              patch("common.collectors.docdb.collect_monitored_resources", return_value=[]), \
+             patch("common.collectors.elasticache.collect_monitored_resources", return_value=[]), \
+             patch("common.collectors.natgw.collect_monitored_resources", return_value=[]), \
              patch("common.collectors.rds.get_metrics", return_value={"CPU": 50.0}), \
              patch("common.tag_resolver.get_threshold", return_value=80.0), \
              patch("daily_monitor.lambda_handler.send_error_alert") as mock_err, \

@@ -61,7 +61,7 @@ def _find_alarms_for_resource(
     type_prefixes = (
         [f"[{resource_type}] "]
         if resource_type
-        else [f"[{rt}] " for rt in ("EC2", "RDS", "ALB", "NLB", "TG", "AuroraRDS", "DocDB")]
+        else [f"[{rt}] " for rt in ("EC2", "RDS", "ALB", "NLB", "TG", "AuroraRDS", "DocDB", "ElastiCache", "NATGateway")]
     )
     for p in type_prefixes:
         _collect(p, filter_suffix=True)

@@ -846,9 +846,9 @@ class TestCreateCategory:
         )
 
     def test_create_category_contains_four_events(self):
-        """CREATE 카테고리에 4개 이벤트가 포함되어야 한다."""
+        """CREATE 카테고리에 6개 이벤트가 포함되어야 한다."""
         from common import MONITORED_API_EVENTS
-        expected = {"RunInstances", "CreateDBInstance", "CreateLoadBalancer", "CreateTargetGroup"}
+        expected = {"RunInstances", "CreateDBInstance", "CreateLoadBalancer", "CreateTargetGroup", "CreateCacheCluster", "CreateNatGateway"}
         actual = set(MONITORED_API_EVENTS.get("CREATE", []))
         assert actual == expected, (
             f"CREATE category should contain {expected}, got {actual}"

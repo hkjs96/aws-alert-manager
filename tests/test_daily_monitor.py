@@ -33,7 +33,8 @@ def _make_resource(resource_id, resource_type="EC2", tags=None):
 
 
 def _patch_all_collectors(ec2_resources=None, rds_resources=None, elb_resources=None,
-                         docdb_resources=None):
+                         docdb_resources=None, elasticache_resources=None,
+                         natgw_resources=None):
     """모든 collector를 패치하는 컨텍스트 매니저 반환."""
     return (
         patch("daily_monitor.lambda_handler.ec2_collector.collect_monitored_resources",
@@ -44,6 +45,10 @@ def _patch_all_collectors(ec2_resources=None, rds_resources=None, elb_resources=
               return_value=elb_resources or []),
         patch("daily_monitor.lambda_handler.docdb_collector.collect_monitored_resources",
               return_value=docdb_resources or []),
+        patch("daily_monitor.lambda_handler.elasticache_collector.collect_monitored_resources",
+              return_value=elasticache_resources or []),
+        patch("daily_monitor.lambda_handler.natgw_collector.collect_monitored_resources",
+              return_value=natgw_resources or []),
     )
 
 
@@ -65,8 +70,8 @@ def test_property_6_insufficient_data_no_alert(resource_ids):
     """Feature: aws-monitoring-engine, Property 6: InsufficientData 메트릭 알림 건너뛰기"""
     resources = [_make_resource(rid) for rid in resource_ids]
 
-    p1, p2, p3, p4 = _patch_all_collectors(ec2_resources=resources)
-    with p1, p2, p3, p4, \
+    p1, p2, p3, p4, p5, p6 = _patch_all_collectors(ec2_resources=resources)
+    with p1, p2, p3, p4, p5, p6, \
          patch("common.collectors.ec2.get_metrics", return_value=None), \
          patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
         result = handler({}, MagicMock())
@@ -95,8 +100,8 @@ def test_property_8_multiple_resources_individual_alerts(cpu_values):
     # 각 리소스마다 CPU 임계치 초과 메트릭 반환
     metrics_list = [{"CPU": v} for v in cpu_values]
 
-    p1, p2, p3, p4 = _patch_all_collectors(ec2_resources=resources)
-    with p1, p2, p3, p4, \
+    p1, p2, p3, p4, p5, p6 = _patch_all_collectors(ec2_resources=resources)
+    with p1, p2, p3, p4, p5, p6, \
          patch("common.collectors.ec2.get_metrics", side_effect=metrics_list), \
          patch("daily_monitor.lambda_handler.send_alert") as mock_alert, \
          patch("daily_monitor.lambda_handler.get_threshold", return_value=80.0):
@@ -115,8 +120,8 @@ class TestDailyMonitorHandler:
 
     def test_no_resources_no_alert(self):
         """수집 대상 0개 시 알림 미발송 - Requirements 1.3"""
-        p1, p2, p3, p4 = _patch_all_collectors()
-        with p1, p2, p3, p4, \
+        p1, p2, p3, p4, p5, p6 = _patch_all_collectors()
+        with p1, p2, p3, p4, p5, p6, \
              patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
             result = handler({}, MagicMock())
 
@@ -127,8 +132,8 @@ class TestDailyMonitorHandler:
     def test_threshold_exceeded_sends_alert(self):
         """임계치 초과 시 SNS 알림 발송 - Requirements 3.1"""
         resources = [_make_resource("i-001")]
-        p1, p2, p3, p4 = _patch_all_collectors(ec2_resources=resources)
-        with p1, p2, p3, p4, \
+        p1, p2, p3, p4, p5, p6 = _patch_all_collectors(ec2_resources=resources)
+        with p1, p2, p3, p4, p5, p6, \
              patch("common.collectors.ec2.get_metrics",
                    return_value={"CPU": 95.0}), \
              patch("daily_monitor.lambda_handler.get_threshold", return_value=80.0), \
@@ -148,8 +153,8 @@ class TestDailyMonitorHandler:
     def test_threshold_not_exceeded_no_alert(self):
         """임계치 미초과 시 알림 미발송"""
         resources = [_make_resource("i-001")]
-        p1, p2, p3, p4 = _patch_all_collectors(ec2_resources=resources)
-        with p1, p2, p3, p4, \
+        p1, p2, p3, p4, p5, p6 = _patch_all_collectors(ec2_resources=resources)
+        with p1, p2, p3, p4, p5, p6, \
              patch("common.collectors.ec2.get_metrics",
                    return_value={"CPU": 50.0}), \
              patch("daily_monitor.lambda_handler.get_threshold", return_value=80.0), \
@@ -170,6 +175,10 @@ class TestDailyMonitorHandler:
              patch("daily_monitor.lambda_handler.elb_collector.collect_monitored_resources",
                    return_value=[]), \
              patch("daily_monitor.lambda_handler.docdb_collector.collect_monitored_resources",
+                   return_value=[]), \
+             patch("daily_monitor.lambda_handler.elasticache_collector.collect_monitored_resources",
+                   return_value=[]), \
+             patch("daily_monitor.lambda_handler.natgw_collector.collect_monitored_resources",
                    return_value=[]), \
              patch("common.collectors.rds.get_metrics",
                    return_value={"CPU": 50.0}), \
@@ -199,8 +208,8 @@ class TestDailyMonitorHandler:
                 raise Exception("metric error")
             return {"CPU": 50.0}
 
-        p1, p2, p3, p4 = _patch_all_collectors(ec2_resources=resources)
-        with p1, p2, p3, p4, \
+        p1, p2, p3, p4, p5, p6 = _patch_all_collectors(ec2_resources=resources)
+        with p1, p2, p3, p4, p5, p6, \
              patch("common.collectors.ec2.get_metrics",
                    side_effect=get_metrics_side_effect), \
              patch("daily_monitor.lambda_handler.get_threshold", return_value=80.0), \
@@ -216,8 +225,8 @@ class TestDailyMonitorHandler:
     def test_free_memory_below_threshold_sends_alert(self):
         """FreeMemoryGB가 임계치 미만일 때 알림 발송 (낮을수록 위험)"""
         resources = [_make_resource("db-001", "RDS")]
-        p1, p2, p3, p4 = _patch_all_collectors(rds_resources=resources)
-        with p1, p2, p3, p4, \
+        p1, p2, p3, p4, p5, p6 = _patch_all_collectors(rds_resources=resources)
+        with p1, p2, p3, p4, p5, p6, \
              patch("common.collectors.rds.get_metrics",
                    return_value={"FreeMemoryGB": 1.0}), \
              patch("daily_monitor.lambda_handler.get_threshold", return_value=2.0), \
@@ -237,8 +246,8 @@ class TestDailyMonitorHandler:
     def test_free_memory_above_threshold_no_alert(self):
         """FreeMemoryGB가 임계치 이상이면 알림 미발송"""
         resources = [_make_resource("db-001", "RDS")]
-        p1, p2, p3, p4 = _patch_all_collectors(rds_resources=resources)
-        with p1, p2, p3, p4, \
+        p1, p2, p3, p4, p5, p6 = _patch_all_collectors(rds_resources=resources)
+        with p1, p2, p3, p4, p5, p6, \
              patch("common.collectors.rds.get_metrics",
                    return_value={"FreeMemoryGB": 5.0}), \
              patch("daily_monitor.lambda_handler.get_threshold", return_value=2.0), \
@@ -249,8 +258,8 @@ class TestDailyMonitorHandler:
 
     def test_returns_ok_status(self):
         """핸들러가 항상 status=ok 반환"""
-        p1, p2, p3, p4 = _patch_all_collectors()
-        with p1, p2, p3, p4:
+        p1, p2, p3, p4, p5, p6 = _patch_all_collectors()
+        with p1, p2, p3, p4, p5, p6:
             result = handler({}, MagicMock())
 
         assert result["status"] == "ok"
@@ -259,8 +268,8 @@ class TestDailyMonitorHandler:
         """ALB 리소스 임계치 초과 시 SNS 알림 발송"""
         alb_arn = "arn:aws:elasticloadbalancing:us-east-1:123:loadbalancer/app/my-alb/abc"
         resources = [_make_resource(alb_arn, resource_type="ALB")]
-        p1, p2, p3, p4 = _patch_all_collectors(elb_resources=resources)
-        with p1, p2, p3, p4, \
+        p1, p2, p3, p4, p5, p6 = _patch_all_collectors(elb_resources=resources)
+        with p1, p2, p3, p4, p5, p6, \
              patch("common.collectors.elb.get_metrics",
                    return_value={"RequestCount": 6000.0}), \
              patch("daily_monitor.lambda_handler.get_threshold", return_value=5000.0), \
@@ -281,8 +290,8 @@ class TestDailyMonitorHandler:
         """NLB 리소스 메트릭 없으면 알림 미발송"""
         nlb_arn = "arn:aws:elasticloadbalancing:us-east-1:123:loadbalancer/net/my-nlb/def"
         resources = [_make_resource(nlb_arn, resource_type="NLB")]
-        p1, p2, p3, p4 = _patch_all_collectors(elb_resources=resources)
-        with p1, p2, p3, p4, \
+        p1, p2, p3, p4, p5, p6 = _patch_all_collectors(elb_resources=resources)
+        with p1, p2, p3, p4, p5, p6, \
              patch("common.collectors.elb.get_metrics", return_value=None), \
              patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
             result = handler({}, MagicMock())

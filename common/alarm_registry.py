@@ -44,6 +44,12 @@ _METRIC_DISPLAY = {
     "ACUUtilization": ("ACUUtilization", ">", "%"),
     "ServerlessDatabaseCapacity": ("ServerlessDatabaseCapacity", ">", "ACU"),
     "ConnectionAttempts": ("ConnectionAttempts", ">", ""),
+    "EngineCPU": ("EngineCPUUtilization", ">=", "%"),
+    "SwapUsage": ("SwapUsage", ">=", "Bytes"),
+    "Evictions": ("Evictions", ">=", ""),
+    "CurrConnections": ("CurrConnections", ">=", ""),
+    "PacketsDropCount": ("PacketsDropCount", ">", ""),
+    "ErrorPortAllocation": ("ErrorPortAllocation", ">", ""),
 }
 
 
@@ -474,6 +480,82 @@ _DOCDB_ALARMS = [
     },
 ]
 
+_ELASTICACHE_ALARMS = [
+    {
+        "metric": "CPU",
+        "namespace": "AWS/ElastiCache",
+        "metric_name": "CPUUtilization",
+        "dimension_key": "CacheClusterId",
+        "stat": "Average",
+        "comparison": "GreaterThanOrEqualToThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+    },
+    {
+        "metric": "EngineCPU",
+        "namespace": "AWS/ElastiCache",
+        "metric_name": "EngineCPUUtilization",
+        "dimension_key": "CacheClusterId",
+        "stat": "Average",
+        "comparison": "GreaterThanOrEqualToThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+    },
+    {
+        "metric": "SwapUsage",
+        "namespace": "AWS/ElastiCache",
+        "metric_name": "SwapUsage",
+        "dimension_key": "CacheClusterId",
+        "stat": "Average",
+        "comparison": "GreaterThanOrEqualToThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+    },
+    {
+        "metric": "Evictions",
+        "namespace": "AWS/ElastiCache",
+        "metric_name": "Evictions",
+        "dimension_key": "CacheClusterId",
+        "stat": "Average",
+        "comparison": "GreaterThanOrEqualToThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+    },
+    {
+        "metric": "CurrConnections",
+        "namespace": "AWS/ElastiCache",
+        "metric_name": "CurrConnections",
+        "dimension_key": "CacheClusterId",
+        "stat": "Average",
+        "comparison": "GreaterThanOrEqualToThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+    },
+]
+
+_NATGW_ALARMS = [
+    {
+        "metric": "PacketsDropCount",
+        "namespace": "AWS/NATGateway",
+        "metric_name": "PacketsDropCount",
+        "dimension_key": "NatGatewayId",
+        "stat": "Sum",
+        "comparison": "GreaterThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+    },
+    {
+        "metric": "ErrorPortAllocation",
+        "namespace": "AWS/NATGateway",
+        "metric_name": "ErrorPortAllocation",
+        "dimension_key": "NatGatewayId",
+        "stat": "Sum",
+        "comparison": "GreaterThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+    },
+]
+
 _NLB_TG_EXCLUDED_METRICS = {"RequestCountPerTarget", "TGResponseTime"}
 
 
@@ -490,6 +572,10 @@ def _get_alarm_defs(resource_type: str, resource_tags: dict | None = None) -> li
         return _NLB_ALARMS
     elif resource_type == "DocDB":
         return _DOCDB_ALARMS
+    elif resource_type == "ElastiCache":
+        return _ELASTICACHE_ALARMS
+    elif resource_type == "NATGateway":
+        return _NATGW_ALARMS
     elif resource_type == "TG":
         # TargetType=alb인 TG는 HealthyHostCount/UnHealthyHostCount 메트릭이
         # CloudWatch에서 발행되지 않음 (AWS 제약사항) → 알람 생성 스킵
@@ -510,6 +596,8 @@ _HARDCODED_METRIC_KEYS: dict[str, set[str]] = {
     "TG": {"HealthyHostCount", "UnHealthyHostCount", "RequestCountPerTarget", "TGResponseTime"},
     "AuroraRDS": {"CPU", "FreeMemoryGB", "Connections", "FreeLocalStorageGB", "ReplicaLag", "ReaderReplicaLag", "ACUUtilization", "ServerlessDatabaseCapacity"},
     "DocDB": {"CPU", "FreeMemoryGB", "Connections"},
+    "ElastiCache": {"CPU", "EngineCPU", "SwapUsage", "Evictions", "CurrConnections"},
+    "NATGateway": {"PacketsDropCount", "ErrorPortAllocation"},
 }
 
 # resource_type별 CloudWatch 네임스페이스 목록
@@ -521,6 +609,8 @@ _NAMESPACE_MAP: dict[str, list[str]] = {
     "TG": ["AWS/ApplicationELB", "AWS/NetworkELB"],
     "AuroraRDS": ["AWS/RDS"],
     "DocDB": ["AWS/DocDB"],
+    "ElastiCache": ["AWS/ElastiCache"],
+    "NATGateway": ["AWS/NATGateway"],
 }
 
 # resource_type별 디멘션 키
@@ -532,6 +622,8 @@ _DIMENSION_KEY_MAP: dict[str, str] = {
     "TG": "TargetGroup",
     "AuroraRDS": "DBInstanceIdentifier",
     "DocDB": "DBInstanceIdentifier",
+    "ElastiCache": "CacheClusterId",
+    "NATGateway": "NatGatewayId",
 }
 
 
@@ -578,5 +670,11 @@ def _metric_name_to_key(metric_name: str) -> str:
         "ACUUtilization": "ACUUtilization",
         "ServerlessDatabaseCapacity": "ServerlessDatabaseCapacity",
         "ConnectionAttempts": "ConnectionAttempts",
+        "EngineCPUUtilization": "EngineCPU",
+        "SwapUsage": "SwapUsage",
+        "Evictions": "Evictions",
+        "CurrConnections": "CurrConnections",
+        "PacketsDropCount": "PacketsDropCount",
+        "ErrorPortAllocation": "ErrorPortAllocation",
     }
     return mapping.get(metric_name, metric_name)

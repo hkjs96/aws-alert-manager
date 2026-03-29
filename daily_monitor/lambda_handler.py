@@ -22,13 +22,15 @@ logger = logging.getLogger(__name__)
 from common.alarm_manager import sync_alarms_for_resource
 from common.collectors import docdb as docdb_collector
 from common.collectors import ec2 as ec2_collector
+from common.collectors import elasticache as elasticache_collector
 from common.collectors import elb as elb_collector
+from common.collectors import natgw as natgw_collector
 from common.collectors import rds as rds_collector
 from common.sns_notifier import send_alert, send_error_alert
 from common.tag_resolver import get_threshold
 
 # collector 모듈 목록 (런타임에 .get_metrics 참조하여 패치 가능하도록)
-_COLLECTOR_MODULES = [ec2_collector, rds_collector, elb_collector, docdb_collector]
+_COLLECTOR_MODULES = [ec2_collector, rds_collector, elb_collector, docdb_collector, elasticache_collector, natgw_collector]
 
 # 새 포맷 알람에서 resource_type과 resource_id를 추출하는 정규식
 # 예: "[EC2] MyServer CPU >=80% (i-1234567890abcdef0)"
@@ -322,6 +324,46 @@ def _check_tg_arns(
                 )
 
 
+@functools.lru_cache(maxsize=None)
+def _get_elasticache_client():
+    return boto3.client("elasticache")
+
+
+def _find_alive_elasticache_clusters(cluster_ids: set[str]) -> set[str]:
+    """ElastiCache 클러스터 존재 여부 확인."""
+    client = _get_elasticache_client()
+    alive: set[str] = set()
+    for cid in cluster_ids:
+        try:
+            client.describe_cache_clusters(CacheClusterId=cid)
+            alive.add(cid)
+        except ClientError as e:
+            code = e.response["Error"]["Code"]
+            if code == "CacheClusterNotFound":
+                logger.info("ElastiCache cluster not found (orphan): %s", cid)
+            else:
+                logger.error("describe_cache_clusters failed for %s: %s", cid, e)
+    return alive
+
+
+def _find_alive_nat_gateways(natgw_ids: set[str]) -> set[str]:
+    """NAT Gateway 존재 여부 확인. deleting/deleted 제외."""
+    ec2 = _get_ec2_client()
+    alive: set[str] = set()
+    id_list = list(natgw_ids)
+    for i in range(0, len(id_list), 200):
+        batch = id_list[i:i + 200]
+        try:
+            resp = ec2.describe_nat_gateways(NatGatewayIds=batch)
+            for natgw in resp.get("NatGateways", []):
+                state = natgw.get("State", "")
+                if state not in ("deleted", "deleting"):
+                    alive.add(natgw["NatGatewayId"])
+        except ClientError as e:
+            logger.error("describe_nat_gateways failed: %s", e)
+    return alive
+
+
 def _cleanup_orphan_alarms() -> list[str]:
     """
     존재하지 않는 리소스(EC2/RDS/ELB/TG)의 알람을 찾아 삭제.
@@ -348,6 +390,8 @@ def _cleanup_orphan_alarms() -> list[str]:
         "ALB": _find_alive_elb_resources,
         "NLB": _find_alive_elb_resources,
         "TG": _find_alive_elb_resources,
+        "ElastiCache": _find_alive_elasticache_clusters,
+        "NATGateway": _find_alive_nat_gateways,
     }
 
     for rtype, id_to_alarms in alarm_map.items():

@@ -121,6 +121,25 @@ def _extract_create_tg_ids(resp: dict) -> list[str]:
 
 
 
+def _extract_elasticache_ids(params: dict) -> list[str]:
+    """CreateCacheCluster / DeleteCacheCluster / ModifyCacheCluster: cacheClusterId 추출."""
+    rid = params.get("cacheClusterId")
+    return [rid] if rid else []
+
+
+def _extract_natgw_ids(params: dict) -> list[str]:
+    """DeleteNatGateway: natGatewayId 추출."""
+    rid = params.get("natGatewayId")
+    return [rid] if rid else []
+
+
+def _extract_natgw_create_ids(resp: dict) -> list[str]:
+    """CreateNatGateway: responseElements.natGateway.natGatewayId 추출."""
+    natgw = resp.get("natGateway", {})
+    rid = natgw.get("natGatewayId")
+    return [rid] if rid else []
+
+
 def _extract_tag_resource_ids(params: dict) -> list[str]:
     """CreateTags / DeleteTags: resourcesSet 또는 resourceIdList 전체."""
     items = params.get("resourcesSet", {}).get("items", [])
@@ -162,6 +181,8 @@ _API_MAP: dict[str, tuple[str, callable]] = {
 
     "ModifyListener":               ("ELB", _extract_elb_ids),
 
+    "ModifyCacheCluster":           ("ElastiCache", _extract_elasticache_ids),
+
     # DELETE
 
     "TerminateInstances":           ("EC2", _extract_ec2_instance_ids),
@@ -170,6 +191,10 @@ _API_MAP: dict[str, tuple[str, callable]] = {
 
     "DeleteLoadBalancer":           ("ELB", _extract_elb_ids),
     "DeleteTargetGroup":            ("TG",  _extract_tg_ids),
+
+    "DeleteCacheCluster":           ("ElastiCache", _extract_elasticache_ids),
+
+    "DeleteNatGateway":             ("NATGateway", _extract_natgw_ids),
 
     # CREATE
 
@@ -180,6 +205,10 @@ _API_MAP: dict[str, tuple[str, callable]] = {
     "CreateLoadBalancer":           ("ELB", _extract_create_lb_ids),
 
     "CreateTargetGroup":            ("TG",  _extract_create_tg_ids),
+
+    "CreateCacheCluster":           ("ElastiCache", _extract_elasticache_ids),
+
+    "CreateNatGateway":             ("NATGateway", _extract_natgw_create_ids),
 
     # TAG_CHANGE
 
@@ -354,9 +383,9 @@ def parse_cloudtrail_event(event: dict) -> list[ParsedEvent]:
 
     resource_type, ids_extractor = _API_MAP[event_name]
 
-    # CREATE 이벤트: responseElements에서 ID 추출 (CreateDBInstance만 requestParameters 사용)
+    # CREATE 이벤트: responseElements에서 ID 추출 (CreateDBInstance, CreateCacheCluster만 requestParameters 사용)
     event_category = _get_event_category(event_name)
-    if event_category == "CREATE" and event_name != "CreateDBInstance":
+    if event_category == "CREATE" and event_name not in ("CreateDBInstance", "CreateCacheCluster"):
         extract_source = detail.get("responseElements") or {}
     else:
         extract_source = request_params

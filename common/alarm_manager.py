@@ -55,6 +55,8 @@ from common.alarm_registry import (  # noqa: E402, F401
     _AURORA_SERVERLESS_CAPACITY,
     _get_aurora_alarm_defs,
     _DOCDB_ALARMS,
+    _ELASTICACHE_ALARMS,
+    _NATGW_ALARMS,
     _NLB_TG_EXCLUDED_METRICS,
     _get_alarm_defs,
     _HARDCODED_METRIC_KEYS,

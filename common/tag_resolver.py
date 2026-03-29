@@ -176,6 +176,10 @@ def get_resource_tags(resource_id: str, resource_type: str) -> dict:
             return _get_rds_tags(resource_id)
         elif resource_type in ("ELB", "TG", "ALB", "NLB"):
             return _get_elbv2_tags(resource_id)
+        elif resource_type == "ElastiCache":
+            return _get_elasticache_tags(resource_id)
+        elif resource_type == "NATGateway":
+            return _get_ec2_tags_by_resource(resource_id)
         else:
             logger.warning("Unsupported resource_type %r for resource %s", resource_type, resource_id)
             return {}
@@ -246,3 +250,34 @@ def _get_elbv2_tags(resource_arn: str) -> dict:
         return {}
     raw_tags = tag_descriptions[0].get("Tags", [])
     return {tag["Key"]: tag["Value"] for tag in raw_tags}
+
+
+@functools.lru_cache(maxsize=None)
+def _get_elasticache_client():
+    return boto3.client("elasticache")
+
+
+def _get_elasticache_tags(resource_id: str) -> dict:
+    """ElastiCache 클러스터 태그 조회.
+
+    describe_cache_clusters로 ARN을 얻은 뒤 list_tags_for_resource 호출.
+    """
+    client = _get_elasticache_client()
+    resp = client.describe_cache_clusters(CacheClusterId=resource_id)
+    clusters = resp.get("CacheClusters", [])
+    if not clusters:
+        return {}
+    arn = clusters[0].get("ARN", "")
+    if not arn:
+        return {}
+    tag_resp = client.list_tags_for_resource(ResourceName=arn)
+    return {t["Key"]: t["Value"] for t in tag_resp.get("TagList", [])}
+
+
+def _get_ec2_tags_by_resource(resource_id: str) -> dict:
+    """EC2 describe_tags로 리소스 ID 기반 태그 조회 (NAT Gateway 등)."""
+    ec2 = _get_ec2_client()
+    resp = ec2.describe_tags(
+        Filters=[{"Name": "resource-id", "Values": [resource_id]}]
+    )
+    return {t["Key"]: t["Value"] for t in resp.get("Tags", [])}
