@@ -391,7 +391,8 @@ def _cleanup_orphan_alarms() -> list[str]:
         "NLB": _find_alive_elb_resources,
         "TG": _find_alive_elb_resources,
         "ElastiCache": _find_alive_elasticache_clusters,
-        "NATGateway": _find_alive_nat_gateways,
+        "NAT": _find_alive_nat_gateways,
+        "NATGateway": _find_alive_nat_gateways,  # legacy alias
     }
 
     for rtype, id_to_alarms in alarm_map.items():

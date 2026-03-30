@@ -178,7 +178,7 @@ def get_resource_tags(resource_id: str, resource_type: str) -> dict:
             return _get_elbv2_tags(resource_id)
         elif resource_type == "ElastiCache":
             return _get_elasticache_tags(resource_id)
-        elif resource_type == "NATGateway":
+        elif resource_type == "NAT":
             return _get_ec2_tags_by_resource(resource_id)
         else:
             logger.warning("Unsupported resource_type %r for resource %s", resource_type, resource_id)

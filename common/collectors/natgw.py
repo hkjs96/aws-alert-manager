@@ -61,7 +61,7 @@ def collect_monitored_resources() -> list[ResourceInfo]:
             resources.append(
                 ResourceInfo(
                     id=natgw_id,
-                    type="NATGateway",
+                    type="NAT",
                     tags=tags,
                     region=region,
                 )

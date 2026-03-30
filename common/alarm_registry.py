@@ -45,7 +45,7 @@ _METRIC_DISPLAY = {
     "ServerlessDatabaseCapacity": ("ServerlessDatabaseCapacity", ">", "ACU"),
     "ConnectionAttempts": ("ConnectionAttempts", ">", ""),
     "EngineCPU": ("EngineCPUUtilization", ">=", "%"),
-    "SwapUsage": ("SwapUsage", ">=", "Bytes"),
+    "SwapUsage": ("SwapUsage", ">=", ""),
     "Evictions": ("Evictions", ">=", ""),
     "CurrConnections": ("CurrConnections", ">=", ""),
     "PacketsDropCount": ("PacketsDropCount", ">", ""),
@@ -574,7 +574,7 @@ def _get_alarm_defs(resource_type: str, resource_tags: dict | None = None) -> li
         return _DOCDB_ALARMS
     elif resource_type == "ElastiCache":
         return _ELASTICACHE_ALARMS
-    elif resource_type == "NATGateway":
+    elif resource_type == "NAT":
         return _NATGW_ALARMS
     elif resource_type == "TG":
         # TargetType=alb인 TG는 HealthyHostCount/UnHealthyHostCount 메트릭이
@@ -597,7 +597,7 @@ _HARDCODED_METRIC_KEYS: dict[str, set[str]] = {
     "AuroraRDS": {"CPU", "FreeMemoryGB", "Connections", "FreeLocalStorageGB", "ReplicaLag", "ReaderReplicaLag", "ACUUtilization", "ServerlessDatabaseCapacity"},
     "DocDB": {"CPU", "FreeMemoryGB", "Connections"},
     "ElastiCache": {"CPU", "EngineCPU", "SwapUsage", "Evictions", "CurrConnections"},
-    "NATGateway": {"PacketsDropCount", "ErrorPortAllocation"},
+    "NAT": {"PacketsDropCount", "ErrorPortAllocation"},
 }
 
 # resource_type별 CloudWatch 네임스페이스 목록
@@ -610,7 +610,7 @@ _NAMESPACE_MAP: dict[str, list[str]] = {
     "AuroraRDS": ["AWS/RDS"],
     "DocDB": ["AWS/DocDB"],
     "ElastiCache": ["AWS/ElastiCache"],
-    "NATGateway": ["AWS/NATGateway"],
+    "NAT": ["AWS/NATGateway"],
 }
 
 # resource_type별 디멘션 키
@@ -623,7 +623,7 @@ _DIMENSION_KEY_MAP: dict[str, str] = {
     "AuroraRDS": "DBInstanceIdentifier",
     "DocDB": "DBInstanceIdentifier",
     "ElastiCache": "CacheClusterId",
-    "NATGateway": "NatGatewayId",
+    "NAT": "NatGatewayId",
 }
 
 

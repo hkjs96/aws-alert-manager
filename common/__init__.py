@@ -53,7 +53,7 @@ HARDCODED_DEFAULTS: dict[str, float] = {
 }
 
 # 지원하는 AWS 리소스 유형 - Requirements 6.1
-SUPPORTED_RESOURCE_TYPES: list[str] = ["EC2", "RDS", "ALB", "NLB", "TG", "AuroraRDS", "DocDB", "ElastiCache", "NATGateway"]
+SUPPORTED_RESOURCE_TYPES: list[str] = ["EC2", "RDS", "ALB", "NLB", "TG", "AuroraRDS", "DocDB", "ElastiCache", "NAT"]
 
 # CloudTrail 모니터링 대상 API 이벤트 - Requirements 4.1, 8.1, 8.4
 MONITORED_API_EVENTS: dict[str, list[str]] = {

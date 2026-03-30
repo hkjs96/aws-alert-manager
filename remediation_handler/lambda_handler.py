@@ -194,7 +194,7 @@ _API_MAP: dict[str, tuple[str, callable]] = {
 
     "DeleteCacheCluster":           ("ElastiCache", _extract_elasticache_ids),
 
-    "DeleteNatGateway":             ("NATGateway", _extract_natgw_ids),
+    "DeleteNatGateway":             ("NAT", _extract_natgw_ids),
 
     # CREATE
 
@@ -208,7 +208,7 @@ _API_MAP: dict[str, tuple[str, callable]] = {
 
     "CreateCacheCluster":           ("ElastiCache", _extract_elasticache_ids),
 
-    "CreateNatGateway":             ("NATGateway", _extract_natgw_create_ids),
+    "CreateNatGateway":             ("NAT", _extract_natgw_create_ids),
 
     # TAG_CHANGE
 

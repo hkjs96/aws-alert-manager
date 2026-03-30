@@ -1908,7 +1908,7 @@ class TestNATGatewayCollector:
 
         assert len(result) == 1
         assert result[0]["id"] == "nat-abc123"
-        assert result[0]["type"] == "NATGateway"
+        assert result[0]["type"] == "NAT"
         assert result[0]["tags"]["Monitoring"] == "on"
 
     def test_deleting_state_skipped(self):

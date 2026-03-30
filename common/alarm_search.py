@@ -61,7 +61,7 @@ def _find_alarms_for_resource(
     type_prefixes = (
         [f"[{resource_type}] "]
         if resource_type
-        else [f"[{rt}] " for rt in ("EC2", "RDS", "ALB", "NLB", "TG", "AuroraRDS", "DocDB", "ElastiCache", "NATGateway")]
+        else [f"[{rt}] " for rt in ("EC2", "RDS", "ALB", "NLB", "TG", "AuroraRDS", "DocDB", "ElastiCache", "NAT")]
     )
     for p in type_prefixes:
         _collect(p, filter_suffix=True)
@@ -69,6 +69,10 @@ def _find_alarms_for_resource(
     # 3) 레거시 [ELB] prefix 호환: ALB/NLB/TG는 기존 [ELB] 알람도 검색
     if resource_type in ("ALB", "NLB", "TG"):
         _collect("[ELB] ", filter_suffix=True)
+
+    # 4) 레거시 [NATGateway] prefix 호환: NAT 리네임 이전 알람 검색
+    if resource_type == "NAT":
+        _collect("[NATGateway] ", filter_suffix=True)
 
     return alarm_names
 
