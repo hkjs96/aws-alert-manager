@@ -157,7 +157,7 @@ class TestAlarmNameConstraint:
 
         # ALB/NLB/TG는 Short_ID suffix, EC2/RDS는 원본 resource_id suffix
         expected_suffix = _shorten_elb_resource_id(resource_id, resource_type)
-        assert name.endswith(f"({expected_suffix})"), (
-            f"Alarm name does not end with ({expected_suffix})\n"
+        assert name.endswith(f"(TagName: {expected_suffix})"), (
+            f"Alarm name does not end with (TagName: {expected_suffix})\n"
             f"name={name!r}"
         )

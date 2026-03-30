@@ -32,9 +32,9 @@ def _find_alarms_for_resource(
     seen: set[str] = set()
     alarm_names: list[str] = []
     short_id = _shorten_elb_resource_id(resource_id, resource_type)
-    suffixes = {f"({short_id})"}
+    suffixes = {f"(TagName: {short_id})"}
     if short_id != resource_id:
-        suffixes.add(f"({resource_id})")  # 레거시 Full_ARN 호환
+        suffixes.add(f"(TagName: {resource_id})")  # 레거시 Full_ARN 호환
 
     def _collect(prefix: str, filter_suffix: bool = False) -> None:
         try:

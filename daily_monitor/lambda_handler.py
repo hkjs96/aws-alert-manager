@@ -34,7 +34,7 @@ _COLLECTOR_MODULES = [ec2_collector, rds_collector, elb_collector, docdb_collect
 
 # 새 포맷 알람에서 resource_type과 resource_id를 추출하는 정규식
 # 예: "[EC2] MyServer CPU >=80% (i-1234567890abcdef0)"
-_NEW_FORMAT_RE = re.compile(r"^\[(\w+)\]\s.*\((.+)\)$")
+_NEW_FORMAT_RE = re.compile(r"^\[(\w+)\]\s.*\(TagName:\s(.+)\)$")
 
 
 # ──────────────────────────────────────────────

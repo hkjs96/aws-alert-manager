@@ -282,8 +282,8 @@ _ALARM_NAME_PATTERN = re.compile(
     r"^\[(?P<rtype>\w+)\] "
     r"(?P<label>.+?) "
     r"(?P<display>\S+(?:\(/?\S*\))?)"
-    r" (?P<dir>[><])(?P<thr>[\d.]+)(?P<unit>[%A-Za-z]*)"
-    r" \((?P<rid>.+)\)$"
+    r" (?P<dir>[><]) (?P<thr>[\d.]+)(?P<unit>[%A-Za-zμ]*)"
+    r" \(TagName: (?P<rid>.+)\)$"
 )
 
 

@@ -202,9 +202,9 @@ def _create_dynamic_alarm(
     _MAX_ALARM_NAME = 255
     _ELLIPSIS = "..."
     prefix = f"[{resource_type}] "
-    threshold_part = f" {direction}{thr_str} "
+    threshold_part = f" {direction} {thr_str} "
     short_id = _shorten_elb_resource_id(resource_id, resource_type)
-    suffix = f"({short_id})"
+    suffix = f"(TagName: {short_id})"
     fixed_len = len(prefix) + len(threshold_part) + len(suffix)
     available = _MAX_ALARM_NAME - fixed_len
 

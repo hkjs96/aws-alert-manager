@@ -85,8 +85,8 @@ def test_alarm_name_ends_with_short_id(data, name, threshold):
     rtype, arn = data
     alarm_name = _pretty_alarm_name(rtype, arn, name, "CPU", threshold)
     short_id = _shorten_elb_resource_id(arn, rtype)
-    assert alarm_name.endswith(f"({short_id})"), (
-        f"Expected suffix ({short_id}), got: ...{alarm_name[-50:]}"
+    assert alarm_name.endswith(f"(TagName: {short_id})"), (
+        f"Expected suffix (TagName: {short_id}), got: ...{alarm_name[-50:]}"
     )
 
 

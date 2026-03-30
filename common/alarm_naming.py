@@ -97,9 +97,9 @@ def _pretty_alarm_name(
 
     # 고정 부분 (절대 truncate 불가): prefix + threshold_part + suffix
     prefix = f"[{resource_type}] "
-    threshold_part = f" {direction}{thr_str}{unit} "
+    threshold_part = f" {direction} {thr_str}{unit} "
     short_id = _shorten_elb_resource_id(resource_id, resource_type)
-    suffix = f"({short_id})"
+    suffix = f"(TagName: {short_id})"
 
     fixed_len = len(prefix) + len(threshold_part) + len(suffix)
     available = _MAX_ALARM_NAME - fixed_len

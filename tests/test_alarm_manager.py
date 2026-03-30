@@ -66,37 +66,37 @@ class TestHelpers:
 
     def test_pretty_alarm_name_ec2_cpu(self):
         name = _pretty_alarm_name("EC2", "i-001", "my-server", "CPU", 80)
-        assert name == "[EC2] my-server CPUUtilization >80% (i-001)"
+        assert name == "[EC2] my-server CPUUtilization > 80% (TagName: i-001)"
 
     def test_pretty_alarm_name_no_name_tag(self):
         name = _pretty_alarm_name("EC2", "i-001", "", "Memory", 90)
-        assert name == "[EC2] i-001 mem_used_percent >90% (i-001)"
+        assert name == "[EC2] i-001 mem_used_percent > 90% (TagName: i-001)"
 
     def test_pretty_alarm_name_disk_root(self):
         name = _pretty_alarm_name("EC2", "i-001", "srv", "Disk-root", 85)
-        assert name == "[EC2] srv disk_used_percent(/) >85% (i-001)"
+        assert name == "[EC2] srv disk_used_percent(/) > 85% (TagName: i-001)"
 
     def test_pretty_alarm_name_disk_data(self):
         name = _pretty_alarm_name("EC2", "i-001", "srv", "Disk-data", 90)
-        assert name == "[EC2] srv disk_used_percent(/data) >90% (i-001)"
+        assert name == "[EC2] srv disk_used_percent(/data) > 90% (TagName: i-001)"
 
     def test_pretty_alarm_name_rds_free_memory(self):
         name = _pretty_alarm_name("RDS", "db-001", "my-db", "FreeMemoryGB", 2)
-        assert name == "[RDS] my-db FreeableMemory <2GB (db-001)"
+        assert name == "[RDS] my-db FreeableMemory < 2GB (TagName: db-001)"
 
     def test_pretty_alarm_name_rds_connections(self):
         name = _pretty_alarm_name("RDS", "db-001", "my-db", "Connections", 100)
-        assert name == "[RDS] my-db DatabaseConnections >100 (db-001)"
+        assert name == "[RDS] my-db DatabaseConnections > 100 (TagName: db-001)"
 
     def test_pretty_alarm_name_float_threshold(self):
         name = _pretty_alarm_name("EC2", "i-001", "srv", "CPU", 85.5)
-        assert name == "[EC2] srv CPUUtilization >85.5% (i-001)"
+        assert name == "[EC2] srv CPUUtilization > 85.5% (TagName: i-001)"
 
     def test_pretty_alarm_name_always_within_255_chars(self):
         long_name = "a" * 256
         name = _pretty_alarm_name("EC2", "i-001", long_name, "CPU", 80)
         assert len(name) <= 255
-        assert name.endswith("(i-001)")
+        assert name.endswith("(TagName: i-001)")
         assert "..." in name
 
     def test_pretty_alarm_name_truncates_label_first(self):
@@ -104,7 +104,7 @@ class TestHelpers:
         name = _pretty_alarm_name("EC2", "i-001", long_name, "CPU", 80)
         assert len(name) <= 255
         assert "CPUUtilization" in name  # display_metric preserved
-        assert name.endswith("(i-001)")
+        assert name.endswith("(TagName: i-001)")
         assert "..." in name
 
     def test_pretty_alarm_name_truncates_display_metric_when_label_insufficient(self):
@@ -112,18 +112,18 @@ class TestHelpers:
         long_id = "i-" + "a" * 200
         name = _pretty_alarm_name("EC2", long_id, "srv", "CPU", 80)
         assert len(name) <= 255
-        assert name.endswith(f"({long_id})")
+        assert name.endswith(f"(TagName: {long_id})")
 
     def test_pretty_alarm_name_preserves_resource_id_always(self):
         long_id = "i-" + "x" * 150
         long_name = "n" * 200
         name = _pretty_alarm_name("EC2", long_id, long_name, "CPU", 80)
         assert len(name) <= 255
-        assert name.endswith(f"({long_id})")
+        assert name.endswith(f"(TagName: {long_id})")
 
     def test_pretty_alarm_name_short_inputs_unchanged(self):
         name = _pretty_alarm_name("RDS", "db-001", "my-db", "CPU", 80)
-        assert name == "[RDS] my-db CPUUtilization >80% (db-001)"
+        assert name == "[RDS] my-db CPUUtilization > 80% (TagName: db-001)"
         assert len(name) <= 255
 
     # ── Task 2.1: ALB/NLB/TG suffix에 Short_ID 적용 검증 ──
@@ -134,37 +134,37 @@ class TestHelpers:
         """
         alb_arn = "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/my-alb/1234567890abcdef"
         name = _pretty_alarm_name("ALB", alb_arn, "my-alb", "CPU", 80.0)
-        assert name.endswith("(my-alb/1234567890abcdef)")
+        assert name.endswith("(TagName: my-alb/1234567890abcdef)")
 
     def test_pretty_alarm_name_nlb_suffix_short_id(self):
-        """NLB ARN → suffix가 (my-nlb/1234567890abcdef)로 끝나는지 검증.
+        """NLB ARN → suffix가 (TagName: my-nlb/1234567890abcdef)로 끝나는지 검증.
         Validates: Requirements 2.1
         """
         nlb_arn = "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/net/my-nlb/1234567890abcdef"
         name = _pretty_alarm_name("NLB", nlb_arn, "my-nlb", "CPU", 80.0)
-        assert name.endswith("(my-nlb/1234567890abcdef)")
+        assert name.endswith("(TagName: my-nlb/1234567890abcdef)")
 
     def test_pretty_alarm_name_tg_suffix_short_id(self):
-        """TG ARN → suffix가 (my-tg/1234567890abcdef)로 끝나는지 검증.
+        """TG ARN → suffix가 (TagName: my-tg/1234567890abcdef)로 끝나는지 검증.
         Validates: Requirements 2.1
         """
         tg_arn = "arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/my-tg/1234567890abcdef"
         name = _pretty_alarm_name("TG", tg_arn, "my-tg", "CPU", 80.0)
-        assert name.endswith("(my-tg/1234567890abcdef)")
+        assert name.endswith("(TagName: my-tg/1234567890abcdef)")
 
     def test_pretty_alarm_name_ec2_suffix_unchanged(self):
-        """EC2 resource_id → 기존 동작 유지, suffix가 (i-xxx)로 끝나는지 검증.
+        """EC2 resource_id → 기존 동작 유지, suffix가 (TagName: i-xxx)로 끝나는지 검증.
         Validates: Requirements 2.2
         """
         name = _pretty_alarm_name("EC2", "i-xxx", "my-ec2", "CPU", 80.0)
-        assert name.endswith("(i-xxx)")
+        assert name.endswith("(TagName: i-xxx)")
 
     def test_pretty_alarm_name_rds_suffix_unchanged(self):
-        """RDS resource_id → 기존 동작 유지, suffix가 (db-test)로 끝나는지 검증.
+        """RDS resource_id → 기존 동작 유지, suffix가 (TagName: db-test)로 끝나는지 검증.
         Validates: Requirements 2.2
         """
         name = _pretty_alarm_name("RDS", "db-test", "my-rds", "CPU", 80.0)
-        assert name.endswith("(db-test)")
+        assert name.endswith("(TagName: db-test)")
 
     def test_extract_elb_dimension_from_arn(self):
         arn = "arn:aws:elasticloadbalancing:us-east-1:123:loadbalancer/app/my-alb/abc123"
@@ -765,7 +765,7 @@ class TestCreateAlarms:
         assert any("StatusCheckFailed" in n for n in created)
         # 새 포맷 확인
         assert any("[EC2] my-server" in n for n in created)
-        assert any("(i-001)" in n for n in created)
+        assert any("(TagName: i-001)" in n for n in created)
         assert mock_cw.put_metric_alarm.call_count == 4
 
     def test_ec2_custom_threshold_from_tag(self):
@@ -778,7 +778,7 @@ class TestCreateAlarms:
         cpu_call = [c for c in calls if c.kwargs["MetricName"] == "CPUUtilization"][0]
         assert cpu_call.kwargs["Threshold"] == 90.0
         # 알람 이름에 90% 포함
-        assert ">90%" in cpu_call.kwargs["AlarmName"]
+        assert "> 90%" in cpu_call.kwargs["AlarmName"]
 
     def test_rds_creates_seven_alarms(self):
         mock_cw = MagicMock()
@@ -897,7 +897,7 @@ class TestDeleteAlarms:
         mock_cw = MagicMock()
         # Same alarm found by both legacy prefix and new format prefix
         shared_alarm = {"AlarmName": "i-001-CPU-prod"}
-        new_alarm = {"AlarmName": "[EC2] srv CPUUtilization >80% (i-001)"}
+        new_alarm = {"AlarmName": "[EC2] srv CPUUtilization > 80% (TagName: i-001)"}
         mock_paginator = MagicMock()
         # Call 1 (legacy prefix=i-001): returns shared_alarm
         # Call 2 (new prefix=[EC2] ): returns shared_alarm + new_alarm
@@ -911,7 +911,7 @@ class TestDeleteAlarms:
 
         # shared_alarm should appear only once
         assert result.count("i-001-CPU-prod") == 1
-        assert "[EC2] srv CPUUtilization >80% (i-001)" in result
+        assert "[EC2] srv CPUUtilization > 80% (TagName: i-001)" in result
         assert len(result) == 2
 
     def test_ec2_deletes_legacy_and_new_format(self):
@@ -922,8 +922,8 @@ class TestDeleteAlarms:
             {"AlarmName": "i-001-Memory-prod"},
         ]}
         new_page = {"MetricAlarms": [
-            {"AlarmName": "[EC2] my-server CPUUtilization >80% (i-001)"},
-            {"AlarmName": "[EC2] my-server mem_used_percent >80% (i-001)"},
+            {"AlarmName": "[EC2] my-server CPUUtilization > 80% (TagName: i-001)"},
+            {"AlarmName": "[EC2] my-server mem_used_percent > 80% (TagName: i-001)"},
         ]}
         mock_paginator = MagicMock()
         # 첫 번째 paginate: prefix 검색, 두 번째: 전체 검색
@@ -964,8 +964,8 @@ class TestDeleteAlarms:
         """resource_type='ALB'일 때 [ELB] prefix 알람도 검색되는지 확인."""
         mock_cw = MagicMock()
         alb_arn = "arn:aws:elasticloadbalancing:us-east-1:123:loadbalancer/app/my-alb/abc123"
-        legacy_alarm = {"AlarmName": f"[ELB] my-alb RequestCount >5000 ({alb_arn})"}
-        new_alarm = {"AlarmName": f"[ALB] my-alb RequestCount >5000 ({alb_arn})"}
+        legacy_alarm = {"AlarmName": f"[ELB] my-alb RequestCount > 5000 (TagName: {alb_arn})"}
+        new_alarm = {"AlarmName": f"[ALB] my-alb RequestCount > 5000 (TagName: {alb_arn})"}
         mock_paginator = MagicMock()
         # Call 1: legacy prefix (alb_arn) → empty
         # Call 2: [ALB] prefix → new_alarm
@@ -987,7 +987,7 @@ class TestDeleteAlarms:
         """resource_type='NLB'일 때 [ELB] prefix 알람도 검색되는지 확인."""
         mock_cw = MagicMock()
         nlb_arn = "arn:aws:elasticloadbalancing:us-east-1:123:loadbalancer/net/my-nlb/def456"
-        legacy_alarm = {"AlarmName": f"[ELB] my-nlb ProcessedBytes >1000 ({nlb_arn})"}
+        legacy_alarm = {"AlarmName": f"[ELB] my-nlb ProcessedBytes > 1000 (TagName: {nlb_arn})"}
         mock_paginator = MagicMock()
         mock_paginator.paginate.side_effect = [
             [{"MetricAlarms": []}],            # legacy prefix search
@@ -1007,8 +1007,8 @@ class TestDeleteAlarms:
         """
         mock_cw = MagicMock()
         tg_arn = "arn:aws:elasticloadbalancing:us-east-1:123:targetgroup/my-tg/abc123"
-        legacy_alarm = {"AlarmName": f"[ELB] my-tg HealthyHostCount <1 ({tg_arn})"}
-        new_alarm = {"AlarmName": f"[TG] my-tg HealthyHostCount <1 ({tg_arn})"}
+        legacy_alarm = {"AlarmName": f"[ELB] my-tg HealthyHostCount < 1 (TagName: {tg_arn})"}
+        new_alarm = {"AlarmName": f"[TG] my-tg HealthyHostCount < 1 (TagName: {tg_arn})"}
         mock_paginator = MagicMock()
         mock_paginator.paginate.side_effect = [
             [{"MetricAlarms": []}],            # legacy prefix search
@@ -1064,10 +1064,10 @@ class TestSyncAlarms:
         import json
         mock_cw = MagicMock()
         existing = [
-            "[EC2] srv CPUUtilization >80% (i-001)",
-            "[EC2] srv mem_used_percent >80% (i-001)",
-            "[EC2] srv disk_used_percent(/) >80% (i-001)",
-            "[EC2] srv StatusCheckFailed >0 (i-001)",
+            "[EC2] srv CPUUtilization > 80% (TagName: i-001)",
+            "[EC2] srv mem_used_percent > 80% (TagName: i-001)",
+            "[EC2] srv disk_used_percent(/) > 80% (TagName: i-001)",
+            "[EC2] srv StatusCheckFailed > 0 (TagName: i-001)",
         ]
 
         def _make_desc(metric_key):
@@ -1108,9 +1108,9 @@ class TestSyncAlarms:
         import json
         mock_cw = MagicMock()
         existing = [
-            "[EC2] srv CPUUtilization >70% (i-001)",
-            "[EC2] srv mem_used_percent >80% (i-001)",
-            "[EC2] srv disk_used_percent(/) >80% (i-001)",
+            "[EC2] srv CPUUtilization > 70% (TagName: i-001)",
+            "[EC2] srv mem_used_percent > 80% (TagName: i-001)",
+            "[EC2] srv disk_used_percent(/) > 80% (TagName: i-001)",
         ]
 
         def _make_desc(metric_key):
@@ -1153,7 +1153,7 @@ class TestSyncAlarms:
         """기존 [ELB] 알람이 threshold 불일치 시 [ALB] 알람으로 재생성."""
         mock_cw = MagicMock()
         alb_arn = "arn:aws:elasticloadbalancing:us-east-1:123:loadbalancer/app/my-alb/abc"
-        legacy_name = f"[ELB] my-alb RequestCount >5000 ({alb_arn})"
+        legacy_name = f"[ELB] my-alb RequestCount > 5000 (TagName: {alb_arn})"
 
         # 레거시 알람: MetricName 기반 폴백으로 metric_key="RequestCount" 매칭
         # threshold 불일치 → updated → _recreate_alarm_by_name → 새 [ALB] prefix
@@ -1638,7 +1638,7 @@ class TestCreateDynamicAlarm:
             )
 
         assert len(created) == 1
-        assert created[0].endswith("(my-alb/1234567890abcdef)")
+        assert created[0].endswith("(TagName: my-alb/1234567890abcdef)")
 
     def test_dynamic_alarm_tg_suffix_short_id(self):
         """TG 동적 알람 생성 시 suffix가 Short_ID(name/hash)인지 검증.
@@ -1658,7 +1658,7 @@ class TestCreateDynamicAlarm:
             )
 
         assert len(created) == 1
-        assert created[0].endswith("(my-tg/abcdef1234567890)")
+        assert created[0].endswith("(TagName: my-tg/abcdef1234567890)")
 
     def test_dynamic_alarm_ec2_suffix_unchanged(self):
         """EC2 동적 알람 suffix는 기존 동작 유지 (resource_id 그대로).
@@ -1677,7 +1677,7 @@ class TestCreateDynamicAlarm:
             )
 
         assert len(created) == 1
-        assert created[0].endswith("(i-001)")
+        assert created[0].endswith("(TagName: i-001)")
 
 
 # ──────────────────────────────────────────────
@@ -1767,14 +1767,14 @@ class TestFindAlarmsForResourceMoto:
         short_id = "my-alb/abc123def456"
 
         # 새 포맷 알람 (Short_ID suffix)
-        _put_alarm(cw, f"[ALB] my-alb RequestCount >100 ({short_id})")
-        _put_alarm(cw, f"[ALB] my-alb HTTPCode_ELB_5XX_Count >50 ({short_id})")
+        _put_alarm(cw, f"[ALB] my-alb RequestCount > 100 (TagName: {short_id})")
+        _put_alarm(cw, f"[ALB] my-alb HTTPCode_ELB_5XX_Count > 50 (TagName: {short_id})")
 
         with patch("common._clients._get_cw_client", return_value=cw):
             result = _find_alarms_for_resource(alb_arn, "ALB")
 
         assert len(result) == 2
-        assert all(name.endswith(f"({short_id})") for name in result)
+        assert all(name.endswith(f"(TagName: {short_id})") for name in result)
 
     @mock_aws
     def test_finds_legacy_full_arn_suffix_alarms_only(self):
@@ -1788,14 +1788,14 @@ class TestFindAlarmsForResourceMoto:
         alb_arn = "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/my-alb/abc123def456"
 
         # 레거시 알람 (Full_ARN suffix)
-        _put_alarm(cw, f"[ALB] my-alb RequestCount >100 ({alb_arn})")
-        _put_alarm(cw, f"[ALB] my-alb HTTPCode_ELB_5XX_Count >50 ({alb_arn})")
+        _put_alarm(cw, f"[ALB] my-alb RequestCount > 100 (TagName: {alb_arn})")
+        _put_alarm(cw, f"[ALB] my-alb HTTPCode_ELB_5XX_Count > 50 (TagName: {alb_arn})")
 
         with patch("common._clients._get_cw_client", return_value=cw):
             result = _find_alarms_for_resource(alb_arn, "ALB")
 
         assert len(result) == 2
-        assert all(name.endswith(f"({alb_arn})") for name in result)
+        assert all(name.endswith(f"(TagName: {alb_arn})") for name in result)
 
     @mock_aws
     def test_finds_mixed_short_id_and_full_arn_no_duplicates(self):
@@ -1810,9 +1810,9 @@ class TestFindAlarmsForResourceMoto:
         short_id = "my-tg/abc123def456"
 
         # 레거시 알람 (Full_ARN suffix)
-        _put_alarm(cw, f"[TG] my-tg HealthyHostCount <2 ({tg_arn})")
+        _put_alarm(cw, f"[TG] my-tg HealthyHostCount < 2 (TagName: {tg_arn})")
         # 새 포맷 알람 (Short_ID suffix)
-        _put_alarm(cw, f"[TG] my-tg UnHealthyHostCount >0 ({short_id})")
+        _put_alarm(cw, f"[TG] my-tg UnHealthyHostCount > 0 (TagName: {short_id})")
 
         with patch("common._clients._get_cw_client", return_value=cw):
             result = _find_alarms_for_resource(tg_arn, "TG")
@@ -1849,7 +1849,7 @@ class TestFindAlarmsForResourceMoto:
         )
         # 새 포맷 알람
         cw.put_metric_alarm(
-            AlarmName=f"[EC2] my-server CPUUtilization >80% ({instance_id})",
+            AlarmName=f"[EC2] my-server CPUUtilization > 80% (TagName: {instance_id})",
             Namespace="AWS/EC2",
             MetricName="CPUUtilization",
             Dimensions=[{"Name": "InstanceId", "Value": instance_id}],
@@ -1865,7 +1865,7 @@ class TestFindAlarmsForResourceMoto:
 
         assert len(result) == 2
         assert f"{instance_id}-CPU-prod" in result
-        assert f"[EC2] my-server CPUUtilization >80% ({instance_id})" in result
+        assert f"[EC2] my-server CPUUtilization > 80% (TagName: {instance_id})" in result
 
     @mock_aws
     def test_rds_search_unchanged(self):
@@ -1879,7 +1879,7 @@ class TestFindAlarmsForResourceMoto:
         db_id = "my-database"
 
         cw.put_metric_alarm(
-            AlarmName=f"[RDS] my-db CPUUtilization >80% ({db_id})",
+            AlarmName=f"[RDS] my-db CPUUtilization > 80% (TagName: {db_id})",
             Namespace="AWS/RDS",
             MetricName="CPUUtilization",
             Dimensions=[{"Name": "DBInstanceIdentifier", "Value": db_id}],
@@ -1894,7 +1894,7 @@ class TestFindAlarmsForResourceMoto:
             result = _find_alarms_for_resource(db_id, "RDS")
 
         assert len(result) == 1
-        assert f"[RDS] my-db CPUUtilization >80% ({db_id})" in result
+        assert f"[RDS] my-db CPUUtilization > 80% (TagName: {db_id})" in result
 
 
 # ──────────────────────────────────────────────
@@ -2124,10 +2124,10 @@ class TestSyncDynamicAlarms:
         mock_cw = MagicMock()
         # 기존 하드코딩 알람 4개 (CPU, Memory, Disk_root, StatusCheckFailed)
         existing = [
-            "[EC2] srv CPUUtilization >80% (i-001)",
-            "[EC2] srv mem_used_percent >80% (i-001)",
-            "[EC2] srv disk_used_percent(/) >80% (i-001)",
-            "[EC2] srv StatusCheckFailed >0 (i-001)",
+            "[EC2] srv CPUUtilization > 80% (TagName: i-001)",
+            "[EC2] srv mem_used_percent > 80% (TagName: i-001)",
+            "[EC2] srv disk_used_percent(/) > 80% (TagName: i-001)",
+            "[EC2] srv StatusCheckFailed > 0 (TagName: i-001)",
         ]
 
         def describe_side_effect(**kwargs):
@@ -2170,12 +2170,12 @@ class TestSyncDynamicAlarms:
         Validates: Requirements 6.1, 6.2
         """
         mock_cw = MagicMock()
-        dynamic_alarm_name = "[EC2] srv NetworkIn >1000000 (i-001)"
+        dynamic_alarm_name = "[EC2] srv NetworkIn > 1000000 (TagName: i-001)"
         existing = [
-            "[EC2] srv CPUUtilization >80% (i-001)",
-            "[EC2] srv mem_used_percent >80% (i-001)",
-            "[EC2] srv disk_used_percent(/) >80% (i-001)",
-            "[EC2] srv StatusCheckFailed >0 (i-001)",
+            "[EC2] srv CPUUtilization > 80% (TagName: i-001)",
+            "[EC2] srv mem_used_percent > 80% (TagName: i-001)",
+            "[EC2] srv disk_used_percent(/) > 80% (TagName: i-001)",
+            "[EC2] srv StatusCheckFailed > 0 (TagName: i-001)",
             dynamic_alarm_name,
         ]
 
@@ -2219,12 +2219,12 @@ class TestSyncDynamicAlarms:
         Validates: Requirements 7.1, 7.3
         """
         mock_cw = MagicMock()
-        dynamic_alarm_name = "[EC2] srv NetworkIn >1000000 (i-001)"
+        dynamic_alarm_name = "[EC2] srv NetworkIn > 1000000 (TagName: i-001)"
         existing = [
-            "[EC2] srv CPUUtilization >80% (i-001)",
-            "[EC2] srv mem_used_percent >80% (i-001)",
-            "[EC2] srv disk_used_percent(/) >80% (i-001)",
-            "[EC2] srv StatusCheckFailed >0 (i-001)",
+            "[EC2] srv CPUUtilization > 80% (TagName: i-001)",
+            "[EC2] srv mem_used_percent > 80% (TagName: i-001)",
+            "[EC2] srv disk_used_percent(/) > 80% (TagName: i-001)",
+            "[EC2] srv StatusCheckFailed > 0 (TagName: i-001)",
             dynamic_alarm_name,
         ]
 
@@ -2271,12 +2271,12 @@ class TestSyncDynamicAlarms:
         Validates: Requirements 7.2
         """
         mock_cw = MagicMock()
-        dynamic_alarm_name = "[EC2] srv NetworkIn >1000000 (i-001)"
+        dynamic_alarm_name = "[EC2] srv NetworkIn > 1000000 (TagName: i-001)"
         existing = [
-            "[EC2] srv CPUUtilization >80% (i-001)",
-            "[EC2] srv mem_used_percent >80% (i-001)",
-            "[EC2] srv disk_used_percent(/) >80% (i-001)",
-            "[EC2] srv StatusCheckFailed >0 (i-001)",
+            "[EC2] srv CPUUtilization > 80% (TagName: i-001)",
+            "[EC2] srv mem_used_percent > 80% (TagName: i-001)",
+            "[EC2] srv disk_used_percent(/) > 80% (TagName: i-001)",
+            "[EC2] srv StatusCheckFailed > 0 (TagName: i-001)",
             dynamic_alarm_name,
         ]
 
@@ -2337,12 +2337,12 @@ class TestSyncHardcodedOffDeletion:
         Validates: Requirements 3.2, 4.2
         """
         mock_cw = MagicMock()
-        cpu_alarm_name = "[EC2] srv CPUUtilization >80% (i-001)"
+        cpu_alarm_name = "[EC2] srv CPUUtilization > 80% (TagName: i-001)"
         existing = [
             cpu_alarm_name,
-            "[EC2] srv mem_used_percent >80% (i-001)",
-            "[EC2] srv disk_used_percent(/) >80% (i-001)",
-            "[EC2] srv StatusCheckFailed >0 (i-001)",
+            "[EC2] srv mem_used_percent > 80% (TagName: i-001)",
+            "[EC2] srv disk_used_percent(/) > 80% (TagName: i-001)",
+            "[EC2] srv StatusCheckFailed > 0 (TagName: i-001)",
         ]
 
         def describe_side_effect(**kwargs):
@@ -2383,12 +2383,12 @@ class TestSyncHardcodedOffDeletion:
         """
         import logging
         mock_cw = MagicMock()
-        cpu_alarm_name = "[EC2] srv CPUUtilization >80% (i-001)"
+        cpu_alarm_name = "[EC2] srv CPUUtilization > 80% (TagName: i-001)"
         existing = [
             cpu_alarm_name,
-            "[EC2] srv mem_used_percent >80% (i-001)",
-            "[EC2] srv disk_used_percent(/) >80% (i-001)",
-            "[EC2] srv StatusCheckFailed >0 (i-001)",
+            "[EC2] srv mem_used_percent > 80% (TagName: i-001)",
+            "[EC2] srv disk_used_percent(/) > 80% (TagName: i-001)",
+            "[EC2] srv StatusCheckFailed > 0 (TagName: i-001)",
         ]
 
         def describe_side_effect(**kwargs):
@@ -2543,7 +2543,7 @@ class TestFindAlarmsForResourceAuroraRDS:
 
         # AuroraRDS 새 포맷 알람
         cw.put_metric_alarm(
-            AlarmName=f"[AuroraRDS] my-aurora CPUUtilization >80% ({db_id})",
+            AlarmName=f"[AuroraRDS] my-aurora CPUUtilization > 80% (TagName: {db_id})",
             Namespace="AWS/RDS",
             MetricName="CPUUtilization",
             Dimensions=[{"Name": "DBInstanceIdentifier", "Value": db_id}],
@@ -2554,7 +2554,7 @@ class TestFindAlarmsForResourceAuroraRDS:
             ComparisonOperator="GreaterThanThreshold",
         )
         cw.put_metric_alarm(
-            AlarmName=f"[AuroraRDS] my-aurora FreeLocalStorage <10GB ({db_id})",
+            AlarmName=f"[AuroraRDS] my-aurora FreeLocalStorage < 10GB (TagName: {db_id})",
             Namespace="AWS/RDS",
             MetricName="FreeLocalStorage",
             Dimensions=[{"Name": "DBInstanceIdentifier", "Value": db_id}],
@@ -2566,7 +2566,7 @@ class TestFindAlarmsForResourceAuroraRDS:
         )
         # 다른 리소스의 알람 (검색에 포함되면 안 됨)
         cw.put_metric_alarm(
-            AlarmName=f"[AuroraRDS] other-aurora CPUUtilization >80% (other-instance)",
+            AlarmName=f"[AuroraRDS] other-aurora CPUUtilization > 80% (TagName: other-instance)",
             Namespace="AWS/RDS",
             MetricName="CPUUtilization",
             Dimensions=[{"Name": "DBInstanceIdentifier", "Value": "other-instance"}],
@@ -2581,7 +2581,7 @@ class TestFindAlarmsForResourceAuroraRDS:
             result = _find_alarms_for_resource(db_id, "AuroraRDS")
 
         assert len(result) == 2
-        assert all(name.endswith(f"({db_id})") for name in result)
+        assert all(name.endswith(f"(TagName: {db_id})") for name in result)
         assert all(name.startswith("[AuroraRDS] ") for name in result)
 
     @mock_aws
@@ -2597,7 +2597,7 @@ class TestFindAlarmsForResourceAuroraRDS:
 
         # AuroraRDS 알람
         cw.put_metric_alarm(
-            AlarmName=f"[AuroraRDS] my-aurora CPUUtilization >80% ({db_id})",
+            AlarmName=f"[AuroraRDS] my-aurora CPUUtilization > 80% (TagName: {db_id})",
             Namespace="AWS/RDS",
             MetricName="CPUUtilization",
             Dimensions=[{"Name": "DBInstanceIdentifier", "Value": db_id}],
@@ -2613,7 +2613,7 @@ class TestFindAlarmsForResourceAuroraRDS:
             result = _find_alarms_for_resource(db_id)
 
         assert len(result) >= 1
-        assert f"[AuroraRDS] my-aurora CPUUtilization >80% ({db_id})" in result
+        assert f"[AuroraRDS] my-aurora CPUUtilization > 80% (TagName: {db_id})" in result
 
 
 # ──────────────────────────────────────────────
@@ -2660,7 +2660,7 @@ class TestAuroraRDSIntegration:
         created_names = result["created"]
         # 5개 메트릭 알람 이름에 올바른 prefix/suffix 포함
         assert all(n.startswith("[AuroraRDS] ") for n in created_names)
-        assert all(n.endswith(f"({db_id})") for n in created_names)
+        assert all(n.endswith(f"(TagName: {db_id})") for n in created_names)
         # 각 메트릭 display name 포함 검증
         assert any("CPUUtilization" in n for n in created_names)
         assert any("FreeableMemory" in n for n in created_names)
@@ -2678,11 +2678,11 @@ class TestAuroraRDSIntegration:
         db_id = "aurora-db-002"
 
         existing = [
-            f"[AuroraRDS] my-aurora CPUUtilization >80% ({db_id})",
-            f"[AuroraRDS] my-aurora FreeableMemory <2GB ({db_id})",
-            f"[AuroraRDS] my-aurora DatabaseConnections >100 ({db_id})",
-            f"[AuroraRDS] my-aurora FreeLocalStorage <10GB ({db_id})",
-            f"[AuroraRDS] my-aurora AuroraReplicaLagMaximum >2000000μs ({db_id})",
+            f"[AuroraRDS] my-aurora CPUUtilization > 80% (TagName: {db_id})",
+            f"[AuroraRDS] my-aurora FreeableMemory < 2GB (TagName: {db_id})",
+            f"[AuroraRDS] my-aurora DatabaseConnections > 100 (TagName: {db_id})",
+            f"[AuroraRDS] my-aurora FreeLocalStorage < 10GB (TagName: {db_id})",
+            f"[AuroraRDS] my-aurora AuroraReplicaLagMaximum > 2000000μs (TagName: {db_id})",
         ]
 
         def _make_desc(metric_key):
@@ -2743,11 +2743,11 @@ class TestAuroraRDSIntegration:
 
         # 기존 알람: 기본 임계치로 생성됨
         existing = [
-            f"[AuroraRDS] my-aurora CPUUtilization >80% ({db_id})",
-            f"[AuroraRDS] my-aurora FreeableMemory <2GB ({db_id})",
-            f"[AuroraRDS] my-aurora DatabaseConnections >100 ({db_id})",
-            f"[AuroraRDS] my-aurora FreeLocalStorage <10GB ({db_id})",
-            f"[AuroraRDS] my-aurora AuroraReplicaLagMaximum >2000000μs ({db_id})",
+            f"[AuroraRDS] my-aurora CPUUtilization > 80% (TagName: {db_id})",
+            f"[AuroraRDS] my-aurora FreeableMemory < 2GB (TagName: {db_id})",
+            f"[AuroraRDS] my-aurora DatabaseConnections > 100 (TagName: {db_id})",
+            f"[AuroraRDS] my-aurora FreeLocalStorage < 10GB (TagName: {db_id})",
+            f"[AuroraRDS] my-aurora AuroraReplicaLagMaximum > 2000000μs (TagName: {db_id})",
         ]
 
         def _make_desc(metric_key):
@@ -2811,8 +2811,8 @@ class TestAuroraRDSIntegration:
         mock_cw = self._make_mock_cw()
         db_id = "aurora-db-004"
         alarm_names = [
-            f"[AuroraRDS] my-aurora CPUUtilization >80% ({db_id})",
-            f"[AuroraRDS] my-aurora FreeableMemory <2GB ({db_id})",
+            f"[AuroraRDS] my-aurora CPUUtilization > 80% (TagName: {db_id})",
+            f"[AuroraRDS] my-aurora FreeableMemory < 2GB (TagName: {db_id})",
         ]
 
         mock_paginator = MagicMock()
@@ -3379,7 +3379,7 @@ class TestDocDBAlarmCreation:
             created = create_alarms_for_resource("docdb-inst-1", "DocDB", tags)
 
         for name in created:
-            assert name.endswith("(docdb-inst-1)"), f"Alarm name missing suffix: {name}"
+            assert name.endswith("(TagName: docdb-inst-1)"), f"Alarm name missing suffix: {name}"
 
 
 # ──────────────────────────────────────────────

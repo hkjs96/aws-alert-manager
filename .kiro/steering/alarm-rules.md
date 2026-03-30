@@ -7,7 +7,7 @@ fileMatchPattern: '**/*.py'
 
 ## §6. 알람 관련 규칙
 
-- 알람 이름 포맷: `[{resource_type}] {label} {display_metric} {direction}{threshold}{unit} ({resource_id})`
+- 알람 이름 포맷: `[{resource_type}] {label} {display_metric} {direction} {threshold}{unit} (TagName: {resource_id})`
   - EC2/RDS: `resource_id`는 인스턴스 ID / DB 식별자를 그대로 사용
   - ALB/NLB/TG: `resource_id` 부분에 전체 ARN 대신 Short_ID(`{name}/{hash}`)를 사용한다
     - Short_ID 추출: `_shorten_elb_resource_id(resource_id, resource_type)` 함수 사용

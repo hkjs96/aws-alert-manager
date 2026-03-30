@@ -308,27 +308,27 @@ class TestClassifyAlarm:
 
     def test_new_format_ec2(self):
         result = {}
-        _classify_alarm("[EC2] my-server CPUUtilization >80% (i-001)", result)
+        _classify_alarm("[EC2] my-server CPUUtilization > 80% (TagName: i-001)", result)
         assert "EC2" in result
         assert "i-001" in result["EC2"]
 
     def test_new_format_rds(self):
         result = {}
-        _classify_alarm("[RDS] my-db CPUUtilization >80% (db-001)", result)
+        _classify_alarm("[RDS] my-db CPUUtilization > 80% (TagName: db-001)", result)
         assert "RDS" in result
         assert "db-001" in result["RDS"]
 
     def test_new_format_elb(self):
         arn = "arn:aws:elasticloadbalancing:us-east-1:123:loadbalancer/app/my-alb/abc"
         result = {}
-        _classify_alarm(f"[ELB] my-alb RequestCount >1000 ({arn})", result)
+        _classify_alarm(f"[ELB] my-alb RequestCount > 1000 (TagName: {arn})", result)
         assert "ELB" in result
         assert arn in result["ELB"]
 
     def test_new_format_tg(self):
         arn = "arn:aws:elasticloadbalancing:us-east-1:123:targetgroup/my-tg/abc"
         result = {}
-        _classify_alarm(f"[TG] my-tg HealthyHostCount <1 ({arn})", result)
+        _classify_alarm(f"[TG] my-tg HealthyHostCount < 1 (TagName: {arn})", result)
         assert "TG" in result
         assert arn in result["TG"]
 
@@ -346,9 +346,9 @@ class TestClassifyAlarm:
     def test_mixed_formats_accumulated(self):
         """새 포맷과 레거시 포맷이 같은 result에 누적."""
         result = {}
-        _classify_alarm("[EC2] srv CPU >80% (i-001)", result)
+        _classify_alarm("[EC2] srv CPU > 80% (TagName: i-001)", result)
         _classify_alarm("i-001-CPU-prod", result)
-        _classify_alarm("[RDS] db CPU >80% (db-001)", result)
+        _classify_alarm("[RDS] db CPU > 80% (TagName: db-001)", result)
         assert "EC2" in result
         assert "RDS" in result
         assert len(result["EC2"]["i-001"]) == 2
@@ -357,14 +357,14 @@ class TestClassifyAlarm:
     def test_new_format_alb(self):
         arn = "arn:aws:elasticloadbalancing:us-east-1:123:loadbalancer/app/my-alb/abc"
         result = {}
-        _classify_alarm(f"[ALB] my-alb RequestCount >5000 ({arn})", result)
+        _classify_alarm(f"[ALB] my-alb RequestCount > 5000 (TagName: {arn})", result)
         assert "ALB" in result
         assert arn in result["ALB"]
 
     def test_new_format_nlb(self):
         arn = "arn:aws:elasticloadbalancing:us-east-1:123:loadbalancer/net/my-nlb/def"
         result = {}
-        _classify_alarm(f"[NLB] my-nlb ProcessedBytes >1000 ({arn})", result)
+        _classify_alarm(f"[NLB] my-nlb ProcessedBytes > 1000 (TagName: {arn})", result)
         assert "NLB" in result
         assert arn in result["NLB"]
 
@@ -377,7 +377,7 @@ class TestCleanupOrphanAlarms:
         mock_cw = MagicMock()
         mock_paginator = MagicMock()
         mock_paginator.paginate.return_value = [{"MetricAlarms": [
-            {"AlarmName": "[EC2] srv CPU >80% (i-dead)"},
+            {"AlarmName": "[EC2] srv CPU > 80% (TagName: i-dead)"},
         ]}]
         mock_cw.get_paginator.return_value = mock_paginator
 
@@ -392,7 +392,7 @@ class TestCleanupOrphanAlarms:
              patch("daily_monitor.lambda_handler._get_ec2_client", return_value=mock_ec2):
             deleted = _cleanup_orphan_alarms()
 
-        assert "[EC2] srv CPU >80% (i-dead)" in deleted
+        assert "[EC2] srv CPU > 80% (TagName: i-dead)" in deleted
         mock_cw.delete_alarms.assert_called_once()
 
     def test_rds_orphan_deleted(self):
@@ -402,7 +402,7 @@ class TestCleanupOrphanAlarms:
         mock_cw = MagicMock()
         mock_paginator = MagicMock()
         mock_paginator.paginate.return_value = [{"MetricAlarms": [
-            {"AlarmName": "[RDS] my-db CPUUtilization >80% (db-gone)"},
+            {"AlarmName": "[RDS] my-db CPUUtilization > 80% (TagName: db-gone)"},
         ]}]
         mock_cw.get_paginator.return_value = mock_paginator
 
@@ -416,7 +416,7 @@ class TestCleanupOrphanAlarms:
              patch("daily_monitor.lambda_handler._get_rds_client", return_value=mock_rds):
             deleted = _cleanup_orphan_alarms()
 
-        assert "[RDS] my-db CPUUtilization >80% (db-gone)" in deleted
+        assert "[RDS] my-db CPUUtilization > 80% (TagName: db-gone)" in deleted
 
     def test_elb_orphan_deleted(self):
         """존재하지 않는 ELB의 알람 삭제."""
@@ -426,7 +426,7 @@ class TestCleanupOrphanAlarms:
         mock_cw = MagicMock()
         mock_paginator = MagicMock()
         mock_paginator.paginate.return_value = [{"MetricAlarms": [
-            {"AlarmName": f"[ELB] my-alb RequestCount >1000 ({arn})"},
+            {"AlarmName": f"[ELB] my-alb RequestCount > 1000 (TagName: {arn})"},
         ]}]
         mock_cw.get_paginator.return_value = mock_paginator
 
@@ -448,7 +448,7 @@ class TestCleanupOrphanAlarms:
         mock_cw = MagicMock()
         mock_paginator = MagicMock()
         mock_paginator.paginate.return_value = [{"MetricAlarms": [
-            {"AlarmName": "[EC2] srv CPU >80% (i-alive)"},
+            {"AlarmName": "[EC2] srv CPU > 80% (TagName: i-alive)"},
         ]}]
         mock_cw.get_paginator.return_value = mock_paginator
 
@@ -508,7 +508,7 @@ class TestCleanupOrphanAlarms:
         mock_cw = MagicMock()
         mock_paginator = MagicMock()
         mock_paginator.paginate.return_value = [{"MetricAlarms": [
-            {"AlarmName": f"[ALB] my-alb RequestCount >5000 ({arn})"},
+            {"AlarmName": f"[ALB] my-alb RequestCount > 5000 (TagName: {arn})"},
         ]}]
         mock_cw.get_paginator.return_value = mock_paginator
 
@@ -533,7 +533,7 @@ class TestCleanupOrphanAlarms:
         mock_cw = MagicMock()
         mock_paginator = MagicMock()
         mock_paginator.paginate.return_value = [{"MetricAlarms": [
-            {"AlarmName": f"[NLB] my-nlb ProcessedBytes >1000 ({arn})"},
+            {"AlarmName": f"[NLB] my-nlb ProcessedBytes > 1000 (TagName: {arn})"},
         ]}]
         mock_cw.get_paginator.return_value = mock_paginator
 
@@ -642,7 +642,7 @@ class TestCleanupOrphanAlarmsAuroraRDS:
         mock_cw = MagicMock()
         mock_paginator = MagicMock()
         mock_paginator.paginate.return_value = [{"MetricAlarms": [
-            {"AlarmName": "[AuroraRDS] my-aurora FreeLocalStorage <10GB (aurora-db-gone)"},
+            {"AlarmName": "[AuroraRDS] my-aurora FreeLocalStorage < 10GB (TagName: aurora-db-gone)"},
         ]}]
         mock_cw.get_paginator.return_value = mock_paginator
 
@@ -656,7 +656,7 @@ class TestCleanupOrphanAlarmsAuroraRDS:
              patch("daily_monitor.lambda_handler._get_rds_client", return_value=mock_rds):
             deleted = _cleanup_orphan_alarms()
 
-        assert "[AuroraRDS] my-aurora FreeLocalStorage <10GB (aurora-db-gone)" in deleted
+        assert "[AuroraRDS] my-aurora FreeLocalStorage < 10GB (TagName: aurora-db-gone)" in deleted
         mock_cw.delete_alarms.assert_called_once()
 
     def test_aurora_rds_alive_instance_not_deleted(self):
@@ -664,7 +664,7 @@ class TestCleanupOrphanAlarmsAuroraRDS:
         mock_cw = MagicMock()
         mock_paginator = MagicMock()
         mock_paginator.paginate.return_value = [{"MetricAlarms": [
-            {"AlarmName": "[AuroraRDS] my-aurora CPU >80% (aurora-db-alive)"},
+            {"AlarmName": "[AuroraRDS] my-aurora CPU > 80% (TagName: aurora-db-alive)"},
         ]}]
         mock_cw.get_paginator.return_value = mock_paginator
 
@@ -690,7 +690,7 @@ class TestCleanupOrphanAlarmsAuroraRDS:
         mock_cw = MagicMock()
         mock_paginator = MagicMock()
         mock_paginator.paginate.return_value = [{"MetricAlarms": [
-            {"AlarmName": "[AuroraRDS] aurora-inst CPU >80% (aurora-db-001)"},
+            {"AlarmName": "[AuroraRDS] aurora-inst CPU > 80% (TagName: aurora-db-001)"},
         ]}]
         mock_cw.get_paginator.return_value = mock_paginator
 
@@ -851,7 +851,7 @@ class TestDailyMonitorDocDBIntegration:
         mock_cw = MagicMock()
         mock_paginator = MagicMock()
         mock_paginator.paginate.return_value = [{"MetricAlarms": [
-            {"AlarmName": "[DocDB] my-docdb CPU >80% (docdb-gone)"},
+            {"AlarmName": "[DocDB] my-docdb CPU > 80% (TagName: docdb-gone)"},
         ]}]
         mock_cw.get_paginator.return_value = mock_paginator
 
@@ -865,7 +865,7 @@ class TestDailyMonitorDocDBIntegration:
              patch("daily_monitor.lambda_handler._get_rds_client", return_value=mock_rds):
             deleted = _cleanup_orphan_alarms()
 
-        assert "[DocDB] my-docdb CPU >80% (docdb-gone)" in deleted
+        assert "[DocDB] my-docdb CPU > 80% (TagName: docdb-gone)" in deleted
         mock_rds.describe_db_instances.assert_called_once_with(
             DBInstanceIdentifier="docdb-gone",
         )
@@ -875,7 +875,7 @@ class TestDailyMonitorDocDBIntegration:
         mock_cw = MagicMock()
         mock_paginator = MagicMock()
         mock_paginator.paginate.return_value = [{"MetricAlarms": [
-            {"AlarmName": "[DocDB] my-docdb CPU >80% (docdb-alive)"},
+            {"AlarmName": "[DocDB] my-docdb CPU > 80% (TagName: docdb-alive)"},
         ]}]
         mock_cw.get_paginator.return_value = mock_paginator
 
@@ -893,7 +893,7 @@ class TestDailyMonitorDocDBIntegration:
     def test_classify_alarm_docdb_format(self):
         """_classify_alarm()이 [DocDB] 접두사 알람을 올바르게 분류 — Req 8.2"""
         result = {}
-        _classify_alarm("[DocDB] my-docdb CPU >80% (docdb-inst-1)", result)
+        _classify_alarm("[DocDB] my-docdb CPU > 80% (TagName: docdb-inst-1)", result)
         assert "DocDB" in result
         assert "docdb-inst-1" in result["DocDB"]
 
