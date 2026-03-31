@@ -19,6 +19,7 @@ def _find_alarms_for_resource(
     resource_id: str,
     resource_type: str = "",
     *,
+    resource_tags: dict | None = None,
     cw=None,
 ) -> list[str]:
     """resource_id에 해당하는 모든 알람 이름 조회 (새/레거시 포맷).
@@ -31,7 +32,7 @@ def _find_alarms_for_resource(
     cw = cw or _clients._get_cw_client()
     seen: set[str] = set()
     alarm_names: list[str] = []
-    short_id = _shorten_elb_resource_id(resource_id, resource_type)
+    short_id = _shorten_elb_resource_id(resource_id, resource_type, resource_tags)
     suffixes = {f"(TagName: {short_id})"}
     if short_id != resource_id:
         suffixes.add(f"(TagName: {resource_id})")  # 레거시 Full_ARN 호환
@@ -61,7 +62,7 @@ def _find_alarms_for_resource(
     type_prefixes = (
         [f"[{resource_type}] "]
         if resource_type
-        else [f"[{rt}] " for rt in ("EC2", "RDS", "ALB", "NLB", "TG", "AuroraRDS", "DocDB", "ElastiCache", "NAT")]
+        else [f"[{rt}] " for rt in ("EC2", "RDS", "ALB", "NLB", "TG", "AuroraRDS", "DocDB", "ElastiCache", "NAT", "Lambda", "VPN", "APIGW", "ACM", "Backup", "MQ", "CLB", "OpenSearch")]
     )
     for p in type_prefixes:
         _collect(p, filter_suffix=True)

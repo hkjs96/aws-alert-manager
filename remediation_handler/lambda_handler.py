@@ -166,6 +166,88 @@ def _extract_elb_tag_resource_ids(params: dict) -> list[str]:
     return [arn for arn in arns if arn]
 
 
+# ──────────────────────────────────────────────
+# 신규 리소스 ID 추출 함수
+# ──────────────────────────────────────────────
+
+def _extract_lambda_create_ids(resp: dict) -> list[str]:
+    """CreateFunction: responseElements.functionName 추출."""
+    rid = resp.get("functionName")
+    return [rid] if rid else []
+
+
+def _extract_lambda_ids(params: dict) -> list[str]:
+    """DeleteFunction: requestParameters.functionName 추출."""
+    rid = params.get("functionName")
+    return [rid] if rid else []
+
+
+def _extract_vpn_ids(params: dict) -> list[str]:
+    """DeleteVpnConnection: vpnConnectionId 추출."""
+    rid = params.get("vpnConnectionId")
+    return [rid] if rid else []
+
+
+def _extract_apigw_rest_create_ids(resp: dict) -> list[str]:
+    """CreateRestApi: responseElements.name 추출."""
+    rid = resp.get("name")
+    return [rid] if rid else []
+
+
+def _extract_apigw_rest_ids(params: dict) -> list[str]:
+    """DeleteRestApi: restApiId 추출."""
+    rid = params.get("restApiId")
+    return [rid] if rid else []
+
+
+def _extract_apigw_v2_create_ids(resp: dict) -> list[str]:
+    """CreateApi (v2): responseElements.apiId 추출."""
+    rid = resp.get("apiId")
+    return [rid] if rid else []
+
+
+def _extract_apigw_v2_ids(params: dict) -> list[str]:
+    """DeleteApi (v2): apiId 추출."""
+    rid = params.get("apiId")
+    return [rid] if rid else []
+
+
+def _extract_acm_ids(params: dict) -> list[str]:
+    """DeleteCertificate: certificateArn 추출."""
+    rid = params.get("certificateArn")
+    return [rid] if rid else []
+
+
+def _extract_backup_vault_ids(params: dict) -> list[str]:
+    """CreateBackupVault / DeleteBackupVault: backupVaultName 추출."""
+    rid = params.get("backupVaultName")
+    return [rid] if rid else []
+
+
+def _extract_mq_create_ids(resp: dict) -> list[str]:
+    """CreateBroker: responseElements.brokerName 추출."""
+    rid = resp.get("brokerName")
+    return [rid] if rid else []
+
+
+def _extract_mq_ids(params: dict) -> list[str]:
+    """DeleteBroker: brokerId 추출."""
+    rid = params.get("brokerId")
+    return [rid] if rid else []
+
+
+def _extract_opensearch_ids(params: dict) -> list[str]:
+    """CreateDomain / DeleteDomain: domainName 추출."""
+    rid = params.get("domainName")
+    return [rid] if rid else []
+
+
+def _extract_tag_resource_arn(params: dict) -> list[str]:
+    """TagResource / UntagResource: resourceArn 추출 (Lambda, APIGW, ACM, Backup, MQ, OpenSearch 공통)."""
+    rid = params.get("resourceArn") or params.get("resourceARN") or params.get("resource")
+    return [rid] if rid else []
+
+
 
 _API_MAP: dict[str, tuple[str, callable]] = {
 
@@ -210,6 +292,24 @@ _API_MAP: dict[str, tuple[str, callable]] = {
 
     "CreateNatGateway":             ("NAT", _extract_natgw_create_ids),
 
+    # CREATE (신규 리소스)
+    "CreateFunction20150331":       ("Lambda", _extract_lambda_create_ids),
+    "CreateRestApi":                ("APIGW", _extract_apigw_rest_create_ids),
+    "CreateApi":                    ("APIGW", _extract_apigw_v2_create_ids),
+    "CreateBackupVault":            ("Backup", _extract_backup_vault_ids),
+    "CreateBroker":                 ("MQ", _extract_mq_create_ids),
+    "CreateDomain":                 ("OpenSearch", _extract_opensearch_ids),
+
+    # DELETE (신규 리소스)
+    "DeleteFunction20150331":       ("Lambda", _extract_lambda_ids),
+    "DeleteVpnConnection":          ("VPN", _extract_vpn_ids),
+    "DeleteRestApi":                ("APIGW", _extract_apigw_rest_ids),
+    "DeleteApi":                    ("APIGW", _extract_apigw_v2_ids),
+    "DeleteCertificate":            ("ACM", _extract_acm_ids),
+    "DeleteBackupVault":            ("Backup", _extract_backup_vault_ids),
+    "DeleteBroker":                 ("MQ", _extract_mq_ids),
+    "DeleteDomain":                 ("OpenSearch", _extract_opensearch_ids),
+
     # TAG_CHANGE
 
     "CreateTags":                   ("EC2", _extract_tag_resource_ids),
@@ -223,6 +323,10 @@ _API_MAP: dict[str, tuple[str, callable]] = {
     "AddTags":                      ("ELB", _extract_elb_tag_resource_ids),
 
     "RemoveTags":                   ("ELB", _extract_elb_tag_resource_ids),
+
+    # TAG_CHANGE (신규 리소스 공통)
+    "TagResource":                  ("MULTI", _extract_tag_resource_arn),
+    "UntagResource":                ("MULTI", _extract_tag_resource_arn),
 
 }
 
@@ -335,6 +439,32 @@ def _resolve_elb_type(resource_id: str) -> str:
     return "ELB"
 
 
+def _resolve_multi_tag_type(resource_arn: str) -> str:
+    """TagResource/UntagResource ARN에서 서비스 타입 판별.
+
+    ARN 패턴:
+    - arn:aws:lambda:... → Lambda
+    - arn:aws:apigateway:... → APIGW
+    - arn:aws:acm:... → ACM
+    - arn:aws:backup:... → Backup
+    - arn:aws:mq:... → MQ
+    - arn:aws:es:... → OpenSearch
+    """
+    _ARN_SERVICE_MAP = {
+        ":lambda:": "Lambda",
+        ":apigateway:": "APIGW",
+        ":acm:": "ACM",
+        ":backup:": "Backup",
+        ":mq:": "MQ",
+        ":es:": "OpenSearch",
+    }
+    for pattern, rtype in _ARN_SERVICE_MAP.items():
+        if pattern in resource_arn:
+            return rtype
+    logger.warning("Cannot resolve MULTI tag type from ARN: %s", resource_arn)
+    return "UNKNOWN"
+
+
 def _resolve_rds_aurora_type(db_instance_id: str) -> tuple[str, bool]:
     """describe_db_instances로 Engine 확인 후 AuroraRDS/RDS 판별.
 
@@ -410,6 +540,9 @@ def parse_cloudtrail_event(event: dict) -> list[ParsedEvent]:
         # RDS → AuroraRDS 세분화 (describe_db_instances Engine 확인)
         elif rt == "RDS":
             rt, is_rds_fallback = _resolve_rds_aurora_type(resource_id)
+        # MULTI: TagResource/UntagResource ARN 기반 서비스 판별
+        elif rt == "MULTI":
+            rt = _resolve_multi_tag_type(resource_id)
 
         change_summary = (
             f"{event_name} on {rt} {resource_id}"

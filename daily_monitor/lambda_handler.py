@@ -26,11 +26,24 @@ from common.collectors import elasticache as elasticache_collector
 from common.collectors import elb as elb_collector
 from common.collectors import natgw as natgw_collector
 from common.collectors import rds as rds_collector
+from common.collectors import lambda_fn as lambda_collector
+from common.collectors import vpn as vpn_collector
+from common.collectors import apigw as apigw_collector
+from common.collectors import acm as acm_collector
+from common.collectors import backup as backup_collector
+from common.collectors import mq as mq_collector
+from common.collectors import clb as clb_collector
+from common.collectors import opensearch as opensearch_collector
 from common.sns_notifier import send_alert, send_error_alert
 from common.tag_resolver import get_threshold
 
 # collector 모듈 목록 (런타임에 .get_metrics 참조하여 패치 가능하도록)
-_COLLECTOR_MODULES = [ec2_collector, rds_collector, elb_collector, docdb_collector, elasticache_collector, natgw_collector]
+_COLLECTOR_MODULES = [
+    ec2_collector, rds_collector, elb_collector, docdb_collector,
+    elasticache_collector, natgw_collector,
+    lambda_collector, vpn_collector, apigw_collector, acm_collector,
+    backup_collector, mq_collector, clb_collector, opensearch_collector,
+]
 
 # 새 포맷 알람에서 resource_type과 resource_id를 추출하는 정규식
 # 예: "[EC2] MyServer CPU >=80% (i-1234567890abcdef0)"
@@ -364,6 +377,195 @@ def _find_alive_nat_gateways(natgw_ids: set[str]) -> set[str]:
     return alive
 
 
+# ──────────────────────────────────────────────
+# 신규 리소스 alive checkers (코딩 거버넌스 §1)
+# ──────────────────────────────────────────────
+
+@functools.lru_cache(maxsize=None)
+def _get_lambda_client():
+    return boto3.client("lambda")
+
+
+@functools.lru_cache(maxsize=None)
+def _get_backup_client():
+    return boto3.client("backup")
+
+
+@functools.lru_cache(maxsize=None)
+def _get_mq_client():
+    return boto3.client("mq")
+
+
+@functools.lru_cache(maxsize=None)
+def _get_classic_elb_client():
+    return boto3.client("elb")
+
+
+@functools.lru_cache(maxsize=None)
+def _get_opensearch_client():
+    return boto3.client("opensearch")
+
+
+@functools.lru_cache(maxsize=None)
+def _get_acm_client():
+    return boto3.client("acm")
+
+
+@functools.lru_cache(maxsize=None)
+def _get_apigw_client():
+    return boto3.client("apigateway")
+
+
+@functools.lru_cache(maxsize=None)
+def _get_apigwv2_client():
+    return boto3.client("apigatewayv2")
+
+
+def _find_alive_lambda_functions(fn_names: set[str]) -> set[str]:
+    """Lambda 함수 존재 여부 확인."""
+    client = _get_lambda_client()
+    alive: set[str] = set()
+    for name in fn_names:
+        try:
+            client.get_function(FunctionName=name)
+            alive.add(name)
+        except ClientError as e:
+            code = e.response["Error"]["Code"]
+            if code == "ResourceNotFoundException":
+                logger.info("Lambda function not found (orphan): %s", name)
+            else:
+                logger.error("get_function failed for %s: %s", name, e)
+    return alive
+
+
+def _find_alive_vpn_connections(vpn_ids: set[str]) -> set[str]:
+    """VPN Connection 존재 여부 확인. deleted/deleting 제외."""
+    ec2 = _get_ec2_client()
+    alive: set[str] = set()
+    try:
+        resp = ec2.describe_vpn_connections(
+            VpnConnectionIds=list(vpn_ids)
+        )
+        for vpn in resp.get("VpnConnections", []):
+            state = vpn.get("State", "")
+            if state not in ("deleted", "deleting"):
+                alive.add(vpn["VpnConnectionId"])
+    except ClientError as e:
+        logger.error("describe_vpn_connections failed: %s", e)
+    return alive
+
+
+def _find_alive_apigw_apis(api_ids: set[str]) -> set[str]:
+    """API Gateway (REST + v2) 존재 여부 확인."""
+    alive: set[str] = set()
+    # REST APIs (id = api_name, so check by listing)
+    try:
+        client = _get_apigw_client()
+        paginator = client.get_paginator("get_rest_apis")
+        for page in paginator.paginate():
+            for api in page.get("items", []):
+                if api.get("name", "") in api_ids:
+                    alive.add(api["name"])
+    except ClientError as e:
+        logger.error("get_rest_apis failed: %s", e)
+    # v2 APIs (id = api_id)
+    try:
+        v2 = _get_apigwv2_client()
+        paginator = v2.get_paginator("get_apis")
+        for page in paginator.paginate():
+            for api in page.get("Items", []):
+                if api["ApiId"] in api_ids:
+                    alive.add(api["ApiId"])
+    except ClientError as e:
+        logger.error("get_apis (v2) failed: %s", e)
+    return alive
+
+
+def _find_alive_acm_certificates(cert_arns: set[str]) -> set[str]:
+    """ACM 인증서 존재 여부 확인."""
+    client = _get_acm_client()
+    alive: set[str] = set()
+    for arn in cert_arns:
+        try:
+            resp = client.describe_certificate(CertificateArn=arn)
+            status = resp.get("Certificate", {}).get("Status", "")
+            if status != "EXPIRED":
+                alive.add(arn)
+        except ClientError as e:
+            code = e.response["Error"]["Code"]
+            if code == "ResourceNotFoundException":
+                logger.info("ACM cert not found (orphan): %s", arn)
+            else:
+                logger.error("describe_certificate failed for %s: %s", arn, e)
+    return alive
+
+
+def _find_alive_backup_vaults(vault_names: set[str]) -> set[str]:
+    """Backup Vault 존재 여부 확인."""
+    client = _get_backup_client()
+    alive: set[str] = set()
+    for name in vault_names:
+        try:
+            client.describe_backup_vault(BackupVaultName=name)
+            alive.add(name)
+        except ClientError as e:
+            code = e.response["Error"]["Code"]
+            if code == "ResourceNotFoundException":
+                logger.info("Backup vault not found (orphan): %s", name)
+            else:
+                logger.error("describe_backup_vault failed for %s: %s", name, e)
+    return alive
+
+
+def _find_alive_mq_brokers(broker_names: set[str]) -> set[str]:
+    """MQ Broker 존재 여부 확인."""
+    client = _get_mq_client()
+    alive: set[str] = set()
+    try:
+        paginator = client.get_paginator("list_brokers")
+        for page in paginator.paginate():
+            for b in page.get("BrokerSummaries", []):
+                if b["BrokerName"] in broker_names:
+                    alive.add(b["BrokerName"])
+    except ClientError as e:
+        logger.error("list_brokers failed: %s", e)
+    return alive
+
+
+def _find_alive_clb_load_balancers(lb_names: set[str]) -> set[str]:
+    """Classic Load Balancer 존재 여부 확인."""
+    client = _get_classic_elb_client()
+    alive: set[str] = set()
+    for name in lb_names:
+        try:
+            client.describe_load_balancers(LoadBalancerNames=[name])
+            alive.add(name)
+        except ClientError as e:
+            code = e.response["Error"]["Code"]
+            if code == "LoadBalancerNotFound":
+                logger.info("CLB not found (orphan): %s", name)
+            else:
+                logger.error("describe_load_balancers failed for %s: %s", name, e)
+    return alive
+
+
+def _find_alive_opensearch_domains(domain_names: set[str]) -> set[str]:
+    """OpenSearch 도메인 존재 여부 확인."""
+    client = _get_opensearch_client()
+    alive: set[str] = set()
+    name_list = list(domain_names)
+    for i in range(0, len(name_list), 5):
+        batch = name_list[i:i + 5]
+        try:
+            resp = client.describe_domains(DomainNames=batch)
+            for d in resp.get("DomainStatusList", []):
+                if not d.get("Deleted", False):
+                    alive.add(d["DomainName"])
+        except ClientError as e:
+            logger.error("describe_domains failed: %s", e)
+    return alive
+
+
 def _cleanup_orphan_alarms() -> list[str]:
     """
     존재하지 않는 리소스(EC2/RDS/ELB/TG)의 알람을 찾아 삭제.
@@ -393,6 +595,14 @@ def _cleanup_orphan_alarms() -> list[str]:
         "ElastiCache": _find_alive_elasticache_clusters,
         "NAT": _find_alive_nat_gateways,
         "NATGateway": _find_alive_nat_gateways,  # legacy alias
+        "Lambda": _find_alive_lambda_functions,
+        "VPN": _find_alive_vpn_connections,
+        "APIGW": _find_alive_apigw_apis,
+        "ACM": _find_alive_acm_certificates,
+        "Backup": _find_alive_backup_vaults,
+        "MQ": _find_alive_mq_brokers,
+        "CLB": _find_alive_clb_load_balancers,
+        "OpenSearch": _find_alive_opensearch_domains,
     }
 
     for rtype, id_to_alarms in alarm_map.items():
@@ -459,7 +669,8 @@ def _process_resource(
         threshold = get_threshold(resource_tags, metric_name)
 
         # FreeMemoryGB / FreeStorageGB / FreeLocalStorageGB는 값이 임계치 미만일 때 알림 (낮을수록 위험)
-        if metric_name in ("FreeMemoryGB", "FreeStorageGB", "FreeLocalStorageGB"):
+        if metric_name in ("FreeMemoryGB", "FreeStorageGB", "FreeLocalStorageGB",
+                          "TunnelState", "DaysToExpiry", "OSFreeStorageSpace"):
             exceeded = current_value < threshold
         else:
             exceeded = current_value > threshold

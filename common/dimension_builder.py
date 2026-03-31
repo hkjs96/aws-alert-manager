@@ -58,6 +58,12 @@ def _build_dimensions(
     else:
         dimensions = [{"Name": dim_key, "Value": resource_id}]
 
+    # OpenSearch Compound Dimension: DomainName + ClientId
+    if resource_type == "OpenSearch":
+        client_id = resource_tags.get("_client_id", "")
+        if client_id:
+            dimensions.append({"Name": "ClientId", "Value": client_id})
+
     dimensions.extend(alarm_def.get("extra_dimensions", []))
     return dimensions
 

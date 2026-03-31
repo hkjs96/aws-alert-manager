@@ -117,6 +117,14 @@ class TestDailyMonitorIntegration:
              patch("common.collectors.docdb.collect_monitored_resources", return_value=[]), \
              patch("common.collectors.elasticache.collect_monitored_resources", return_value=[]), \
              patch("common.collectors.natgw.collect_monitored_resources", return_value=[]), \
+             patch("common.collectors.lambda_fn.collect_monitored_resources", return_value=[]), \
+             patch("common.collectors.vpn.collect_monitored_resources", return_value=[]), \
+             patch("common.collectors.apigw.collect_monitored_resources", return_value=[]), \
+             patch("common.collectors.acm.collect_monitored_resources", return_value=[]), \
+             patch("common.collectors.backup.collect_monitored_resources", return_value=[]), \
+             patch("common.collectors.mq.collect_monitored_resources", return_value=[]), \
+             patch("common.collectors.clb.collect_monitored_resources", return_value=[]), \
+             patch("common.collectors.opensearch.collect_monitored_resources", return_value=[]), \
              patch("common.collectors.rds.get_metrics", return_value={"CPU": 50.0}), \
              patch("common.tag_resolver.get_threshold", return_value=80.0), \
              patch("daily_monitor.lambda_handler.send_error_alert") as mock_err, \

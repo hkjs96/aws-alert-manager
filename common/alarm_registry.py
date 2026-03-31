@@ -50,6 +50,40 @@ _METRIC_DISPLAY = {
     "CurrConnections": ("CurrConnections", ">=", ""),
     "PacketsDropCount": ("PacketsDropCount", ">", ""),
     "ErrorPortAllocation": ("ErrorPortAllocation", ">", ""),
+    "Duration": ("Duration", ">", "ms"),
+    "Errors": ("Errors", ">", ""),
+    "TunnelState": ("TunnelState", "<", ""),
+    "ApiLatency": ("Latency", ">", "ms"),
+    "Api4XXError": ("4XXError", ">", ""),
+    "Api5XXError": ("5XXError", ">", ""),
+    "Api4xx": ("4xx", ">", ""),
+    "Api5xx": ("5xx", ">", ""),
+    "WsConnectCount": ("ConnectCount", ">", ""),
+    "WsMessageCount": ("MessageCount", ">", ""),
+    "WsIntegrationError": ("IntegrationError", ">", ""),
+    "WsExecutionError": ("ExecutionError", ">", ""),
+    "DaysToExpiry": ("DaysToExpiry", "<", "days"),
+    "BackupJobsFailed": ("NumberOfBackupJobsFailed", ">", ""),
+    "BackupJobsAborted": ("NumberOfBackupJobsAborted", ">", ""),
+    "MqCPU": ("CpuUtilization", ">", "%"),
+    "HeapUsage": ("HeapUsage", ">", "%"),
+    "JobSchedulerStoreUsage": ("JobSchedulerStorePercentUsage", ">", "%"),
+    "StoreUsage": ("StorePercentUsage", ">", "%"),
+    "CLBUnHealthyHost": ("UnHealthyHostCount", ">", ""),
+    "CLB5XX": ("HTTPCode_ELB_5XX", ">", ""),
+    "CLB4XX": ("HTTPCode_ELB_4XX", ">", ""),
+    "CLBBackend5XX": ("HTTPCode_Backend_5XX", ">", ""),
+    "CLBBackend4XX": ("HTTPCode_Backend_4XX", ">", ""),
+    "SurgeQueueLength": ("SurgeQueueLength", ">", ""),
+    "SpilloverCount": ("SpilloverCount", ">", ""),
+    "ClusterStatusRed": ("ClusterStatus.red", ">", ""),
+    "ClusterStatusYellow": ("ClusterStatus.yellow", ">", ""),
+    "OSFreeStorageSpace": ("FreeStorageSpace", "<", "MB"),
+    "ClusterIndexWritesBlocked": ("ClusterIndexWritesBlocked", ">", ""),
+    "OsCPU": ("CPUUtilization", ">", "%"),
+    "JVMMemoryPressure": ("JVMMemoryPressure", ">", "%"),
+    "MasterCPU": ("MasterCPUUtilization", ">", "%"),
+    "MasterJVMMemoryPressure": ("MasterJVMMemoryPressure", ">", "%"),
 }
 
 
@@ -556,6 +590,406 @@ _NATGW_ALARMS = [
     },
 ]
 
+_LAMBDA_ALARMS = [
+    {
+        "metric": "Duration",
+        "namespace": "AWS/Lambda",
+        "metric_name": "Duration",
+        "dimension_key": "FunctionName",
+        "stat": "Average",
+        "comparison": "GreaterThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+    },
+    {
+        "metric": "Errors",
+        "namespace": "AWS/Lambda",
+        "metric_name": "Errors",
+        "dimension_key": "FunctionName",
+        "stat": "Sum",
+        "comparison": "GreaterThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+    },
+]
+
+_VPN_ALARMS = [
+    {
+        "metric": "TunnelState",
+        "namespace": "AWS/VPN",
+        "metric_name": "TunnelState",
+        "dimension_key": "VpnId",
+        "stat": "Maximum",
+        "comparison": "LessThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+        "treat_missing_data": "breaching",
+    },
+]
+
+_APIGW_REST_ALARMS = [
+    {
+        "metric": "ApiLatency",
+        "namespace": "AWS/ApiGateway",
+        "metric_name": "Latency",
+        "dimension_key": "ApiName",
+        "stat": "Average",
+        "comparison": "GreaterThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+    },
+    {
+        "metric": "Api4XXError",
+        "namespace": "AWS/ApiGateway",
+        "metric_name": "4XXError",
+        "dimension_key": "ApiName",
+        "stat": "Sum",
+        "comparison": "GreaterThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+    },
+    {
+        "metric": "Api5XXError",
+        "namespace": "AWS/ApiGateway",
+        "metric_name": "5XXError",
+        "dimension_key": "ApiName",
+        "stat": "Sum",
+        "comparison": "GreaterThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+    },
+]
+
+_APIGW_HTTP_ALARMS = [
+    {
+        "metric": "ApiLatency",
+        "namespace": "AWS/ApiGateway",
+        "metric_name": "Latency",
+        "dimension_key": "ApiId",
+        "stat": "Average",
+        "comparison": "GreaterThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+    },
+    {
+        "metric": "Api4xx",
+        "namespace": "AWS/ApiGateway",
+        "metric_name": "4xx",
+        "dimension_key": "ApiId",
+        "stat": "Sum",
+        "comparison": "GreaterThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+    },
+    {
+        "metric": "Api5xx",
+        "namespace": "AWS/ApiGateway",
+        "metric_name": "5xx",
+        "dimension_key": "ApiId",
+        "stat": "Sum",
+        "comparison": "GreaterThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+    },
+]
+
+_APIGW_WEBSOCKET_ALARMS = [
+    {
+        "metric": "WsConnectCount",
+        "namespace": "AWS/ApiGateway",
+        "metric_name": "ConnectCount",
+        "dimension_key": "ApiId",
+        "stat": "Sum",
+        "comparison": "GreaterThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+    },
+    {
+        "metric": "WsMessageCount",
+        "namespace": "AWS/ApiGateway",
+        "metric_name": "MessageCount",
+        "dimension_key": "ApiId",
+        "stat": "Sum",
+        "comparison": "GreaterThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+    },
+    {
+        "metric": "WsIntegrationError",
+        "namespace": "AWS/ApiGateway",
+        "metric_name": "IntegrationError",
+        "dimension_key": "ApiId",
+        "stat": "Sum",
+        "comparison": "GreaterThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+    },
+    {
+        "metric": "WsExecutionError",
+        "namespace": "AWS/ApiGateway",
+        "metric_name": "ExecutionError",
+        "dimension_key": "ApiId",
+        "stat": "Sum",
+        "comparison": "GreaterThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+    },
+]
+
+
+def _get_apigw_alarm_defs(resource_tags: dict) -> list[dict]:
+    """APIGW _api_type별 알람 정의 동적 빌드 (Aurora 패턴 준용)."""
+    api_type = resource_tags.get("_api_type", "REST")
+    if api_type == "HTTP":
+        return _APIGW_HTTP_ALARMS
+    if api_type == "WEBSOCKET":
+        return _APIGW_WEBSOCKET_ALARMS
+    return _APIGW_REST_ALARMS
+
+
+_ACM_ALARMS = [
+    {
+        "metric": "DaysToExpiry",
+        "namespace": "AWS/CertificateManager",
+        "metric_name": "DaysToExpiry",
+        "dimension_key": "CertificateArn",
+        "stat": "Minimum",
+        "comparison": "LessThanThreshold",
+        "period": 86400,
+        "evaluation_periods": 1,
+    },
+]
+
+_BACKUP_ALARMS = [
+    {
+        "metric": "BackupJobsFailed",
+        "namespace": "AWS/Backup",
+        "metric_name": "NumberOfBackupJobsFailed",
+        "dimension_key": "BackupVaultName",
+        "stat": "Sum",
+        "comparison": "GreaterThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+    },
+    {
+        "metric": "BackupJobsAborted",
+        "namespace": "AWS/Backup",
+        "metric_name": "NumberOfBackupJobsAborted",
+        "dimension_key": "BackupVaultName",
+        "stat": "Sum",
+        "comparison": "GreaterThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+    },
+]
+
+_MQ_ALARMS = [
+    {
+        "metric": "MqCPU",
+        "namespace": "AWS/AmazonMQ",
+        "metric_name": "CpuUtilization",
+        "dimension_key": "Broker",
+        "stat": "Average",
+        "comparison": "GreaterThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+    },
+    {
+        "metric": "HeapUsage",
+        "namespace": "AWS/AmazonMQ",
+        "metric_name": "HeapUsage",
+        "dimension_key": "Broker",
+        "stat": "Average",
+        "comparison": "GreaterThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+    },
+    {
+        "metric": "JobSchedulerStoreUsage",
+        "namespace": "AWS/AmazonMQ",
+        "metric_name": "JobSchedulerStorePercentUsage",
+        "dimension_key": "Broker",
+        "stat": "Average",
+        "comparison": "GreaterThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+    },
+    {
+        "metric": "StoreUsage",
+        "namespace": "AWS/AmazonMQ",
+        "metric_name": "StorePercentUsage",
+        "dimension_key": "Broker",
+        "stat": "Average",
+        "comparison": "GreaterThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+    },
+]
+
+_CLB_ALARMS = [
+    {
+        "metric": "CLBUnHealthyHost",
+        "namespace": "AWS/ELB",
+        "metric_name": "UnHealthyHostCount",
+        "dimension_key": "LoadBalancerName",
+        "stat": "Average",
+        "comparison": "GreaterThanThreshold",
+        "period": 60,
+        "evaluation_periods": 1,
+    },
+    {
+        "metric": "CLB5XX",
+        "namespace": "AWS/ELB",
+        "metric_name": "HTTPCode_ELB_5XX",
+        "dimension_key": "LoadBalancerName",
+        "stat": "Sum",
+        "comparison": "GreaterThanThreshold",
+        "period": 60,
+        "evaluation_periods": 1,
+    },
+    {
+        "metric": "CLB4XX",
+        "namespace": "AWS/ELB",
+        "metric_name": "HTTPCode_ELB_4XX",
+        "dimension_key": "LoadBalancerName",
+        "stat": "Sum",
+        "comparison": "GreaterThanThreshold",
+        "period": 60,
+        "evaluation_periods": 1,
+    },
+    {
+        "metric": "CLBBackend5XX",
+        "namespace": "AWS/ELB",
+        "metric_name": "HTTPCode_Backend_5XX",
+        "dimension_key": "LoadBalancerName",
+        "stat": "Sum",
+        "comparison": "GreaterThanThreshold",
+        "period": 60,
+        "evaluation_periods": 1,
+    },
+    {
+        "metric": "CLBBackend4XX",
+        "namespace": "AWS/ELB",
+        "metric_name": "HTTPCode_Backend_4XX",
+        "dimension_key": "LoadBalancerName",
+        "stat": "Sum",
+        "comparison": "GreaterThanThreshold",
+        "period": 60,
+        "evaluation_periods": 1,
+    },
+    {
+        "metric": "SurgeQueueLength",
+        "namespace": "AWS/ELB",
+        "metric_name": "SurgeQueueLength",
+        "dimension_key": "LoadBalancerName",
+        "stat": "Maximum",
+        "comparison": "GreaterThanThreshold",
+        "period": 60,
+        "evaluation_periods": 1,
+    },
+    {
+        "metric": "SpilloverCount",
+        "namespace": "AWS/ELB",
+        "metric_name": "SpilloverCount",
+        "dimension_key": "LoadBalancerName",
+        "stat": "Sum",
+        "comparison": "GreaterThanThreshold",
+        "period": 60,
+        "evaluation_periods": 1,
+    },
+]
+
+_OPENSEARCH_ALARMS = [
+    {
+        "metric": "ClusterStatusRed",
+        "namespace": "AWS/ES",
+        "metric_name": "ClusterStatus.red",
+        "dimension_key": "DomainName",
+        "stat": "Maximum",
+        "comparison": "GreaterThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+        "needs_client_id": True,
+    },
+    {
+        "metric": "ClusterStatusYellow",
+        "namespace": "AWS/ES",
+        "metric_name": "ClusterStatus.yellow",
+        "dimension_key": "DomainName",
+        "stat": "Maximum",
+        "comparison": "GreaterThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+        "needs_client_id": True,
+    },
+    {
+        "metric": "OSFreeStorageSpace",
+        "namespace": "AWS/ES",
+        "metric_name": "FreeStorageSpace",
+        "dimension_key": "DomainName",
+        "stat": "Minimum",
+        "comparison": "LessThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+        "needs_client_id": True,
+    },
+    {
+        "metric": "ClusterIndexWritesBlocked",
+        "namespace": "AWS/ES",
+        "metric_name": "ClusterIndexWritesBlocked",
+        "dimension_key": "DomainName",
+        "stat": "Maximum",
+        "comparison": "GreaterThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+        "needs_client_id": True,
+    },
+    {
+        "metric": "OsCPU",
+        "namespace": "AWS/ES",
+        "metric_name": "CPUUtilization",
+        "dimension_key": "DomainName",
+        "stat": "Average",
+        "comparison": "GreaterThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+        "needs_client_id": True,
+    },
+    {
+        "metric": "JVMMemoryPressure",
+        "namespace": "AWS/ES",
+        "metric_name": "JVMMemoryPressure",
+        "dimension_key": "DomainName",
+        "stat": "Maximum",
+        "comparison": "GreaterThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+        "needs_client_id": True,
+    },
+    {
+        "metric": "MasterCPU",
+        "namespace": "AWS/ES",
+        "metric_name": "MasterCPUUtilization",
+        "dimension_key": "DomainName",
+        "stat": "Average",
+        "comparison": "GreaterThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+        "needs_client_id": True,
+    },
+    {
+        "metric": "MasterJVMMemoryPressure",
+        "namespace": "AWS/ES",
+        "metric_name": "MasterJVMMemoryPressure",
+        "dimension_key": "DomainName",
+        "stat": "Maximum",
+        "comparison": "GreaterThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+        "needs_client_id": True,
+    },
+]
+
 _NLB_TG_EXCLUDED_METRICS = {"RequestCountPerTarget", "TGResponseTime"}
 
 
@@ -584,6 +1018,22 @@ def _get_alarm_defs(resource_type: str, resource_tags: dict | None = None) -> li
         if resource_tags is not None and resource_tags.get("_lb_type") == "network":
             return [d for d in _TG_ALARMS if d["metric"] not in _NLB_TG_EXCLUDED_METRICS]
         return _TG_ALARMS
+    elif resource_type == "Lambda":
+        return _LAMBDA_ALARMS
+    elif resource_type == "VPN":
+        return _VPN_ALARMS
+    elif resource_type == "APIGW":
+        return _get_apigw_alarm_defs(resource_tags or {})
+    elif resource_type == "ACM":
+        return _ACM_ALARMS
+    elif resource_type == "Backup":
+        return _BACKUP_ALARMS
+    elif resource_type == "MQ":
+        return _MQ_ALARMS
+    elif resource_type == "CLB":
+        return _CLB_ALARMS
+    elif resource_type == "OpenSearch":
+        return _OPENSEARCH_ALARMS
     return []
 
 
@@ -598,6 +1048,28 @@ _HARDCODED_METRIC_KEYS: dict[str, set[str]] = {
     "DocDB": {"CPU", "FreeMemoryGB", "Connections"},
     "ElastiCache": {"CPU", "EngineCPU", "SwapUsage", "Evictions", "CurrConnections"},
     "NAT": {"PacketsDropCount", "ErrorPortAllocation"},
+    "Lambda": {"Duration", "Errors"},
+    "VPN": {"TunnelState"},
+    "APIGW": {
+        "ApiLatency", "Api4XXError", "Api5XXError",
+        "Api4xx", "Api5xx",
+        "WsConnectCount", "WsMessageCount",
+        "WsIntegrationError", "WsExecutionError",
+    },
+    "ACM": {"DaysToExpiry"},
+    "Backup": {"BackupJobsFailed", "BackupJobsAborted"},
+    "MQ": {"MqCPU", "HeapUsage", "JobSchedulerStoreUsage", "StoreUsage"},
+    "CLB": {
+        "CLBUnHealthyHost", "CLB5XX", "CLB4XX",
+        "CLBBackend5XX", "CLBBackend4XX",
+        "SurgeQueueLength", "SpilloverCount",
+    },
+    "OpenSearch": {
+        "ClusterStatusRed", "ClusterStatusYellow",
+        "OSFreeStorageSpace", "ClusterIndexWritesBlocked",
+        "OsCPU", "JVMMemoryPressure",
+        "MasterCPU", "MasterJVMMemoryPressure",
+    },
 }
 
 # resource_type별 CloudWatch 네임스페이스 목록
@@ -611,6 +1083,14 @@ _NAMESPACE_MAP: dict[str, list[str]] = {
     "DocDB": ["AWS/DocDB"],
     "ElastiCache": ["AWS/ElastiCache"],
     "NAT": ["AWS/NATGateway"],
+    "Lambda": ["AWS/Lambda"],
+    "VPN": ["AWS/VPN"],
+    "APIGW": ["AWS/ApiGateway"],
+    "ACM": ["AWS/CertificateManager"],
+    "Backup": ["AWS/Backup"],
+    "MQ": ["AWS/AmazonMQ"],
+    "CLB": ["AWS/ELB"],
+    "OpenSearch": ["AWS/ES"],
 }
 
 # resource_type별 디멘션 키
@@ -624,6 +1104,14 @@ _DIMENSION_KEY_MAP: dict[str, str] = {
     "DocDB": "DBInstanceIdentifier",
     "ElastiCache": "CacheClusterId",
     "NAT": "NatGatewayId",
+    "Lambda": "FunctionName",
+    "VPN": "VpnId",
+    "APIGW": "ApiName",
+    "ACM": "CertificateArn",
+    "Backup": "BackupVaultName",
+    "MQ": "Broker",
+    "CLB": "LoadBalancerName",
+    "OpenSearch": "DomainName",
 }
 
 
@@ -676,5 +1164,36 @@ def _metric_name_to_key(metric_name: str) -> str:
         "CurrConnections": "CurrConnections",
         "PacketsDropCount": "PacketsDropCount",
         "ErrorPortAllocation": "ErrorPortAllocation",
+        "Duration": "Duration",
+        "Errors": "Errors",
+        "TunnelState": "TunnelState",
+        "Latency": "ApiLatency",
+        "4XXError": "Api4XXError",
+        "5XXError": "Api5XXError",
+        "4xx": "Api4xx",
+        "5xx": "Api5xx",
+        "ConnectCount": "WsConnectCount",
+        "MessageCount": "WsMessageCount",
+        "IntegrationError": "WsIntegrationError",
+        "ExecutionError": "WsExecutionError",
+        "DaysToExpiry": "DaysToExpiry",
+        "NumberOfBackupJobsFailed": "BackupJobsFailed",
+        "NumberOfBackupJobsAborted": "BackupJobsAborted",
+        "CpuUtilization": "MqCPU",
+        "HeapUsage": "HeapUsage",
+        "JobSchedulerStorePercentUsage": "JobSchedulerStoreUsage",
+        "StorePercentUsage": "StoreUsage",
+        "UnHealthyHostCount": "CLBUnHealthyHost",
+        "HTTPCode_ELB_5XX": "CLB5XX",
+        "HTTPCode_ELB_4XX": "CLB4XX",
+        "HTTPCode_Backend_5XX": "CLBBackend5XX",
+        "HTTPCode_Backend_4XX": "CLBBackend4XX",
+        "SurgeQueueLength": "SurgeQueueLength",
+        "SpilloverCount": "SpilloverCount",
+        "ClusterStatus.red": "ClusterStatusRed",
+        "ClusterStatus.yellow": "ClusterStatusYellow",
+        "ClusterIndexWritesBlocked": "ClusterIndexWritesBlocked",
+        "MasterCPUUtilization": "MasterCPU",
+        "MasterJVMMemoryPressure": "MasterJVMMemoryPressure",
     }
     return mapping.get(metric_name, metric_name)

@@ -59,7 +59,7 @@ Mappings:
       Runtime: python3.12
       Timeout: 300
       MemorySize: 256
-  # Full name → short abbreviation for resource naming
+  # Full name -> short abbreviation for resource naming
   EnvShortName:
     development:
       short: dev
@@ -70,7 +70,7 @@ Mappings:
 
 Resources:
 
-  # ── Lambda Layer: common module ────────────
+  # -- Lambda Layer: common module ------------
   CommonLayer:
     Type: AWS::Lambda::LayerVersion
     Properties:
@@ -84,7 +84,7 @@ Resources:
       CompatibleRuntimes:
         - python3.12
 
-  # ── Daily Monitor Lambda ───────────────────
+  # -- Daily Monitor Lambda -------------------
   DailyMonitorFunction:
     Type: AWS::Lambda::Function
     Properties:
@@ -117,7 +117,7 @@ Resources:
           DEFAULT_DISK_THRESHOLD: !Ref DefaultDiskThreshold
           ENVIRONMENT: !FindInMap [EnvShortName, !Ref Environment, short]
 
-  # ── Remediation Handler Lambda ─────────────
+  # -- Remediation Handler Lambda -------------
   RemediationHandlerFunction:
     Type: AWS::Lambda::Function
     Properties:
@@ -150,7 +150,7 @@ Resources:
           DEFAULT_DISK_THRESHOLD: !Ref DefaultDiskThreshold
           ENVIRONMENT: !FindInMap [EnvShortName, !Ref Environment, short]
 
-  # ── EventBridge Scheduler: Daily Monitor ──
+  # -- EventBridge Scheduler: Daily Monitor --
   DailyMonitorSchedule:
     Type: AWS::Scheduler::Schedule
     Properties:
@@ -167,7 +167,7 @@ Resources:
         Arn: !GetAtt DailyMonitorFunction.Arn
         RoleArn: !GetAtt SchedulerInvokeRole.Arn
 
-  # ── Lambda Permission: Scheduler → DailyMonitor ──
+  # -- Lambda Permission: Scheduler -> DailyMonitor --
   DailyMonitorSchedulerPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -176,7 +176,7 @@ Resources:
       Principal: scheduler.amazonaws.com
       SourceArn: !GetAtt DailyMonitorSchedule.Arn
 
-  # ── EventBridge Rule: CloudTrail events ───
+  # -- EventBridge Rule: CloudTrail events ---
   CloudTrailModifyRule:
     Type: AWS::Events::Rule
     Properties:
@@ -191,6 +191,12 @@ Resources:
           - aws.rds
           - aws.elasticloadbalancing
           - aws.elasticache
+          - aws.lambda
+          - aws.apigateway
+          - aws.acm
+          - aws.backup
+          - aws.amazonmq
+          - aws.es
         detail-type:
           - AWS API Call via CloudTrail
         detail:
@@ -219,11 +225,28 @@ Resources:
             - ModifyCacheCluster
             - CreateNatGateway
             - DeleteNatGateway
+            # -- ---
+            - CreateFunction20150331
+            - DeleteFunction20150331
+            - DeleteVpnConnection
+            - CreateRestApi
+            - DeleteRestApi
+            - CreateApi
+            - DeleteApi
+            - DeleteCertificate
+            - CreateBackupVault
+            - DeleteBackupVault
+            - CreateBroker
+            - DeleteBroker
+            - CreateDomain
+            - DeleteDomain
+            - TagResource
+            - UntagResource
       Targets:
         - Id: RemediationHandlerTarget
           Arn: !GetAtt RemediationHandlerFunction.Arn
 
-  # ── Lambda Permission: EventBridge → RemediationHandler ──
+  # -- Lambda Permission: EventBridge -> RemediationHandler --
   RemediationHandlerEventPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -232,7 +255,7 @@ Resources:
       Principal: events.amazonaws.com
       SourceArn: !GetAtt CloudTrailModifyRule.Arn
 
-  # ── SNS Topics ────────────────────────────
+  # -- SNS Topics ----------------------------
   MonitoringAlertTopic:
     Type: AWS::SNS::Topic
     Properties:
@@ -265,7 +288,7 @@ Resources:
         - EnvShort: !FindInMap [EnvShortName, !Ref Environment, short]
       DisplayName: AWS Monitoring Engine - Error Alert
 
-  # ── IAM Role: EventBridge Scheduler ───────
+  # -- IAM Role: EventBridge Scheduler -------
   SchedulerInvokeRole:
     Type: AWS::IAM::Role
     Properties:
@@ -288,7 +311,7 @@ Resources:
                 Action: lambda:InvokeFunction
                 Resource: !GetAtt DailyMonitorFunction.Arn
 
-  # ── IAM Role: Daily Monitor ───────────────
+  # -- IAM Role: Daily Monitor ---------------
   MonitoringEngineRole:
     Type: AWS::IAM::Role
     Properties:
@@ -333,6 +356,59 @@ Resources:
                   - elasticache:DescribeCacheClusters
                   - elasticache:ListTagsForResource
                 Resource: "*"
+              # -- --- (Daily Monitor)
+              - Effect: Allow
+                Action:
+                  - lambda:ListFunctions
+                  - lambda:ListTags
+                  - lambda:GetFunction
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - ec2:DescribeVpnConnections
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - apigateway:GET
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - apigateway:GetRestApis
+                  - apigateway:GetTags
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - apigatewayv2:GetApis
+                  - apigatewayv2:GetApi
+                  - apigatewayv2:GetTags
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - acm:ListCertificates
+                  - acm:DescribeCertificate
+                  - acm:ListTagsForCertificate
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - backup:ListBackupVaults
+                  - backup:DescribeBackupVault
+                  - backup:ListTags
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - mq:ListBrokers
+                  - mq:DescribeBroker
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - es:ListDomainNames
+                  - es:DescribeDomains
+                  - es:ListTags
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - sts:GetCallerIdentity
+                Resource: "*"
               - Effect: Allow
                 Action:
                   - cloudwatch:GetMetricStatistics
@@ -349,7 +425,7 @@ Resources:
                   - !Ref MonitoringAlertTopic
                   - !Ref ErrorAlertTopic
 
-  # ── IAM Role: Remediation Handler ─────────
+  # -- IAM Role: Remediation Handler ---------
   RemediationHandlerRole:
     Type: AWS::IAM::Role
     Properties:
@@ -394,6 +470,46 @@ Resources:
                   - elasticache:DescribeCacheClusters
                   - elasticache:ListTagsForResource
                 Resource: "*"
+              # -- --- (Remediation Handler)
+              - Effect: Allow
+                Action:
+                  - lambda:ListTags
+                  - lambda:GetFunction
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - ec2:DescribeVpnConnections
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - apigateway:GET
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - apigatewayv2:GetApis
+                  - apigatewayv2:GetApi
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - acm:ListTagsForCertificate
+                  - acm:DescribeCertificate
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - backup:ListTags
+                  - backup:DescribeBackupVault
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - mq:DescribeBroker
+                  - mq:ListBrokers
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - es:DescribeDomains
+                  - es:ListTags
+                  - es:ListDomainNames
+                Resource: "*"
               - Effect: Allow
                 Action:
                   - cloudwatch:PutMetricAlarm
@@ -409,7 +525,7 @@ Resources:
                   - !Ref LifecycleAlertTopic
                   - !Ref ErrorAlertTopic
 
-  # ── IAM Role: Initial Sync Lambda ────────
+  # -- IAM Role: Initial Sync Lambda --------
   InitialSyncRole:
     Type: AWS::IAM::Role
     Properties:
@@ -434,7 +550,7 @@ Resources:
                 Action: lambda:InvokeFunction
                 Resource: !GetAtt DailyMonitorFunction.Arn
 
-  # ── Custom Resource: Initial Alarm Sync ───
+  # -- Custom Resource: Initial Alarm Sync ---
   InitialSyncFunction:
     Type: AWS::Lambda::Function
     Properties:

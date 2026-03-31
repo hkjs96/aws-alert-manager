@@ -141,7 +141,7 @@ def _create_standard_alarm(
 
     name = _pretty_alarm_name(
         resource_type, resource_id, resource_name,
-        metric, threshold,
+        metric, threshold, resource_tags,
     )
     desc = _build_alarm_description(
         resource_type, resource_id, metric,
@@ -162,7 +162,7 @@ def _create_standard_alarm(
             ActionsEnabled=True,
             AlarmActions=[sns_arn] if sns_arn else [],
             OKActions=[sns_arn] if sns_arn else [],
-            TreatMissingData="missing",
+            TreatMissingData=alarm_def.get("treat_missing_data", "missing"),
         )
         logger.info("Created alarm: %s (threshold=%.2f)", name, threshold)
         return name
@@ -181,6 +181,7 @@ def _create_dynamic_alarm(
     sns_arn: str,
     created: list[str],
     comparison: str = "GreaterThanThreshold",
+    resource_tags: dict | None = None,
 ) -> None:
     """동적 태그 메트릭에 대한 알람 생성.
 
@@ -203,7 +204,7 @@ def _create_dynamic_alarm(
     _ELLIPSIS = "..."
     prefix = f"[{resource_type}] "
     threshold_part = f" {direction} {thr_str} "
-    short_id = _shorten_elb_resource_id(resource_id, resource_type)
+    short_id = _shorten_elb_resource_id(resource_id, resource_type, resource_tags)
     suffix = f"(TagName: {short_id})"
     fixed_len = len(prefix) + len(threshold_part) + len(suffix)
     available = _MAX_ALARM_NAME - fixed_len
@@ -319,7 +320,7 @@ def _create_single_alarm(
             ActionsEnabled=True,
             AlarmActions=[sns_arn] if sns_arn else [],
             OKActions=[sns_arn] if sns_arn else [],
-            TreatMissingData="missing",
+            TreatMissingData=alarm_def.get("treat_missing_data", "missing"),
         )
         logger.info("Created single alarm: %s (threshold=%.2f)", name, threshold)
     except ClientError as e:
@@ -472,7 +473,7 @@ def _recreate_standard_alarm(
             ActionsEnabled=True,
             AlarmActions=[sns_arn] if sns_arn else [],
             OKActions=[sns_arn] if sns_arn else [],
-            TreatMissingData="missing",
+            TreatMissingData=alarm_def.get("treat_missing_data", "missing"),
         )
         logger.info("Recreated alarm: %s (threshold=%.2f)", name, threshold)
     except ClientError as e:

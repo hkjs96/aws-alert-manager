@@ -846,12 +846,12 @@ class TestCreateCategory:
         )
 
     def test_create_category_contains_four_events(self):
-        """CREATE 카테고리에 6개 이벤트가 포함되어야 한다."""
+        """CREATE 카테고리에 기존 + 신규 이벤트가 포함되어야 한다."""
         from common import MONITORED_API_EVENTS
-        expected = {"RunInstances", "CreateDBInstance", "CreateLoadBalancer", "CreateTargetGroup", "CreateCacheCluster", "CreateNatGateway"}
+        expected_base = {"RunInstances", "CreateDBInstance", "CreateLoadBalancer", "CreateTargetGroup", "CreateCacheCluster", "CreateNatGateway"}
         actual = set(MONITORED_API_EVENTS.get("CREATE", []))
-        assert actual == expected, (
-            f"CREATE category should contain {expected}, got {actual}"
+        assert expected_base.issubset(actual), (
+            f"CREATE category should contain at least {expected_base}, got {actual}"
         )
 
     def test_existing_categories_preserved(self):
@@ -1773,3 +1773,566 @@ class TestDocDBRemediation:
         assert parsed.resource_id == "docdb-tag-1"
         assert parsed.resource_type == "DocDB"
         assert parsed.event_category == "TAG_CHANGE"
+
+
+# ──────────────────────────────────────────────
+# Task 6.1: 8개 신규 리소스 이벤트 매핑 테스트
+# Validates: Requirements 10.1, 10.2, 10.4
+# ──────────────────────────────────────────────
+
+
+class TestNewResourceApiMap:
+    """_API_MAP에 8개 신규 리소스 이벤트 매핑 존재 및 정확성 검증."""
+
+    def test_api_map_contains_all_new_event_names(self):
+        """_API_MAP에 16개 신규 이벤트 매핑이 모두 존재해야 한다."""
+        from remediation_handler.lambda_handler import _API_MAP
+
+        expected_events = [
+            "CreateFunction20150331",
+            "DeleteFunction20150331",
+            "DeleteVpnConnection",
+            "CreateRestApi",
+            "DeleteRestApi",
+            "CreateApi",
+            "DeleteApi",
+            "DeleteCertificate",
+            "CreateBackupVault",
+            "DeleteBackupVault",
+            "CreateBroker",
+            "DeleteBroker",
+            "CreateDomain",
+            "DeleteDomain",
+            "TagResource",
+            "UntagResource",
+        ]
+        for event_name in expected_events:
+            assert event_name in _API_MAP, (
+                f"Event '{event_name}' not found in _API_MAP"
+            )
+
+    # ── Lambda 매핑 검증 ──
+
+    def test_create_function_maps_to_lambda(self):
+        """CreateFunction20150331 → ('Lambda', _extract_lambda_create_ids)"""
+        from remediation_handler.lambda_handler import _API_MAP
+        rt, extractor = _API_MAP["CreateFunction20150331"]
+        assert rt == "Lambda"
+        assert callable(extractor)
+
+    def test_delete_function_maps_to_lambda(self):
+        """DeleteFunction20150331 → ('Lambda', _extract_lambda_ids)"""
+        from remediation_handler.lambda_handler import _API_MAP
+        rt, extractor = _API_MAP["DeleteFunction20150331"]
+        assert rt == "Lambda"
+        assert callable(extractor)
+
+    # ── VPN 매핑 검증 ──
+
+    def test_delete_vpn_connection_maps_to_vpn(self):
+        """DeleteVpnConnection → ('VPN', _extract_vpn_ids)"""
+        from remediation_handler.lambda_handler import _API_MAP
+        rt, extractor = _API_MAP["DeleteVpnConnection"]
+        assert rt == "VPN"
+        assert callable(extractor)
+
+    # ── APIGW 매핑 검증 ──
+
+    def test_create_rest_api_maps_to_apigw(self):
+        """CreateRestApi → ('APIGW', ...)"""
+        from remediation_handler.lambda_handler import _API_MAP
+        rt, extractor = _API_MAP["CreateRestApi"]
+        assert rt == "APIGW"
+        assert callable(extractor)
+
+    def test_delete_rest_api_maps_to_apigw(self):
+        """DeleteRestApi → ('APIGW', ...)"""
+        from remediation_handler.lambda_handler import _API_MAP
+        rt, extractor = _API_MAP["DeleteRestApi"]
+        assert rt == "APIGW"
+        assert callable(extractor)
+
+    def test_create_api_maps_to_apigw(self):
+        """CreateApi → ('APIGW', ...)"""
+        from remediation_handler.lambda_handler import _API_MAP
+        rt, extractor = _API_MAP["CreateApi"]
+        assert rt == "APIGW"
+        assert callable(extractor)
+
+    def test_delete_api_maps_to_apigw(self):
+        """DeleteApi → ('APIGW', ...)"""
+        from remediation_handler.lambda_handler import _API_MAP
+        rt, extractor = _API_MAP["DeleteApi"]
+        assert rt == "APIGW"
+        assert callable(extractor)
+
+    # ── ACM 매핑 검증 ──
+
+    def test_delete_certificate_maps_to_acm(self):
+        """DeleteCertificate → ('ACM', ...)"""
+        from remediation_handler.lambda_handler import _API_MAP
+        rt, extractor = _API_MAP["DeleteCertificate"]
+        assert rt == "ACM"
+        assert callable(extractor)
+
+    # ── Backup 매핑 검증 ──
+
+    def test_create_backup_vault_maps_to_backup(self):
+        """CreateBackupVault → ('Backup', ...)"""
+        from remediation_handler.lambda_handler import _API_MAP
+        rt, extractor = _API_MAP["CreateBackupVault"]
+        assert rt == "Backup"
+        assert callable(extractor)
+
+    def test_delete_backup_vault_maps_to_backup(self):
+        """DeleteBackupVault → ('Backup', ...)"""
+        from remediation_handler.lambda_handler import _API_MAP
+        rt, extractor = _API_MAP["DeleteBackupVault"]
+        assert rt == "Backup"
+        assert callable(extractor)
+
+    # ── MQ 매핑 검증 ──
+
+    def test_create_broker_maps_to_mq(self):
+        """CreateBroker → ('MQ', ...)"""
+        from remediation_handler.lambda_handler import _API_MAP
+        rt, extractor = _API_MAP["CreateBroker"]
+        assert rt == "MQ"
+        assert callable(extractor)
+
+    def test_delete_broker_maps_to_mq(self):
+        """DeleteBroker → ('MQ', ...)"""
+        from remediation_handler.lambda_handler import _API_MAP
+        rt, extractor = _API_MAP["DeleteBroker"]
+        assert rt == "MQ"
+        assert callable(extractor)
+
+    # ── OpenSearch 매핑 검증 ──
+
+    def test_create_domain_maps_to_opensearch(self):
+        """CreateDomain → ('OpenSearch', ...)"""
+        from remediation_handler.lambda_handler import _API_MAP
+        rt, extractor = _API_MAP["CreateDomain"]
+        assert rt == "OpenSearch"
+        assert callable(extractor)
+
+    def test_delete_domain_maps_to_opensearch(self):
+        """DeleteDomain → ('OpenSearch', ...)"""
+        from remediation_handler.lambda_handler import _API_MAP
+        rt, extractor = _API_MAP["DeleteDomain"]
+        assert rt == "OpenSearch"
+        assert callable(extractor)
+
+    # ── TagResource/UntagResource MULTI 매핑 검증 ──
+
+    def test_tag_resource_maps_to_multi(self):
+        """TagResource → ('MULTI', _extract_tag_resource_arn)"""
+        from remediation_handler.lambda_handler import _API_MAP
+        rt, extractor = _API_MAP["TagResource"]
+        assert rt == "MULTI"
+        assert callable(extractor)
+
+    def test_untag_resource_maps_to_multi(self):
+        """UntagResource → ('MULTI', _extract_tag_resource_arn)"""
+        from remediation_handler.lambda_handler import _API_MAP
+        rt, extractor = _API_MAP["UntagResource"]
+        assert rt == "MULTI"
+        assert callable(extractor)
+
+
+class TestNewResourceIdExtractors:
+    """신규 리소스 ID 추출 함수 개별 테스트."""
+
+    def test_extract_lambda_create_ids(self):
+        """_extract_lambda_create_ids: responseElements.functionName 추출"""
+        from remediation_handler.lambda_handler import _extract_lambda_create_ids
+        assert _extract_lambda_create_ids({"functionName": "my-func"}) == ["my-func"]
+
+    def test_extract_lambda_create_ids_empty(self):
+        from remediation_handler.lambda_handler import _extract_lambda_create_ids
+        assert _extract_lambda_create_ids({}) == []
+
+    def test_extract_lambda_ids(self):
+        """_extract_lambda_ids: requestParameters.functionName 추출"""
+        from remediation_handler.lambda_handler import _extract_lambda_ids
+        assert _extract_lambda_ids({"functionName": "my-func"}) == ["my-func"]
+
+    def test_extract_lambda_ids_empty(self):
+        from remediation_handler.lambda_handler import _extract_lambda_ids
+        assert _extract_lambda_ids({}) == []
+
+    def test_extract_vpn_ids(self):
+        """_extract_vpn_ids: vpnConnectionId 추출"""
+        from remediation_handler.lambda_handler import _extract_vpn_ids
+        assert _extract_vpn_ids({"vpnConnectionId": "vpn-abc"}) == ["vpn-abc"]
+
+    def test_extract_vpn_ids_empty(self):
+        from remediation_handler.lambda_handler import _extract_vpn_ids
+        assert _extract_vpn_ids({}) == []
+
+    def test_extract_apigw_rest_create_ids(self):
+        """_extract_apigw_rest_create_ids: responseElements.name 추출"""
+        from remediation_handler.lambda_handler import _extract_apigw_rest_create_ids
+        assert _extract_apigw_rest_create_ids({"name": "my-rest-api"}) == ["my-rest-api"]
+
+    def test_extract_apigw_rest_ids(self):
+        """_extract_apigw_rest_ids: restApiId 추출"""
+        from remediation_handler.lambda_handler import _extract_apigw_rest_ids
+        assert _extract_apigw_rest_ids({"restApiId": "abc123"}) == ["abc123"]
+
+    def test_extract_apigw_v2_create_ids(self):
+        """_extract_apigw_v2_create_ids: responseElements.apiId 추출"""
+        from remediation_handler.lambda_handler import _extract_apigw_v2_create_ids
+        assert _extract_apigw_v2_create_ids({"apiId": "api-xyz"}) == ["api-xyz"]
+
+    def test_extract_apigw_v2_ids(self):
+        """_extract_apigw_v2_ids: apiId 추출"""
+        from remediation_handler.lambda_handler import _extract_apigw_v2_ids
+        assert _extract_apigw_v2_ids({"apiId": "api-xyz"}) == ["api-xyz"]
+
+    def test_extract_acm_ids(self):
+        """_extract_acm_ids: certificateArn 추출"""
+        from remediation_handler.lambda_handler import _extract_acm_ids
+        arn = "arn:aws:acm:us-east-1:123:certificate/abc-def"
+        assert _extract_acm_ids({"certificateArn": arn}) == [arn]
+
+    def test_extract_acm_ids_empty(self):
+        from remediation_handler.lambda_handler import _extract_acm_ids
+        assert _extract_acm_ids({}) == []
+
+    def test_extract_backup_vault_ids(self):
+        """_extract_backup_vault_ids: backupVaultName 추출"""
+        from remediation_handler.lambda_handler import _extract_backup_vault_ids
+        assert _extract_backup_vault_ids({"backupVaultName": "my-vault"}) == ["my-vault"]
+
+    def test_extract_backup_vault_ids_empty(self):
+        from remediation_handler.lambda_handler import _extract_backup_vault_ids
+        assert _extract_backup_vault_ids({}) == []
+
+    def test_extract_mq_create_ids(self):
+        """_extract_mq_create_ids: responseElements.brokerName 추출"""
+        from remediation_handler.lambda_handler import _extract_mq_create_ids
+        assert _extract_mq_create_ids({"brokerName": "my-broker"}) == ["my-broker"]
+
+    def test_extract_mq_ids(self):
+        """_extract_mq_ids: brokerId 추출"""
+        from remediation_handler.lambda_handler import _extract_mq_ids
+        assert _extract_mq_ids({"brokerId": "b-abc123"}) == ["b-abc123"]
+
+    def test_extract_mq_ids_empty(self):
+        from remediation_handler.lambda_handler import _extract_mq_ids
+        assert _extract_mq_ids({}) == []
+
+    def test_extract_opensearch_ids(self):
+        """_extract_opensearch_ids: domainName 추출"""
+        from remediation_handler.lambda_handler import _extract_opensearch_ids
+        assert _extract_opensearch_ids({"domainName": "my-domain"}) == ["my-domain"]
+
+    def test_extract_opensearch_ids_empty(self):
+        from remediation_handler.lambda_handler import _extract_opensearch_ids
+        assert _extract_opensearch_ids({}) == []
+
+    def test_extract_tag_resource_arn(self):
+        """_extract_tag_resource_arn: resourceArn 추출"""
+        from remediation_handler.lambda_handler import _extract_tag_resource_arn
+        arn = "arn:aws:lambda:us-east-1:123:function:my-func"
+        assert _extract_tag_resource_arn({"resourceArn": arn}) == [arn]
+
+    def test_extract_tag_resource_arn_alt_key(self):
+        """_extract_tag_resource_arn: resourceARN (대문자) 키도 지원"""
+        from remediation_handler.lambda_handler import _extract_tag_resource_arn
+        arn = "arn:aws:mq:us-east-1:123:broker:my-broker"
+        assert _extract_tag_resource_arn({"resourceARN": arn}) == [arn]
+
+    def test_extract_tag_resource_arn_empty(self):
+        from remediation_handler.lambda_handler import _extract_tag_resource_arn
+        assert _extract_tag_resource_arn({}) == []
+
+
+class TestResolveMultiTagType:
+    """_resolve_multi_tag_type() ARN 기반 서비스 판별 검증."""
+
+    def test_lambda_arn_resolves_to_lambda(self):
+        from remediation_handler.lambda_handler import _resolve_multi_tag_type
+        arn = "arn:aws:lambda:us-east-1:123456789012:function:my-func"
+        assert _resolve_multi_tag_type(arn) == "Lambda"
+
+    def test_apigateway_arn_resolves_to_apigw(self):
+        from remediation_handler.lambda_handler import _resolve_multi_tag_type
+        arn = "arn:aws:apigateway:us-east-1::/restapis/abc123"
+        assert _resolve_multi_tag_type(arn) == "APIGW"
+
+    def test_acm_arn_resolves_to_acm(self):
+        from remediation_handler.lambda_handler import _resolve_multi_tag_type
+        arn = "arn:aws:acm:us-east-1:123456789012:certificate/abc-def"
+        assert _resolve_multi_tag_type(arn) == "ACM"
+
+    def test_backup_arn_resolves_to_backup(self):
+        from remediation_handler.lambda_handler import _resolve_multi_tag_type
+        arn = "arn:aws:backup:us-east-1:123456789012:backup-vault:my-vault"
+        assert _resolve_multi_tag_type(arn) == "Backup"
+
+    def test_mq_arn_resolves_to_mq(self):
+        from remediation_handler.lambda_handler import _resolve_multi_tag_type
+        arn = "arn:aws:mq:us-east-1:123456789012:broker:my-broker:b-abc123"
+        assert _resolve_multi_tag_type(arn) == "MQ"
+
+    def test_es_arn_resolves_to_opensearch(self):
+        from remediation_handler.lambda_handler import _resolve_multi_tag_type
+        arn = "arn:aws:es:us-east-1:123456789012:domain/my-domain"
+        assert _resolve_multi_tag_type(arn) == "OpenSearch"
+
+    def test_unknown_arn_returns_unknown(self, caplog):
+        """알 수 없는 ARN → 'UNKNOWN' + warning 로그"""
+        from remediation_handler.lambda_handler import _resolve_multi_tag_type
+        with caplog.at_level(logging.WARNING, logger="remediation_handler.lambda_handler"):
+            result = _resolve_multi_tag_type("arn:aws:s3:::my-bucket")
+        assert result == "UNKNOWN"
+        warning_msgs = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
+        assert warning_msgs, "Expected warning log for unknown ARN"
+
+
+class TestNewResourceEventParsing:
+    """parse_cloudtrail_event()가 신규 리소스 이벤트를 올바르게 파싱하는지 검증."""
+
+    def test_create_function_parses_lambda(self):
+        """CreateFunction20150331 → resource_type='Lambda', event_category='CREATE'"""
+        event = {
+            "detail": {
+                "eventName": "CreateFunction20150331",
+                "requestParameters": {"functionName": "my-func"},
+                "responseElements": {"functionName": "my-func"},
+            }
+        }
+        parsed = parse_cloudtrail_event(event)[0]
+        assert parsed.resource_id == "my-func"
+        assert parsed.resource_type == "Lambda"
+        assert parsed.event_category == "CREATE"
+
+    def test_delete_function_parses_lambda(self):
+        """DeleteFunction20150331 → resource_type='Lambda', event_category='DELETE'"""
+        event = {
+            "detail": {
+                "eventName": "DeleteFunction20150331",
+                "requestParameters": {"functionName": "my-func"},
+            }
+        }
+        parsed = parse_cloudtrail_event(event)[0]
+        assert parsed.resource_id == "my-func"
+        assert parsed.resource_type == "Lambda"
+        assert parsed.event_category == "DELETE"
+
+    def test_delete_vpn_connection_parses_vpn(self):
+        """DeleteVpnConnection → resource_type='VPN', event_category='DELETE'"""
+        event = {
+            "detail": {
+                "eventName": "DeleteVpnConnection",
+                "requestParameters": {"vpnConnectionId": "vpn-abc"},
+            }
+        }
+        parsed = parse_cloudtrail_event(event)[0]
+        assert parsed.resource_id == "vpn-abc"
+        assert parsed.resource_type == "VPN"
+        assert parsed.event_category == "DELETE"
+
+    def test_create_rest_api_parses_apigw(self):
+        """CreateRestApi → resource_type='APIGW', event_category='CREATE'"""
+        event = {
+            "detail": {
+                "eventName": "CreateRestApi",
+                "requestParameters": {},
+                "responseElements": {"name": "my-rest-api"},
+            }
+        }
+        parsed = parse_cloudtrail_event(event)[0]
+        assert parsed.resource_id == "my-rest-api"
+        assert parsed.resource_type == "APIGW"
+        assert parsed.event_category == "CREATE"
+
+    def test_delete_rest_api_parses_apigw(self):
+        """DeleteRestApi → resource_type='APIGW', event_category='DELETE'"""
+        event = {
+            "detail": {
+                "eventName": "DeleteRestApi",
+                "requestParameters": {"restApiId": "abc123"},
+            }
+        }
+        parsed = parse_cloudtrail_event(event)[0]
+        assert parsed.resource_id == "abc123"
+        assert parsed.resource_type == "APIGW"
+        assert parsed.event_category == "DELETE"
+
+    def test_create_api_v2_parses_apigw(self):
+        """CreateApi → resource_type='APIGW', event_category='CREATE'"""
+        event = {
+            "detail": {
+                "eventName": "CreateApi",
+                "requestParameters": {},
+                "responseElements": {"apiId": "api-xyz"},
+            }
+        }
+        parsed = parse_cloudtrail_event(event)[0]
+        assert parsed.resource_id == "api-xyz"
+        assert parsed.resource_type == "APIGW"
+        assert parsed.event_category == "CREATE"
+
+    def test_delete_api_v2_parses_apigw(self):
+        """DeleteApi → resource_type='APIGW', event_category='DELETE'"""
+        event = {
+            "detail": {
+                "eventName": "DeleteApi",
+                "requestParameters": {"apiId": "api-xyz"},
+            }
+        }
+        parsed = parse_cloudtrail_event(event)[0]
+        assert parsed.resource_id == "api-xyz"
+        assert parsed.resource_type == "APIGW"
+        assert parsed.event_category == "DELETE"
+
+    def test_delete_certificate_parses_acm(self):
+        """DeleteCertificate → resource_type='ACM', event_category='DELETE'"""
+        arn = "arn:aws:acm:us-east-1:123:certificate/abc-def"
+        event = {
+            "detail": {
+                "eventName": "DeleteCertificate",
+                "requestParameters": {"certificateArn": arn},
+            }
+        }
+        parsed = parse_cloudtrail_event(event)[0]
+        assert parsed.resource_id == arn
+        assert parsed.resource_type == "ACM"
+        assert parsed.event_category == "DELETE"
+
+    def test_create_backup_vault_parses_backup(self):
+        """CreateBackupVault → resource_type='Backup', event_category='CREATE'
+        CREATE events extract from responseElements (not requestParameters)."""
+        event = {
+            "detail": {
+                "eventName": "CreateBackupVault",
+                "requestParameters": {"backupVaultName": "my-vault"},
+                "responseElements": {"backupVaultName": "my-vault"},
+            }
+        }
+        parsed = parse_cloudtrail_event(event)[0]
+        assert parsed.resource_id == "my-vault"
+        assert parsed.resource_type == "Backup"
+        assert parsed.event_category == "CREATE"
+
+    def test_delete_backup_vault_parses_backup(self):
+        """DeleteBackupVault → resource_type='Backup', event_category='DELETE'"""
+        event = {
+            "detail": {
+                "eventName": "DeleteBackupVault",
+                "requestParameters": {"backupVaultName": "my-vault"},
+            }
+        }
+        parsed = parse_cloudtrail_event(event)[0]
+        assert parsed.resource_id == "my-vault"
+        assert parsed.resource_type == "Backup"
+        assert parsed.event_category == "DELETE"
+
+    def test_create_broker_parses_mq(self):
+        """CreateBroker → resource_type='MQ', event_category='CREATE'"""
+        event = {
+            "detail": {
+                "eventName": "CreateBroker",
+                "requestParameters": {},
+                "responseElements": {"brokerName": "my-broker"},
+            }
+        }
+        parsed = parse_cloudtrail_event(event)[0]
+        assert parsed.resource_id == "my-broker"
+        assert parsed.resource_type == "MQ"
+        assert parsed.event_category == "CREATE"
+
+    def test_delete_broker_parses_mq(self):
+        """DeleteBroker → resource_type='MQ', event_category='DELETE'"""
+        event = {
+            "detail": {
+                "eventName": "DeleteBroker",
+                "requestParameters": {"brokerId": "b-abc123"},
+            }
+        }
+        parsed = parse_cloudtrail_event(event)[0]
+        assert parsed.resource_id == "b-abc123"
+        assert parsed.resource_type == "MQ"
+        assert parsed.event_category == "DELETE"
+
+    def test_create_domain_parses_opensearch(self):
+        """CreateDomain → resource_type='OpenSearch', event_category='CREATE'
+        CREATE events extract from responseElements (not requestParameters)."""
+        event = {
+            "detail": {
+                "eventName": "CreateDomain",
+                "requestParameters": {"domainName": "my-domain"},
+                "responseElements": {"domainName": "my-domain"},
+            }
+        }
+        parsed = parse_cloudtrail_event(event)[0]
+        assert parsed.resource_id == "my-domain"
+        assert parsed.resource_type == "OpenSearch"
+        assert parsed.event_category == "CREATE"
+
+    def test_delete_domain_parses_opensearch(self):
+        """DeleteDomain → resource_type='OpenSearch', event_category='DELETE'"""
+        event = {
+            "detail": {
+                "eventName": "DeleteDomain",
+                "requestParameters": {"domainName": "my-domain"},
+            }
+        }
+        parsed = parse_cloudtrail_event(event)[0]
+        assert parsed.resource_id == "my-domain"
+        assert parsed.resource_type == "OpenSearch"
+        assert parsed.event_category == "DELETE"
+
+    def test_tag_resource_lambda_arn_resolves_to_lambda(self):
+        """TagResource + Lambda ARN → resource_type='Lambda', event_category='TAG_CHANGE'"""
+        arn = "arn:aws:lambda:us-east-1:123456789012:function:my-func"
+        event = {
+            "detail": {
+                "eventName": "TagResource",
+                "requestParameters": {"resourceArn": arn},
+            }
+        }
+        parsed = parse_cloudtrail_event(event)[0]
+        assert parsed.resource_id == arn
+        assert parsed.resource_type == "Lambda"
+        assert parsed.event_category == "TAG_CHANGE"
+
+    def test_untag_resource_es_arn_resolves_to_opensearch(self):
+        """UntagResource + ES ARN → resource_type='OpenSearch', event_category='TAG_CHANGE'"""
+        arn = "arn:aws:es:us-east-1:123456789012:domain/my-domain"
+        event = {
+            "detail": {
+                "eventName": "UntagResource",
+                "requestParameters": {"resourceArn": arn},
+            }
+        }
+        parsed = parse_cloudtrail_event(event)[0]
+        assert parsed.resource_id == arn
+        assert parsed.resource_type == "OpenSearch"
+        assert parsed.event_category == "TAG_CHANGE"
+
+    def test_id_extraction_failure_raises_value_error(self):
+        """ID 추출 실패 시 ValueError 발생 (에러 로깅 + 이벤트 skip)"""
+        event = {
+            "detail": {
+                "eventName": "DeleteFunction20150331",
+                "requestParameters": {},  # functionName 없음
+            }
+        }
+        with pytest.raises(ValueError, match="Cannot extract resource_id"):
+            parse_cloudtrail_event(event)
+
+    def test_create_backup_vault_missing_response_raises(self):
+        """CreateBackupVault + responseElements에 backupVaultName 누락 → ValueError"""
+        event = {
+            "detail": {
+                "eventName": "CreateBackupVault",
+                "requestParameters": {"backupVaultName": "my-vault"},
+                "responseElements": {},
+            }
+        }
+        with pytest.raises(ValueError, match="Cannot extract resource_id"):
+            parse_cloudtrail_event(event)

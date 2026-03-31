@@ -180,6 +180,22 @@ def get_resource_tags(resource_id: str, resource_type: str) -> dict:
             return _get_elasticache_tags(resource_id)
         elif resource_type == "NAT":
             return _get_ec2_tags_by_resource(resource_id)
+        elif resource_type == "Lambda":
+            return _get_lambda_tags(resource_id)
+        elif resource_type == "VPN":
+            return _get_vpn_tags(resource_id)
+        elif resource_type == "APIGW":
+            return _get_apigw_tags(resource_id)
+        elif resource_type == "ACM":
+            return _get_acm_tags(resource_id)
+        elif resource_type == "Backup":
+            return _get_backup_tags(resource_id)
+        elif resource_type == "MQ":
+            return _get_mq_tags(resource_id)
+        elif resource_type == "CLB":
+            return _get_clb_tags(resource_id)
+        elif resource_type == "OpenSearch":
+            return _get_opensearch_tags(resource_id)
         else:
             logger.warning("Unsupported resource_type %r for resource %s", resource_type, resource_id)
             return {}
@@ -281,3 +297,147 @@ def _get_ec2_tags_by_resource(resource_id: str) -> dict:
         Filters=[{"Name": "resource-id", "Values": [resource_id]}]
     )
     return {t["Key"]: t["Value"] for t in resp.get("Tags", [])}
+
+
+# ──────────────────────────────────────────────
+# 신규 리소스 태그 조회 헬퍼 (코딩 거버넌스 §1)
+# ──────────────────────────────────────────────
+
+@functools.lru_cache(maxsize=None)
+def _get_lambda_client():
+    return boto3.client("lambda")
+
+
+@functools.lru_cache(maxsize=None)
+def _get_apigw_client():
+    return boto3.client("apigateway")
+
+
+@functools.lru_cache(maxsize=None)
+def _get_apigwv2_client():
+    return boto3.client("apigatewayv2")
+
+
+@functools.lru_cache(maxsize=None)
+def _get_acm_client():
+    return boto3.client("acm")
+
+
+@functools.lru_cache(maxsize=None)
+def _get_backup_client():
+    return boto3.client("backup")
+
+
+@functools.lru_cache(maxsize=None)
+def _get_mq_client():
+    return boto3.client("mq")
+
+
+@functools.lru_cache(maxsize=None)
+def _get_classic_elb_client():
+    return boto3.client("elb")
+
+
+@functools.lru_cache(maxsize=None)
+def _get_opensearch_client():
+    return boto3.client("opensearch")
+
+
+def _get_lambda_tags(function_name: str) -> dict:
+    """Lambda 함수 태그 조회. get_function으로 ARN 획득 후 list_tags."""
+    client = _get_lambda_client()
+    resp = client.get_function(FunctionName=function_name)
+    arn = resp.get("Configuration", {}).get("FunctionArn", "")
+    if not arn:
+        return {}
+    tag_resp = client.list_tags(Resource=arn)
+    return tag_resp.get("Tags", {})
+
+
+def _get_vpn_tags(vpn_id: str) -> dict:
+    """VPN Connection 태그 조회. EC2 describe_vpn_connections."""
+    ec2 = _get_ec2_client()
+    resp = ec2.describe_vpn_connections(VpnConnectionIds=[vpn_id])
+    vpns = resp.get("VpnConnections", [])
+    if not vpns:
+        return {}
+    return {t["Key"]: t["Value"] for t in vpns[0].get("Tags", [])}
+
+
+def _get_apigw_tags(resource_id: str) -> dict:
+    """APIGW 태그 조회. REST API (apigateway) 또는 v2 API (apigatewayv2) 시도."""
+    # v2 API 먼저 시도 (ApiId로 조회)
+    try:
+        v2 = _get_apigwv2_client()
+        resp = v2.get_api(ApiId=resource_id)
+        return resp.get("Tags", {})
+    except ClientError:
+        pass
+    # REST API 폴백 (이름 기반이므로 get_rest_apis로 검색)
+    try:
+        client = _get_apigw_client()
+        paginator = client.get_paginator("get_rest_apis")
+        for page in paginator.paginate():
+            for api in page.get("items", []):
+                if api.get("name") == resource_id:
+                    region = boto3.session.Session().region_name or "us-east-1"
+                    arn = f"arn:aws:apigateway:{region}::/restapis/{api['id']}"
+                    tag_resp = client.get_tags(resourceArn=arn)
+                    return tag_resp.get("tags", {})
+    except ClientError as e:
+        logger.error("APIGW get_tags failed for %s: %s", resource_id, e)
+    return {}
+
+
+def _get_acm_tags(certificate_arn: str) -> dict:
+    """ACM 인증서 태그 조회."""
+    client = _get_acm_client()
+    resp = client.list_tags_for_certificate(CertificateArn=certificate_arn)
+    return {t["Key"]: t["Value"] for t in resp.get("Tags", [])}
+
+
+def _get_backup_tags(vault_name: str) -> dict:
+    """Backup Vault 태그 조회."""
+    client = _get_backup_client()
+    resp = client.describe_backup_vault(BackupVaultName=vault_name)
+    vault_arn = resp.get("BackupVaultArn", "")
+    if not vault_arn:
+        return {}
+    tag_resp = client.list_tags(ResourceArn=vault_arn)
+    return tag_resp.get("Tags", {})
+
+
+def _get_mq_tags(broker_name: str) -> dict:
+    """MQ Broker 태그 조회. list_brokers로 ID 획득 후 describe_broker."""
+    client = _get_mq_client()
+    paginator = client.get_paginator("list_brokers")
+    for page in paginator.paginate():
+        for b in page.get("BrokerSummaries", []):
+            if b["BrokerName"] == broker_name:
+                resp = client.describe_broker(BrokerId=b["BrokerId"])
+                return resp.get("Tags", {})
+    return {}
+
+
+def _get_clb_tags(lb_name: str) -> dict:
+    """Classic Load Balancer 태그 조회."""
+    client = _get_classic_elb_client()
+    resp = client.describe_tags(LoadBalancerNames=[lb_name])
+    descriptions = resp.get("TagDescriptions", [])
+    if not descriptions:
+        return {}
+    return {t["Key"]: t["Value"] for t in descriptions[0].get("Tags", [])}
+
+
+def _get_opensearch_tags(domain_name: str) -> dict:
+    """OpenSearch 도메인 태그 조회."""
+    client = _get_opensearch_client()
+    resp = client.describe_domains(DomainNames=[domain_name])
+    domains = resp.get("DomainStatusList", [])
+    if not domains:
+        return {}
+    domain_arn = domains[0].get("ARN", "")
+    if not domain_arn:
+        return {}
+    tag_resp = client.list_tags(ARN=domain_arn)
+    return {t["Key"]: t["Value"] for t in tag_resp.get("TagList", [])}

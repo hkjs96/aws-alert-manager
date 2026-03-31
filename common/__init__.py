@@ -50,10 +50,47 @@ HARDCODED_DEFAULTS: dict[str, float] = {
     "CurrConnections": 200.0,
     "PacketsDropCount": 1.0,
     "ErrorPortAllocation": 1.0,
+    "Duration": 2500.0,
+    "Errors": 0.0,
+    "TunnelState": 1.0,
+    "ApiLatency": 3000.0,
+    "Api4XXError": 1.0,
+    "Api5XXError": 1.0,
+    "Api4xx": 1.0,
+    "Api5xx": 1.0,
+    "WsConnectCount": 1000.0,
+    "WsMessageCount": 10000.0,
+    "WsIntegrationError": 0.0,
+    "WsExecutionError": 0.0,
+    "DaysToExpiry": 14.0,
+    "BackupJobsFailed": 0.0,
+    "BackupJobsAborted": 0.0,
+    "MqCPU": 90.0,
+    "HeapUsage": 80.0,
+    "JobSchedulerStoreUsage": 80.0,
+    "StoreUsage": 80.0,
+    "CLBUnHealthyHost": 0.0,
+    "CLB5XX": 300.0,
+    "CLB4XX": 300.0,
+    "CLBBackend5XX": 300.0,
+    "CLBBackend4XX": 300.0,
+    "SurgeQueueLength": 300.0,
+    "SpilloverCount": 300.0,
+    "ClusterStatusRed": 0.0,
+    "ClusterStatusYellow": 0.0,
+    "OSFreeStorageSpace": 20480.0,
+    "ClusterIndexWritesBlocked": 0.0,
+    "OsCPU": 80.0,
+    "JVMMemoryPressure": 80.0,
+    "MasterCPU": 50.0,
+    "MasterJVMMemoryPressure": 80.0,
 }
 
 # 지원하는 AWS 리소스 유형 - Requirements 6.1
-SUPPORTED_RESOURCE_TYPES: list[str] = ["EC2", "RDS", "ALB", "NLB", "TG", "AuroraRDS", "DocDB", "ElastiCache", "NAT"]
+SUPPORTED_RESOURCE_TYPES: list[str] = [
+    "EC2", "RDS", "ALB", "NLB", "TG", "AuroraRDS", "DocDB", "ElastiCache", "NAT",
+    "Lambda", "VPN", "APIGW", "ACM", "Backup", "MQ", "CLB", "OpenSearch",
+]
 
 # CloudTrail 모니터링 대상 API 이벤트 - Requirements 4.1, 8.1, 8.4
 MONITORED_API_EVENTS: dict[str, list[str]] = {
@@ -72,6 +109,14 @@ MONITORED_API_EVENTS: dict[str, list[str]] = {
         "DeleteTargetGroup",
         "DeleteCacheCluster",
         "DeleteNatGateway",
+        "DeleteFunction20150331",   # Lambda
+        "DeleteVpnConnection",      # VPN
+        "DeleteRestApi",            # APIGW REST
+        "DeleteApi",                # APIGW v2
+        "DeleteCertificate",        # ACM
+        "DeleteBackupVault",        # Backup
+        "DeleteBroker",             # MQ
+        "DeleteDomain",             # OpenSearch
     ],
     "TAG_CHANGE": [
         "CreateTags",
@@ -80,6 +125,8 @@ MONITORED_API_EVENTS: dict[str, list[str]] = {
         "RemoveTagsFromResource",  # RDS
         "AddTags",                 # ELB
         "RemoveTags",              # ELB
+        "TagResource",             # Lambda, APIGW, ACM, Backup, MQ, OpenSearch
+        "UntagResource",           # Lambda, APIGW, ACM, Backup, MQ, OpenSearch
     ],
     "CREATE": [
         "RunInstances",
@@ -88,6 +135,12 @@ MONITORED_API_EVENTS: dict[str, list[str]] = {
         "CreateTargetGroup",
         "CreateCacheCluster",
         "CreateNatGateway",
+        "CreateFunction20150331",   # Lambda
+        "CreateRestApi",            # APIGW REST
+        "CreateApi",                # APIGW v2
+        "CreateBackupVault",        # Backup
+        "CreateBroker",             # MQ
+        "CreateDomain",             # OpenSearch
     ],
 }
 
