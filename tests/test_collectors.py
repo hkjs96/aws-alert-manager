@@ -2719,18 +2719,28 @@ from common.collectors import acm as acm_collector
 class TestACMCollector:
     """ACM Collector 단위 테스트 — collect_monitored_resources() + get_metrics()."""
 
-    def _mock_acm_for_collection(self, certs):
+    def _mock_acm_for_collection(self, certs, domain="example.com", days_until_expiry=90):
         """ACM 클라이언트 mock 생성 (수집 테스트용).
 
         Args:
             certs: list_certificates 응답용 CertificateSummaryList
+            domain: 인증서 도메인 이름 (DomainName)
+            days_until_expiry: 만료까지 남은 일수 (양수=미래, 음수=이미 만료)
         """
+        from datetime import datetime, timedelta, timezone
         mock_client = MagicMock()
         mock_paginator = MagicMock()
         mock_client.get_paginator.return_value = mock_paginator
         mock_paginator.paginate.return_value = [
             {"CertificateSummaryList": certs}
         ]
+        not_after = datetime.now(timezone.utc) + timedelta(days=days_until_expiry)
+        mock_client.describe_certificate.return_value = {
+            "Certificate": {
+                "DomainName": domain,
+                "NotAfter": not_after,
+            }
+        }
         return mock_client
 
     # ── collect_monitored_resources() 테스트 ──
@@ -2753,6 +2763,7 @@ class TestACMCollector:
         for r in result:
             assert r["type"] == "ACM"
             assert r["tags"]["Monitoring"] == "on"
+            assert r["tags"]["Name"] == "example.com"
 
     def test_untagged_certs_still_collected(self):
         """태그 없어도 수집 (Full_Collection) — Req 4.3, 13.1"""
@@ -2769,6 +2780,39 @@ class TestACMCollector:
 
         assert len(result) == 1
         assert result[0]["tags"]["Monitoring"] == "on"
+        assert result[0]["tags"]["Name"] == "example.com"
+
+    def test_expired_cert_excluded(self):
+        """이미 만료된 인증서는 수집 제외 — Req 13.2"""
+        certs = [
+            {"CertificateArn": "arn:aws:acm:us-east-1:123:certificate/expired"},
+        ]
+        mock_client = self._mock_acm_for_collection(certs, days_until_expiry=-1)
+
+        with patch.object(acm_collector, "_get_acm_client",
+                          return_value=mock_client), \
+             patch("common.collectors.acm.boto3.session.Session") as ms:
+            ms.return_value.region_name = "us-east-1"
+            result = acm_collector.collect_monitored_resources()
+
+        assert result == []
+
+    def test_domain_name_in_name_tag(self):
+        """도메인 이름이 Name 태그로 설정됨 — Req 13.5"""
+        certs = [
+            {"CertificateArn": "arn:aws:acm:us-east-1:123:certificate/cert-1"},
+        ]
+        mock_client = self._mock_acm_for_collection(certs, domain="my-service.example.com")
+
+        with patch.object(acm_collector, "_get_acm_client",
+                          return_value=mock_client), \
+             patch("common.collectors.acm.boto3.session.Session") as ms:
+            ms.return_value.region_name = "us-east-1"
+            result = acm_collector.collect_monitored_resources()
+
+        assert len(result) == 1
+        assert result[0]["tags"]["Name"] == "my-service.example.com"
+        assert result[0]["id"] == "arn:aws:acm:us-east-1:123:certificate/cert-1"
 
     def test_empty_result_when_no_certs(self):
         """수집 대상 0개 시 빈 리스트 반환 — Req 4.3"""
@@ -3061,12 +3105,13 @@ from common.collectors import mq as mq_collector
 class TestMQCollector:
     """MQ Collector 단위 테스트 — collect_monitored_resources() + get_metrics()."""
 
-    def _mock_mq_for_collection(self, brokers, tag_map):
+    def _mock_mq_for_collection(self, brokers, tag_map, deployment_mode="SINGLE_INSTANCE"):
         """MQ 클라이언트 mock 생성 (수집 테스트용).
 
         Args:
             brokers: list_brokers 응답용 BrokerSummaries
             tag_map: {broker_id: {tag_key: tag_value}} 매핑
+            deployment_mode: 브로커 배포 모드 (SINGLE_INSTANCE or ACTIVE_STANDBY_MULTI_AZ)
         """
         mock_client = MagicMock()
         mock_paginator = MagicMock()
@@ -3075,7 +3120,7 @@ class TestMQCollector:
 
         def mock_describe_broker(BrokerId):
             tags = tag_map.get(BrokerId, {})
-            return {"Tags": tags}
+            return {"Tags": tags, "DeploymentMode": deployment_mode}
 
         mock_client.describe_broker.side_effect = mock_describe_broker
         return mock_client
@@ -3101,7 +3146,8 @@ class TestMQCollector:
             result = mq_collector.collect_monitored_resources()
 
         assert len(result) == 1
-        assert result[0]["id"] == "broker-on"
+        assert result[0]["id"] == "broker-on-1"
+        assert result[0]["tags"]["Name"] == "broker-on"
         assert result[0]["type"] == "MQ"
 
     def test_untagged_broker_excluded(self):
@@ -3123,7 +3169,29 @@ class TestMQCollector:
             result = mq_collector.collect_monitored_resources()
 
         assert len(result) == 1
-        assert result[0]["id"] == "broker-tagged"
+        assert result[0]["id"] == "broker-tagged-1"
+
+    def test_active_standby_creates_two_resources(self):
+        """ACTIVE_STANDBY_MULTI_AZ 브로커는 인스턴스 2개 생성 — Req 6.3"""
+        brokers = [
+            {"BrokerId": "b-ha", "BrokerName": "broker-ha"},
+        ]
+        tag_map = {"b-ha": {"Monitoring": "on"}}
+        mock_client = self._mock_mq_for_collection(
+            brokers, tag_map, deployment_mode="ACTIVE_STANDBY_MULTI_AZ"
+        )
+
+        with patch.object(mq_collector, "_get_mq_client",
+                          return_value=mock_client), \
+             patch("common.collectors.mq.boto3.session.Session") as ms:
+            ms.return_value.region_name = "us-east-1"
+            result = mq_collector.collect_monitored_resources()
+
+        assert len(result) == 2
+        ids = {r["id"] for r in result}
+        assert ids == {"broker-ha-1", "broker-ha-2"}
+        for r in result:
+            assert r["tags"]["Name"] == "broker-ha"
 
     def test_empty_result_when_no_monitored(self):
         """수집 대상 0개 시 빈 리스트 반환 — Req 6.3"""

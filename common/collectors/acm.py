@@ -35,28 +35,42 @@ def collect_monitored_resources() -> list[ResourceInfo]:
     """
     계정 내 모든 ISSUED ACM 인증서 수집 (Full_Collection).
 
-    태그 필터 없이 전체 수집. Monitoring=on 태그를 자동 삽입하여
-    alarm_manager 파이프라인과 호환성 유지.
+    만료된 인증서는 제외. 도메인 이름을 Name 태그로 설정하여
+    알람 이름에 도메인이 표시되도록 한다.
     """
     try:
         client = _get_acm_client()
         paginator = client.get_paginator("list_certificates")
-        pages = paginator.paginate(
-            CertificateStatuses=["ISSUED"]
-        )
+        pages = paginator.paginate(CertificateStatuses=["ISSUED"])
     except ClientError as e:
         logger.error("ACM list_certificates failed: %s", e)
         raise
 
     resources: list[ResourceInfo] = []
     region = boto3.session.Session().region_name or "us-east-1"
+    now = datetime.now(timezone.utc)
 
     for page in pages:
         for cert in page.get("CertificateSummaryList", []):
             cert_arn = cert["CertificateArn"]
+            try:
+                detail = client.describe_certificate(CertificateArn=cert_arn)
+            except ClientError as e:
+                logger.error("ACM describe_certificate failed for %s: %s", cert_arn, e)
+                continue
 
-            # Full_Collection: 태그 무관, Monitoring=on 자동 삽입
-            tags = {"Monitoring": "on"}
+            cert_detail = detail.get("Certificate", {})
+            not_after = cert_detail.get("NotAfter")
+
+            # 이미 만료된 인증서 제외
+            if not_after and not_after < now:
+                logger.info("Skipping expired ACM cert %s (expired: %s)", cert_arn, not_after)
+                continue
+
+            domain = _domain_from_cert(cert_detail)
+            tags: dict = {"Monitoring": "on"}
+            if domain:
+                tags["Name"] = domain
 
             resources.append(
                 ResourceInfo(
@@ -68,6 +82,11 @@ def collect_monitored_resources() -> list[ResourceInfo]:
             )
 
     return resources
+
+
+def _domain_from_cert(cert_detail: dict) -> str:
+    """인증서 상세에서 도메인 이름 추출."""
+    return cert_detail.get("DomainName", "")
 
 
 def get_metrics(

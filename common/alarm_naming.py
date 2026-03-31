@@ -32,6 +32,11 @@ def _shorten_elb_resource_id(resource_id: str, resource_type: str,
     - APIGW HTTP/WS: {api_id} -> {api_name}/{api_id} (Name 태그 있을 때)
     - EC2/RDS 또는 ARN이 아닌 입력: 그대로 반환 (방어적 처리)
     """
+    if resource_type == "ACM":
+        tags = resource_tags or {}
+        domain = tags.get("Name", "")
+        return domain if domain else resource_id
+
     if resource_type == "APIGW":
         tags = resource_tags or {}
         api_type = tags.get("_api_type", "REST")

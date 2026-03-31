@@ -28,12 +28,23 @@ def _get_mq_client():
     return boto3.client("mq")
 
 
+def _broker_instance_ids(broker_name: str, deployment_mode: str) -> list[str]:
+    """DeploymentMode에 따라 CW 디멘션 값 목록 반환.
+
+    SINGLE_INSTANCE: ["{name}-1"]
+    ACTIVE_STANDBY_MULTI_AZ: ["{name}-1", "{name}-2"]
+    """
+    if deployment_mode == "ACTIVE_STANDBY_MULTI_AZ":
+        return [f"{broker_name}-1", f"{broker_name}-2"]
+    return [f"{broker_name}-1"]
+
+
 def collect_monitored_resources() -> list[ResourceInfo]:
     """
     Monitoring=on 태그가 있는 Amazon MQ 브로커 목록 반환.
 
-    list_brokers() paginator로 전체 브로커 조회 후
-    describe_broker()로 태그 확인, Monitoring=on 필터링.
+    DeploymentMode에 따라 인스턴스별 ResourceInfo를 생성한다.
+    CW 디멘션 값은 {BrokerName}-{index} 형식이므로 id에 반영한다.
     """
     try:
         client = _get_mq_client()
@@ -55,16 +66,32 @@ def collect_monitored_resources() -> list[ResourceInfo]:
             if tags.get("Monitoring", "").lower() != "on":
                 continue
 
-            resources.append(
-                ResourceInfo(
-                    id=broker_name,
-                    type="MQ",
-                    tags=tags,
-                    region=region,
+            deployment_mode = _get_deployment_mode(client, broker_id)
+            instance_ids = _broker_instance_ids(broker_name, deployment_mode)
+
+            for instance_id in instance_ids:
+                instance_tags = dict(tags)
+                instance_tags["Name"] = broker_name
+                resources.append(
+                    ResourceInfo(
+                        id=instance_id,
+                        type="MQ",
+                        tags=instance_tags,
+                        region=region,
+                    )
                 )
-            )
 
     return resources
+
+
+def _get_deployment_mode(mq_client, broker_id: str) -> str:
+    """브로커 DeploymentMode 조회. 실패 시 SINGLE_INSTANCE 반환."""
+    try:
+        response = mq_client.describe_broker(BrokerId=broker_id)
+        return response.get("DeploymentMode", "SINGLE_INSTANCE")
+    except ClientError as e:
+        logger.error("MQ describe_broker (deployment_mode) failed for %s: %s", broker_id, e)
+        return "SINGLE_INSTANCE"
 
 
 def get_metrics(
