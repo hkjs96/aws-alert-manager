@@ -553,6 +553,8 @@ Resources:
   # -- Custom Resource: Initial Alarm Sync ---
   InitialSyncFunction:
     Type: AWS::Lambda::Function
+    DependsOn:
+      - InitialSyncRole
     Properties:
       FunctionName: !Sub
         - aws-monitoring-engine-initial-sync-${EnvShort}
@@ -588,7 +590,6 @@ Resources:
                       logger.info("RequestType=%s, skipping invoke", request_type)
               except Exception as e:
                   logger.error("Failed to invoke daily-monitor: %s", e)
-                  status = "FAILED"
                   reason = str(e)
               response = {
                   "Status": status,
@@ -613,6 +614,7 @@ Resources:
     DependsOn:
       - DailyMonitorFunction
       - CommonLayer
+      - InitialSyncFunction
     Properties:
       ServiceToken: !GetAtt InitialSyncFunction.Arn
       DailyMonitorArn: !GetAtt DailyMonitorFunction.Arn
