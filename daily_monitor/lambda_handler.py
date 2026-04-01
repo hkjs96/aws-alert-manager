@@ -33,6 +33,18 @@ from common.collectors import backup as backup_collector
 from common.collectors import mq as mq_collector
 from common.collectors import clb as clb_collector
 from common.collectors import opensearch as opensearch_collector
+from common.collectors import sqs as sqs_collector
+from common.collectors import ecs as ecs_collector
+from common.collectors import msk as msk_collector
+from common.collectors import dynamodb as dynamodb_collector
+from common.collectors import cloudfront as cloudfront_collector
+from common.collectors import waf as waf_collector
+from common.collectors import route53 as route53_collector
+from common.collectors import dx as dx_collector
+from common.collectors import efs as efs_collector
+from common.collectors import s3 as s3_collector
+from common.collectors import sagemaker as sagemaker_collector
+from common.collectors import sns as sns_collector
 from common.sns_notifier import send_alert, send_error_alert
 from common.tag_resolver import get_threshold
 
@@ -42,6 +54,9 @@ _COLLECTOR_MODULES = [
     elasticache_collector, natgw_collector,
     lambda_collector, vpn_collector, apigw_collector, acm_collector,
     backup_collector, mq_collector, clb_collector, opensearch_collector,
+    sqs_collector, ecs_collector, msk_collector, dynamodb_collector,
+    cloudfront_collector, waf_collector, route53_collector, dx_collector,
+    efs_collector, s3_collector, sagemaker_collector, sns_collector,
 ]
 
 # 새 포맷 알람에서 resource_type과 resource_id를 추출하는 정규식
@@ -69,6 +84,18 @@ _RESOURCE_TYPE_TO_COLLECTOR = {
     "MQ": mq_collector,
     "CLB": clb_collector,
     "OpenSearch": opensearch_collector,
+    "SQS": sqs_collector,
+    "ECS": ecs_collector,
+    "MSK": msk_collector,
+    "DynamoDB": dynamodb_collector,
+    "CloudFront": cloudfront_collector,
+    "WAF": waf_collector,
+    "Route53": route53_collector,
+    "DX": dx_collector,
+    "EFS": efs_collector,
+    "S3": s3_collector,
+    "SageMaker": sagemaker_collector,
+    "SNS": sns_collector,
 }
 
 
@@ -297,7 +324,9 @@ def _process_resource(
 
         # FreeMemoryGB / FreeStorageGB / FreeLocalStorageGB는 값이 임계치 미만일 때 알림 (낮을수록 위험)
         if metric_name in ("FreeMemoryGB", "FreeStorageGB", "FreeLocalStorageGB",
-                          "TunnelState", "DaysToExpiry", "OSFreeStorageSpace"):
+                          "TunnelState", "DaysToExpiry", "OSFreeStorageSpace",
+                          "RunningTaskCount", "ActiveControllerCount",
+                          "HealthCheckStatus", "ConnectionState", "BurstCreditBalance"):
             exceeded = current_value < threshold
         else:
             exceeded = current_value > threshold

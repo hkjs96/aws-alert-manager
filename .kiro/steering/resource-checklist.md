@@ -157,3 +157,19 @@ fileMatchPattern: '**/*.py'
   2. `_INSTANCE_CLASS_MEMORY_MAP` 등 lookup 테이블에 인스턴스 클래스 추가
   3. `_resolve_free_memory_threshold()` 패턴을 참고하여 퍼센트 해석 로직 구현
 - Serverless/Auto-scaling 리소스는 용량이 동적 변동하므로 퍼센트 기반이 부적합할 수 있음 (ACUUtilization 등 대체 메트릭 사용)
+
+### 11-10. E2E 테스트 인프라 정리 시 주의사항
+
+CloudFormation 스택 삭제 시 일부 리소스는 내부 데이터가 남아있으면 `DELETE_FAILED`가 발생한다.
+새 리소스를 E2E 테스트 인프라에 추가할 때 아래 패턴을 확인하고, 필요하면 cleanup CustomResource를 추가한다.
+
+| 리소스 | 삭제 실패 원인 | 해결 방법 |
+|--------|-------------|----------|
+| Backup Vault | recovery point가 남아있음 | CustomResource로 `delete_recovery_point` 선호출 (template 참조) |
+| S3 Bucket | 객체가 남아있음 | CustomResource로 `delete_objects` + `delete_bucket` |
+| ECR Repository | 이미지가 남아있음 | CustomResource로 `batch_delete_image` |
+| OpenSearch Domain | 삭제에 10~15분 소요 | `DeletionPolicy: Delete` (기본값), 타임아웃 주의 |
+
+- E2E 테스트 template(`infra-test/`)에 새 리소스 추가 시, 해당 리소스가 내부 데이터를 생성하는지 확인한다
+- 내부 데이터가 생성되는 경우, 스택 삭제 전에 데이터를 정리하는 CustomResource Lambda를 함께 추가한다
+- CustomResource의 Delete 핸들러에서 에러 발생 시에도 `SUCCESS`를 반환하여 스택 삭제가 블로킹되지 않도록 한다

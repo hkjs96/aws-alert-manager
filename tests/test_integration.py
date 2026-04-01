@@ -11,6 +11,7 @@ Requirements: 1.1, 3.1, 4.1, 5.1, 8.1
 - collector.get_metrics는 common.collectors.{ec2|rds|elb}.get_metrics 로 패치
 """
 
+from contextlib import ExitStack
 from unittest.mock import MagicMock, patch
 import pytest
 
@@ -111,25 +112,30 @@ class TestDailyMonitorIntegration:
         """EC2 수집 오류 → 오류 알림 발송 후 RDS 계속 처리 - Requirements 1.3"""
         rds_resource = {"id": "db-001", "type": "RDS", "tags": {"Monitoring": "on"}, "region": "ap-northeast-2"}
 
-        with patch("common.collectors.ec2.collect_monitored_resources", side_effect=Exception("EC2 API error")), \
-             patch("common.collectors.rds.collect_monitored_resources", return_value=[rds_resource]), \
-             patch("common.collectors.elb.collect_monitored_resources", return_value=[]), \
-             patch("common.collectors.docdb.collect_monitored_resources", return_value=[]), \
-             patch("common.collectors.elasticache.collect_monitored_resources", return_value=[]), \
-             patch("common.collectors.natgw.collect_monitored_resources", return_value=[]), \
-             patch("common.collectors.lambda_fn.collect_monitored_resources", return_value=[]), \
-             patch("common.collectors.vpn.collect_monitored_resources", return_value=[]), \
-             patch("common.collectors.apigw.collect_monitored_resources", return_value=[]), \
-             patch("common.collectors.acm.collect_monitored_resources", return_value=[]), \
-             patch("common.collectors.backup.collect_monitored_resources", return_value=[]), \
-             patch("common.collectors.mq.collect_monitored_resources", return_value=[]), \
-             patch("common.collectors.clb.collect_monitored_resources", return_value=[]), \
-             patch("common.collectors.opensearch.collect_monitored_resources", return_value=[]), \
-             patch("common.collectors.rds.get_metrics", return_value={"CPU": 50.0}), \
-             patch("common.tag_resolver.get_threshold", return_value=80.0), \
-             patch("daily_monitor.lambda_handler.send_error_alert") as mock_err, \
-             patch("daily_monitor.lambda_handler.send_alert"):
+        stack = ExitStack()
+        stack.enter_context(
+            patch("common.collectors.ec2.collect_monitored_resources",
+                  side_effect=Exception("EC2 API error")))
+        stack.enter_context(
+            patch("common.collectors.rds.collect_monitored_resources",
+                  return_value=[rds_resource]))
+        for mod in ("elb", "docdb", "elasticache", "natgw", "lambda_fn",
+                    "vpn", "apigw", "acm", "backup", "mq", "clb", "opensearch",
+                    "sqs", "ecs", "msk", "dynamodb", "cloudfront", "waf",
+                    "route53", "dx", "efs", "s3", "sagemaker", "sns"):
+            stack.enter_context(
+                patch(f"common.collectors.{mod}.collect_monitored_resources",
+                      return_value=[]))
+        stack.enter_context(
+            patch("common.collectors.rds.get_metrics", return_value={"CPU": 50.0}))
+        stack.enter_context(
+            patch("common.tag_resolver.get_threshold", return_value=80.0))
+        mock_err = stack.enter_context(
+            patch("daily_monitor.lambda_handler.send_error_alert"))
+        stack.enter_context(
+            patch("daily_monitor.lambda_handler.send_alert"))
 
+        with stack:
             result = daily_handler({}, MagicMock())
 
         assert result["status"] == "ok"

@@ -2086,7 +2086,7 @@ class TestResolveMultiTagType:
         """알 수 없는 ARN → 'UNKNOWN' + warning 로그"""
         from remediation_handler.lambda_handler import _resolve_multi_tag_type
         with caplog.at_level(logging.WARNING, logger="remediation_handler.lambda_handler"):
-            result = _resolve_multi_tag_type("arn:aws:s3:::my-bucket")
+            result = _resolve_multi_tag_type("arn:aws:kinesis:us-east-1:123:stream/my-stream")
         assert result == "UNKNOWN"
         warning_msgs = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
         assert warning_msgs, "Expected warning log for unknown ARN"
@@ -2332,6 +2332,601 @@ class TestNewResourceEventParsing:
                 "eventName": "CreateBackupVault",
                 "requestParameters": {"backupVaultName": "my-vault"},
                 "responseElements": {},
+            }
+        }
+        with pytest.raises(ValueError, match="Cannot extract resource_id"):
+            parse_cloudtrail_event(event)
+
+
+# ──────────────────────────────────────────────
+# Task 6.1: 12개 신규 리소스 이벤트 매핑 테스트
+# Validates: Requirements 14.1, 14.2, 14.4
+# ──────────────────────────────────────────────
+
+
+class TestExtendedResourceApiMap:
+    """_API_MAP에 12개 신규 리소스(SQS, ECS, MSK, DynamoDB, CloudFront, WAF,
+    Route53, DX, EFS, S3, SageMaker, SNS) 이벤트 매핑 존재 및 정확성 검증."""
+
+    def test_api_map_contains_all_extended_event_names(self):
+        """_API_MAP에 26개 신규 이벤트 매핑이 모두 존재해야 한다."""
+        from remediation_handler.lambda_handler import _API_MAP
+
+        expected_events = [
+            # SQS
+            "CreateQueue", "DeleteQueue", "TagQueue", "UntagQueue",
+            # ECS
+            "CreateService", "DeleteService",
+            # MSK
+            "CreateCluster", "DeleteCluster",
+            # DynamoDB
+            "CreateTable", "DeleteTable",
+            # CloudFront
+            "CreateDistribution", "DeleteDistribution",
+            # WAF
+            "CreateWebACL", "DeleteWebACL",
+            # Route53
+            "CreateHealthCheck", "DeleteHealthCheck",
+            # DX
+            "CreateConnection", "DeleteConnection",
+            # EFS
+            "CreateFileSystem", "DeleteFileSystem",
+            # S3
+            "CreateBucket", "DeleteBucket",
+            # SageMaker
+            "CreateEndpoint", "DeleteEndpoint",
+            # SNS
+            "CreateTopic", "DeleteTopic",
+        ]
+        for event_name in expected_events:
+            assert event_name in _API_MAP, (
+                f"Event '{event_name}' not found in _API_MAP"
+            )
+
+    # ── SQS 매핑 검증 ──
+
+    def test_create_queue_maps_to_sqs(self):
+        from remediation_handler.lambda_handler import _API_MAP
+        rt, extractor = _API_MAP["CreateQueue"]
+        assert rt == "SQS"
+        assert callable(extractor)
+
+    def test_delete_queue_maps_to_sqs(self):
+        from remediation_handler.lambda_handler import _API_MAP
+        rt, extractor = _API_MAP["DeleteQueue"]
+        assert rt == "SQS"
+        assert callable(extractor)
+
+    def test_tag_queue_maps_to_sqs(self):
+        from remediation_handler.lambda_handler import _API_MAP
+        rt, extractor = _API_MAP["TagQueue"]
+        assert rt == "SQS"
+        assert callable(extractor)
+
+    def test_untag_queue_maps_to_sqs(self):
+        from remediation_handler.lambda_handler import _API_MAP
+        rt, extractor = _API_MAP["UntagQueue"]
+        assert rt == "SQS"
+        assert callable(extractor)
+
+    # ── ECS 매핑 검증 ──
+
+    def test_create_service_maps_to_ecs(self):
+        from remediation_handler.lambda_handler import _API_MAP
+        rt, extractor = _API_MAP["CreateService"]
+        assert rt == "ECS"
+        assert callable(extractor)
+
+    def test_delete_service_maps_to_ecs(self):
+        from remediation_handler.lambda_handler import _API_MAP
+        rt, extractor = _API_MAP["DeleteService"]
+        assert rt == "ECS"
+        assert callable(extractor)
+
+    # ── MSK 매핑 검증 ──
+
+    def test_create_cluster_maps_to_msk(self):
+        from remediation_handler.lambda_handler import _API_MAP
+        rt, extractor = _API_MAP["CreateCluster"]
+        assert rt == "MSK"
+        assert callable(extractor)
+
+    def test_delete_cluster_maps_to_msk(self):
+        from remediation_handler.lambda_handler import _API_MAP
+        rt, extractor = _API_MAP["DeleteCluster"]
+        assert rt == "MSK"
+        assert callable(extractor)
+
+    # ── DynamoDB 매핑 검증 ──
+
+    def test_create_table_maps_to_dynamodb(self):
+        from remediation_handler.lambda_handler import _API_MAP
+        rt, extractor = _API_MAP["CreateTable"]
+        assert rt == "DynamoDB"
+        assert callable(extractor)
+
+    def test_delete_table_maps_to_dynamodb(self):
+        from remediation_handler.lambda_handler import _API_MAP
+        rt, extractor = _API_MAP["DeleteTable"]
+        assert rt == "DynamoDB"
+        assert callable(extractor)
+
+    # ── CloudFront 매핑 검증 ──
+
+    def test_create_distribution_maps_to_cloudfront(self):
+        from remediation_handler.lambda_handler import _API_MAP
+        rt, extractor = _API_MAP["CreateDistribution"]
+        assert rt == "CloudFront"
+        assert callable(extractor)
+
+    def test_delete_distribution_maps_to_cloudfront(self):
+        from remediation_handler.lambda_handler import _API_MAP
+        rt, extractor = _API_MAP["DeleteDistribution"]
+        assert rt == "CloudFront"
+        assert callable(extractor)
+
+    # ── WAF 매핑 검증 ──
+
+    def test_create_web_acl_maps_to_waf(self):
+        from remediation_handler.lambda_handler import _API_MAP
+        rt, extractor = _API_MAP["CreateWebACL"]
+        assert rt == "WAF"
+        assert callable(extractor)
+
+    def test_delete_web_acl_maps_to_waf(self):
+        from remediation_handler.lambda_handler import _API_MAP
+        rt, extractor = _API_MAP["DeleteWebACL"]
+        assert rt == "WAF"
+        assert callable(extractor)
+
+    # ── Route53 매핑 검증 ──
+
+    def test_create_health_check_maps_to_route53(self):
+        from remediation_handler.lambda_handler import _API_MAP
+        rt, extractor = _API_MAP["CreateHealthCheck"]
+        assert rt == "Route53"
+        assert callable(extractor)
+
+    def test_delete_health_check_maps_to_route53(self):
+        from remediation_handler.lambda_handler import _API_MAP
+        rt, extractor = _API_MAP["DeleteHealthCheck"]
+        assert rt == "Route53"
+        assert callable(extractor)
+
+    # ── DX 매핑 검증 ──
+
+    def test_create_connection_maps_to_dx(self):
+        from remediation_handler.lambda_handler import _API_MAP
+        rt, extractor = _API_MAP["CreateConnection"]
+        assert rt == "DX"
+        assert callable(extractor)
+
+    def test_delete_connection_maps_to_dx(self):
+        from remediation_handler.lambda_handler import _API_MAP
+        rt, extractor = _API_MAP["DeleteConnection"]
+        assert rt == "DX"
+        assert callable(extractor)
+
+    # ── EFS 매핑 검증 ──
+
+    def test_create_file_system_maps_to_efs(self):
+        from remediation_handler.lambda_handler import _API_MAP
+        rt, extractor = _API_MAP["CreateFileSystem"]
+        assert rt == "EFS"
+        assert callable(extractor)
+
+    def test_delete_file_system_maps_to_efs(self):
+        from remediation_handler.lambda_handler import _API_MAP
+        rt, extractor = _API_MAP["DeleteFileSystem"]
+        assert rt == "EFS"
+        assert callable(extractor)
+
+    # ── S3 매핑 검증 ──
+
+    def test_create_bucket_maps_to_s3(self):
+        from remediation_handler.lambda_handler import _API_MAP
+        rt, extractor = _API_MAP["CreateBucket"]
+        assert rt == "S3"
+        assert callable(extractor)
+
+    def test_delete_bucket_maps_to_s3(self):
+        from remediation_handler.lambda_handler import _API_MAP
+        rt, extractor = _API_MAP["DeleteBucket"]
+        assert rt == "S3"
+        assert callable(extractor)
+
+    # ── SageMaker 매핑 검증 ──
+
+    def test_create_endpoint_maps_to_sagemaker(self):
+        from remediation_handler.lambda_handler import _API_MAP
+        rt, extractor = _API_MAP["CreateEndpoint"]
+        assert rt == "SageMaker"
+        assert callable(extractor)
+
+    def test_delete_endpoint_maps_to_sagemaker(self):
+        from remediation_handler.lambda_handler import _API_MAP
+        rt, extractor = _API_MAP["DeleteEndpoint"]
+        assert rt == "SageMaker"
+        assert callable(extractor)
+
+    # ── SNS 매핑 검증 ──
+
+    def test_create_topic_maps_to_sns(self):
+        from remediation_handler.lambda_handler import _API_MAP
+        rt, extractor = _API_MAP["CreateTopic"]
+        assert rt == "SNS"
+        assert callable(extractor)
+
+    def test_delete_topic_maps_to_sns(self):
+        from remediation_handler.lambda_handler import _API_MAP
+        rt, extractor = _API_MAP["DeleteTopic"]
+        assert rt == "SNS"
+        assert callable(extractor)
+
+
+class TestExtendedResourceIdExtractors:
+    """12개 신규 리소스 ID 추출 함수 개별 테스트."""
+
+    # ── SQS ──
+
+    def test_extract_sqs_queue_url(self):
+        from remediation_handler.lambda_handler import _API_MAP
+        _, extractor = _API_MAP["CreateQueue"]
+        result = extractor({"queueUrl": "https://sqs.us-east-1.amazonaws.com/123/my-queue"})
+        assert result == ["my-queue"]
+
+    def test_extract_sqs_queue_url_empty(self):
+        from remediation_handler.lambda_handler import _API_MAP
+        _, extractor = _API_MAP["CreateQueue"]
+        assert extractor({}) == []
+
+    def test_extract_sqs_delete_queue_url(self):
+        from remediation_handler.lambda_handler import _API_MAP
+        _, extractor = _API_MAP["DeleteQueue"]
+        result = extractor({"queueUrl": "https://sqs.us-east-1.amazonaws.com/123/my-queue"})
+        assert result == ["my-queue"]
+
+    def test_extract_sqs_tag_queue_url(self):
+        from remediation_handler.lambda_handler import _API_MAP
+        _, extractor = _API_MAP["TagQueue"]
+        result = extractor({"queueUrl": "https://sqs.us-east-1.amazonaws.com/123/my-queue"})
+        assert result == ["my-queue"]
+
+    def test_extract_sqs_untag_queue_url(self):
+        from remediation_handler.lambda_handler import _API_MAP
+        _, extractor = _API_MAP["UntagQueue"]
+        result = extractor({"queueUrl": "https://sqs.us-east-1.amazonaws.com/123/my-queue"})
+        assert result == ["my-queue"]
+
+    # ── ECS ──
+
+    def test_extract_ecs_service_name(self):
+        from remediation_handler.lambda_handler import _API_MAP
+        _, extractor = _API_MAP["CreateService"]
+        result = extractor({"serviceName": "my-service"})
+        assert result == ["my-service"]
+
+    def test_extract_ecs_service_name_empty(self):
+        from remediation_handler.lambda_handler import _API_MAP
+        _, extractor = _API_MAP["CreateService"]
+        assert extractor({}) == []
+
+    def test_extract_ecs_delete_service_name(self):
+        from remediation_handler.lambda_handler import _API_MAP
+        _, extractor = _API_MAP["DeleteService"]
+        result = extractor({"serviceName": "my-service"})
+        assert result == ["my-service"]
+
+    # ── MSK ──
+
+    def test_extract_msk_cluster_name(self):
+        from remediation_handler.lambda_handler import _API_MAP
+        _, extractor = _API_MAP["CreateCluster"]
+        result = extractor({"clusterName": "my-kafka-cluster"})
+        assert result == ["my-kafka-cluster"]
+
+    def test_extract_msk_cluster_name_empty(self):
+        from remediation_handler.lambda_handler import _API_MAP
+        _, extractor = _API_MAP["CreateCluster"]
+        assert extractor({}) == []
+
+    def test_extract_msk_delete_cluster_name(self):
+        from remediation_handler.lambda_handler import _API_MAP
+        _, extractor = _API_MAP["DeleteCluster"]
+        result = extractor({"clusterName": "my-kafka-cluster"})
+        assert result == ["my-kafka-cluster"]
+
+    # ── DynamoDB ──
+
+    def test_extract_dynamodb_table_name(self):
+        from remediation_handler.lambda_handler import _API_MAP
+        _, extractor = _API_MAP["CreateTable"]
+        result = extractor({"tableName": "my-table"})
+        assert result == ["my-table"]
+
+    def test_extract_dynamodb_table_name_empty(self):
+        from remediation_handler.lambda_handler import _API_MAP
+        _, extractor = _API_MAP["CreateTable"]
+        assert extractor({}) == []
+
+    def test_extract_dynamodb_delete_table_name(self):
+        from remediation_handler.lambda_handler import _API_MAP
+        _, extractor = _API_MAP["DeleteTable"]
+        result = extractor({"tableName": "my-table"})
+        assert result == ["my-table"]
+
+    # ── CloudFront ──
+
+    def test_extract_cloudfront_distribution_id(self):
+        from remediation_handler.lambda_handler import _API_MAP
+        _, extractor = _API_MAP["CreateDistribution"]
+        result = extractor({"distribution": {"id": "E1234567890"}})
+        assert result == ["E1234567890"]
+
+    def test_extract_cloudfront_distribution_id_empty(self):
+        from remediation_handler.lambda_handler import _API_MAP
+        _, extractor = _API_MAP["CreateDistribution"]
+        assert extractor({}) == []
+
+    def test_extract_cloudfront_delete_distribution_id(self):
+        from remediation_handler.lambda_handler import _API_MAP
+        _, extractor = _API_MAP["DeleteDistribution"]
+        result = extractor({"id": "E1234567890"})
+        assert result == ["E1234567890"]
+
+    # ── WAF ──
+
+    def test_extract_waf_web_acl_name(self):
+        from remediation_handler.lambda_handler import _API_MAP
+        _, extractor = _API_MAP["CreateWebACL"]
+        result = extractor({"summary": {"name": "my-web-acl"}})
+        assert result == ["my-web-acl"]
+
+    def test_extract_waf_web_acl_name_empty(self):
+        from remediation_handler.lambda_handler import _API_MAP
+        _, extractor = _API_MAP["CreateWebACL"]
+        assert extractor({}) == []
+
+    def test_extract_waf_delete_web_acl_name(self):
+        from remediation_handler.lambda_handler import _API_MAP
+        _, extractor = _API_MAP["DeleteWebACL"]
+        result = extractor({"name": "my-web-acl"})
+        assert result == ["my-web-acl"]
+
+    # ── Route53 ──
+
+    def test_extract_route53_health_check_id(self):
+        from remediation_handler.lambda_handler import _API_MAP
+        _, extractor = _API_MAP["CreateHealthCheck"]
+        result = extractor({"healthCheck": {"id": "hc-abc123"}})
+        assert result == ["hc-abc123"]
+
+    def test_extract_route53_health_check_id_empty(self):
+        from remediation_handler.lambda_handler import _API_MAP
+        _, extractor = _API_MAP["CreateHealthCheck"]
+        assert extractor({}) == []
+
+    def test_extract_route53_delete_health_check_id(self):
+        from remediation_handler.lambda_handler import _API_MAP
+        _, extractor = _API_MAP["DeleteHealthCheck"]
+        result = extractor({"healthCheckId": "hc-abc123"})
+        assert result == ["hc-abc123"]
+
+    # ── DX ──
+
+    def test_extract_dx_connection_id(self):
+        from remediation_handler.lambda_handler import _API_MAP
+        _, extractor = _API_MAP["CreateConnection"]
+        result = extractor({"connectionId": "dxcon-abc123"})
+        assert result == ["dxcon-abc123"]
+
+    def test_extract_dx_connection_id_empty(self):
+        from remediation_handler.lambda_handler import _API_MAP
+        _, extractor = _API_MAP["CreateConnection"]
+        assert extractor({}) == []
+
+    def test_extract_dx_delete_connection_id(self):
+        from remediation_handler.lambda_handler import _API_MAP
+        _, extractor = _API_MAP["DeleteConnection"]
+        result = extractor({"connectionId": "dxcon-abc123"})
+        assert result == ["dxcon-abc123"]
+
+    # ── EFS ──
+
+    def test_extract_efs_file_system_id(self):
+        from remediation_handler.lambda_handler import _API_MAP
+        _, extractor = _API_MAP["CreateFileSystem"]
+        result = extractor({"fileSystemId": "fs-abc123"})
+        assert result == ["fs-abc123"]
+
+    def test_extract_efs_file_system_id_empty(self):
+        from remediation_handler.lambda_handler import _API_MAP
+        _, extractor = _API_MAP["CreateFileSystem"]
+        assert extractor({}) == []
+
+    def test_extract_efs_delete_file_system_id(self):
+        from remediation_handler.lambda_handler import _API_MAP
+        _, extractor = _API_MAP["DeleteFileSystem"]
+        result = extractor({"fileSystemId": "fs-abc123"})
+        assert result == ["fs-abc123"]
+
+    # ── S3 ──
+
+    def test_extract_s3_bucket_name(self):
+        from remediation_handler.lambda_handler import _API_MAP
+        _, extractor = _API_MAP["CreateBucket"]
+        result = extractor({"bucketName": "my-bucket"})
+        assert result == ["my-bucket"]
+
+    def test_extract_s3_bucket_name_empty(self):
+        from remediation_handler.lambda_handler import _API_MAP
+        _, extractor = _API_MAP["CreateBucket"]
+        assert extractor({}) == []
+
+    def test_extract_s3_delete_bucket_name(self):
+        from remediation_handler.lambda_handler import _API_MAP
+        _, extractor = _API_MAP["DeleteBucket"]
+        result = extractor({"bucketName": "my-bucket"})
+        assert result == ["my-bucket"]
+
+    # ── SageMaker ──
+
+    def test_extract_sagemaker_endpoint_name(self):
+        from remediation_handler.lambda_handler import _API_MAP
+        _, extractor = _API_MAP["CreateEndpoint"]
+        result = extractor({"endpointName": "my-endpoint"})
+        assert result == ["my-endpoint"]
+
+    def test_extract_sagemaker_endpoint_name_empty(self):
+        from remediation_handler.lambda_handler import _API_MAP
+        _, extractor = _API_MAP["CreateEndpoint"]
+        assert extractor({}) == []
+
+    def test_extract_sagemaker_delete_endpoint_name(self):
+        from remediation_handler.lambda_handler import _API_MAP
+        _, extractor = _API_MAP["DeleteEndpoint"]
+        result = extractor({"endpointName": "my-endpoint"})
+        assert result == ["my-endpoint"]
+
+    # ── SNS ──
+
+    def test_extract_sns_topic_name(self):
+        from remediation_handler.lambda_handler import _API_MAP
+        _, extractor = _API_MAP["CreateTopic"]
+        result = extractor({"topicArn": "arn:aws:sns:us-east-1:123:my-topic"})
+        assert result == ["my-topic"]
+
+    def test_extract_sns_topic_name_empty(self):
+        from remediation_handler.lambda_handler import _API_MAP
+        _, extractor = _API_MAP["CreateTopic"]
+        assert extractor({}) == []
+
+    def test_extract_sns_delete_topic_name(self):
+        from remediation_handler.lambda_handler import _API_MAP
+        _, extractor = _API_MAP["DeleteTopic"]
+        result = extractor({"topicArn": "arn:aws:sns:us-east-1:123:my-topic"})
+        assert result == ["my-topic"]
+
+
+class TestExtendedTagResourceArnDetection:
+    """TagResource/UntagResource ARN 기반 서비스 판별 — 12개 신규 타입."""
+
+    def test_ecs_arn_resolves_to_ecs(self):
+        arn = "arn:aws:ecs:us-east-1:123456789012:service/my-cluster/my-service"
+        event = {
+            "detail": {
+                "eventName": "TagResource",
+                "requestParameters": {"resourceArn": arn},
+            }
+        }
+        parsed = parse_cloudtrail_event(event)[0]
+        assert parsed.resource_type == "ECS"
+
+    def test_msk_arn_resolves_to_msk(self):
+        arn = "arn:aws:kafka:us-east-1:123456789012:cluster/my-cluster/abc-123"
+        event = {
+            "detail": {
+                "eventName": "TagResource",
+                "requestParameters": {"resourceArn": arn},
+            }
+        }
+        parsed = parse_cloudtrail_event(event)[0]
+        assert parsed.resource_type == "MSK"
+
+    def test_dynamodb_arn_resolves_to_dynamodb(self):
+        arn = "arn:aws:dynamodb:us-east-1:123456789012:table/my-table"
+        event = {
+            "detail": {
+                "eventName": "TagResource",
+                "requestParameters": {"resourceArn": arn},
+            }
+        }
+        parsed = parse_cloudtrail_event(event)[0]
+        assert parsed.resource_type == "DynamoDB"
+
+    def test_waf_arn_resolves_to_waf(self):
+        arn = "arn:aws:wafv2:us-east-1:123456789012:regional/webacl/my-acl/abc"
+        event = {
+            "detail": {
+                "eventName": "TagResource",
+                "requestParameters": {"resourceArn": arn},
+            }
+        }
+        parsed = parse_cloudtrail_event(event)[0]
+        assert parsed.resource_type == "WAF"
+
+    def test_dx_arn_resolves_to_dx(self):
+        arn = "arn:aws:directconnect:us-east-1:123456789012:dxcon/dxcon-abc123"
+        event = {
+            "detail": {
+                "eventName": "TagResource",
+                "requestParameters": {"resourceArn": arn},
+            }
+        }
+        parsed = parse_cloudtrail_event(event)[0]
+        assert parsed.resource_type == "DX"
+
+    def test_efs_arn_resolves_to_efs(self):
+        arn = "arn:aws:elasticfilesystem:us-east-1:123456789012:file-system/fs-abc123"
+        event = {
+            "detail": {
+                "eventName": "TagResource",
+                "requestParameters": {"resourceArn": arn},
+            }
+        }
+        parsed = parse_cloudtrail_event(event)[0]
+        assert parsed.resource_type == "EFS"
+
+    def test_s3_arn_resolves_to_s3(self):
+        arn = "arn:aws:s3:::my-bucket"
+        event = {
+            "detail": {
+                "eventName": "TagResource",
+                "requestParameters": {"resourceArn": arn},
+            }
+        }
+        parsed = parse_cloudtrail_event(event)[0]
+        assert parsed.resource_type == "S3"
+
+    def test_sagemaker_arn_resolves_to_sagemaker(self):
+        arn = "arn:aws:sagemaker:us-east-1:123456789012:endpoint/my-endpoint"
+        event = {
+            "detail": {
+                "eventName": "TagResource",
+                "requestParameters": {"resourceArn": arn},
+            }
+        }
+        parsed = parse_cloudtrail_event(event)[0]
+        assert parsed.resource_type == "SageMaker"
+
+    def test_sns_arn_resolves_to_sns(self):
+        arn = "arn:aws:sns:us-east-1:123456789012:my-topic"
+        event = {
+            "detail": {
+                "eventName": "TagResource",
+                "requestParameters": {"resourceArn": arn},
+            }
+        }
+        parsed = parse_cloudtrail_event(event)[0]
+        assert parsed.resource_type == "SNS"
+
+    def test_untag_ecs_arn_resolves_to_ecs(self):
+        arn = "arn:aws:ecs:us-east-1:123456789012:service/my-cluster/my-service"
+        event = {
+            "detail": {
+                "eventName": "UntagResource",
+                "requestParameters": {"resourceArn": arn},
+            }
+        }
+        parsed = parse_cloudtrail_event(event)[0]
+        assert parsed.resource_type == "ECS"
+
+    def test_id_extraction_failure_for_extended_event_raises(self):
+        """신규 이벤트 ID 추출 실패 시 ValueError 발생"""
+        event = {
+            "detail": {
+                "eventName": "DeleteQueue",
+                "requestParameters": {},  # queueUrl 없음
             }
         }
         with pytest.raises(ValueError, match="Cannot extract resource_id"):

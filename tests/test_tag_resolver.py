@@ -424,3 +424,131 @@ class TestGetResourceTags:
             result = get_resource_tags("aurora-db-001", "AuroraRDS")
         mock.assert_called_once_with("aurora-db-001")
         assert result == {"Monitoring": "on", "Threshold_CPU": "90"}
+
+
+# ──────────────────────────────────────────────
+# get_resource_tags 12개 신규 리소스 타입 태그 조회
+# Requirements: 1.3, 2-C.8, 3.4, 4.3, 5.4, 6.3, 7.5, 8.4, 9.4, 10-B.4, 11-B.3, 12.3
+# ──────────────────────────────────────────────
+
+class TestGetResourceTagsNewTypes:
+    """get_resource_tags()가 12개 신규 리소스 타입을 올바른 헬퍼로 디스패치하는지 검증."""
+
+    def test_sqs_calls_sqs_tags(self):
+        """SQS 타입 → _get_sqs_tags() 호출 검증."""
+        from common.tag_resolver import get_resource_tags
+        with patch("common.tag_resolver._get_sqs_tags",
+                   return_value={"Monitoring": "on", "Threshold_SQSMessagesVisible": "500"}) as mock:
+            result = get_resource_tags("https://sqs.us-east-1.amazonaws.com/123456789012/my-queue", "SQS")
+        mock.assert_called_once_with("https://sqs.us-east-1.amazonaws.com/123456789012/my-queue")
+        assert result == {"Monitoring": "on", "Threshold_SQSMessagesVisible": "500"}
+
+    def test_ecs_calls_ecs_tags(self):
+        """ECS 타입 → _get_ecs_tags() 호출 검증."""
+        from common.tag_resolver import get_resource_tags
+        arn = "arn:aws:ecs:us-east-1:123456789012:service/my-cluster/my-service"
+        with patch("common.tag_resolver._get_ecs_tags",
+                   return_value={"Monitoring": "on"}) as mock:
+            result = get_resource_tags(arn, "ECS")
+        mock.assert_called_once_with(arn)
+        assert result == {"Monitoring": "on"}
+
+    def test_msk_calls_msk_tags(self):
+        """MSK 타입 → _get_msk_tags() 호출 검증."""
+        from common.tag_resolver import get_resource_tags
+        arn = "arn:aws:kafka:us-east-1:123456789012:cluster/my-cluster/abc-123"
+        with patch("common.tag_resolver._get_msk_tags",
+                   return_value={"Monitoring": "on"}) as mock:
+            result = get_resource_tags(arn, "MSK")
+        mock.assert_called_once_with(arn)
+        assert result == {"Monitoring": "on"}
+
+    def test_dynamodb_calls_dynamodb_tags(self):
+        """DynamoDB 타입 → _get_dynamodb_tags() 호출 검증."""
+        from common.tag_resolver import get_resource_tags
+        arn = "arn:aws:dynamodb:us-east-1:123456789012:table/my-table"
+        with patch("common.tag_resolver._get_dynamodb_tags",
+                   return_value={"Monitoring": "on"}) as mock:
+            result = get_resource_tags(arn, "DynamoDB")
+        mock.assert_called_once_with(arn)
+        assert result == {"Monitoring": "on"}
+
+    def test_cloudfront_calls_cloudfront_tags(self):
+        """CloudFront 타입 → _get_cloudfront_tags() 호출 검증."""
+        from common.tag_resolver import get_resource_tags
+        arn = "arn:aws:cloudfront::123456789012:distribution/E1234567890"
+        with patch("common.tag_resolver._get_cloudfront_tags",
+                   return_value={"Monitoring": "on"}) as mock:
+            result = get_resource_tags(arn, "CloudFront")
+        mock.assert_called_once_with(arn)
+        assert result == {"Monitoring": "on"}
+
+    def test_waf_calls_waf_tags(self):
+        """WAF 타입 → _get_waf_tags() 호출 검증."""
+        from common.tag_resolver import get_resource_tags
+        arn = "arn:aws:wafv2:us-east-1:123456789012:regional/webacl/my-acl/abc-123"
+        with patch("common.tag_resolver._get_waf_tags",
+                   return_value={"Monitoring": "on"}) as mock:
+            result = get_resource_tags(arn, "WAF")
+        mock.assert_called_once_with(arn)
+        assert result == {"Monitoring": "on"}
+
+    def test_route53_calls_route53_tags(self):
+        """Route53 타입 → _get_route53_tags() 호출 검증."""
+        from common.tag_resolver import get_resource_tags
+        hc_id = "abc-123-def-456"
+        with patch("common.tag_resolver._get_route53_tags",
+                   return_value={"Monitoring": "on"}) as mock:
+            result = get_resource_tags(hc_id, "Route53")
+        mock.assert_called_once_with(hc_id)
+        assert result == {"Monitoring": "on"}
+
+    def test_dx_calls_dx_tags(self):
+        """DX 타입 → _get_dx_tags() 호출 검증."""
+        from common.tag_resolver import get_resource_tags
+        conn_id = "dxcon-abc123"
+        with patch("common.tag_resolver._get_dx_tags",
+                   return_value={"Monitoring": "on"}) as mock:
+            result = get_resource_tags(conn_id, "DX")
+        mock.assert_called_once_with(conn_id)
+        assert result == {"Monitoring": "on"}
+
+    def test_efs_calls_efs_tags(self):
+        """EFS 타입 → _get_efs_tags() 호출 검증."""
+        from common.tag_resolver import get_resource_tags
+        fs_id = "fs-12345678"
+        with patch("common.tag_resolver._get_efs_tags",
+                   return_value={"Monitoring": "on"}) as mock:
+            result = get_resource_tags(fs_id, "EFS")
+        mock.assert_called_once_with(fs_id)
+        assert result == {"Monitoring": "on"}
+
+    def test_s3_calls_s3_tags(self):
+        """S3 타입 → _get_s3_tags() 호출 검증."""
+        from common.tag_resolver import get_resource_tags
+        bucket = "my-bucket"
+        with patch("common.tag_resolver._get_s3_tags",
+                   return_value={"Monitoring": "on"}) as mock:
+            result = get_resource_tags(bucket, "S3")
+        mock.assert_called_once_with(bucket)
+        assert result == {"Monitoring": "on"}
+
+    def test_sagemaker_calls_sagemaker_tags(self):
+        """SageMaker 타입 → _get_sagemaker_tags() 호출 검증."""
+        from common.tag_resolver import get_resource_tags
+        arn = "arn:aws:sagemaker:us-east-1:123456789012:endpoint/my-endpoint"
+        with patch("common.tag_resolver._get_sagemaker_tags",
+                   return_value={"Monitoring": "on"}) as mock:
+            result = get_resource_tags(arn, "SageMaker")
+        mock.assert_called_once_with(arn)
+        assert result == {"Monitoring": "on"}
+
+    def test_sns_calls_sns_tags(self):
+        """SNS 타입 → _get_sns_tags() 호출 검증."""
+        from common.tag_resolver import get_resource_tags
+        arn = "arn:aws:sns:us-east-1:123456789012:my-topic"
+        with patch("common.tag_resolver._get_sns_tags",
+                   return_value={"Monitoring": "on"}) as mock:
+            result = get_resource_tags(arn, "SNS")
+        mock.assert_called_once_with(arn)
+        assert result == {"Monitoring": "on"}

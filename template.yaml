@@ -197,6 +197,19 @@ Resources:
           - aws.backup
           - aws.amazonmq
           - aws.es
+          # -- Extended Resource Monitoring (12 new sources) ---
+          - aws.sqs
+          - aws.ecs
+          - aws.kafka
+          - aws.dynamodb
+          - aws.cloudfront
+          - aws.wafv2
+          - aws.route53
+          - aws.directconnect
+          - aws.elasticfilesystem
+          - aws.s3
+          - aws.sagemaker
+          - aws.sns
         detail-type:
           - AWS API Call via CloudTrail
         detail:
@@ -242,6 +255,33 @@ Resources:
             - DeleteDomain
             - TagResource
             - UntagResource
+            # -- Extended Resource Monitoring (new events) ---
+            - CreateQueue
+            - DeleteQueue
+            - TagQueue
+            - UntagQueue
+            - CreateService
+            - DeleteService
+            - CreateCluster
+            - DeleteCluster
+            - CreateTable
+            - DeleteTable
+            - CreateDistribution
+            - DeleteDistribution
+            - CreateWebACL
+            - DeleteWebACL
+            - CreateHealthCheck
+            - DeleteHealthCheck
+            - CreateConnection
+            - DeleteConnection
+            - CreateFileSystem
+            - DeleteFileSystem
+            - CreateBucket
+            - DeleteBucket
+            - CreateEndpoint
+            - DeleteEndpoint
+            - CreateTopic
+            - DeleteTopic
       Targets:
         - Id: RemediationHandlerTarget
           Arn: !GetAtt RemediationHandlerFunction.Arn
@@ -405,6 +445,74 @@ Resources:
                   - es:DescribeDomains
                   - es:ListTags
                 Resource: "*"
+              # -- Extended Resource Monitoring (12 new types) ---
+              - Effect: Allow
+                Action:
+                  - sqs:ListQueues
+                  - sqs:ListQueueTags
+                  - sqs:GetQueueUrl
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - ecs:ListClusters
+                  - ecs:ListServices
+                  - ecs:DescribeServices
+                  - ecs:ListTagsForResource
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - kafka:ListClustersV2
+                  - kafka:ListTagsForResource
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - dynamodb:ListTables
+                  - dynamodb:ListTagsOfResource
+                  - dynamodb:DescribeTable
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - cloudfront:ListDistributions
+                  - cloudfront:ListTagsForResource
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - wafv2:ListWebACLs
+                  - wafv2:ListTagsForResource
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - route53:ListHealthChecks
+                  - route53:ListTagsForResource
+                  - route53:GetHealthCheck
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - directconnect:DescribeConnections
+                  - directconnect:DescribeTags
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - elasticfilesystem:DescribeFileSystems
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - s3:ListAllMyBuckets
+                  - s3:GetBucketTagging
+                  - s3:GetBucketLocation
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - sagemaker:ListEndpoints
+                  - sagemaker:DescribeEndpoint
+                  - sagemaker:ListTags
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - sns:ListTopics
+                  - sns:ListTagsForResource
+                  - sns:GetTopicAttributes
+                Resource: "*"
               - Effect: Allow
                 Action:
                   - sts:GetCallerIdentity
@@ -509,6 +617,57 @@ Resources:
                   - es:DescribeDomains
                   - es:ListTags
                   - es:ListDomainNames
+                Resource: "*"
+              # -- Extended Resource Monitoring (12 new types) ---
+              - Effect: Allow
+                Action:
+                  - sqs:ListQueueTags
+                  - sqs:GetQueueUrl
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - ecs:DescribeServices
+                  - ecs:ListTagsForResource
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - kafka:ListTagsForResource
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - dynamodb:ListTagsOfResource
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - cloudfront:ListTagsForResource
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - wafv2:ListTagsForResource
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - route53:ListTagsForResource
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - directconnect:DescribeTags
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - elasticfilesystem:DescribeFileSystems
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - s3:GetBucketTagging
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - sagemaker:ListTags
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - sns:ListTagsForResource
                 Resource: "*"
               - Effect: Allow
                 Action:

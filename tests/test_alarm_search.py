@@ -446,3 +446,64 @@ class TestAlarmSearchNewTypes:
             for call in mock_paginator.paginate.call_args_list
         ]
         assert f"[{resource_type}] " in prefixes, f"[{resource_type}] prefix not searched"
+
+
+# ──────────────────────────────────────────────
+# 확장 리소스 타입 접두사 검색 검증 (12개 신규)
+# ──────────────────────────────────────────────
+
+class TestAlarmSearchExtendedTypes:
+    """Validates: Requirements 16.2"""
+
+    _EXTENDED_TYPES = [
+        "SQS", "ECS", "MSK", "DynamoDB", "CloudFront", "WAF",
+        "Route53", "DX", "EFS", "S3", "SageMaker", "SNS",
+    ]
+
+    def test_default_fallback_includes_extended_types(self):
+        """resource_type 미지정 시 기본 폴백 목록에 12개 신규 타입 포함 검증."""
+        mock_cw = MagicMock()
+        mock_paginator = MagicMock()
+        mock_paginator.paginate.return_value = [{"MetricAlarms": []}]
+        mock_cw.get_paginator.return_value = mock_paginator
+
+        _find_alarms_for_resource("some-resource", cw=mock_cw)
+
+        prefixes = []
+        for call in mock_paginator.paginate.call_args_list:
+            prefix = call.kwargs.get("AlarmNamePrefix", "")
+            prefixes.append(prefix)
+
+        for rt in self._EXTENDED_TYPES:
+            assert f"[{rt}] " in prefixes, f"[{rt}] prefix not searched in default fallback"
+
+    def test_sqs_specific_type_searches_correct_prefix(self):
+        """SQS resource_type 지정 시 [SQS] 접두사 검색 검증."""
+        mock_cw = MagicMock()
+        mock_paginator = MagicMock()
+        mock_paginator.paginate.return_value = [{"MetricAlarms": []}]
+        mock_cw.get_paginator.return_value = mock_paginator
+
+        _find_alarms_for_resource("my-queue", "SQS", cw=mock_cw)
+
+        prefixes = [
+            call.kwargs.get("AlarmNamePrefix", "")
+            for call in mock_paginator.paginate.call_args_list
+        ]
+        assert "[SQS] " in prefixes
+
+    @pytest.mark.parametrize("resource_type", _EXTENDED_TYPES)
+    def test_each_extended_type_searches_with_correct_prefix(self, resource_type):
+        """12개 신규 타입 각각에 대해 [{type}] 접두사 검색 검증."""
+        mock_cw = MagicMock()
+        mock_paginator = MagicMock()
+        mock_paginator.paginate.return_value = [{"MetricAlarms": []}]
+        mock_cw.get_paginator.return_value = mock_paginator
+
+        _find_alarms_for_resource("res-001", resource_type, cw=mock_cw)
+
+        prefixes = [
+            call.kwargs.get("AlarmNamePrefix", "")
+            for call in mock_paginator.paginate.call_args_list
+        ]
+        assert f"[{resource_type}] " in prefixes, f"[{resource_type}] prefix not searched"

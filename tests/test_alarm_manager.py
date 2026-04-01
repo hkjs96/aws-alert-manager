@@ -1553,3 +1553,209 @@ class TestTreatMissingDataAndOpenSearchDimension:
         assert len(created) == 2
         for call in mock_cw.put_metric_alarm.call_args_list:
             assert call.kwargs["TreatMissingData"] == "missing"
+
+
+# ──────────────────────────────────────────────
+# treat_missing_data 확장 테스트 (Route53, DX, MSK)
+# ──────────────────────────────────────────────
+
+class TestTreatMissingDataExtended:
+    """Route53/DX/MSK ActiveControllerCount treat_missing_data=breaching 검증.
+    Validates: Requirements 18.1, 18.2, 18.3, 18.4
+    """
+
+    @staticmethod
+    def _mock_cw():
+        mock_cw = MagicMock()
+        mock_paginator = MagicMock()
+        mock_paginator.paginate.return_value = [{"MetricAlarms": []}]
+        mock_cw.get_paginator.return_value = mock_paginator
+        return mock_cw
+
+    def test_route53_alarm_treat_missing_data_breaching(self):
+        mock_cw = self._mock_cw()
+        regional_cw = self._mock_cw()
+        tags = {"Monitoring": "on", "Name": "my-hc"}
+        with patch("common._clients._get_cw_client", return_value=mock_cw), \
+             patch("boto3.client", return_value=regional_cw):
+            created = create_alarms_for_resource("hc-001", "Route53", tags)
+
+        assert len(created) == 1
+        call = regional_cw.put_metric_alarm.call_args_list[0]
+        assert call.kwargs["TreatMissingData"] == "breaching"
+
+    def test_dx_alarm_treat_missing_data_breaching(self):
+        mock_cw = self._mock_cw()
+        tags = {"Monitoring": "on", "Name": "my-dx"}
+        with patch("common._clients._get_cw_client", return_value=mock_cw):
+            created = create_alarms_for_resource("dxcon-001", "DX", tags)
+
+        assert len(created) == 1
+        call = mock_cw.put_metric_alarm.call_args_list[0]
+        assert call.kwargs["TreatMissingData"] == "breaching"
+
+    def test_msk_active_controller_count_treat_missing_data_breaching(self):
+        mock_cw = self._mock_cw()
+        tags = {"Monitoring": "on", "Name": "my-msk"}
+        with patch("common._clients._get_cw_client", return_value=mock_cw):
+            created = create_alarms_for_resource("my-cluster", "MSK", tags)
+
+        assert len(created) == 4
+        # ActiveControllerCount should be breaching
+        acc_call = [
+            c for c in mock_cw.put_metric_alarm.call_args_list
+            if c.kwargs["MetricName"] == "ActiveControllerCount"
+        ]
+        assert len(acc_call) == 1
+        assert acc_call[0].kwargs["TreatMissingData"] == "breaching"
+        # Other MSK alarms should be missing
+        other_calls = [
+            c for c in mock_cw.put_metric_alarm.call_args_list
+            if c.kwargs["MetricName"] != "ActiveControllerCount"
+        ]
+        for call in other_calls:
+            assert call.kwargs["TreatMissingData"] == "missing"
+
+    def test_other_resource_treat_missing_data_default_missing(self):
+        """SQS, ECS, DynamoDB 등 기본 리소스는 TreatMissingData=missing."""
+        mock_cw = self._mock_cw()
+        tags = {"Monitoring": "on", "Name": "my-queue"}
+        with patch("common._clients._get_cw_client", return_value=mock_cw):
+            created = create_alarms_for_resource("my-queue", "SQS", tags)
+
+        assert len(created) == 3
+        for call in mock_cw.put_metric_alarm.call_args_list:
+            assert call.kwargs["TreatMissingData"] == "missing"
+
+
+# ──────────────────────────────────────────────
+# Compound Dimension 확장 테스트 (ECS, WAF, S3, SageMaker)
+# ──────────────────────────────────────────────
+
+class TestCompoundDimensionsExtended:
+    """ECS/WAF/S3/SageMaker Compound Dimension 검증.
+    Validates: Requirements 17.1, 17.2, 17.3, 17.4, 17.5
+    """
+
+    def test_ecs_dimensions_service_and_cluster(self):
+        alarm_def = _get_alarm_defs("ECS")[0]
+        tags = {"_cluster_name": "my-cluster"}
+        dims = _build_dimensions(alarm_def, "my-service", "ECS", tags)
+        assert len(dims) == 2
+        assert dims[0] == {"Name": "ServiceName", "Value": "my-service"}
+        assert dims[1] == {"Name": "ClusterName", "Value": "my-cluster"}
+
+    def test_waf_dimensions_webacl_and_rule(self):
+        alarm_def = _get_alarm_defs("WAF")[0]
+        tags = {"_waf_rule": "my-rule"}
+        dims = _build_dimensions(alarm_def, "my-acl", "WAF", tags)
+        assert len(dims) == 2
+        assert dims[0] == {"Name": "WebACL", "Value": "my-acl"}
+        assert dims[1] == {"Name": "Rule", "Value": "my-rule"}
+
+    def test_waf_dimensions_default_rule_all(self):
+        alarm_def = _get_alarm_defs("WAF")[0]
+        tags = {}
+        dims = _build_dimensions(alarm_def, "my-acl", "WAF", tags)
+        assert len(dims) == 2
+        assert dims[1] == {"Name": "Rule", "Value": "ALL"}
+
+    def test_s3_dimensions_with_storage_type(self):
+        """S3 BucketSizeBytes (needs_storage_type=True) → BucketName + StorageType."""
+        s3_defs = _get_alarm_defs("S3")
+        storage_def = next(d for d in s3_defs if d.get("needs_storage_type"))
+        tags = {"_storage_type": "StandardStorage"}
+        dims = _build_dimensions(storage_def, "my-bucket", "S3", tags)
+        assert len(dims) == 2
+        assert dims[0] == {"Name": "BucketName", "Value": "my-bucket"}
+        assert dims[1] == {"Name": "StorageType", "Value": "StandardStorage"}
+
+    def test_s3_dimensions_without_storage_type(self):
+        """S3 4xxErrors (needs_storage_type=False) → BucketName only."""
+        s3_defs = _get_alarm_defs("S3")
+        no_storage_def = next(d for d in s3_defs if not d.get("needs_storage_type"))
+        tags = {"_storage_type": "StandardStorage"}
+        dims = _build_dimensions(no_storage_def, "my-bucket", "S3", tags)
+        assert len(dims) == 1
+        assert dims[0] == {"Name": "BucketName", "Value": "my-bucket"}
+
+    def test_sagemaker_dimensions_endpoint_and_variant(self):
+        alarm_def = _get_alarm_defs("SageMaker")[0]
+        tags = {"_variant_name": "AllTraffic"}
+        dims = _build_dimensions(alarm_def, "my-endpoint", "SageMaker", tags)
+        assert len(dims) == 2
+        assert dims[0] == {"Name": "EndpointName", "Value": "my-endpoint"}
+        assert dims[1] == {"Name": "VariantName", "Value": "AllTraffic"}
+
+    def test_ecs_missing_cluster_name_primary_only_with_warning(self):
+        alarm_def = _get_alarm_defs("ECS")[0]
+        tags = {}
+        with patch("common.dimension_builder.logger") as mock_logger:
+            dims = _build_dimensions(alarm_def, "my-service", "ECS", tags)
+        assert len(dims) == 1
+        assert dims[0] == {"Name": "ServiceName", "Value": "my-service"}
+        mock_logger.warning.assert_called()
+
+    def test_sagemaker_missing_variant_primary_only_with_warning(self):
+        alarm_def = _get_alarm_defs("SageMaker")[0]
+        tags = {}
+        with patch("common.dimension_builder.logger") as mock_logger:
+            dims = _build_dimensions(alarm_def, "my-endpoint", "SageMaker", tags)
+        assert len(dims) == 1
+        assert dims[0] == {"Name": "EndpointName", "Value": "my-endpoint"}
+        mock_logger.warning.assert_called()
+
+    def test_opensearch_compound_dimension_unchanged(self):
+        """기존 OpenSearch Compound_Dimension 동작 변경 없음 확인."""
+        alarm_def = _get_alarm_defs("OpenSearch")[0]
+        tags = {"_client_id": "123456789012"}
+        dims = _build_dimensions(alarm_def, "my-domain", "OpenSearch", tags)
+        assert len(dims) == 2
+        assert dims[0] == {"Name": "DomainName", "Value": "my-domain"}
+        assert dims[1] == {"Name": "ClientId", "Value": "123456789012"}
+
+
+# ──────────────────────────────────────────────
+# region 필드 테스트 (CloudFront, Route53 → us-east-1)
+# ──────────────────────────────────────────────
+
+class TestRegionField:
+    """CloudFront/Route53 알람 생성 시 us-east-1 CloudWatch 클라이언트 사용 검증.
+    Validates: Requirements 5.3, 7.4
+    """
+
+    @staticmethod
+    def _mock_cw():
+        mock_cw = MagicMock()
+        mock_paginator = MagicMock()
+        mock_paginator.paginate.return_value = [{"MetricAlarms": []}]
+        mock_cw.get_paginator.return_value = mock_paginator
+        return mock_cw
+
+    def test_cloudfront_alarm_uses_us_east_1_client(self):
+        default_cw = self._mock_cw()
+        regional_cw = self._mock_cw()
+        tags = {"Monitoring": "on", "Name": "my-cf"}
+        with patch("common._clients._get_cw_client", return_value=default_cw), \
+             patch("boto3.client", return_value=regional_cw) as mock_boto3_client:
+            created = create_alarms_for_resource("E1234", "CloudFront", tags)
+
+        assert len(created) == 4
+        # Should have used boto3.client("cloudwatch", region_name="us-east-1")
+        mock_boto3_client.assert_called_with("cloudwatch", region_name="us-east-1")
+        # All put_metric_alarm calls should be on the regional client
+        assert regional_cw.put_metric_alarm.call_count == 4
+        assert default_cw.put_metric_alarm.call_count == 0
+
+    def test_route53_alarm_uses_us_east_1_client(self):
+        default_cw = self._mock_cw()
+        regional_cw = self._mock_cw()
+        tags = {"Monitoring": "on", "Name": "my-hc"}
+        with patch("common._clients._get_cw_client", return_value=default_cw), \
+             patch("boto3.client", return_value=regional_cw) as mock_boto3_client:
+            created = create_alarms_for_resource("hc-001", "Route53", tags)
+
+        assert len(created) == 1
+        mock_boto3_client.assert_called_with("cloudwatch", region_name="us-east-1")
+        assert regional_cw.put_metric_alarm.call_count == 1
+        assert default_cw.put_metric_alarm.call_count == 0

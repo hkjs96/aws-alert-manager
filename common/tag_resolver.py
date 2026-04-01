@@ -196,6 +196,30 @@ def get_resource_tags(resource_id: str, resource_type: str) -> dict:
             return _get_clb_tags(resource_id)
         elif resource_type == "OpenSearch":
             return _get_opensearch_tags(resource_id)
+        elif resource_type == "SQS":
+            return _get_sqs_tags(resource_id)
+        elif resource_type == "ECS":
+            return _get_ecs_tags(resource_id)
+        elif resource_type == "MSK":
+            return _get_msk_tags(resource_id)
+        elif resource_type == "DynamoDB":
+            return _get_dynamodb_tags(resource_id)
+        elif resource_type == "CloudFront":
+            return _get_cloudfront_tags(resource_id)
+        elif resource_type == "WAF":
+            return _get_waf_tags(resource_id)
+        elif resource_type == "Route53":
+            return _get_route53_tags(resource_id)
+        elif resource_type == "DX":
+            return _get_dx_tags(resource_id)
+        elif resource_type == "EFS":
+            return _get_efs_tags(resource_id)
+        elif resource_type == "S3":
+            return _get_s3_tags(resource_id)
+        elif resource_type == "SageMaker":
+            return _get_sagemaker_tags(resource_id)
+        elif resource_type == "SNS":
+            return _get_sns_tags(resource_id)
         else:
             logger.warning("Unsupported resource_type %r for resource %s", resource_type, resource_id)
             return {}
@@ -441,3 +465,162 @@ def _get_opensearch_tags(domain_name: str) -> dict:
         return {}
     tag_resp = client.list_tags(ARN=domain_arn)
     return {t["Key"]: t["Value"] for t in tag_resp.get("TagList", [])}
+
+
+# ──────────────────────────────────────────────
+# 12개 신규 리소스 태그 조회 헬퍼 (Task 7)
+# ──────────────────────────────────────────────
+
+@functools.lru_cache(maxsize=None)
+def _get_sqs_client():
+    return boto3.client("sqs")
+
+
+@functools.lru_cache(maxsize=None)
+def _get_ecs_client():
+    return boto3.client("ecs")
+
+
+@functools.lru_cache(maxsize=None)
+def _get_kafka_client():
+    return boto3.client("kafka")
+
+
+@functools.lru_cache(maxsize=None)
+def _get_dynamodb_client():
+    return boto3.client("dynamodb")
+
+
+@functools.lru_cache(maxsize=None)
+def _get_cloudfront_client():
+    return boto3.client("cloudfront")
+
+
+@functools.lru_cache(maxsize=None)
+def _get_wafv2_client():
+    return boto3.client("wafv2")
+
+
+@functools.lru_cache(maxsize=None)
+def _get_route53_client():
+    return boto3.client("route53")
+
+
+@functools.lru_cache(maxsize=None)
+def _get_dx_client():
+    return boto3.client("directconnect")
+
+
+@functools.lru_cache(maxsize=None)
+def _get_efs_client():
+    return boto3.client("efs")
+
+
+@functools.lru_cache(maxsize=None)
+def _get_s3_client():
+    return boto3.client("s3")
+
+
+@functools.lru_cache(maxsize=None)
+def _get_sagemaker_client():
+    return boto3.client("sagemaker")
+
+
+@functools.lru_cache(maxsize=None)
+def _get_sns_client():
+    return boto3.client("sns")
+
+
+def _get_sqs_tags(queue_url: str) -> dict:
+    """SQS 큐 태그 조회. QueueUrl 기반."""
+    client = _get_sqs_client()
+    resp = client.list_queue_tags(QueueUrl=queue_url)
+    return resp.get("Tags", {})
+
+
+def _get_ecs_tags(resource_arn: str) -> dict:
+    """ECS 서비스/클러스터 태그 조회."""
+    client = _get_ecs_client()
+    resp = client.list_tags_for_resource(resourceArn=resource_arn)
+    return {t["key"]: t["value"] for t in resp.get("tags", [])}
+
+
+def _get_msk_tags(resource_arn: str) -> dict:
+    """MSK 클러스터 태그 조회."""
+    client = _get_kafka_client()
+    resp = client.list_tags_for_resource(ResourceArn=resource_arn)
+    return resp.get("Tags", {})
+
+
+def _get_dynamodb_tags(resource_arn: str) -> dict:
+    """DynamoDB 테이블 태그 조회."""
+    client = _get_dynamodb_client()
+    resp = client.list_tags_of_resource(ResourceArn=resource_arn)
+    return {t["Key"]: t["Value"] for t in resp.get("Tags", [])}
+
+
+def _get_cloudfront_tags(resource_arn: str) -> dict:
+    """CloudFront 배포 태그 조회."""
+    client = _get_cloudfront_client()
+    resp = client.list_tags_for_resource(Resource=resource_arn)
+    items = resp.get("Tags", {}).get("Items", [])
+    return {t["Key"]: t["Value"] for t in items}
+
+
+def _get_waf_tags(resource_arn: str) -> dict:
+    """WAF WebACL 태그 조회."""
+    client = _get_wafv2_client()
+    resp = client.list_tags_for_resource(ResourceARN=resource_arn)
+    tag_info = resp.get("TagInfoForResource", {})
+    return {t["Key"]: t["Value"] for t in tag_info.get("TagList", [])}
+
+
+def _get_route53_tags(health_check_id: str) -> dict:
+    """Route53 Health Check 태그 조회."""
+    client = _get_route53_client()
+    resp = client.list_tags_for_resource(
+        ResourceType="healthcheck", ResourceId=health_check_id
+    )
+    resource_tag_set = resp.get("ResourceTagSet", {})
+    return {t["Key"]: t["Value"] for t in resource_tag_set.get("Tags", [])}
+
+
+def _get_dx_tags(resource_arn: str) -> dict:
+    """Direct Connect 연결 태그 조회. DX는 소문자 key/value 사용."""
+    client = _get_dx_client()
+    resp = client.describe_tags(resourceArns=[resource_arn])
+    tags_list = resp.get("resourceTags", [])
+    if not tags_list:
+        return {}
+    return {t["key"]: t["value"] for t in tags_list[0].get("tags", [])}
+
+
+def _get_efs_tags(file_system_id: str) -> dict:
+    """EFS 파일 시스템 태그 조회. describe_file_systems의 Tags 필드 사용."""
+    client = _get_efs_client()
+    resp = client.describe_file_systems(FileSystemId=file_system_id)
+    file_systems = resp.get("FileSystems", [])
+    if not file_systems:
+        return {}
+    return {t["Key"]: t["Value"] for t in file_systems[0].get("Tags", [])}
+
+
+def _get_s3_tags(bucket_name: str) -> dict:
+    """S3 버킷 태그 조회."""
+    client = _get_s3_client()
+    resp = client.get_bucket_tagging(Bucket=bucket_name)
+    return {t["Key"]: t["Value"] for t in resp.get("TagSet", [])}
+
+
+def _get_sagemaker_tags(resource_arn: str) -> dict:
+    """SageMaker 엔드포인트 태그 조회."""
+    client = _get_sagemaker_client()
+    resp = client.list_tags(ResourceArn=resource_arn)
+    return {t["Key"]: t["Value"] for t in resp.get("Tags", [])}
+
+
+def _get_sns_tags(resource_arn: str) -> dict:
+    """SNS 토픽 태그 조회."""
+    client = _get_sns_client()
+    resp = client.list_tags_for_resource(ResourceArn=resource_arn)
+    return {t["Key"]: t["Value"] for t in resp.get("Tags", [])}

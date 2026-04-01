@@ -407,8 +407,86 @@ Resources:
         - AttributeName: id
           KeyType: HASH
 
+  # Backup Vault cleanup: recovery point가 남아있으면 DELETE_FAILED 발생하므로
+  # CustomResource로 스택 삭제 시 recovery point를 먼저 삭제한다.
+  BackupVaultCleanupRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${Environment}-e2e-backup-vault-cleanup-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: BackupVaultCleanup
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - backup:ListRecoveryPointsByBackupVault
+                  - backup:DeleteRecoveryPoint
+                Resource: '*'
+
+  BackupVaultCleanupFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${Environment}-e2e-backup-vault-cleanup'
+      Runtime: python3.12
+      Handler: index.handler
+      Timeout: 300
+      Role: !GetAtt BackupVaultCleanupRole.Arn
+      Code:
+        ZipFile: |
+          import json
+          import urllib.request
+          import boto3
+
+          def send_response(event, context, status, data=None):
+              body = json.dumps({
+                  "Status": status,
+                  "Reason": f"See CloudWatch Log Stream: {context.log_stream_name}",
+                  "PhysicalResourceId": event.get("PhysicalResourceId", "cleanup"),
+                  "StackId": event["StackId"],
+                  "RequestId": event["RequestId"],
+                  "LogicalResourceId": event["LogicalResourceId"],
+                  "Data": data or {},
+              }).encode()
+              req = urllib.request.Request(event["ResponseURL"], data=body,
+                  headers={"Content-Type": ""}, method="PUT")
+              urllib.request.urlopen(req)
+
+          def handler(event, context):
+              try:
+                  if event["RequestType"] == "Delete":
+                      vault = event["ResourceProperties"]["VaultName"]
+                      client = boto3.client("backup")
+                      paginator = client.get_paginator("list_recovery_points_by_backup_vault")
+                      for page in paginator.paginate(BackupVaultName=vault):
+                          for rp in page.get("RecoveryPoints", []):
+                              arn = rp["RecoveryPointArn"]
+                              print(f"Deleting recovery point: {arn}")
+                              client.delete_recovery_point(
+                                  BackupVaultName=vault, RecoveryPointArn=arn)
+                  send_response(event, context, "SUCCESS")
+              except Exception as e:
+                  print(f"Error: {e}")
+                  send_response(event, context, "SUCCESS")
+
+  BackupVaultCleanup:
+    Type: Custom::BackupVaultCleanup
+    Properties:
+      ServiceToken: !GetAtt BackupVaultCleanupFunction.Arn
+      VaultName: !Sub '${Environment}-e2e-backup-vault'
+
   BackupVault:
     Type: AWS::Backup::BackupVault
+    DependsOn: BackupVaultCleanup
     Properties:
       BackupVaultName: !Sub '${Environment}-e2e-backup-vault'
       BackupVaultTags:

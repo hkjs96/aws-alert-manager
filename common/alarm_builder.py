@@ -8,6 +8,7 @@ CloudWatch put_metric_alarm 호출을 담당하는 알람 생성 전담 모듈.
 import logging
 import os
 
+import boto3
 from botocore.exceptions import ClientError
 
 import common._clients as _clients
@@ -128,6 +129,11 @@ def _create_standard_alarm(
     sns_arn = _get_sns_alert_arn()
     resource_name = resource_tags.get("Name", "")
     metric = alarm_def["metric"]
+
+    # region 필드가 있으면 해당 리전의 CloudWatch 클라이언트 사용
+    region = alarm_def.get("region")
+    if region:
+        cw = boto3.client("cloudwatch", region_name=region)
 
     threshold, cw_threshold = resolve_threshold(alarm_def, resource_tags)
 
