@@ -110,6 +110,7 @@ class TestMQResolveAliveIds:
             HostInstanceType="mq.t3.micro",
             DeploymentMode="SINGLE_INSTANCE",
             PubliclyAccessible=False,
+            AutoMinorVersionUpgrade=True,
             Users=[{"Username": "admin", "Password": "admin12345678"}],
         )
 
@@ -130,6 +131,7 @@ class TestMQResolveAliveIds:
             HostInstanceType="mq.m5.large",
             DeploymentMode="ACTIVE_STANDBY_MULTI_AZ",
             PubliclyAccessible=False,
+            AutoMinorVersionUpgrade=True,
             Users=[{"Username": "admin", "Password": "admin12345678"}],
         )
 
@@ -159,6 +161,7 @@ class TestMQResolveAliveIds:
             HostInstanceType="mq.t3.micro",
             DeploymentMode="SINGLE_INSTANCE",
             PubliclyAccessible=False,
+            AutoMinorVersionUpgrade=True,
             Users=[{"Username": "admin", "Password": "admin12345678"}],
         )
 
@@ -181,6 +184,7 @@ class TestMQResolveAliveIds:
             HostInstanceType="mq.t3.micro",
             DeploymentMode="SINGLE_INSTANCE",
             PubliclyAccessible=False,
+            AutoMinorVersionUpgrade=True,
             Users=[{"Username": "admin", "Password": "admin12345678"}],
         )
 
