@@ -412,7 +412,7 @@ Resources:
   BackupVaultCleanupRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub '${Environment}-e2e-backup-vault-cleanup-role'
+      RoleName: !Sub '${Environment}-e2e-backup-vault-v2-cleanup-role'
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -436,7 +436,7 @@ Resources:
   BackupVaultCleanupFunction:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub '${Environment}-e2e-backup-vault-cleanup'
+      FunctionName: !Sub '${Environment}-e2e-backup-vault-v2-cleanup'
       Runtime: python3.12
       Handler: index.handler
       Timeout: 300
@@ -482,13 +482,13 @@ Resources:
     Type: Custom::BackupVaultCleanup
     Properties:
       ServiceToken: !GetAtt BackupVaultCleanupFunction.Arn
-      VaultName: !Sub '${Environment}-e2e-backup-vault'
+      VaultName: !Sub '${Environment}-e2e-backup-vault-v2'
 
   BackupVault:
     Type: AWS::Backup::BackupVault
     DependsOn: BackupVaultCleanup
     Properties:
-      BackupVaultName: !Sub '${Environment}-e2e-backup-vault'
+      BackupVaultName: !Sub '${Environment}-e2e-backup-vault-v2'
       BackupVaultTags:
         Monitoring: 'on'
 
