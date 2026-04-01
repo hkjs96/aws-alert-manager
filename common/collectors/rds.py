@@ -430,6 +430,27 @@ def _collect_metric(namespace, cw_metric_name, dimensions,
                     dimensions[0]["Value"] if dimensions else "unknown")
 
 
+def resolve_alive_ids(tag_names: set[str]) -> set[str]:
+    """RDS DB 인스턴스 존재 여부 확인."""
+    rds = _get_rds_client()
+    alive: set[str] = set()
+
+    for db_id in tag_names:
+        try:
+            rds.describe_db_instances(DBInstanceIdentifier=db_id)
+            alive.add(db_id)
+        except ClientError as e:
+            code = e.response["Error"]["Code"]
+            if code == "DBInstanceNotFound":
+                logger.info("RDS instance not found (orphan): %s", db_id)
+            else:
+                logger.error(
+                    "describe_db_instances failed for %s: %s", db_id, e,
+                )
+
+    return alive
+
+
 def _get_tags(rds_client, db_arn: str) -> dict:
     if not db_arn:
         return {}

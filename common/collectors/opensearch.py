@@ -169,6 +169,23 @@ def get_metrics(
     return metrics if metrics else None
 
 
+def resolve_alive_ids(tag_names: set[str]) -> set[str]:
+    """OpenSearch 도메인 존재 여부 확인. 삭제된 도메인 제외."""
+    client = _get_opensearch_client()
+    alive: set[str] = set()
+    name_list = list(tag_names)
+    for i in range(0, len(name_list), 5):
+        batch = name_list[i:i + 5]
+        try:
+            resp = client.describe_domains(DomainNames=batch)
+            for d in resp.get("DomainStatusList", []):
+                if not d.get("Deleted", False):
+                    alive.add(d["DomainName"])
+        except ClientError as e:
+            logger.error("describe_domains failed: %s", e)
+    return alive
+
+
 def _collect_metric(namespace, cw_metric_name, dimensions,
                     start_time, end_time, result_key, metrics_dict, stat):
     """단일 메트릭 조회 후 metrics_dict에 추가. 데이터 없으면 skip + info 로그."""

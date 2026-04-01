@@ -389,7 +389,7 @@ class TestClassifyAlarm:
 
 
 class TestCleanupOrphanAlarms:
-    """_cleanup_orphan_alarms 통합 테스트 — EC2/RDS/ELB/TG 고아 알람 정리."""
+    """_cleanup_orphan_alarms 통합 테스트 — collector-based 고아 알람 정리."""
 
     def test_ec2_orphan_deleted(self):
         """terminated EC2 인스턴스의 알람 삭제."""
@@ -400,15 +400,9 @@ class TestCleanupOrphanAlarms:
         ]}]
         mock_cw.get_paginator.return_value = mock_paginator
 
-        mock_ec2 = MagicMock()
-        mock_ec2.describe_instances.return_value = {
-            "Reservations": [{"Instances": [
-                {"InstanceId": "i-dead", "State": {"Name": "terminated"}},
-            ]}],
-        }
-
         with patch("daily_monitor.lambda_handler._get_cw_client", return_value=mock_cw), \
-             patch("daily_monitor.lambda_handler._get_ec2_client", return_value=mock_ec2):
+             patch("daily_monitor.lambda_handler.ec2_collector.resolve_alive_ids",
+                   return_value=set()):
             deleted = _cleanup_orphan_alarms()
 
         assert "[EC2] srv CPU > 80% (TagName: i-dead)" in deleted
@@ -416,8 +410,6 @@ class TestCleanupOrphanAlarms:
 
     def test_rds_orphan_deleted(self):
         """존재하지 않는 RDS 인스턴스의 알람 삭제."""
-        from botocore.exceptions import ClientError
-
         mock_cw = MagicMock()
         mock_paginator = MagicMock()
         mock_paginator.paginate.return_value = [{"MetricAlarms": [
@@ -425,22 +417,15 @@ class TestCleanupOrphanAlarms:
         ]}]
         mock_cw.get_paginator.return_value = mock_paginator
 
-        mock_rds = MagicMock()
-        mock_rds.describe_db_instances.side_effect = ClientError(
-            {"Error": {"Code": "DBInstanceNotFound", "Message": "not found"}},
-            "DescribeDBInstances",
-        )
-
         with patch("daily_monitor.lambda_handler._get_cw_client", return_value=mock_cw), \
-             patch("daily_monitor.lambda_handler._get_rds_client", return_value=mock_rds):
+             patch("daily_monitor.lambda_handler.rds_collector.resolve_alive_ids",
+                   return_value=set()):
             deleted = _cleanup_orphan_alarms()
 
         assert "[RDS] my-db CPUUtilization > 80% (TagName: db-gone)" in deleted
 
     def test_elb_orphan_deleted(self):
         """존재하지 않는 ELB의 알람 삭제."""
-        from botocore.exceptions import ClientError
-
         arn = "arn:aws:elasticloadbalancing:us-east-1:123:loadbalancer/app/my-alb/abc"
         mock_cw = MagicMock()
         mock_paginator = MagicMock()
@@ -449,14 +434,9 @@ class TestCleanupOrphanAlarms:
         ]}]
         mock_cw.get_paginator.return_value = mock_paginator
 
-        mock_elb = MagicMock()
-        mock_elb.describe_load_balancers.side_effect = ClientError(
-            {"Error": {"Code": "LoadBalancerNotFound", "Message": "not found"}},
-            "DescribeLoadBalancers",
-        )
-
         with patch("daily_monitor.lambda_handler._get_cw_client", return_value=mock_cw), \
-             patch("daily_monitor.lambda_handler._get_elb_client", return_value=mock_elb):
+             patch("daily_monitor.lambda_handler.elb_collector.resolve_alive_ids",
+                   return_value=set()):
             deleted = _cleanup_orphan_alarms()
 
         assert len(deleted) == 1
@@ -471,15 +451,9 @@ class TestCleanupOrphanAlarms:
         ]}]
         mock_cw.get_paginator.return_value = mock_paginator
 
-        mock_ec2 = MagicMock()
-        mock_ec2.describe_instances.return_value = {
-            "Reservations": [{"Instances": [
-                {"InstanceId": "i-alive", "State": {"Name": "running"}},
-            ]}],
-        }
-
         with patch("daily_monitor.lambda_handler._get_cw_client", return_value=mock_cw), \
-             patch("daily_monitor.lambda_handler._get_ec2_client", return_value=mock_ec2):
+             patch("daily_monitor.lambda_handler.ec2_collector.resolve_alive_ids",
+                   return_value={"i-alive"}):
             deleted = _cleanup_orphan_alarms()
 
         assert deleted == []
@@ -494,15 +468,9 @@ class TestCleanupOrphanAlarms:
         ]}]
         mock_cw.get_paginator.return_value = mock_paginator
 
-        mock_ec2 = MagicMock()
-        mock_ec2.describe_instances.return_value = {
-            "Reservations": [{"Instances": [
-                {"InstanceId": "i-0dead1234567890ab", "State": {"Name": "terminated"}},
-            ]}],
-        }
-
         with patch("daily_monitor.lambda_handler._get_cw_client", return_value=mock_cw), \
-             patch("daily_monitor.lambda_handler._get_ec2_client", return_value=mock_ec2):
+             patch("daily_monitor.lambda_handler.ec2_collector.resolve_alive_ids",
+                   return_value=set()):
             deleted = _cleanup_orphan_alarms()
 
         assert "i-0dead1234567890ab-CPU-prod" in deleted
@@ -521,8 +489,6 @@ class TestCleanupOrphanAlarms:
 
     def test_alb_orphan_deleted(self):
         """존재하지 않는 ALB의 알람 삭제."""
-        from botocore.exceptions import ClientError
-
         arn = "arn:aws:elasticloadbalancing:us-east-1:123:loadbalancer/app/my-alb/abc"
         mock_cw = MagicMock()
         mock_paginator = MagicMock()
@@ -531,14 +497,9 @@ class TestCleanupOrphanAlarms:
         ]}]
         mock_cw.get_paginator.return_value = mock_paginator
 
-        mock_elb = MagicMock()
-        mock_elb.describe_load_balancers.side_effect = ClientError(
-            {"Error": {"Code": "LoadBalancerNotFound", "Message": "not found"}},
-            "DescribeLoadBalancers",
-        )
-
         with patch("daily_monitor.lambda_handler._get_cw_client", return_value=mock_cw), \
-             patch("daily_monitor.lambda_handler._get_elb_client", return_value=mock_elb):
+             patch("daily_monitor.lambda_handler.elb_collector.resolve_alive_ids",
+                   return_value=set()):
             deleted = _cleanup_orphan_alarms()
 
         assert len(deleted) == 1
@@ -546,8 +507,6 @@ class TestCleanupOrphanAlarms:
 
     def test_nlb_orphan_deleted(self):
         """존재하지 않는 NLB의 알람 삭제."""
-        from botocore.exceptions import ClientError
-
         arn = "arn:aws:elasticloadbalancing:us-east-1:123:loadbalancer/net/my-nlb/def"
         mock_cw = MagicMock()
         mock_paginator = MagicMock()
@@ -556,14 +515,9 @@ class TestCleanupOrphanAlarms:
         ]}]
         mock_cw.get_paginator.return_value = mock_paginator
 
-        mock_elb = MagicMock()
-        mock_elb.describe_load_balancers.side_effect = ClientError(
-            {"Error": {"Code": "LoadBalancerNotFound", "Message": "not found"}},
-            "DescribeLoadBalancers",
-        )
-
         with patch("daily_monitor.lambda_handler._get_cw_client", return_value=mock_cw), \
-             patch("daily_monitor.lambda_handler._get_elb_client", return_value=mock_elb):
+             patch("daily_monitor.lambda_handler.elb_collector.resolve_alive_ids",
+                   return_value=set()):
             deleted = _cleanup_orphan_alarms()
 
         assert len(deleted) == 1
@@ -656,8 +610,6 @@ class TestCleanupOrphanAlarmsAuroraRDS:
 
     def test_aurora_rds_orphan_alarm_deleted(self):
         """삭제된 Aurora DB 인스턴스의 알람이 고아로 삭제됨."""
-        from botocore.exceptions import ClientError
-
         mock_cw = MagicMock()
         mock_paginator = MagicMock()
         mock_paginator.paginate.return_value = [{"MetricAlarms": [
@@ -665,14 +617,9 @@ class TestCleanupOrphanAlarmsAuroraRDS:
         ]}]
         mock_cw.get_paginator.return_value = mock_paginator
 
-        mock_rds = MagicMock()
-        mock_rds.describe_db_instances.side_effect = ClientError(
-            {"Error": {"Code": "DBInstanceNotFound", "Message": "not found"}},
-            "DescribeDBInstances",
-        )
-
         with patch("daily_monitor.lambda_handler._get_cw_client", return_value=mock_cw), \
-             patch("daily_monitor.lambda_handler._get_rds_client", return_value=mock_rds):
+             patch("daily_monitor.lambda_handler.rds_collector.resolve_alive_ids",
+                   return_value=set()):
             deleted = _cleanup_orphan_alarms()
 
         assert "[AuroraRDS] my-aurora FreeLocalStorage < 10GB (TagName: aurora-db-gone)" in deleted
@@ -687,25 +634,22 @@ class TestCleanupOrphanAlarmsAuroraRDS:
         ]}]
         mock_cw.get_paginator.return_value = mock_paginator
 
-        mock_rds = MagicMock()
-        mock_rds.describe_db_instances.return_value = {
-            "DBInstances": [{"DBInstanceIdentifier": "aurora-db-alive"}],
-        }
-
         with patch("daily_monitor.lambda_handler._get_cw_client", return_value=mock_cw), \
-             patch("daily_monitor.lambda_handler._get_rds_client", return_value=mock_rds):
+             patch("daily_monitor.lambda_handler.rds_collector.resolve_alive_ids",
+                   return_value={"aurora-db-alive"}):
             deleted = _cleanup_orphan_alarms()
 
         assert deleted == []
         mock_cw.delete_alarms.assert_not_called()
 
-    def test_aurora_rds_uses_find_alive_rds_instances(self):
-        """alive_checkers['AuroraRDS'] == _find_alive_rds_instances 검증."""
-        from daily_monitor.lambda_handler import _find_alive_rds_instances
+    def test_aurora_rds_uses_rds_collector_resolve_alive_ids(self):
+        """_RESOURCE_TYPE_TO_COLLECTOR['AuroraRDS'] == rds_collector 검증."""
+        from daily_monitor.lambda_handler import _RESOURCE_TYPE_TO_COLLECTOR
+        from common.collectors import rds as rds_mod
 
-        # Verify by checking that AuroraRDS alarms trigger RDS describe_db_instances
-        from botocore.exceptions import ClientError
+        assert _RESOURCE_TYPE_TO_COLLECTOR["AuroraRDS"] is rds_mod
 
+        # Also verify via integration: AuroraRDS alarms trigger rds_collector.resolve_alive_ids
         mock_cw = MagicMock()
         mock_paginator = MagicMock()
         mock_paginator.paginate.return_value = [{"MetricAlarms": [
@@ -713,20 +657,12 @@ class TestCleanupOrphanAlarmsAuroraRDS:
         ]}]
         mock_cw.get_paginator.return_value = mock_paginator
 
-        mock_rds = MagicMock()
-        mock_rds.describe_db_instances.side_effect = ClientError(
-            {"Error": {"Code": "DBInstanceNotFound", "Message": "not found"}},
-            "DescribeDBInstances",
-        )
-
         with patch("daily_monitor.lambda_handler._get_cw_client", return_value=mock_cw), \
-             patch("daily_monitor.lambda_handler._get_rds_client", return_value=mock_rds):
+             patch("daily_monitor.lambda_handler.rds_collector.resolve_alive_ids",
+                   return_value=set()) as mock_resolve:
             deleted = _cleanup_orphan_alarms()
 
-        # RDS describe_db_instances was called for the AuroraRDS alarm's resource_id
-        mock_rds.describe_db_instances.assert_called_once_with(
-            DBInstanceIdentifier="aurora-db-001",
-        )
+        mock_resolve.assert_called_once_with({"aurora-db-001"})
         assert len(deleted) == 1
 
 
@@ -863,10 +799,7 @@ class TestDailyMonitorDocDBIntegration:
         )
 
     def test_alive_checkers_includes_docdb(self):
-        """_cleanup_orphan_alarms()의 alive_checkers에 'DocDB' 키 존재 검증 — Req 8.1"""
-        # We verify by checking that a DocDB alarm triggers the RDS alive checker
-        from botocore.exceptions import ClientError
-
+        """_RESOURCE_TYPE_TO_COLLECTOR에 'DocDB' 키 존재 검증 — Req 8.1"""
         mock_cw = MagicMock()
         mock_paginator = MagicMock()
         mock_paginator.paginate.return_value = [{"MetricAlarms": [
@@ -874,20 +807,12 @@ class TestDailyMonitorDocDBIntegration:
         ]}]
         mock_cw.get_paginator.return_value = mock_paginator
 
-        mock_rds = MagicMock()
-        mock_rds.describe_db_instances.side_effect = ClientError(
-            {"Error": {"Code": "DBInstanceNotFound", "Message": "not found"}},
-            "DescribeDBInstances",
-        )
-
         with patch("daily_monitor.lambda_handler._get_cw_client", return_value=mock_cw), \
-             patch("daily_monitor.lambda_handler._get_rds_client", return_value=mock_rds):
+             patch("daily_monitor.lambda_handler.docdb_collector.resolve_alive_ids",
+                   return_value=set()):
             deleted = _cleanup_orphan_alarms()
 
         assert "[DocDB] my-docdb CPU > 80% (TagName: docdb-gone)" in deleted
-        mock_rds.describe_db_instances.assert_called_once_with(
-            DBInstanceIdentifier="docdb-gone",
-        )
 
     def test_docdb_alive_instance_not_deleted(self):
         """존재하는 DocDB 인스턴스의 알람은 삭제하지 않음 — Req 8.3"""
@@ -898,13 +823,9 @@ class TestDailyMonitorDocDBIntegration:
         ]}]
         mock_cw.get_paginator.return_value = mock_paginator
 
-        mock_rds = MagicMock()
-        mock_rds.describe_db_instances.return_value = {
-            "DBInstances": [{"DBInstanceIdentifier": "docdb-alive"}],
-        }
-
         with patch("daily_monitor.lambda_handler._get_cw_client", return_value=mock_cw), \
-             patch("daily_monitor.lambda_handler._get_rds_client", return_value=mock_rds):
+             patch("daily_monitor.lambda_handler.docdb_collector.resolve_alive_ids",
+                   return_value={"docdb-alive"}):
             deleted = _cleanup_orphan_alarms()
 
         assert deleted == []
@@ -1040,96 +961,87 @@ class TestNewResourceDailyMonitorIntegration:
         module_names = [m.__name__ for m in _COLLECTOR_MODULES]
         assert "common.collectors.opensearch" in module_names
 
-    # ── alive_checkers 검증 ──
+    # ── _RESOURCE_TYPE_TO_COLLECTOR 검증 ──
 
-    def _get_alive_checkers(self):
-        """alive_checkers dict를 추출하기 위해 _cleanup_orphan_alarms 내부를 검사."""
-        # alive_checkers는 _cleanup_orphan_alarms() 내부 로컬 변수이므로
-        # 소스 코드에서 직접 검증하는 대신, 각 타입의 알람이 올바른 checker를 트리거하는지 확인
-        import inspect
-        from daily_monitor import lambda_handler as mod
-        source = inspect.getsource(mod._cleanup_orphan_alarms)
-        return source
+    def test_resource_type_to_collector_has_lambda_key(self):
+        """_RESOURCE_TYPE_TO_COLLECTOR에 'Lambda' 키 존재 — Req 12.1"""
+        from daily_monitor.lambda_handler import _RESOURCE_TYPE_TO_COLLECTOR
+        assert "Lambda" in _RESOURCE_TYPE_TO_COLLECTOR
 
-    def test_alive_checkers_has_lambda_key(self):
-        """alive_checkers에 'Lambda' 키 존재 + callable — Req 12.1"""
-        source = self._get_alive_checkers()
-        assert '"Lambda"' in source or "'Lambda'" in source
+    def test_resource_type_to_collector_has_vpn_key(self):
+        """_RESOURCE_TYPE_TO_COLLECTOR에 'VPN' 키 존재 — Req 12.1"""
+        from daily_monitor.lambda_handler import _RESOURCE_TYPE_TO_COLLECTOR
+        assert "VPN" in _RESOURCE_TYPE_TO_COLLECTOR
 
-    def test_alive_checkers_has_vpn_key(self):
-        """alive_checkers에 'VPN' 키 존재 + callable — Req 12.1"""
-        source = self._get_alive_checkers()
-        assert '"VPN"' in source or "'VPN'" in source
+    def test_resource_type_to_collector_has_apigw_key(self):
+        """_RESOURCE_TYPE_TO_COLLECTOR에 'APIGW' 키 존재 — Req 12.1"""
+        from daily_monitor.lambda_handler import _RESOURCE_TYPE_TO_COLLECTOR
+        assert "APIGW" in _RESOURCE_TYPE_TO_COLLECTOR
 
-    def test_alive_checkers_has_apigw_key(self):
-        """alive_checkers에 'APIGW' 키 존재 + callable — Req 12.1"""
-        source = self._get_alive_checkers()
-        assert '"APIGW"' in source or "'APIGW'" in source
+    def test_resource_type_to_collector_has_acm_key(self):
+        """_RESOURCE_TYPE_TO_COLLECTOR에 'ACM' 키 존재 — Req 12.1"""
+        from daily_monitor.lambda_handler import _RESOURCE_TYPE_TO_COLLECTOR
+        assert "ACM" in _RESOURCE_TYPE_TO_COLLECTOR
 
-    def test_alive_checkers_has_acm_key(self):
-        """alive_checkers에 'ACM' 키 존재 + callable — Req 12.1"""
-        source = self._get_alive_checkers()
-        assert '"ACM"' in source or "'ACM'" in source
+    def test_resource_type_to_collector_has_backup_key(self):
+        """_RESOURCE_TYPE_TO_COLLECTOR에 'Backup' 키 존재 — Req 12.1"""
+        from daily_monitor.lambda_handler import _RESOURCE_TYPE_TO_COLLECTOR
+        assert "Backup" in _RESOURCE_TYPE_TO_COLLECTOR
 
-    def test_alive_checkers_has_backup_key(self):
-        """alive_checkers에 'Backup' 키 존재 + callable — Req 12.1"""
-        source = self._get_alive_checkers()
-        assert '"Backup"' in source or "'Backup'" in source
+    def test_resource_type_to_collector_has_mq_key(self):
+        """_RESOURCE_TYPE_TO_COLLECTOR에 'MQ' 키 존재 — Req 12.1"""
+        from daily_monitor.lambda_handler import _RESOURCE_TYPE_TO_COLLECTOR
+        assert "MQ" in _RESOURCE_TYPE_TO_COLLECTOR
 
-    def test_alive_checkers_has_mq_key(self):
-        """alive_checkers에 'MQ' 키 존재 + callable — Req 12.1"""
-        source = self._get_alive_checkers()
-        assert '"MQ"' in source or "'MQ'" in source
+    def test_resource_type_to_collector_has_clb_key(self):
+        """_RESOURCE_TYPE_TO_COLLECTOR에 'CLB' 키 존재 — Req 12.1"""
+        from daily_monitor.lambda_handler import _RESOURCE_TYPE_TO_COLLECTOR
+        assert "CLB" in _RESOURCE_TYPE_TO_COLLECTOR
 
-    def test_alive_checkers_has_clb_key(self):
-        """alive_checkers에 'CLB' 키 존재 + callable — Req 12.1"""
-        source = self._get_alive_checkers()
-        assert '"CLB"' in source or "'CLB'" in source
+    def test_resource_type_to_collector_has_opensearch_key(self):
+        """_RESOURCE_TYPE_TO_COLLECTOR에 'OpenSearch' 키 존재 — Req 12.1"""
+        from daily_monitor.lambda_handler import _RESOURCE_TYPE_TO_COLLECTOR
+        assert "OpenSearch" in _RESOURCE_TYPE_TO_COLLECTOR
 
-    def test_alive_checkers_has_opensearch_key(self):
-        """alive_checkers에 'OpenSearch' 키 존재 + callable — Req 12.1"""
-        source = self._get_alive_checkers()
-        assert '"OpenSearch"' in source or "'OpenSearch'" in source
+    def test_collector_lambda_has_resolve_alive_ids(self):
+        """Lambda collector에 resolve_alive_ids 메서드 존재 — Req 12.3"""
+        from daily_monitor.lambda_handler import _RESOURCE_TYPE_TO_COLLECTOR
+        assert callable(getattr(_RESOURCE_TYPE_TO_COLLECTOR["Lambda"], "resolve_alive_ids", None))
 
-    def test_alive_checker_lambda_is_callable(self):
-        """Lambda alive checker 함수가 callable — Req 12.3"""
-        from daily_monitor.lambda_handler import _find_alive_lambda_functions
-        assert callable(_find_alive_lambda_functions)
+    def test_collector_vpn_has_resolve_alive_ids(self):
+        """VPN collector에 resolve_alive_ids 메서드 존재 — Req 12.3"""
+        from daily_monitor.lambda_handler import _RESOURCE_TYPE_TO_COLLECTOR
+        assert callable(getattr(_RESOURCE_TYPE_TO_COLLECTOR["VPN"], "resolve_alive_ids", None))
 
-    def test_alive_checker_vpn_is_callable(self):
-        """VPN alive checker 함수가 callable — Req 12.3"""
-        from daily_monitor.lambda_handler import _find_alive_vpn_connections
-        assert callable(_find_alive_vpn_connections)
+    def test_collector_apigw_has_resolve_alive_ids(self):
+        """APIGW collector에 resolve_alive_ids 메서드 존재 — Req 12.3"""
+        from daily_monitor.lambda_handler import _RESOURCE_TYPE_TO_COLLECTOR
+        assert callable(getattr(_RESOURCE_TYPE_TO_COLLECTOR["APIGW"], "resolve_alive_ids", None))
 
-    def test_alive_checker_apigw_is_callable(self):
-        """APIGW alive checker 함수가 callable — Req 12.3"""
-        from daily_monitor.lambda_handler import _find_alive_apigw_apis
-        assert callable(_find_alive_apigw_apis)
+    def test_collector_acm_has_resolve_alive_ids(self):
+        """ACM collector에 resolve_alive_ids 메서드 존재 — Req 12.3"""
+        from daily_monitor.lambda_handler import _RESOURCE_TYPE_TO_COLLECTOR
+        assert callable(getattr(_RESOURCE_TYPE_TO_COLLECTOR["ACM"], "resolve_alive_ids", None))
 
-    def test_alive_checker_acm_is_callable(self):
-        """ACM alive checker 함수가 callable — Req 12.3"""
-        from daily_monitor.lambda_handler import _find_alive_acm_certificates
-        assert callable(_find_alive_acm_certificates)
+    def test_collector_backup_has_resolve_alive_ids(self):
+        """Backup collector에 resolve_alive_ids 메서드 존재 — Req 12.3"""
+        from daily_monitor.lambda_handler import _RESOURCE_TYPE_TO_COLLECTOR
+        assert callable(getattr(_RESOURCE_TYPE_TO_COLLECTOR["Backup"], "resolve_alive_ids", None))
 
-    def test_alive_checker_backup_is_callable(self):
-        """Backup alive checker 함수가 callable — Req 12.3"""
-        from daily_monitor.lambda_handler import _find_alive_backup_vaults
-        assert callable(_find_alive_backup_vaults)
+    def test_collector_mq_has_resolve_alive_ids(self):
+        """MQ collector에 resolve_alive_ids 메서드 존재 — Req 12.3"""
+        from daily_monitor.lambda_handler import _RESOURCE_TYPE_TO_COLLECTOR
+        assert callable(getattr(_RESOURCE_TYPE_TO_COLLECTOR["MQ"], "resolve_alive_ids", None))
 
-    def test_alive_checker_mq_is_callable(self):
-        """MQ alive checker 함수가 callable — Req 12.3"""
-        from daily_monitor.lambda_handler import _find_alive_mq_brokers
-        assert callable(_find_alive_mq_brokers)
+    def test_collector_clb_has_resolve_alive_ids(self):
+        """CLB collector에 resolve_alive_ids 메서드 존재 — Req 12.3"""
+        from daily_monitor.lambda_handler import _RESOURCE_TYPE_TO_COLLECTOR
+        assert callable(getattr(_RESOURCE_TYPE_TO_COLLECTOR["CLB"], "resolve_alive_ids", None))
 
-    def test_alive_checker_clb_is_callable(self):
-        """CLB alive checker 함수가 callable — Req 12.3"""
-        from daily_monitor.lambda_handler import _find_alive_clb_load_balancers
-        assert callable(_find_alive_clb_load_balancers)
-
-    def test_alive_checker_opensearch_is_callable(self):
-        """OpenSearch alive checker 함수가 callable — Req 12.3"""
-        from daily_monitor.lambda_handler import _find_alive_opensearch_domains
-        assert callable(_find_alive_opensearch_domains)
+    def test_collector_opensearch_has_resolve_alive_ids(self):
+        """OpenSearch collector에 resolve_alive_ids 메서드 존재 — Req 12.3"""
+        from daily_monitor.lambda_handler import _RESOURCE_TYPE_TO_COLLECTOR
+        assert callable(getattr(_RESOURCE_TYPE_TO_COLLECTOR["OpenSearch"], "resolve_alive_ids", None))
 
     # ── "낮을수록 위험" 메트릭 세트 검증 ──
 

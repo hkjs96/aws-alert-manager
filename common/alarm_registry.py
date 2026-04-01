@@ -84,6 +84,42 @@ _METRIC_DISPLAY = {
     "JVMMemoryPressure": ("JVMMemoryPressure", ">", "%"),
     "MasterCPU": ("MasterCPUUtilization", ">", "%"),
     "MasterJVMMemoryPressure": ("MasterJVMMemoryPressure", ">", "%"),
+    "SQSMessagesVisible": ("ApproximateNumberOfMessagesVisible", ">", ""),
+    "SQSOldestMessage": ("ApproximateAgeOfOldestMessage", ">", "s"),
+    "SQSMessagesSent": ("NumberOfMessagesSent", ">", ""),
+    "EcsCPU": ("CPUUtilization", ">", "%"),
+    "EcsMemory": ("MemoryUtilization", ">", "%"),
+    "RunningTaskCount": ("RunningTaskCount", "<", ""),
+    "OffsetLag": ("SumOffsetLag", ">", ""),
+    "BytesInPerSec": ("BytesInPerSec", ">", "B/s"),
+    "UnderReplicatedPartitions": ("UnderReplicatedPartitions", ">", ""),
+    "ActiveControllerCount": ("ActiveControllerCount", "<", ""),
+    "DDBReadCapacity": ("ConsumedReadCapacityUnits", ">", ""),
+    "DDBWriteCapacity": ("ConsumedWriteCapacityUnits", ">", ""),
+    "ThrottledRequests": ("ThrottledRequests", ">", ""),
+    "DDBSystemErrors": ("SystemErrors", ">", ""),
+    "CF5xxErrorRate": ("5xxErrorRate", ">", "%"),
+    "CF4xxErrorRate": ("4xxErrorRate", ">", "%"),
+    "CFRequests": ("Requests", ">", ""),
+    "CFBytesDownloaded": ("BytesDownloaded", ">", "B"),
+    "WAFBlockedRequests": ("BlockedRequests", ">", ""),
+    "WAFAllowedRequests": ("AllowedRequests", ">", ""),
+    "WAFCountedRequests": ("CountedRequests", ">", ""),
+    "HealthCheckStatus": ("HealthCheckStatus", "<", ""),
+    "ConnectionState": ("ConnectionState", "<", ""),
+    "BurstCreditBalance": ("BurstCreditBalance", "<", ""),
+    "PercentIOLimit": ("PercentIOLimit", ">", "%"),
+    "EFSClientConnections": ("ClientConnections", ">", ""),
+    "S34xxErrors": ("4xxErrors", ">", ""),
+    "S35xxErrors": ("5xxErrors", ">", ""),
+    "S3BucketSizeBytes": ("BucketSizeBytes", ">", "B"),
+    "S3NumberOfObjects": ("NumberOfObjects", ">", ""),
+    "SMInvocations": ("Invocations", ">", ""),
+    "SMInvocationErrors": ("InvocationErrors", ">", ""),
+    "SMModelLatency": ("ModelLatency", ">", "μs"),
+    "SMCPU": ("CPUUtilization", ">", "%"),
+    "SNSNotificationsFailed": ("NumberOfNotificationsFailed", ">", ""),
+    "SNSMessagesPublished": ("NumberOfMessagesPublished", ">", ""),
 }
 
 
@@ -990,6 +1026,412 @@ _OPENSEARCH_ALARMS = [
     },
 ]
 
+_SQS_ALARMS = [
+    {
+        "metric": "SQSMessagesVisible",
+        "namespace": "AWS/SQS",
+        "metric_name": "ApproximateNumberOfMessagesVisible",
+        "dimension_key": "QueueName",
+        "stat": "Average",
+        "comparison": "GreaterThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+    },
+    {
+        "metric": "SQSOldestMessage",
+        "namespace": "AWS/SQS",
+        "metric_name": "ApproximateAgeOfOldestMessage",
+        "dimension_key": "QueueName",
+        "stat": "Maximum",
+        "comparison": "GreaterThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+    },
+    {
+        "metric": "SQSMessagesSent",
+        "namespace": "AWS/SQS",
+        "metric_name": "NumberOfMessagesSent",
+        "dimension_key": "QueueName",
+        "stat": "Sum",
+        "comparison": "GreaterThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+    },
+]
+
+_ECS_ALARMS = [
+    {
+        "metric": "EcsCPU",
+        "namespace": "AWS/ECS",
+        "metric_name": "CPUUtilization",
+        "dimension_key": "ServiceName",
+        "stat": "Average",
+        "comparison": "GreaterThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+    },
+    {
+        "metric": "EcsMemory",
+        "namespace": "AWS/ECS",
+        "metric_name": "MemoryUtilization",
+        "dimension_key": "ServiceName",
+        "stat": "Average",
+        "comparison": "GreaterThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+    },
+    {
+        "metric": "RunningTaskCount",
+        "namespace": "AWS/ECS",
+        "metric_name": "RunningTaskCount",
+        "dimension_key": "ServiceName",
+        "stat": "Average",
+        "comparison": "LessThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+    },
+]
+
+_MSK_ALARMS = [
+    {
+        "metric": "OffsetLag",
+        "namespace": "AWS/Kafka",
+        "metric_name": "SumOffsetLag",
+        "dimension_key": "Cluster Name",
+        "stat": "Maximum",
+        "comparison": "GreaterThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+    },
+    {
+        "metric": "BytesInPerSec",
+        "namespace": "AWS/Kafka",
+        "metric_name": "BytesInPerSec",
+        "dimension_key": "Cluster Name",
+        "stat": "Average",
+        "comparison": "GreaterThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+    },
+    {
+        "metric": "UnderReplicatedPartitions",
+        "namespace": "AWS/Kafka",
+        "metric_name": "UnderReplicatedPartitions",
+        "dimension_key": "Cluster Name",
+        "stat": "Maximum",
+        "comparison": "GreaterThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+    },
+    {
+        "metric": "ActiveControllerCount",
+        "namespace": "AWS/Kafka",
+        "metric_name": "ActiveControllerCount",
+        "dimension_key": "Cluster Name",
+        "stat": "Average",
+        "comparison": "LessThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+        "treat_missing_data": "breaching",
+    },
+]
+
+_DYNAMODB_ALARMS = [
+    {
+        "metric": "DDBReadCapacity",
+        "namespace": "AWS/DynamoDB",
+        "metric_name": "ConsumedReadCapacityUnits",
+        "dimension_key": "TableName",
+        "stat": "Sum",
+        "comparison": "GreaterThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+    },
+    {
+        "metric": "DDBWriteCapacity",
+        "namespace": "AWS/DynamoDB",
+        "metric_name": "ConsumedWriteCapacityUnits",
+        "dimension_key": "TableName",
+        "stat": "Sum",
+        "comparison": "GreaterThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+    },
+    {
+        "metric": "ThrottledRequests",
+        "namespace": "AWS/DynamoDB",
+        "metric_name": "ThrottledRequests",
+        "dimension_key": "TableName",
+        "stat": "Sum",
+        "comparison": "GreaterThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+    },
+    {
+        "metric": "DDBSystemErrors",
+        "namespace": "AWS/DynamoDB",
+        "metric_name": "SystemErrors",
+        "dimension_key": "TableName",
+        "stat": "Sum",
+        "comparison": "GreaterThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+    },
+]
+
+_CLOUDFRONT_ALARMS = [
+    {
+        "metric": "CF5xxErrorRate",
+        "namespace": "AWS/CloudFront",
+        "metric_name": "5xxErrorRate",
+        "dimension_key": "DistributionId",
+        "stat": "Average",
+        "comparison": "GreaterThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+        "region": "us-east-1",
+    },
+    {
+        "metric": "CF4xxErrorRate",
+        "namespace": "AWS/CloudFront",
+        "metric_name": "4xxErrorRate",
+        "dimension_key": "DistributionId",
+        "stat": "Average",
+        "comparison": "GreaterThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+        "region": "us-east-1",
+    },
+    {
+        "metric": "CFRequests",
+        "namespace": "AWS/CloudFront",
+        "metric_name": "Requests",
+        "dimension_key": "DistributionId",
+        "stat": "Sum",
+        "comparison": "GreaterThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+        "region": "us-east-1",
+    },
+    {
+        "metric": "CFBytesDownloaded",
+        "namespace": "AWS/CloudFront",
+        "metric_name": "BytesDownloaded",
+        "dimension_key": "DistributionId",
+        "stat": "Sum",
+        "comparison": "GreaterThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+        "region": "us-east-1",
+    },
+]
+
+_WAF_ALARMS = [
+    {
+        "metric": "WAFBlockedRequests",
+        "namespace": "AWS/WAFV2",
+        "metric_name": "BlockedRequests",
+        "dimension_key": "WebACL",
+        "stat": "Sum",
+        "comparison": "GreaterThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+    },
+    {
+        "metric": "WAFAllowedRequests",
+        "namespace": "AWS/WAFV2",
+        "metric_name": "AllowedRequests",
+        "dimension_key": "WebACL",
+        "stat": "Sum",
+        "comparison": "GreaterThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+    },
+    {
+        "metric": "WAFCountedRequests",
+        "namespace": "AWS/WAFV2",
+        "metric_name": "CountedRequests",
+        "dimension_key": "WebACL",
+        "stat": "Sum",
+        "comparison": "GreaterThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+    },
+]
+
+_ROUTE53_ALARMS = [
+    {
+        "metric": "HealthCheckStatus",
+        "namespace": "AWS/Route53",
+        "metric_name": "HealthCheckStatus",
+        "dimension_key": "HealthCheckId",
+        "stat": "Minimum",
+        "comparison": "LessThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+        "treat_missing_data": "breaching",
+        "region": "us-east-1",
+    },
+]
+
+_DX_ALARMS = [
+    {
+        "metric": "ConnectionState",
+        "namespace": "AWS/DX",
+        "metric_name": "ConnectionState",
+        "dimension_key": "ConnectionId",
+        "stat": "Minimum",
+        "comparison": "LessThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+        "treat_missing_data": "breaching",
+    },
+]
+
+_EFS_ALARMS = [
+    {
+        "metric": "BurstCreditBalance",
+        "namespace": "AWS/EFS",
+        "metric_name": "BurstCreditBalance",
+        "dimension_key": "FileSystemId",
+        "stat": "Minimum",
+        "comparison": "LessThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+    },
+    {
+        "metric": "PercentIOLimit",
+        "namespace": "AWS/EFS",
+        "metric_name": "PercentIOLimit",
+        "dimension_key": "FileSystemId",
+        "stat": "Average",
+        "comparison": "GreaterThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+    },
+    {
+        "metric": "EFSClientConnections",
+        "namespace": "AWS/EFS",
+        "metric_name": "ClientConnections",
+        "dimension_key": "FileSystemId",
+        "stat": "Sum",
+        "comparison": "GreaterThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+    },
+]
+
+_S3_ALARMS = [
+    {
+        "metric": "S34xxErrors",
+        "namespace": "AWS/S3",
+        "metric_name": "4xxErrors",
+        "dimension_key": "BucketName",
+        "stat": "Sum",
+        "comparison": "GreaterThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+    },
+    {
+        "metric": "S35xxErrors",
+        "namespace": "AWS/S3",
+        "metric_name": "5xxErrors",
+        "dimension_key": "BucketName",
+        "stat": "Sum",
+        "comparison": "GreaterThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+    },
+    {
+        "metric": "S3BucketSizeBytes",
+        "namespace": "AWS/S3",
+        "metric_name": "BucketSizeBytes",
+        "dimension_key": "BucketName",
+        "stat": "Average",
+        "comparison": "GreaterThanThreshold",
+        "period": 86400,
+        "evaluation_periods": 1,
+        "needs_storage_type": True,
+    },
+    {
+        "metric": "S3NumberOfObjects",
+        "namespace": "AWS/S3",
+        "metric_name": "NumberOfObjects",
+        "dimension_key": "BucketName",
+        "stat": "Average",
+        "comparison": "GreaterThanThreshold",
+        "period": 86400,
+        "evaluation_periods": 1,
+        "needs_storage_type": True,
+    },
+]
+
+_SAGEMAKER_ALARMS = [
+    {
+        "metric": "SMInvocations",
+        "namespace": "AWS/SageMaker",
+        "metric_name": "Invocations",
+        "dimension_key": "EndpointName",
+        "stat": "Sum",
+        "comparison": "GreaterThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+    },
+    {
+        "metric": "SMInvocationErrors",
+        "namespace": "AWS/SageMaker",
+        "metric_name": "InvocationErrors",
+        "dimension_key": "EndpointName",
+        "stat": "Sum",
+        "comparison": "GreaterThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+    },
+    {
+        "metric": "SMModelLatency",
+        "namespace": "AWS/SageMaker",
+        "metric_name": "ModelLatency",
+        "dimension_key": "EndpointName",
+        "stat": "Average",
+        "comparison": "GreaterThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+    },
+    {
+        "metric": "SMCPU",
+        "namespace": "AWS/SageMaker",
+        "metric_name": "CPUUtilization",
+        "dimension_key": "EndpointName",
+        "stat": "Average",
+        "comparison": "GreaterThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+    },
+]
+
+_SNS_ALARMS = [
+    {
+        "metric": "SNSNotificationsFailed",
+        "namespace": "AWS/SNS",
+        "metric_name": "NumberOfNotificationsFailed",
+        "dimension_key": "TopicName",
+        "stat": "Sum",
+        "comparison": "GreaterThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+    },
+    {
+        "metric": "SNSMessagesPublished",
+        "namespace": "AWS/SNS",
+        "metric_name": "NumberOfMessagesPublished",
+        "dimension_key": "TopicName",
+        "stat": "Sum",
+        "comparison": "GreaterThanThreshold",
+        "period": 300,
+        "evaluation_periods": 1,
+    },
+]
+
 _NLB_TG_EXCLUDED_METRICS = {"RequestCountPerTarget", "TGResponseTime"}
 
 
@@ -1034,6 +1476,30 @@ def _get_alarm_defs(resource_type: str, resource_tags: dict | None = None) -> li
         return _CLB_ALARMS
     elif resource_type == "OpenSearch":
         return _OPENSEARCH_ALARMS
+    elif resource_type == "SQS":
+        return _SQS_ALARMS
+    elif resource_type == "ECS":
+        return _ECS_ALARMS
+    elif resource_type == "MSK":
+        return _MSK_ALARMS
+    elif resource_type == "DynamoDB":
+        return _DYNAMODB_ALARMS
+    elif resource_type == "CloudFront":
+        return _CLOUDFRONT_ALARMS
+    elif resource_type == "WAF":
+        return _WAF_ALARMS
+    elif resource_type == "Route53":
+        return _ROUTE53_ALARMS
+    elif resource_type == "DX":
+        return _DX_ALARMS
+    elif resource_type == "EFS":
+        return _EFS_ALARMS
+    elif resource_type == "S3":
+        return _S3_ALARMS
+    elif resource_type == "SageMaker":
+        return _SAGEMAKER_ALARMS
+    elif resource_type == "SNS":
+        return _SNS_ALARMS
     return []
 
 
@@ -1070,6 +1536,18 @@ _HARDCODED_METRIC_KEYS: dict[str, set[str]] = {
         "OsCPU", "JVMMemoryPressure",
         "MasterCPU", "MasterJVMMemoryPressure",
     },
+    "SQS": {"SQSMessagesVisible", "SQSOldestMessage", "SQSMessagesSent"},
+    "ECS": {"EcsCPU", "EcsMemory", "RunningTaskCount"},
+    "MSK": {"OffsetLag", "BytesInPerSec", "UnderReplicatedPartitions", "ActiveControllerCount"},
+    "DynamoDB": {"DDBReadCapacity", "DDBWriteCapacity", "ThrottledRequests", "DDBSystemErrors"},
+    "CloudFront": {"CF5xxErrorRate", "CF4xxErrorRate", "CFRequests", "CFBytesDownloaded"},
+    "WAF": {"WAFBlockedRequests", "WAFAllowedRequests", "WAFCountedRequests"},
+    "Route53": {"HealthCheckStatus"},
+    "DX": {"ConnectionState"},
+    "EFS": {"BurstCreditBalance", "PercentIOLimit", "EFSClientConnections"},
+    "S3": {"S34xxErrors", "S35xxErrors", "S3BucketSizeBytes", "S3NumberOfObjects"},
+    "SageMaker": {"SMInvocations", "SMInvocationErrors", "SMModelLatency", "SMCPU"},
+    "SNS": {"SNSNotificationsFailed", "SNSMessagesPublished"},
 }
 
 # resource_type별 CloudWatch 네임스페이스 목록
@@ -1091,6 +1569,18 @@ _NAMESPACE_MAP: dict[str, list[str]] = {
     "MQ": ["AWS/AmazonMQ"],
     "CLB": ["AWS/ELB"],
     "OpenSearch": ["AWS/ES"],
+    "SQS": ["AWS/SQS"],
+    "ECS": ["AWS/ECS"],
+    "MSK": ["AWS/Kafka"],
+    "DynamoDB": ["AWS/DynamoDB"],
+    "CloudFront": ["AWS/CloudFront"],
+    "WAF": ["AWS/WAFV2"],
+    "Route53": ["AWS/Route53"],
+    "DX": ["AWS/DX"],
+    "EFS": ["AWS/EFS"],
+    "S3": ["AWS/S3"],
+    "SageMaker": ["AWS/SageMaker"],
+    "SNS": ["AWS/SNS"],
 }
 
 # resource_type별 디멘션 키
@@ -1112,6 +1602,18 @@ _DIMENSION_KEY_MAP: dict[str, str] = {
     "MQ": "Broker",
     "CLB": "LoadBalancerName",
     "OpenSearch": "DomainName",
+    "SQS": "QueueName",
+    "ECS": "ServiceName",
+    "MSK": "Cluster Name",
+    "DynamoDB": "TableName",
+    "CloudFront": "DistributionId",
+    "WAF": "WebACL",
+    "Route53": "HealthCheckId",
+    "DX": "ConnectionId",
+    "EFS": "FileSystemId",
+    "S3": "BucketName",
+    "SageMaker": "EndpointName",
+    "SNS": "TopicName",
 }
 
 
@@ -1195,5 +1697,39 @@ def _metric_name_to_key(metric_name: str) -> str:
         "ClusterIndexWritesBlocked": "ClusterIndexWritesBlocked",
         "MasterCPUUtilization": "MasterCPU",
         "MasterJVMMemoryPressure": "MasterJVMMemoryPressure",
+        "ApproximateNumberOfMessagesVisible": "SQSMessagesVisible",
+        "ApproximateAgeOfOldestMessage": "SQSOldestMessage",
+        "NumberOfMessagesSent": "SQSMessagesSent",
+        "MemoryUtilization": "EcsMemory",
+        "RunningTaskCount": "RunningTaskCount",
+        "SumOffsetLag": "OffsetLag",
+        "BytesInPerSec": "BytesInPerSec",
+        "UnderReplicatedPartitions": "UnderReplicatedPartitions",
+        "ActiveControllerCount": "ActiveControllerCount",
+        "ConsumedReadCapacityUnits": "DDBReadCapacity",
+        "ConsumedWriteCapacityUnits": "DDBWriteCapacity",
+        "ThrottledRequests": "ThrottledRequests",
+        "SystemErrors": "DDBSystemErrors",
+        "5xxErrorRate": "CF5xxErrorRate",
+        "4xxErrorRate": "CF4xxErrorRate",
+        "Requests": "CFRequests",
+        "BytesDownloaded": "CFBytesDownloaded",
+        "BlockedRequests": "WAFBlockedRequests",
+        "AllowedRequests": "WAFAllowedRequests",
+        "CountedRequests": "WAFCountedRequests",
+        "HealthCheckStatus": "HealthCheckStatus",
+        "ConnectionState": "ConnectionState",
+        "BurstCreditBalance": "BurstCreditBalance",
+        "PercentIOLimit": "PercentIOLimit",
+        "ClientConnections": "EFSClientConnections",
+        "4xxErrors": "S34xxErrors",
+        "5xxErrors": "S35xxErrors",
+        "BucketSizeBytes": "S3BucketSizeBytes",
+        "NumberOfObjects": "S3NumberOfObjects",
+        "Invocations": "SMInvocations",
+        "InvocationErrors": "SMInvocationErrors",
+        "ModelLatency": "SMModelLatency",
+        "NumberOfNotificationsFailed": "SNSNotificationsFailed",
+        "NumberOfMessagesPublished": "SNSMessagesPublished",
     }
     return mapping.get(metric_name, metric_name)

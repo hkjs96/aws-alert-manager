@@ -323,28 +323,23 @@ def test_vpn_treat_missing_data_breaching():
 # **Validates: Requirements 12.1**
 # ──────────────────────────────────────────────
 
-_ALIVE_CHECKER_NAMES = {
-    "Lambda": "_find_alive_lambda_functions",
-    "VPN": "_find_alive_vpn_connections",
-    "APIGW": "_find_alive_apigw_apis",
-    "ACM": "_find_alive_acm_certificates",
-    "Backup": "_find_alive_backup_vaults",
-    "MQ": "_find_alive_mq_brokers",
-    "CLB": "_find_alive_clb_load_balancers",
-    "OpenSearch": "_find_alive_opensearch_domains",
-}
+_ALIVE_CHECKER_TYPES = [
+    "Lambda", "VPN", "APIGW", "ACM", "Backup", "MQ", "CLB", "OpenSearch",
+]
 
 
 def test_alive_checker_coverage():
-    """Each of 8 new types has a corresponding _find_alive_* function that is callable."""
-    import daily_monitor.lambda_handler as dm
+    """Each of 8 new types has a collector in _RESOURCE_TYPE_TO_COLLECTOR with resolve_alive_ids."""
+    from daily_monitor.lambda_handler import _RESOURCE_TYPE_TO_COLLECTOR
 
-    for rtype, fn_name in _ALIVE_CHECKER_NAMES.items():
-        assert hasattr(dm, fn_name), (
-            f"daily_monitor.lambda_handler missing {fn_name}"
+    for rtype in _ALIVE_CHECKER_TYPES:
+        assert rtype in _RESOURCE_TYPE_TO_COLLECTOR, (
+            f"_RESOURCE_TYPE_TO_COLLECTOR missing {rtype}"
         )
-        fn = getattr(dm, fn_name)
-        assert callable(fn), f"{fn_name} is not callable"
+        collector = _RESOURCE_TYPE_TO_COLLECTOR[rtype]
+        assert callable(getattr(collector, "resolve_alive_ids", None)), (
+            f"collector for {rtype} missing resolve_alive_ids"
+        )
 
 
 # ──────────────────────────────────────────────

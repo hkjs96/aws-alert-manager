@@ -89,6 +89,47 @@ def _domain_from_cert(cert_detail: dict) -> str:
     return cert_detail.get("DomainName", "")
 
 
+def resolve_alive_ids(tag_names: set[str]) -> set[str]:
+    """알람 TagName 집합에서 실제 AWS ACM 인증서가 존재하는 TagName 부분집합 반환.
+
+    TagName은 도메인 이름 형식 (예: 'e2e-test.internal').
+    ISSUED 상태의 인증서를 조회하고, 만료되지 않은 인증서의 도메인 이름을
+    수집하여 입력 tag_names와의 교집합을 반환한다.
+    """
+    if not tag_names:
+        return set()
+
+    client = _get_acm_client()
+    now = datetime.now(timezone.utc)
+    alive_domains: set[str] = set()
+
+    try:
+        paginator = client.get_paginator("list_certificates")
+        for page in paginator.paginate(CertificateStatuses=["ISSUED"]):
+            for cert in page.get("CertificateSummaryList", []):
+                cert_arn = cert["CertificateArn"]
+                try:
+                    detail = client.describe_certificate(CertificateArn=cert_arn)
+                except ClientError as e:
+                    logger.error("ACM describe_certificate failed for %s: %s", cert_arn, e)
+                    continue
+
+                cert_detail = detail.get("Certificate", {})
+                not_after = cert_detail.get("NotAfter")
+
+                if not_after and not_after < now:
+                    continue
+
+                domain = _domain_from_cert(cert_detail)
+                if domain:
+                    alive_domains.add(domain)
+    except ClientError as e:
+        logger.error("ACM list_certificates failed: %s", e)
+        return set()
+
+    return tag_names & alive_domains
+
+
 def get_metrics(
     resource_id: str, resource_tags: dict | None = None,
 ) -> dict[str, float] | None:

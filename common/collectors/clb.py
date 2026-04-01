@@ -117,6 +117,23 @@ def get_metrics(
     return metrics if metrics else None
 
 
+def resolve_alive_ids(tag_names: set[str]) -> set[str]:
+    """Classic Load Balancer 존재 여부 확인."""
+    client = _get_elb_client()
+    alive: set[str] = set()
+    for name in tag_names:
+        try:
+            client.describe_load_balancers(LoadBalancerNames=[name])
+            alive.add(name)
+        except ClientError as e:
+            code = e.response["Error"]["Code"]
+            if code in ("LoadBalancerNotFound", "AccessPointNotFound"):
+                logger.info("CLB not found (orphan): %s", name)
+            else:
+                logger.error("describe_load_balancers failed for %s: %s", name, e)
+    return alive
+
+
 def _collect_metric(namespace, cw_metric_name, dimensions,
                     start_time, end_time, result_key, metrics_dict, stat):
     """단일 메트릭 조회 후 metrics_dict에 추가. 데이터 없으면 skip + info 로그."""

@@ -97,6 +97,23 @@ def get_metrics(
     return metrics if metrics else None
 
 
+def resolve_alive_ids(tag_names: set[str]) -> set[str]:
+    """Lambda 함수 존재 여부 확인."""
+    client = _get_lambda_client()
+    alive: set[str] = set()
+    for name in tag_names:
+        try:
+            client.get_function(FunctionName=name)
+            alive.add(name)
+        except ClientError as e:
+            code = e.response["Error"]["Code"]
+            if code == "ResourceNotFoundException":
+                logger.info("Lambda function not found (orphan): %s", name)
+            else:
+                logger.error("get_function failed for %s: %s", name, e)
+    return alive
+
+
 def _collect_metric(namespace, cw_metric_name, dimensions,
                     start_time, end_time, result_key, metrics_dict, stat):
     """단일 메트릭 조회 후 metrics_dict에 추가. 데이터 없으면 skip + info 로그."""

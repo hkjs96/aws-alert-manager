@@ -239,6 +239,50 @@ def _collect_metric(namespace, cw_metric_name, dimensions,
         logger.info("Skipping %s metric: no data (dimensions=%s)", result_key, dimensions)
 
 
+def resolve_alive_ids(tag_names: set[str]) -> set[str]:
+    """ELB/TG 리소스 존재 여부 확인.
+
+    resource_id가 ARN 형식이면 직접 조회, 아니면 보수적으로 alive 처리.
+    """
+    elb_client = _get_elbv2_client()
+    alive: set[str] = set()
+
+    lb_arns = [r for r in tag_names if ":loadbalancer/" in r]
+    tg_arns = [r for r in tag_names if ":targetgroup/" in r]
+    other_ids = tag_names - set(lb_arns) - set(tg_arns)
+
+    for arn in lb_arns:
+        try:
+            elb_client.describe_load_balancers(LoadBalancerArns=[arn])
+            alive.add(arn)
+        except ClientError as e:
+            code = e.response["Error"]["Code"]
+            if code == "LoadBalancerNotFound":
+                logger.info("ELB not found (orphan): %s", arn)
+            else:
+                logger.error(
+                    "describe_load_balancers failed for %s: %s", arn, e,
+                )
+
+    for arn in tg_arns:
+        try:
+            elb_client.describe_target_groups(TargetGroupArns=[arn])
+            alive.add(arn)
+        except ClientError as e:
+            code = e.response["Error"]["Code"]
+            if code == "TargetGroupNotFound":
+                logger.info("TG not found (orphan): %s", arn)
+            else:
+                logger.error(
+                    "describe_target_groups failed for %s: %s", arn, e,
+                )
+
+    # ARN이 아닌 ID — 존재 확인 불가, 보수적으로 alive 처리
+    alive.update(other_ids)
+
+    return alive
+
+
 def _get_tags(elbv2_client, resource_arn: str) -> dict:
     try:
         response = elbv2_client.describe_tags(ResourceArns=[resource_arn])

@@ -124,6 +124,59 @@ def _collect_v2_apis(resources: list[ResourceInfo], region: str) -> None:
             )
 
 
+def resolve_alive_ids(tag_names: set[str]) -> set[str]:
+    """알람 TagName 집합에서 실제 AWS API Gateway가 존재하는 TagName 부분집합 반환.
+
+    composite TagName ('{api_name}/{api_id}' 형식, '/'포함):
+        마지막 '/' 기준으로 분리하여 api_id를 추출하고 v2 API (HTTP/WS)의
+        ApiId와 비교한다.
+    non-composite TagName ('/' 미포함):
+        REST API 이름으로 간주하고 get_rest_apis 결과의 name과 비교한다.
+    """
+    if not tag_names:
+        return set()
+
+    composite: dict[str, str] = {}   # api_id -> original tag_name
+    rest_names: dict[str, str] = {}  # api_name -> original tag_name
+
+    for tag_name in tag_names:
+        if "/" in tag_name:
+            api_id = tag_name.rsplit("/", 1)[1]
+            composite[api_id] = tag_name
+        else:
+            rest_names[tag_name] = tag_name
+
+    alive: set[str] = set()
+
+    # v2 APIs (HTTP/WebSocket) — match by ApiId
+    if composite:
+        try:
+            v2 = _get_apigwv2_client()
+            paginator = v2.get_paginator("get_apis")
+            for page in paginator.paginate():
+                for api in page.get("Items", []):
+                    api_id = api["ApiId"]
+                    if api_id in composite:
+                        alive.add(composite[api_id])
+        except ClientError as e:
+            logger.error("APIGW v2 get_apis failed: %s", e)
+
+    # REST APIs — match by name
+    if rest_names:
+        try:
+            client = _get_apigw_client()
+            paginator = client.get_paginator("get_rest_apis")
+            for page in paginator.paginate():
+                for api in page.get("items", []):
+                    name = api.get("name", "")
+                    if name in rest_names:
+                        alive.add(rest_names[name])
+        except ClientError as e:
+            logger.error("APIGW get_rest_apis failed: %s", e)
+
+    return alive
+
+
 def get_metrics(
     resource_id: str, resource_tags: dict | None = None,
 ) -> dict[str, float] | None:

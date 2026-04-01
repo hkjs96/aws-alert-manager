@@ -11,8 +11,24 @@ fileMatchPattern: '**/*.py'
 필수 메서드:
 - `collect_monitored_resources() -> list[ResourceInfo]`
 - `get_metrics(resource_id: str, resource_tags: dict) -> dict[str, float] | None`
+- `resolve_alive_ids(tag_names: set[str]) -> set[str]`
 
 메트릭 조회는 `common/collectors/base.py`의 공통 `query_metric()` 유틸리티를 사용한다.
+
+### 5-1. resolve_alive_ids 구현 규칙
+
+- 각 Collector는 자기 리소스의 alive 체크를 `resolve_alive_ids`에서 직접 담당한다
+- `daily_monitor/lambda_handler.py`에 alive 체크 로직을 하드코딩하지 않는다
+- 입력: 알람 TagName 집합 (알람 이름의 `(TagName: ...)` 부분에서 추출된 값)
+- 출력: 실제 AWS 리소스가 존재하는 TagName 부분집합
+- TagName은 `_shorten_elb_resource_id()`가 생성한 short ID 형식이므로, collector가 이를 원본 리소스 식별자로 역매핑해야 한다
+- 역매핑이 필요한 리소스 타입 (TagName ≠ resource_id):
+  - MQ: `{broker_name}-{1|2}` → suffix 제거 후 broker name으로 조회
+  - APIGW HTTP/WS: `{api_name}/{api_id}` → split 후 api_id로 조회
+  - ACM: 도메인명 → `list_certificates` + `describe_certificate`로 도메인 매칭
+  - ALB/NLB/TG: short ID (`{name}/{hash}`) → ARN이 아닌 경우 보수적으로 alive 처리
+- 역매핑이 불필요한 리소스 타입 (TagName == resource_id): EC2, RDS, CLB, ElastiCache, NAT, Lambda, VPN, Backup, OpenSearch, DocDB
+- 에러 처리: `ClientError`만 catch, 기존 collector의 boto3 클라이언트 싱글턴 재사용
 
 ## §11. 새 리소스 타입 추가 체크리스트
 
@@ -70,7 +86,12 @@ fileMatchPattern: '**/*.py'
 - `common/collectors/` 하위에 새 Collector 모듈을 추가한다 (§5 참조)
 - `collect_monitored_resources()`: `Monitoring=on` 태그 필터링 + 리소스 정보 수집
 - `get_metrics()`: CloudWatch 메트릭 조회 (§6-1 디멘션 규칙 준수)
-- `daily_monitor/lambda_handler.py`에 새 Collector 등록
+- `resolve_alive_ids()`: 알람 TagName → AWS 리소스 존재 여부 확인 (§5-1 참조)
+- `daily_monitor/lambda_handler.py`의 `_COLLECTOR_MODULES` 리스트에 새 Collector 등록
+- `daily_monitor/lambda_handler.py`의 `_RESOURCE_TYPE_TO_COLLECTOR` dict에 리소스 타입 → collector 매핑 추가
+  - 타입 alias가 있는 경우 모두 등록 (예: `AuroraRDS` → `rds_collector`, `NATGateway` → `natgw_collector`)
+- `_shorten_elb_resource_id()`에서 TagName 변환이 필요한 경우 (TagName ≠ resource_id), `resolve_alive_ids`에서 역매핑 로직을 반드시 구현한다
+- alive 체크 로직을 `lambda_handler.py`에 직접 작성하지 않는다 (§5-1 위반)
 
 ### 11-7. SRE 골든 시그널 기반 메트릭 선정 (필수 검토)
 

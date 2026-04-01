@@ -97,6 +97,23 @@ def get_metrics(
     return metrics if metrics else None
 
 
+def resolve_alive_ids(tag_names: set[str]) -> set[str]:
+    """VPN Connection 존재 여부 확인. deleted/deleting 제외."""
+    ec2 = _get_ec2_client()
+    alive: set[str] = set()
+    try:
+        resp = ec2.describe_vpn_connections(
+            VpnConnectionIds=list(tag_names),
+        )
+        for vpn in resp.get("VpnConnections", []):
+            state = vpn.get("State", "")
+            if state not in ("deleted", "deleting"):
+                alive.add(vpn["VpnConnectionId"])
+    except ClientError as e:
+        logger.error("describe_vpn_connections failed: %s", e)
+    return alive
+
+
 def _collect_metric(namespace, cw_metric_name, dimensions,
                     start_time, end_time, result_key, metrics_dict):
     """단일 메트릭 조회 후 metrics_dict에 추가. 데이터 없으면 skip + info 로그."""

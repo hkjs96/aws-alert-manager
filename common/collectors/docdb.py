@@ -133,6 +133,27 @@ def _collect_metric(namespace, cw_metric_name, dimensions,
                     dimensions[0]["Value"] if dimensions else "unknown")
 
 
+def resolve_alive_ids(tag_names: set[str]) -> set[str]:
+    """DocDB 인스턴스 존재 여부 확인 (RDS API 사용)."""
+    rds = _get_rds_client()
+    alive: set[str] = set()
+
+    for db_id in tag_names:
+        try:
+            rds.describe_db_instances(DBInstanceIdentifier=db_id)
+            alive.add(db_id)
+        except ClientError as e:
+            code = e.response["Error"]["Code"]
+            if code == "DBInstanceNotFound":
+                logger.info("DocDB instance not found (orphan): %s", db_id)
+            else:
+                logger.error(
+                    "describe_db_instances failed for %s: %s", db_id, e,
+                )
+
+    return alive
+
+
 def _get_tags(rds_client, db_arn: str) -> dict:
     """RDS list_tags_for_resource 래퍼. ClientError 시 빈 dict 반환 + error 로그."""
     if not db_arn:

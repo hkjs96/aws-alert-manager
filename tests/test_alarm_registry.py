@@ -781,6 +781,337 @@ class TestOpenSearchAlarmDefs:
 
 
 # ──────────────────────────────────────────────
+# 12개 Extended 리소스 타입 알람 정의
+# ──────────────────────────────────────────────
+
+class TestSQSAlarmDefs:
+    """SQS 알람 정의 검증. Validates: Requirements 1.1, 1.2"""
+
+    def test_get_alarm_defs_sqs_count(self):
+        defs = _get_alarm_defs("SQS")
+        assert len(defs) == 3
+
+    def test_get_alarm_defs_sqs_metrics(self):
+        defs = _get_alarm_defs("SQS")
+        metrics = {d["metric"] for d in defs}
+        assert metrics == {"SQSMessagesVisible", "SQSOldestMessage", "SQSMessagesSent"}
+
+    def test_sqs_namespace_and_dimension(self):
+        defs = _get_alarm_defs("SQS")
+        for d in defs:
+            assert d["namespace"] == "AWS/SQS"
+            assert d["dimension_key"] == "QueueName"
+
+    def test_sqs_messages_visible_detail(self):
+        defs = _get_alarm_defs("SQS")
+        mv = next(d for d in defs if d["metric"] == "SQSMessagesVisible")
+        assert mv["stat"] == "Average"
+        assert mv["comparison"] == "GreaterThanThreshold"
+        assert mv["metric_name"] == "ApproximateNumberOfMessagesVisible"
+
+    def test_sqs_oldest_message_detail(self):
+        defs = _get_alarm_defs("SQS")
+        om = next(d for d in defs if d["metric"] == "SQSOldestMessage")
+        assert om["stat"] == "Maximum"
+        assert om["comparison"] == "GreaterThanThreshold"
+
+    def test_sqs_messages_sent_detail(self):
+        defs = _get_alarm_defs("SQS")
+        ms = next(d for d in defs if d["metric"] == "SQSMessagesSent")
+        assert ms["stat"] == "Sum"
+        assert ms["comparison"] == "GreaterThanThreshold"
+
+
+class TestECSAlarmDefs:
+    """ECS 알람 정의 검증. Validates: Requirements 2-B.5, 2-B.6, 2-B.7, 13.3"""
+
+    def test_get_alarm_defs_ecs_count(self):
+        defs = _get_alarm_defs("ECS")
+        assert len(defs) == 3
+
+    def test_get_alarm_defs_ecs_metrics(self):
+        defs = _get_alarm_defs("ECS")
+        metrics = {d["metric"] for d in defs}
+        assert metrics == {"EcsCPU", "EcsMemory", "RunningTaskCount"}
+
+    def test_ecs_namespace_and_dimension(self):
+        defs = _get_alarm_defs("ECS")
+        for d in defs:
+            assert d["namespace"] == "AWS/ECS"
+            assert d["dimension_key"] == "ServiceName"
+
+    def test_ecs_running_task_count_less_than(self):
+        defs = _get_alarm_defs("ECS")
+        rtc = next(d for d in defs if d["metric"] == "RunningTaskCount")
+        assert rtc["comparison"] == "LessThanThreshold"
+
+    def test_ecs_launch_type_fargate_same_alarms(self):
+        defs_fargate = _get_alarm_defs("ECS", {"_ecs_launch_type": "FARGATE"})
+        defs_ec2 = _get_alarm_defs("ECS", {"_ecs_launch_type": "EC2"})
+        assert {d["metric"] for d in defs_fargate} == {d["metric"] for d in defs_ec2}
+
+    def test_ecs_launch_type_invariance(self):
+        defs_default = _get_alarm_defs("ECS")
+        defs_fargate = _get_alarm_defs("ECS", {"_ecs_launch_type": "FARGATE"})
+        assert len(defs_default) == len(defs_fargate)
+
+
+class TestMSKAlarmDefs:
+    """MSK 알람 정의 검증. Validates: Requirements 3.1, 3.2, 3.3"""
+
+    def test_get_alarm_defs_msk_count(self):
+        defs = _get_alarm_defs("MSK")
+        assert len(defs) == 4
+
+    def test_get_alarm_defs_msk_metrics(self):
+        defs = _get_alarm_defs("MSK")
+        metrics = {d["metric"] for d in defs}
+        assert metrics == {"OffsetLag", "BytesInPerSec", "UnderReplicatedPartitions", "ActiveControllerCount"}
+
+    def test_msk_namespace_and_dimension(self):
+        defs = _get_alarm_defs("MSK")
+        for d in defs:
+            assert d["namespace"] == "AWS/Kafka"
+            assert d["dimension_key"] == "Cluster Name"
+
+    def test_msk_active_controller_count_breaching(self):
+        defs = _get_alarm_defs("MSK")
+        acc = next(d for d in defs if d["metric"] == "ActiveControllerCount")
+        assert acc["treat_missing_data"] == "breaching"
+        assert acc["comparison"] == "LessThanThreshold"
+
+    def test_msk_other_metrics_no_breaching(self):
+        defs = _get_alarm_defs("MSK")
+        for d in defs:
+            if d["metric"] != "ActiveControllerCount":
+                assert d.get("treat_missing_data") is None
+
+
+class TestDynamoDBAlarmDefs:
+    """DynamoDB 알람 정의 검증. Validates: Requirements 4.1, 4.2"""
+
+    def test_get_alarm_defs_dynamodb_count(self):
+        defs = _get_alarm_defs("DynamoDB")
+        assert len(defs) == 4
+
+    def test_get_alarm_defs_dynamodb_metrics(self):
+        defs = _get_alarm_defs("DynamoDB")
+        metrics = {d["metric"] for d in defs}
+        assert metrics == {"DDBReadCapacity", "DDBWriteCapacity", "ThrottledRequests", "DDBSystemErrors"}
+
+    def test_dynamodb_namespace_and_dimension(self):
+        defs = _get_alarm_defs("DynamoDB")
+        for d in defs:
+            assert d["namespace"] == "AWS/DynamoDB"
+            assert d["dimension_key"] == "TableName"
+
+
+class TestCloudFrontAlarmDefs:
+    """CloudFront 알람 정의 검증. Validates: Requirements 5.1, 5.2, 5.3"""
+
+    def test_get_alarm_defs_cloudfront_count(self):
+        defs = _get_alarm_defs("CloudFront")
+        assert len(defs) == 4
+
+    def test_get_alarm_defs_cloudfront_metrics(self):
+        defs = _get_alarm_defs("CloudFront")
+        metrics = {d["metric"] for d in defs}
+        assert metrics == {"CF5xxErrorRate", "CF4xxErrorRate", "CFRequests", "CFBytesDownloaded"}
+
+    def test_cloudfront_namespace_and_dimension(self):
+        defs = _get_alarm_defs("CloudFront")
+        for d in defs:
+            assert d["namespace"] == "AWS/CloudFront"
+            assert d["dimension_key"] == "DistributionId"
+
+    def test_cloudfront_region_us_east_1(self):
+        defs = _get_alarm_defs("CloudFront")
+        for d in defs:
+            assert d["region"] == "us-east-1"
+
+
+class TestWAFAlarmDefs:
+    """WAF 알람 정의 검증. Validates: Requirements 6.1, 6.2"""
+
+    def test_get_alarm_defs_waf_count(self):
+        defs = _get_alarm_defs("WAF")
+        assert len(defs) == 3
+
+    def test_get_alarm_defs_waf_metrics(self):
+        defs = _get_alarm_defs("WAF")
+        metrics = {d["metric"] for d in defs}
+        assert metrics == {"WAFBlockedRequests", "WAFAllowedRequests", "WAFCountedRequests"}
+
+    def test_waf_namespace_and_dimension(self):
+        defs = _get_alarm_defs("WAF")
+        for d in defs:
+            assert d["namespace"] == "AWS/WAFV2"
+            assert d["dimension_key"] == "WebACL"
+
+
+class TestRoute53AlarmDefs:
+    """Route53 알람 정의 검증. Validates: Requirements 7.1, 7.2, 7.3, 7.4"""
+
+    def test_get_alarm_defs_route53_count(self):
+        defs = _get_alarm_defs("Route53")
+        assert len(defs) == 1
+
+    def test_route53_health_check_status(self):
+        defs = _get_alarm_defs("Route53")
+        assert defs[0]["metric"] == "HealthCheckStatus"
+
+    def test_route53_namespace_and_dimension(self):
+        defs = _get_alarm_defs("Route53")
+        assert defs[0]["namespace"] == "AWS/Route53"
+        assert defs[0]["dimension_key"] == "HealthCheckId"
+
+    def test_route53_treat_missing_data_breaching(self):
+        defs = _get_alarm_defs("Route53")
+        assert defs[0]["treat_missing_data"] == "breaching"
+
+    def test_route53_region_us_east_1(self):
+        defs = _get_alarm_defs("Route53")
+        assert defs[0]["region"] == "us-east-1"
+
+    def test_route53_comparison_less_than(self):
+        defs = _get_alarm_defs("Route53")
+        assert defs[0]["comparison"] == "LessThanThreshold"
+        assert defs[0]["stat"] == "Minimum"
+
+
+class TestDXAlarmDefs:
+    """DX 알람 정의 검증. Validates: Requirements 8.1, 8.2, 8.3"""
+
+    def test_get_alarm_defs_dx_count(self):
+        defs = _get_alarm_defs("DX")
+        assert len(defs) == 1
+
+    def test_dx_connection_state(self):
+        defs = _get_alarm_defs("DX")
+        assert defs[0]["metric"] == "ConnectionState"
+
+    def test_dx_namespace_and_dimension(self):
+        defs = _get_alarm_defs("DX")
+        assert defs[0]["namespace"] == "AWS/DX"
+        assert defs[0]["dimension_key"] == "ConnectionId"
+
+    def test_dx_treat_missing_data_breaching(self):
+        defs = _get_alarm_defs("DX")
+        assert defs[0]["treat_missing_data"] == "breaching"
+
+    def test_dx_comparison_less_than(self):
+        defs = _get_alarm_defs("DX")
+        assert defs[0]["comparison"] == "LessThanThreshold"
+        assert defs[0]["stat"] == "Minimum"
+
+
+class TestEFSAlarmDefs:
+    """EFS 알람 정의 검증. Validates: Requirements 9.1, 9.2, 9.3"""
+
+    def test_get_alarm_defs_efs_count(self):
+        defs = _get_alarm_defs("EFS")
+        assert len(defs) == 3
+
+    def test_get_alarm_defs_efs_metrics(self):
+        defs = _get_alarm_defs("EFS")
+        metrics = {d["metric"] for d in defs}
+        assert metrics == {"BurstCreditBalance", "PercentIOLimit", "EFSClientConnections"}
+
+    def test_efs_namespace_and_dimension(self):
+        defs = _get_alarm_defs("EFS")
+        for d in defs:
+            assert d["namespace"] == "AWS/EFS"
+            assert d["dimension_key"] == "FileSystemId"
+
+    def test_efs_burst_credit_balance_less_than(self):
+        defs = _get_alarm_defs("EFS")
+        bcb = next(d for d in defs if d["metric"] == "BurstCreditBalance")
+        assert bcb["comparison"] == "LessThanThreshold"
+
+
+class TestS3AlarmDefs:
+    """S3 알람 정의 검증. Validates: Requirements 10-A.1, 10-A.2, 10-A.3"""
+
+    def test_get_alarm_defs_s3_count(self):
+        defs = _get_alarm_defs("S3")
+        assert len(defs) == 4
+
+    def test_get_alarm_defs_s3_metrics(self):
+        defs = _get_alarm_defs("S3")
+        metrics = {d["metric"] for d in defs}
+        assert metrics == {"S34xxErrors", "S35xxErrors", "S3BucketSizeBytes", "S3NumberOfObjects"}
+
+    def test_s3_namespace_and_dimension(self):
+        defs = _get_alarm_defs("S3")
+        for d in defs:
+            assert d["namespace"] == "AWS/S3"
+            assert d["dimension_key"] == "BucketName"
+
+    def test_s3_bucket_size_needs_storage_type(self):
+        defs = _get_alarm_defs("S3")
+        bsb = next(d for d in defs if d["metric"] == "S3BucketSizeBytes")
+        assert bsb["needs_storage_type"] is True
+        assert bsb["period"] == 86400
+
+    def test_s3_number_of_objects_needs_storage_type(self):
+        defs = _get_alarm_defs("S3")
+        noo = next(d for d in defs if d["metric"] == "S3NumberOfObjects")
+        assert noo["needs_storage_type"] is True
+        assert noo["period"] == 86400
+
+    def test_s3_error_metrics_no_storage_type(self):
+        defs = _get_alarm_defs("S3")
+        for d in defs:
+            if d["metric"] in ("S34xxErrors", "S35xxErrors"):
+                assert d.get("needs_storage_type") is None or d.get("needs_storage_type") is False
+
+
+class TestSageMakerAlarmDefs:
+    """SageMaker 알람 정의 검증. Validates: Requirements 11-A.1, 11-A.2"""
+
+    def test_get_alarm_defs_sagemaker_count(self):
+        defs = _get_alarm_defs("SageMaker")
+        assert len(defs) == 4
+
+    def test_get_alarm_defs_sagemaker_metrics(self):
+        defs = _get_alarm_defs("SageMaker")
+        metrics = {d["metric"] for d in defs}
+        assert metrics == {"SMInvocations", "SMInvocationErrors", "SMModelLatency", "SMCPU"}
+
+    def test_sagemaker_namespace_and_dimension(self):
+        defs = _get_alarm_defs("SageMaker")
+        for d in defs:
+            assert d["namespace"] == "AWS/SageMaker"
+            assert d["dimension_key"] == "EndpointName"
+
+    def test_sagemaker_smcpu_avoids_collision(self):
+        """SMCPU key avoids collision with EC2 CPU key."""
+        defs = _get_alarm_defs("SageMaker")
+        cpu = next(d for d in defs if d["metric"] == "SMCPU")
+        assert cpu["metric_name"] == "CPUUtilization"
+        assert cpu["metric"] == "SMCPU"
+
+
+class TestSNSAlarmDefs:
+    """SNS 알람 정의 검증. Validates: Requirements 12.1, 12.2"""
+
+    def test_get_alarm_defs_sns_count(self):
+        defs = _get_alarm_defs("SNS")
+        assert len(defs) == 2
+
+    def test_get_alarm_defs_sns_metrics(self):
+        defs = _get_alarm_defs("SNS")
+        metrics = {d["metric"] for d in defs}
+        assert metrics == {"SNSNotificationsFailed", "SNSMessagesPublished"}
+
+    def test_sns_namespace_and_dimension(self):
+        defs = _get_alarm_defs("SNS")
+        for d in defs:
+            assert d["namespace"] == "AWS/SNS"
+            assert d["dimension_key"] == "TopicName"
+
+
+# ──────────────────────────────────────────────
 # 8개 신규 리소스 타입 매핑 테이블 검증
 # ──────────────────────────────────────────────
 
@@ -974,3 +1305,178 @@ class TestTreatMissingDataAndOpenSearchDimension:
 
         assert len(dims) == 1
         assert dims[0] == {"Name": "DomainName", "Value": "my-domain"}
+
+
+# ──────────────────────────────────────────────
+# 12개 Extended 리소스 타입 매핑 테이블 검증
+# ──────────────────────────────────────────────
+
+class TestExtendedResourceMappingTables:
+    """12개 Extended 리소스 타입 매핑 테이블 검증.
+    Validates: Requirements 13.4, 13.5, 13.6, 13.7, 13.8
+    """
+
+    EXTENDED_TYPES = [
+        "SQS", "ECS", "MSK", "DynamoDB", "CloudFront", "WAF",
+        "Route53", "DX", "EFS", "S3", "SageMaker", "SNS",
+    ]
+
+    def test_hardcoded_metric_keys_all_extended_types(self):
+        for rt in self.EXTENDED_TYPES:
+            assert rt in _HARDCODED_METRIC_KEYS, f"{rt} missing"
+
+    def test_hardcoded_metric_keys_sqs(self):
+        assert _HARDCODED_METRIC_KEYS["SQS"] == {"SQSMessagesVisible", "SQSOldestMessage", "SQSMessagesSent"}
+
+    def test_hardcoded_metric_keys_ecs(self):
+        assert _HARDCODED_METRIC_KEYS["ECS"] == {"EcsCPU", "EcsMemory", "RunningTaskCount"}
+
+    def test_hardcoded_metric_keys_msk(self):
+        assert _HARDCODED_METRIC_KEYS["MSK"] == {"OffsetLag", "BytesInPerSec", "UnderReplicatedPartitions", "ActiveControllerCount"}
+
+    def test_hardcoded_metric_keys_dynamodb(self):
+        assert _HARDCODED_METRIC_KEYS["DynamoDB"] == {"DDBReadCapacity", "DDBWriteCapacity", "ThrottledRequests", "DDBSystemErrors"}
+
+    def test_hardcoded_metric_keys_cloudfront(self):
+        assert _HARDCODED_METRIC_KEYS["CloudFront"] == {"CF5xxErrorRate", "CF4xxErrorRate", "CFRequests", "CFBytesDownloaded"}
+
+    def test_hardcoded_metric_keys_waf(self):
+        assert _HARDCODED_METRIC_KEYS["WAF"] == {"WAFBlockedRequests", "WAFAllowedRequests", "WAFCountedRequests"}
+
+    def test_hardcoded_metric_keys_route53(self):
+        assert _HARDCODED_METRIC_KEYS["Route53"] == {"HealthCheckStatus"}
+
+    def test_hardcoded_metric_keys_dx(self):
+        assert _HARDCODED_METRIC_KEYS["DX"] == {"ConnectionState"}
+
+    def test_hardcoded_metric_keys_efs(self):
+        assert _HARDCODED_METRIC_KEYS["EFS"] == {"BurstCreditBalance", "PercentIOLimit", "EFSClientConnections"}
+
+    def test_hardcoded_metric_keys_s3(self):
+        assert _HARDCODED_METRIC_KEYS["S3"] == {"S34xxErrors", "S35xxErrors", "S3BucketSizeBytes", "S3NumberOfObjects"}
+
+    def test_hardcoded_metric_keys_sagemaker(self):
+        assert _HARDCODED_METRIC_KEYS["SageMaker"] == {"SMInvocations", "SMInvocationErrors", "SMModelLatency", "SMCPU"}
+
+    def test_hardcoded_metric_keys_sns(self):
+        assert _HARDCODED_METRIC_KEYS["SNS"] == {"SNSNotificationsFailed", "SNSMessagesPublished"}
+
+    def test_namespace_map_all_extended_types(self):
+        from common.alarm_manager import _NAMESPACE_MAP
+        expected = {
+            "SQS": ["AWS/SQS"],
+            "ECS": ["AWS/ECS"],
+            "MSK": ["AWS/Kafka"],
+            "DynamoDB": ["AWS/DynamoDB"],
+            "CloudFront": ["AWS/CloudFront"],
+            "WAF": ["AWS/WAFV2"],
+            "Route53": ["AWS/Route53"],
+            "DX": ["AWS/DX"],
+            "EFS": ["AWS/EFS"],
+            "S3": ["AWS/S3"],
+            "SageMaker": ["AWS/SageMaker"],
+            "SNS": ["AWS/SNS"],
+        }
+        for rt, ns in expected.items():
+            assert _NAMESPACE_MAP[rt] == ns, f"{rt} namespace mismatch"
+
+    def test_dimension_key_map_all_extended_types(self):
+        from common.alarm_manager import _DIMENSION_KEY_MAP
+        expected = {
+            "SQS": "QueueName",
+            "ECS": "ServiceName",
+            "MSK": "Cluster Name",
+            "DynamoDB": "TableName",
+            "CloudFront": "DistributionId",
+            "WAF": "WebACL",
+            "Route53": "HealthCheckId",
+            "DX": "ConnectionId",
+            "EFS": "FileSystemId",
+            "S3": "BucketName",
+            "SageMaker": "EndpointName",
+            "SNS": "TopicName",
+        }
+        for rt, dk in expected.items():
+            assert _DIMENSION_KEY_MAP[rt] == dk, f"{rt} dim key mismatch"
+
+    def test_metric_display_all_extended_metrics(self):
+        extended_metrics = {
+            "SQSMessagesVisible": ("ApproximateNumberOfMessagesVisible", ">", ""),
+            "SQSOldestMessage": ("ApproximateAgeOfOldestMessage", ">", "s"),
+            "SQSMessagesSent": ("NumberOfMessagesSent", ">", ""),
+            "EcsCPU": ("CPUUtilization", ">", "%"),
+            "EcsMemory": ("MemoryUtilization", ">", "%"),
+            "RunningTaskCount": ("RunningTaskCount", "<", ""),
+            "OffsetLag": ("SumOffsetLag", ">", ""),
+            "BytesInPerSec": ("BytesInPerSec", ">", "B/s"),
+            "UnderReplicatedPartitions": ("UnderReplicatedPartitions", ">", ""),
+            "ActiveControllerCount": ("ActiveControllerCount", "<", ""),
+            "DDBReadCapacity": ("ConsumedReadCapacityUnits", ">", ""),
+            "DDBWriteCapacity": ("ConsumedWriteCapacityUnits", ">", ""),
+            "ThrottledRequests": ("ThrottledRequests", ">", ""),
+            "DDBSystemErrors": ("SystemErrors", ">", ""),
+            "CF5xxErrorRate": ("5xxErrorRate", ">", "%"),
+            "CF4xxErrorRate": ("4xxErrorRate", ">", "%"),
+            "CFRequests": ("Requests", ">", ""),
+            "CFBytesDownloaded": ("BytesDownloaded", ">", "B"),
+            "WAFBlockedRequests": ("BlockedRequests", ">", ""),
+            "WAFAllowedRequests": ("AllowedRequests", ">", ""),
+            "WAFCountedRequests": ("CountedRequests", ">", ""),
+            "HealthCheckStatus": ("HealthCheckStatus", "<", ""),
+            "ConnectionState": ("ConnectionState", "<", ""),
+            "BurstCreditBalance": ("BurstCreditBalance", "<", ""),
+            "PercentIOLimit": ("PercentIOLimit", ">", "%"),
+            "EFSClientConnections": ("ClientConnections", ">", ""),
+            "S34xxErrors": ("4xxErrors", ">", ""),
+            "S35xxErrors": ("5xxErrors", ">", ""),
+            "S3BucketSizeBytes": ("BucketSizeBytes", ">", "B"),
+            "S3NumberOfObjects": ("NumberOfObjects", ">", ""),
+            "SMInvocations": ("Invocations", ">", ""),
+            "SMInvocationErrors": ("InvocationErrors", ">", ""),
+            "SMModelLatency": ("ModelLatency", ">", "μs"),
+            "SMCPU": ("CPUUtilization", ">", "%"),
+            "SNSNotificationsFailed": ("NumberOfNotificationsFailed", ">", ""),
+            "SNSMessagesPublished": ("NumberOfMessagesPublished", ">", ""),
+        }
+        for key, expected in extended_metrics.items():
+            assert _METRIC_DISPLAY[key] == expected, f"{key} display mismatch"
+
+    def test_metric_name_to_key_extended_mappings(self):
+        roundtrips = {
+            "ApproximateNumberOfMessagesVisible": "SQSMessagesVisible",
+            "ApproximateAgeOfOldestMessage": "SQSOldestMessage",
+            "NumberOfMessagesSent": "SQSMessagesSent",
+            "MemoryUtilization": "EcsMemory",
+            "RunningTaskCount": "RunningTaskCount",
+            "SumOffsetLag": "OffsetLag",
+            "BytesInPerSec": "BytesInPerSec",
+            "UnderReplicatedPartitions": "UnderReplicatedPartitions",
+            "ActiveControllerCount": "ActiveControllerCount",
+            "ConsumedReadCapacityUnits": "DDBReadCapacity",
+            "ConsumedWriteCapacityUnits": "DDBWriteCapacity",
+            "ThrottledRequests": "ThrottledRequests",
+            "SystemErrors": "DDBSystemErrors",
+            "5xxErrorRate": "CF5xxErrorRate",
+            "4xxErrorRate": "CF4xxErrorRate",
+            "Requests": "CFRequests",
+            "BytesDownloaded": "CFBytesDownloaded",
+            "BlockedRequests": "WAFBlockedRequests",
+            "AllowedRequests": "WAFAllowedRequests",
+            "CountedRequests": "WAFCountedRequests",
+            "HealthCheckStatus": "HealthCheckStatus",
+            "ConnectionState": "ConnectionState",
+            "BurstCreditBalance": "BurstCreditBalance",
+            "PercentIOLimit": "PercentIOLimit",
+            "ClientConnections": "EFSClientConnections",
+            "4xxErrors": "S34xxErrors",
+            "5xxErrors": "S35xxErrors",
+            "BucketSizeBytes": "S3BucketSizeBytes",
+            "NumberOfObjects": "S3NumberOfObjects",
+            "Invocations": "SMInvocations",
+            "InvocationErrors": "SMInvocationErrors",
+            "ModelLatency": "SMModelLatency",
+            "NumberOfNotificationsFailed": "SNSNotificationsFailed",
+            "NumberOfMessagesPublished": "SNSMessagesPublished",
+        }
+        for cw_name, expected_key in roundtrips.items():
+            assert _metric_name_to_key(cw_name) == expected_key, f"{cw_name} → {expected_key} mismatch"
