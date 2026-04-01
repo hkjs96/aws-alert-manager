@@ -575,6 +575,7 @@ Resources:
           import boto3
           import tarfile
           import io
+          import pickle
 
           def send_response(event, context, status, data=None):
               body = json.dumps({
@@ -590,16 +591,24 @@ Resources:
                   headers={"Content-Type": ""}, method="PUT")
               urllib.request.urlopen(req)
 
+          class DummyModel:
+              def predict(self, X):
+                  return [0] * len(X)
+              def predict_proba(self, X):
+                  return [[1.0, 0.0]] * len(X)
+
           def handler(event, context):
               try:
                   bucket = event["ResourceProperties"]["BucketName"]
                   key = event["ResourceProperties"]["Key"]
                   if event["RequestType"] in ("Create", "Update"):
+                      model_bytes = pickle.dumps(DummyModel())
+                      model_buf = io.BytesIO(model_bytes)
                       buf = io.BytesIO()
                       with tarfile.open(fileobj=buf, mode="w:gz") as tar:
                           info = tarfile.TarInfo(name="model.pkl")
-                          info.size = 0
-                          tar.addfile(info, io.BytesIO(b""))
+                          info.size = len(model_bytes)
+                          tar.addfile(info, model_buf)
                       buf.seek(0)
                       boto3.client("s3").put_object(
                           Bucket=bucket, Key=key, Body=buf.read())
