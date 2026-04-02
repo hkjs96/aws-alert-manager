@@ -89,7 +89,6 @@ HARDCODED_DEFAULTS: dict[str, float] = {
     "SQSMessagesSent": 10000.0,
     "EcsCPU": 80.0,
     "EcsMemory": 80.0,
-    "RunningTaskCount": 1.0,
     "OffsetLag": 1000.0,
     "BytesInPerSec": 100000000.0,
     "UnderReplicatedPartitions": 0.0,

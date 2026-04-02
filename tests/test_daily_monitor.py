@@ -1365,41 +1365,6 @@ class TestExtendedResourceDailyMonitorIntegration:
 
     # ── "낮을수록 위험" 메트릭 세트 검증 (5개 신규 메트릭) ──
 
-    def test_running_task_count_lower_is_dangerous(self):
-        """RunningTaskCount < threshold → 알림 발송 (낮을수록 위험) — Req 2-B.7"""
-        collector_mod = MagicMock()
-        collector_mod.get_metrics.return_value = {"RunningTaskCount": 0.0}
-
-        with patch("daily_monitor.lambda_handler.get_threshold", return_value=1.0), \
-             patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
-            alerts = _process_resource(
-                "my-service", "ECS", {"Monitoring": "on"}, collector_mod,
-            )
-
-        assert alerts == 1
-        mock_alert.assert_called_once_with(
-            resource_id="my-service",
-            resource_type="ECS",
-            metric_name="RunningTaskCount",
-            current_value=0.0,
-            threshold=1.0,
-            tag_name="",
-        )
-
-    def test_running_task_count_above_threshold_no_alert(self):
-        """RunningTaskCount >= threshold → 알림 미발송."""
-        collector_mod = MagicMock()
-        collector_mod.get_metrics.return_value = {"RunningTaskCount": 2.0}
-
-        with patch("daily_monitor.lambda_handler.get_threshold", return_value=1.0), \
-             patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
-            alerts = _process_resource(
-                "my-service", "ECS", {"Monitoring": "on"}, collector_mod,
-            )
-
-        assert alerts == 0
-        mock_alert.assert_not_called()
-
     def test_active_controller_count_lower_is_dangerous(self):
         """ActiveControllerCount < threshold → 알림 발송 (낮을수록 위험) — Req 3.3"""
         collector_mod = MagicMock()

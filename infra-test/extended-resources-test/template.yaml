@@ -575,7 +575,6 @@ Resources:
           import boto3
           import tarfile
           import io
-          import pickle
 
           def send_response(event, context, status, data=None):
               body = json.dumps({
@@ -591,24 +590,38 @@ Resources:
                   headers={"Content-Type": ""}, method="PUT")
               urllib.request.urlopen(req)
 
-          class DummyModel:
-              def predict(self, X):
-                  return [0] * len(X)
-              def predict_proba(self, X):
-                  return [[1.0, 0.0]] * len(X)
+          # inference.py overrides model_fn/predict_fn so the container
+          # can load a trivial model without real scikit-learn objects.
+          INFERENCE_PY = (
+              "import json, os\n"
+              "def model_fn(model_dir):\n"
+              "    return {'status': 'ok'}\n"
+              "def input_fn(request_body, request_content_type):\n"
+              "    return json.loads(request_body) if request_body else []\n"
+              "def predict_fn(input_data, model):\n"
+              "    return [0]\n"
+              "def output_fn(prediction, accept):\n"
+              "    return json.dumps(prediction)\n"
+          )
 
           def handler(event, context):
               try:
                   bucket = event["ResourceProperties"]["BucketName"]
                   key = event["ResourceProperties"]["Key"]
                   if event["RequestType"] in ("Create", "Update"):
-                      model_bytes = pickle.dumps(DummyModel())
-                      model_buf = io.BytesIO(model_bytes)
                       buf = io.BytesIO()
                       with tarfile.open(fileobj=buf, mode="w:gz") as tar:
-                          info = tarfile.TarInfo(name="model.pkl")
-                          info.size = len(model_bytes)
-                          tar.addfile(info, model_buf)
+                          # Add inference.py
+                          code_dir = "code/"
+                          inf_bytes = INFERENCE_PY.encode()
+                          inf_info = tarfile.TarInfo(name=code_dir + "inference.py")
+                          inf_info.size = len(inf_bytes)
+                          tar.addfile(inf_info, io.BytesIO(inf_bytes))
+                          # Add empty model marker
+                          marker = b"dummy"
+                          m_info = tarfile.TarInfo(name="model.pkl")
+                          m_info.size = len(marker)
+                          tar.addfile(m_info, io.BytesIO(marker))
                       buf.seek(0)
                       boto3.client("s3").put_object(
                           Bucket=bucket, Key=key, Body=buf.read())
@@ -651,6 +664,9 @@ Resources:
       PrimaryContainer:
         Image: 366743142698.dkr.ecr.ap-northeast-2.amazonaws.com/sagemaker-scikit-learn:1.2-1-cpu-py3
         ModelDataUrl: !Sub 's3://${SageMakerModelBucket}/model/model.tar.gz'
+        Environment:
+          SAGEMAKER_PROGRAM: inference.py
+          SAGEMAKER_SUBMIT_DIRECTORY: /opt/ml/model/code
 
   SageMakerEndpointConfig:
     Type: AWS::SageMaker::EndpointConfig

@@ -325,7 +325,7 @@ def _process_resource(
         # FreeMemoryGB / FreeStorageGB / FreeLocalStorageGB는 값이 임계치 미만일 때 알림 (낮을수록 위험)
         if metric_name in ("FreeMemoryGB", "FreeStorageGB", "FreeLocalStorageGB",
                           "TunnelState", "DaysToExpiry", "OSFreeStorageSpace",
-                          "RunningTaskCount", "ActiveControllerCount",
+                          "ActiveControllerCount",
                           "HealthCheckStatus", "ConnectionState", "BurstCreditBalance"):
             exceeded = current_value < threshold
         else:

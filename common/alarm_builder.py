@@ -127,13 +127,16 @@ def _create_standard_alarm(
 ) -> str | None:
     """단일 표준(하드코딩) 알람 생성. 성공 시 알람 이름 반환."""
     sns_arn = _get_sns_alert_arn()
+    sns_arn = _get_sns_alert_arn()
     resource_name = resource_tags.get("Name", "")
     metric = alarm_def["metric"]
 
     # region 필드가 있으면 해당 리전의 CloudWatch 클라이언트 사용
     region = alarm_def.get("region")
     if region:
-        cw = boto3.client("cloudwatch", region_name=region)
+        cw = _clients._get_cw_client_for_region(region)
+        # 글로벌 서비스 알람은 크로스 리전 SNS를 지원하지 않으므로 Actions 비움
+        sns_arn = ""
 
     threshold, cw_threshold = resolve_threshold(alarm_def, resource_tags)
 
@@ -296,6 +299,11 @@ def _create_single_alarm(
         logger.warning("No alarm definition found for metric %s", metric)
         return
 
+    # region 필드가 있으면 해당 리전의 CloudWatch 클라이언트 사용
+    region = alarm_def.get("region")
+    if region:
+        cw = _clients._get_cw_client_for_region(region)
+
     threshold, cw_threshold = resolve_threshold(alarm_def, resource_tags)
 
     dimensions = _build_dimensions(alarm_def, resource_id, resource_type, resource_tags)
@@ -449,6 +457,11 @@ def _recreate_standard_alarm(
     sns_arn: str,
 ) -> None:
     """표준(하드코딩) 알람 재생성."""
+    # region 필드가 있으면 해당 리전의 CloudWatch 클라이언트 사용
+    region = alarm_def.get("region")
+    if region:
+        cw = _clients._get_cw_client_for_region(region)
+
     threshold, cw_threshold = resolve_threshold(alarm_def, resource_tags)
 
     dimensions = _build_dimensions(alarm_def, resource_id, resource_type, resource_tags)

@@ -54,6 +54,7 @@ def collect_monitored_resources() -> list[ResourceInfo]:
             continue
 
         tags["_storage_type"] = "StandardStorage"
+        tags["_filter_id"] = "EntireBucket"
 
         resources.append(
             ResourceInfo(

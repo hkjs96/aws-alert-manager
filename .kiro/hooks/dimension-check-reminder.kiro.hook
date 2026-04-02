@@ -1,0 +1,17 @@
+{
+  "enabled": true,
+  "name": "Dimension Check on Alarm Registry Edit",
+  "description": "alarm_registry.py 또는 dimension_builder.py 수정 시 AWS 공식 문서에서 디멘션을 확인했는지 리마인드합니다. CloudFront(Region:Global), WAF(Region), S3(FilterId) 등 누락되기 쉬운 디멘션을 체크합니다.",
+  "version": "1",
+  "when": {
+    "type": "fileEdited",
+    "patterns": [
+      "common/alarm_registry.py",
+      "common/dimension_builder.py"
+    ]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "alarm_registry.py 또는 dimension_builder.py가 수정되었습니다. 다음을 확인하세요:\n1. 새 메트릭의 디멘션이 AWS 공식 문서와 일치하는지 (§6-1 참조)\n2. 글로벌 서비스(CloudFront, Route53, WAF)의 Region 디멘션이 포함되었는지 (§8-3 참조)\n3. S3 Request Metrics의 FilterId 디멘션이 포함되었는지\n4. Compound Dimension(ECS, WAF, S3, SageMaker)의 보조 디멘션이 올바른지\n5. treat_missing_data 설정이 적절한지 (Route53/DX/MSK ActiveControllerCount = breaching)"
+  }
+}

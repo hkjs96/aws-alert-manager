@@ -609,6 +609,34 @@ def _resolve_multi_tag_type(resource_arn: str) -> str:
     return "UNKNOWN"
 
 
+def _extract_id_from_arn(arn: str, resource_type: str) -> str:
+    """TagResource/UntagResource ARN에서 리소스 식별자 추출.
+
+    DynamoDB: arn:aws:dynamodb:...:table/table-name → table-name
+    EFS: arn:aws:elasticfilesystem:...:file-system/fs-xxx → fs-xxx
+    SNS: arn:aws:sns:...:topic-name → topic-name (: 구분)
+    MSK: arn:aws:kafka:...:cluster/name/uuid → name
+    기타: ARN 그대로 반환 (Lambda, APIGW, ACM 등은 ARN이 resource_id)
+    """
+    _SLASH_TYPES = {"DynamoDB", "EFS", "ECS", "WAF"}
+    _COLON_TYPES = {"SNS"}
+    _MSK_TYPE = {"MSK"}
+
+    if resource_type in _SLASH_TYPES:
+        # arn:...:table/name or arn:...:file-system/fs-xxx
+        return arn.rsplit("/", 1)[-1] if "/" in arn else arn
+    if resource_type in _COLON_TYPES:
+        # arn:aws:sns:region:account:topic-name
+        return arn.rsplit(":", 1)[-1] if ":" in arn else arn
+    if resource_type in _MSK_TYPE:
+        # arn:aws:kafka:...:cluster/name/uuid → name
+        parts = arn.split("/")
+        return parts[1] if len(parts) >= 3 else arn
+    # Lambda, APIGW, ACM, Backup, MQ, OpenSearch, CloudFront, Route53, DX, S3, SageMaker
+    # 이들은 ARN 자체가 resource_id이거나 별도 처리 불필요
+    return arn
+
+
 def _resolve_rds_aurora_type(db_instance_id: str) -> tuple[str, bool]:
     """describe_db_instances로 Engine 확인 후 AuroraRDS/RDS 판별.
 
@@ -692,6 +720,7 @@ def parse_cloudtrail_event(event: dict) -> list[ParsedEvent]:
         # MULTI: TagResource/UntagResource ARN 기반 서비스 판별
         elif rt == "MULTI":
             rt = _resolve_multi_tag_type(resource_id)
+            resource_id = _extract_id_from_arn(resource_id, rt)
 
         change_summary = (
             f"{event_name} on {rt} {resource_id}"

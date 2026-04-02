@@ -1577,7 +1577,7 @@ class TestTreatMissingDataExtended:
         regional_cw = self._mock_cw()
         tags = {"Monitoring": "on", "Name": "my-hc"}
         with patch("common._clients._get_cw_client", return_value=mock_cw), \
-             patch("boto3.client", return_value=regional_cw):
+             patch("common._clients._get_cw_client_for_region", return_value=regional_cw):
             created = create_alarms_for_resource("hc-001", "Route53", tags)
 
         assert len(created) == 1
@@ -1647,17 +1647,18 @@ class TestCompoundDimensionsExtended:
 
     def test_waf_dimensions_webacl_and_rule(self):
         alarm_def = _get_alarm_defs("WAF")[0]
-        tags = {"_waf_rule": "my-rule"}
+        tags = {"_waf_rule": "my-rule", "_waf_region": "ap-northeast-2"}
         dims = _build_dimensions(alarm_def, "my-acl", "WAF", tags)
-        assert len(dims) == 2
+        assert len(dims) == 3
         assert dims[0] == {"Name": "WebACL", "Value": "my-acl"}
         assert dims[1] == {"Name": "Rule", "Value": "my-rule"}
+        assert dims[2] == {"Name": "Region", "Value": "ap-northeast-2"}
 
     def test_waf_dimensions_default_rule_all(self):
         alarm_def = _get_alarm_defs("WAF")[0]
         tags = {}
         dims = _build_dimensions(alarm_def, "my-acl", "WAF", tags)
-        assert len(dims) == 2
+        assert len(dims) == 3
         assert dims[1] == {"Name": "Rule", "Value": "ALL"}
 
     def test_s3_dimensions_with_storage_type(self):
@@ -1671,13 +1672,14 @@ class TestCompoundDimensionsExtended:
         assert dims[1] == {"Name": "StorageType", "Value": "StandardStorage"}
 
     def test_s3_dimensions_without_storage_type(self):
-        """S3 4xxErrors (needs_storage_type=False) → BucketName only."""
+        """S3 4xxErrors (needs_storage_type=False) → BucketName + FilterId."""
         s3_defs = _get_alarm_defs("S3")
         no_storage_def = next(d for d in s3_defs if not d.get("needs_storage_type"))
-        tags = {"_storage_type": "StandardStorage"}
+        tags = {"_storage_type": "StandardStorage", "_filter_id": "EntireBucket"}
         dims = _build_dimensions(no_storage_def, "my-bucket", "S3", tags)
-        assert len(dims) == 1
+        assert len(dims) == 2
         assert dims[0] == {"Name": "BucketName", "Value": "my-bucket"}
+        assert dims[1] == {"Name": "FilterId", "Value": "EntireBucket"}
 
     def test_sagemaker_dimensions_endpoint_and_variant(self):
         alarm_def = _get_alarm_defs("SageMaker")[0]
@@ -1737,13 +1739,11 @@ class TestRegionField:
         regional_cw = self._mock_cw()
         tags = {"Monitoring": "on", "Name": "my-cf"}
         with patch("common._clients._get_cw_client", return_value=default_cw), \
-             patch("boto3.client", return_value=regional_cw) as mock_boto3_client:
+             patch("common._clients._get_cw_client_for_region", return_value=regional_cw) as mock_regional:
             created = create_alarms_for_resource("E1234", "CloudFront", tags)
 
         assert len(created) == 4
-        # Should have used boto3.client("cloudwatch", region_name="us-east-1")
-        mock_boto3_client.assert_called_with("cloudwatch", region_name="us-east-1")
-        # All put_metric_alarm calls should be on the regional client
+        mock_regional.assert_called_with("us-east-1")
         assert regional_cw.put_metric_alarm.call_count == 4
         assert default_cw.put_metric_alarm.call_count == 0
 
@@ -1752,10 +1752,10 @@ class TestRegionField:
         regional_cw = self._mock_cw()
         tags = {"Monitoring": "on", "Name": "my-hc"}
         with patch("common._clients._get_cw_client", return_value=default_cw), \
-             patch("boto3.client", return_value=regional_cw) as mock_boto3_client:
+             patch("common._clients._get_cw_client_for_region", return_value=regional_cw) as mock_regional:
             created = create_alarms_for_resource("hc-001", "Route53", tags)
 
         assert len(created) == 1
-        mock_boto3_client.assert_called_with("cloudwatch", region_name="us-east-1")
+        mock_regional.assert_called_with("us-east-1")
         assert regional_cw.put_metric_alarm.call_count == 1
         assert default_cw.put_metric_alarm.call_count == 0

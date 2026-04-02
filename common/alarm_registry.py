@@ -89,7 +89,6 @@ _METRIC_DISPLAY = {
     "SQSMessagesSent": ("NumberOfMessagesSent", ">", ""),
     "EcsCPU": ("CPUUtilization", ">", "%"),
     "EcsMemory": ("MemoryUtilization", ">", "%"),
-    "RunningTaskCount": ("RunningTaskCount", "<", ""),
     "OffsetLag": ("SumOffsetLag", ">", ""),
     "BytesInPerSec": ("BytesInPerSec", ">", "B/s"),
     "UnderReplicatedPartitions": ("UnderReplicatedPartitions", ">", ""),
@@ -1080,16 +1079,6 @@ _ECS_ALARMS = [
         "period": 300,
         "evaluation_periods": 1,
     },
-    {
-        "metric": "RunningTaskCount",
-        "namespace": "AWS/ECS",
-        "metric_name": "RunningTaskCount",
-        "dimension_key": "ServiceName",
-        "stat": "Average",
-        "comparison": "LessThanThreshold",
-        "period": 300,
-        "evaluation_periods": 1,
-    },
 ]
 
 _MSK_ALARMS = [
@@ -1537,7 +1526,7 @@ _HARDCODED_METRIC_KEYS: dict[str, set[str]] = {
         "MasterCPU", "MasterJVMMemoryPressure",
     },
     "SQS": {"SQSMessagesVisible", "SQSOldestMessage", "SQSMessagesSent"},
-    "ECS": {"EcsCPU", "EcsMemory", "RunningTaskCount"},
+    "ECS": {"EcsCPU", "EcsMemory"},
     "MSK": {"OffsetLag", "BytesInPerSec", "UnderReplicatedPartitions", "ActiveControllerCount"},
     "DynamoDB": {"DDBReadCapacity", "DDBWriteCapacity", "ThrottledRequests", "DDBSystemErrors"},
     "CloudFront": {"CF5xxErrorRate", "CF4xxErrorRate", "CFRequests", "CFBytesDownloaded"},
@@ -1614,6 +1603,13 @@ _DIMENSION_KEY_MAP: dict[str, str] = {
     "S3": "BucketName",
     "SageMaker": "EndpointName",
     "SNS": "TopicName",
+}
+
+# 글로벌 서비스 리전 매핑: 메트릭이 us-east-1에서만 발행되는 리소스 타입
+# 알람 생성/검색/삭제 시 해당 리전의 CloudWatch 클라이언트를 사용해야 한다.
+_GLOBAL_SERVICE_REGION: dict[str, str] = {
+    "CloudFront": "us-east-1",
+    "Route53": "us-east-1",
 }
 
 
@@ -1701,7 +1697,6 @@ def _metric_name_to_key(metric_name: str) -> str:
         "ApproximateAgeOfOldestMessage": "SQSOldestMessage",
         "NumberOfMessagesSent": "SQSMessagesSent",
         "MemoryUtilization": "EcsMemory",
-        "RunningTaskCount": "RunningTaskCount",
         "SumOffsetLag": "OffsetLag",
         "BytesInPerSec": "BytesInPerSec",
         "UnderReplicatedPartitions": "UnderReplicatedPartitions",

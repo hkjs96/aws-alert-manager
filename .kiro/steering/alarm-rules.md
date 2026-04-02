@@ -159,3 +159,54 @@ fileMatchPattern: '**/*.py'
 
 하드코딩 목록에 없는 `Threshold_{MetricName}={Value}` 태그는 동적 알람으로 처리된다.
 단, CW metric_name이 하드코딩 내부 키의 별칭인 경우 동적 알람 생성을 방지한다 (KI-005 참조).
+
+## §8. 글로벌 서비스 알람 규칙
+
+CloudFront, Route53 등 글로벌 서비스의 메트릭은 us-east-1에서만 발행된다.
+이 서비스들의 알람 생성/검색/삭제는 us-east-1 CloudWatch 클라이언트를 사용해야 한다.
+
+### 8-1. 글로벌 서비스 리전 매핑
+
+| 리소스 타입 | 메트릭 리전 | 알람 생성 리전 | 비고 |
+|------------|-----------|-------------|------|
+| CloudFront | us-east-1 | us-east-1 | `_GLOBAL_SERVICE_REGION` 매핑 |
+| Route53 | us-east-1 | us-east-1 | `_GLOBAL_SERVICE_REGION` 매핑 |
+
+- `alarm_registry.py`의 `_GLOBAL_SERVICE_REGION` dict에 글로벌 서비스 리전을 정의한다
+- `alarm_manager.py`의 `sync_alarms_for_resource`/`create_alarms_for_resource`에서 글로벌 서비스면 `_get_cw_client_for_region(region)` 사용
+- `alarm_builder.py`의 `_create_standard_alarm`/`_create_single_alarm`/`_recreate_standard_alarm`에서 `alarm_def.get("region")` 확인
+
+### 8-2. 크로스 리전 SNS 제약
+
+- CloudWatch 알람의 AlarmActions에는 **같은 리전의 SNS 토픽**만 사용 가능
+- us-east-1 알람에 ap-northeast-2 SNS ARN을 넣으면 `Invalid region` 에러 발생
+- 현재 글로벌 서비스 알람은 AlarmActions를 비워두는 임시 처리 적용
+- 향후 us-east-1 SNS 토픽 + AWS Chatbot Slack 연동으로 개선 예정 (`.kiro/specs/global-service-alarm-notification/`)
+
+### 8-3. 글로벌 서비스 디멘션 규칙
+
+| 리소스 타입 | 필수 디멘션 | 비고 |
+|------------|-----------|------|
+| CloudFront | `DistributionId` + `Region: Global` | Region 디멘션 누락 시 메트릭 매칭 안 됨 |
+| Route53 | `HealthCheckId` | Region 디멘션 불필요 |
+| WAF | `WebACL` + `Rule` + `Region: {region}` | Region 디멘션 누락 시 메트릭 매칭 안 됨 |
+| S3 (Request Metrics) | `BucketName` + `FilterId: EntireBucket` | FilterId 누락 시 4xx/5xx 메트릭 매칭 안 됨 |
+
+## §9. TagResource/UntagResource ARN 변환 규칙
+
+CloudTrail `TagResource`/`UntagResource` 이벤트는 `resourceArn`을 반환한다.
+remediation handler에서 이 ARN을 실제 리소스 식별자로 변환해야 한다.
+
+### 9-1. ARN → 리소스 ID 변환 매핑
+
+| 리소스 타입 | ARN 패턴 | 추출 방법 | 예시 |
+|------------|---------|----------|------|
+| DynamoDB | `arn:aws:dynamodb:...:table/{name}` | 마지막 `/` 이후 | `table/my-table` → `my-table` |
+| ECS | `arn:aws:ecs:...:service/{cluster}/{name}` | 마지막 `/` 이후 | `service/cluster/svc` → `svc` |
+| EFS | `arn:aws:elasticfilesystem:...:file-system/{id}` | 마지막 `/` 이후 | `file-system/fs-xxx` → `fs-xxx` |
+| SNS | `arn:aws:sns:{region}:{account}:{name}` | 마지막 `:` 이후 | `...:my-topic` → `my-topic` |
+| MSK | `arn:aws:kafka:...:cluster/{name}/{uuid}` | 두 번째 `/` 부분 | `cluster/name/uuid` → `name` |
+| Lambda, ACM, S3, SageMaker 등 | ARN 그대로 | 변환 불필요 | ARN이 resource_id |
+
+- `_extract_id_from_arn(arn, resource_type)` 함수에서 변환 처리
+- 새 리소스 타입 추가 시 ARN 패턴 확인 후 변환 로직 추가 필수

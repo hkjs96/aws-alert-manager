@@ -12,6 +12,12 @@ def _get_cw_client():
     return boto3.client("cloudwatch")
 
 
+@functools.lru_cache(maxsize=None)
+def _get_cw_client_for_region(region_name: str):
+    """특정 리전의 CloudWatch 클라이언트 싱글턴 (글로벌 서비스용)."""
+    return boto3.client("cloudwatch", region_name=region_name)
+
+
 def create_clients_for_account(
     role_arn: str,
     session_name: str = "MonitoringEngine",

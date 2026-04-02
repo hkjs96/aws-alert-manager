@@ -19,6 +19,8 @@ import math
 import os
 import re
 
+import boto3
+
 from botocore.exceptions import ClientError
 
 import common._clients as _clients
@@ -62,6 +64,7 @@ from common.alarm_registry import (  # noqa: E402, F401
     _HARDCODED_METRIC_KEYS,
     _NAMESPACE_MAP,
     _DIMENSION_KEY_MAP,
+    _GLOBAL_SERVICE_REGION,
     _get_hardcoded_metric_keys,
     _metric_name_to_key,
 )
@@ -187,6 +190,10 @@ def create_alarms_for_resource(
     cw=None,
 ) -> list[str]:
     """리소스에 대한 CloudWatch Alarm을 생성한다."""
+    # 글로벌 서비스(CloudFront/Route53)는 us-east-1 CloudWatch 클라이언트 사용
+    global_region = _GLOBAL_SERVICE_REGION.get(resource_type)
+    if global_region and cw is None:
+        cw = _clients._get_cw_client_for_region(global_region)
     _fwd: dict = {"cw": cw} if cw is not None else {}
     cw = cw or _clients._get_cw_client()
     sns_arn = _get_sns_alert_arn()
@@ -246,6 +253,10 @@ def sync_alarms_for_resource(
     cw=None,
 ) -> dict:
     """리소스의 알람이 현재 태그 임계치와 일치하는지 확인하고 불일치 시 업데이트."""
+    # 글로벌 서비스(CloudFront/Route53)는 us-east-1 CloudWatch 클라이언트 사용
+    global_region = _GLOBAL_SERVICE_REGION.get(resource_type)
+    if global_region and cw is None:
+        cw = _clients._get_cw_client_for_region(global_region)
     _fwd: dict = {"cw": cw} if cw is not None else {}
     cw = cw or _clients._get_cw_client()
     result: dict[str, list] = {

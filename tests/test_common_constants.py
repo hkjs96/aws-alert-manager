@@ -155,7 +155,6 @@ class TestExtendedCommonConstants:
     def test_hardcoded_defaults_ecs(self):
         assert HARDCODED_DEFAULTS["EcsCPU"] == 80.0
         assert HARDCODED_DEFAULTS["EcsMemory"] == 80.0
-        assert HARDCODED_DEFAULTS["RunningTaskCount"] == 1.0
 
     def test_hardcoded_defaults_msk(self):
         assert HARDCODED_DEFAULTS["OffsetLag"] == 1000.0

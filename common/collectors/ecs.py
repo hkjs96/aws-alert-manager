@@ -111,7 +111,6 @@ def get_metrics(
     수집 메트릭 (네임스페이스: AWS/ECS, Compound_Dimension: ClusterName + ServiceName):
     - CPUUtilization (Average) → 'EcsCPU'
     - MemoryUtilization (Average) → 'EcsMemory'
-    - RunningTaskCount (Average) → 'RunningTaskCount'
 
     데이터 없으면 해당 메트릭 skip. 모두 없으면 None 반환.
     """
@@ -132,8 +131,6 @@ def get_metrics(
                     start_time, end_time, "EcsCPU", metrics, CW_STAT_AVG)
     _collect_metric("AWS/ECS", "MemoryUtilization", dims,
                     start_time, end_time, "EcsMemory", metrics, CW_STAT_AVG)
-    _collect_metric("AWS/ECS", "RunningTaskCount", dims,
-                    start_time, end_time, "RunningTaskCount", metrics, CW_STAT_AVG)
 
     return metrics if metrics else None
 

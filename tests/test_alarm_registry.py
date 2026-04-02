@@ -827,23 +827,18 @@ class TestECSAlarmDefs:
 
     def test_get_alarm_defs_ecs_count(self):
         defs = _get_alarm_defs("ECS")
-        assert len(defs) == 3
+        assert len(defs) == 2
 
     def test_get_alarm_defs_ecs_metrics(self):
         defs = _get_alarm_defs("ECS")
         metrics = {d["metric"] for d in defs}
-        assert metrics == {"EcsCPU", "EcsMemory", "RunningTaskCount"}
+        assert metrics == {"EcsCPU", "EcsMemory"}
 
     def test_ecs_namespace_and_dimension(self):
         defs = _get_alarm_defs("ECS")
         for d in defs:
             assert d["namespace"] == "AWS/ECS"
             assert d["dimension_key"] == "ServiceName"
-
-    def test_ecs_running_task_count_less_than(self):
-        defs = _get_alarm_defs("ECS")
-        rtc = next(d for d in defs if d["metric"] == "RunningTaskCount")
-        assert rtc["comparison"] == "LessThanThreshold"
 
     def test_ecs_launch_type_fargate_same_alarms(self):
         defs_fargate = _get_alarm_defs("ECS", {"_ecs_launch_type": "FARGATE"})
@@ -1329,7 +1324,7 @@ class TestExtendedResourceMappingTables:
         assert _HARDCODED_METRIC_KEYS["SQS"] == {"SQSMessagesVisible", "SQSOldestMessage", "SQSMessagesSent"}
 
     def test_hardcoded_metric_keys_ecs(self):
-        assert _HARDCODED_METRIC_KEYS["ECS"] == {"EcsCPU", "EcsMemory", "RunningTaskCount"}
+        assert _HARDCODED_METRIC_KEYS["ECS"] == {"EcsCPU", "EcsMemory"}
 
     def test_hardcoded_metric_keys_msk(self):
         assert _HARDCODED_METRIC_KEYS["MSK"] == {"OffsetLag", "BytesInPerSec", "UnderReplicatedPartitions", "ActiveControllerCount"}
@@ -1406,7 +1401,6 @@ class TestExtendedResourceMappingTables:
             "SQSMessagesSent": ("NumberOfMessagesSent", ">", ""),
             "EcsCPU": ("CPUUtilization", ">", "%"),
             "EcsMemory": ("MemoryUtilization", ">", "%"),
-            "RunningTaskCount": ("RunningTaskCount", "<", ""),
             "OffsetLag": ("SumOffsetLag", ">", ""),
             "BytesInPerSec": ("BytesInPerSec", ">", "B/s"),
             "UnderReplicatedPartitions": ("UnderReplicatedPartitions", ">", ""),
@@ -1447,7 +1441,6 @@ class TestExtendedResourceMappingTables:
             "ApproximateAgeOfOldestMessage": "SQSOldestMessage",
             "NumberOfMessagesSent": "SQSMessagesSent",
             "MemoryUtilization": "EcsMemory",
-            "RunningTaskCount": "RunningTaskCount",
             "SumOffsetLag": "OffsetLag",
             "BytesInPerSec": "BytesInPerSec",
             "UnderReplicatedPartitions": "UnderReplicatedPartitions",

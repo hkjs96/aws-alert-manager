@@ -15,3 +15,8 @@ build/
 
 .orbitron/
 .orbitron.json
+deploy_tmp/
+dm_output.json
+model.tar.gz
+output.json
+test_out.json

@@ -55,6 +55,7 @@ def collect_monitored_resources() -> list[ResourceInfo]:
             continue
 
         tags["_waf_rule"] = "ALL"
+        tags["_waf_region"] = region
 
         resources.append(
             ResourceInfo(
