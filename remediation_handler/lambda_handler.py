@@ -166,6 +166,189 @@ def _extract_elb_tag_resource_ids(params: dict) -> list[str]:
     return [arn for arn in arns if arn]
 
 
+# ──────────────────────────────────────────────
+# 신규 리소스 ID 추출 함수
+# ──────────────────────────────────────────────
+
+def _extract_lambda_create_ids(resp: dict) -> list[str]:
+    """CreateFunction: responseElements.functionName 추출."""
+    rid = resp.get("functionName")
+    return [rid] if rid else []
+
+
+def _extract_lambda_ids(params: dict) -> list[str]:
+    """DeleteFunction: requestParameters.functionName 추출."""
+    rid = params.get("functionName")
+    return [rid] if rid else []
+
+
+def _extract_vpn_ids(params: dict) -> list[str]:
+    """DeleteVpnConnection: vpnConnectionId 추출."""
+    rid = params.get("vpnConnectionId")
+    return [rid] if rid else []
+
+
+def _extract_apigw_rest_create_ids(resp: dict) -> list[str]:
+    """CreateRestApi: responseElements.name 추출."""
+    rid = resp.get("name")
+    return [rid] if rid else []
+
+
+def _extract_apigw_rest_ids(params: dict) -> list[str]:
+    """DeleteRestApi: restApiId 추출."""
+    rid = params.get("restApiId")
+    return [rid] if rid else []
+
+
+def _extract_apigw_v2_create_ids(resp: dict) -> list[str]:
+    """CreateApi (v2): responseElements.apiId 추출."""
+    rid = resp.get("apiId")
+    return [rid] if rid else []
+
+
+def _extract_apigw_v2_ids(params: dict) -> list[str]:
+    """DeleteApi (v2): apiId 추출."""
+    rid = params.get("apiId")
+    return [rid] if rid else []
+
+
+def _extract_acm_ids(params: dict) -> list[str]:
+    """DeleteCertificate: certificateArn 추출."""
+    rid = params.get("certificateArn")
+    return [rid] if rid else []
+
+
+def _extract_backup_vault_ids(params: dict) -> list[str]:
+    """CreateBackupVault / DeleteBackupVault: backupVaultName 추출."""
+    rid = params.get("backupVaultName")
+    return [rid] if rid else []
+
+
+def _extract_mq_create_ids(resp: dict) -> list[str]:
+    """CreateBroker: responseElements.brokerName 추출."""
+    rid = resp.get("brokerName")
+    return [rid] if rid else []
+
+
+def _extract_mq_ids(params: dict) -> list[str]:
+    """DeleteBroker: brokerId 추출."""
+    rid = params.get("brokerId")
+    return [rid] if rid else []
+
+
+def _extract_opensearch_ids(params: dict) -> list[str]:
+    """CreateDomain / DeleteDomain: domainName 추출."""
+    rid = params.get("domainName")
+    return [rid] if rid else []
+
+
+def _extract_tag_resource_arn(params: dict) -> list[str]:
+    """TagResource / UntagResource: resourceArn 추출 (Lambda, APIGW, ACM, Backup, MQ, OpenSearch 공통)."""
+    rid = params.get("resourceArn") or params.get("resourceARN") or params.get("resource")
+    return [rid] if rid else []
+
+
+# ──────────────────────────────────────────────
+# 12개 신규 리소스 ID 추출 함수
+# ──────────────────────────────────────────────
+
+def _extract_sqs_queue_name(params: dict) -> list[str]:
+    """SQS CreateQueue/DeleteQueue/TagQueue/UntagQueue: queueUrl에서 큐 이름 추출."""
+    url = params.get("queueUrl", "")
+    if url:
+        return [url.rstrip("/").split("/")[-1]]
+    return []
+
+
+def _extract_ecs_service_ids(params: dict) -> list[str]:
+    """ECS CreateService/DeleteService: serviceName 추출."""
+    rid = params.get("serviceName")
+    return [rid] if rid else []
+
+
+def _extract_msk_cluster_ids(params: dict) -> list[str]:
+    """MSK CreateCluster/DeleteCluster: clusterName 추출."""
+    rid = params.get("clusterName")
+    return [rid] if rid else []
+
+
+def _extract_dynamodb_table_ids(params: dict) -> list[str]:
+    """DynamoDB CreateTable/DeleteTable: tableName 추출."""
+    rid = params.get("tableName")
+    return [rid] if rid else []
+
+
+def _extract_cloudfront_create_ids(resp: dict) -> list[str]:
+    """CreateDistribution: responseElements.distribution.id 추출."""
+    dist = resp.get("distribution", {})
+    rid = dist.get("id")
+    return [rid] if rid else []
+
+
+def _extract_cloudfront_delete_ids(params: dict) -> list[str]:
+    """DeleteDistribution: requestParameters.id 추출."""
+    rid = params.get("id")
+    return [rid] if rid else []
+
+
+def _extract_waf_create_ids(resp: dict) -> list[str]:
+    """CreateWebACL: responseElements.summary.name 추출."""
+    summary = resp.get("summary", {})
+    rid = summary.get("name")
+    return [rid] if rid else []
+
+
+def _extract_waf_delete_ids(params: dict) -> list[str]:
+    """DeleteWebACL: requestParameters.name 추출."""
+    rid = params.get("name")
+    return [rid] if rid else []
+
+
+def _extract_route53_create_ids(resp: dict) -> list[str]:
+    """CreateHealthCheck: responseElements.healthCheck.id 추출."""
+    hc = resp.get("healthCheck", {})
+    rid = hc.get("id")
+    return [rid] if rid else []
+
+
+def _extract_route53_delete_ids(params: dict) -> list[str]:
+    """DeleteHealthCheck: requestParameters.healthCheckId 추출."""
+    rid = params.get("healthCheckId")
+    return [rid] if rid else []
+
+
+def _extract_dx_connection_ids(params: dict) -> list[str]:
+    """DX CreateConnection/DeleteConnection: connectionId 추출."""
+    rid = params.get("connectionId")
+    return [rid] if rid else []
+
+
+def _extract_efs_file_system_ids(params: dict) -> list[str]:
+    """EFS CreateFileSystem/DeleteFileSystem: fileSystemId 추출."""
+    rid = params.get("fileSystemId")
+    return [rid] if rid else []
+
+
+def _extract_s3_bucket_ids(params: dict) -> list[str]:
+    """S3 CreateBucket/DeleteBucket: bucketName 추출."""
+    rid = params.get("bucketName")
+    return [rid] if rid else []
+
+
+def _extract_sagemaker_endpoint_ids(params: dict) -> list[str]:
+    """SageMaker CreateEndpoint/DeleteEndpoint: endpointName 추출."""
+    rid = params.get("endpointName")
+    return [rid] if rid else []
+
+
+def _extract_sns_topic_ids(params: dict) -> list[str]:
+    """SNS CreateTopic/DeleteTopic: topicArn에서 토픽 이름 추출."""
+    arn = params.get("topicArn", "")
+    if arn:
+        return [arn.split(":")[-1]]
+    return []
+
+
 
 _API_MAP: dict[str, tuple[str, callable]] = {
 
@@ -210,6 +393,24 @@ _API_MAP: dict[str, tuple[str, callable]] = {
 
     "CreateNatGateway":             ("NAT", _extract_natgw_create_ids),
 
+    # CREATE (신규 리소스)
+    "CreateFunction20150331":       ("Lambda", _extract_lambda_create_ids),
+    "CreateRestApi":                ("APIGW", _extract_apigw_rest_create_ids),
+    "CreateApi":                    ("APIGW", _extract_apigw_v2_create_ids),
+    "CreateBackupVault":            ("Backup", _extract_backup_vault_ids),
+    "CreateBroker":                 ("MQ", _extract_mq_create_ids),
+    "CreateDomain":                 ("OpenSearch", _extract_opensearch_ids),
+
+    # DELETE (신규 리소스)
+    "DeleteFunction20150331":       ("Lambda", _extract_lambda_ids),
+    "DeleteVpnConnection":          ("VPN", _extract_vpn_ids),
+    "DeleteRestApi":                ("APIGW", _extract_apigw_rest_ids),
+    "DeleteApi":                    ("APIGW", _extract_apigw_v2_ids),
+    "DeleteCertificate":            ("ACM", _extract_acm_ids),
+    "DeleteBackupVault":            ("Backup", _extract_backup_vault_ids),
+    "DeleteBroker":                 ("MQ", _extract_mq_ids),
+    "DeleteDomain":                 ("OpenSearch", _extract_opensearch_ids),
+
     # TAG_CHANGE
 
     "CreateTags":                   ("EC2", _extract_tag_resource_ids),
@@ -223,6 +424,42 @@ _API_MAP: dict[str, tuple[str, callable]] = {
     "AddTags":                      ("ELB", _extract_elb_tag_resource_ids),
 
     "RemoveTags":                   ("ELB", _extract_elb_tag_resource_ids),
+
+    # TAG_CHANGE (신규 리소스 공통)
+    "TagResource":                  ("MULTI", _extract_tag_resource_arn),
+    "UntagResource":                ("MULTI", _extract_tag_resource_arn),
+
+    # SQS 전용 태그 이벤트
+    "TagQueue":                     ("SQS", _extract_sqs_queue_name),
+    "UntagQueue":                   ("SQS", _extract_sqs_queue_name),
+
+    # CREATE (12개 신규 리소스)
+    "CreateQueue":                  ("SQS", _extract_sqs_queue_name),
+    "CreateService":                ("ECS", _extract_ecs_service_ids),
+    "CreateCluster":                ("MSK", _extract_msk_cluster_ids),
+    "CreateTable":                  ("DynamoDB", _extract_dynamodb_table_ids),
+    "CreateDistribution":           ("CloudFront", _extract_cloudfront_create_ids),
+    "CreateWebACL":                 ("WAF", _extract_waf_create_ids),
+    "CreateHealthCheck":            ("Route53", _extract_route53_create_ids),
+    "CreateConnection":             ("DX", _extract_dx_connection_ids),
+    "CreateFileSystem":             ("EFS", _extract_efs_file_system_ids),
+    "CreateBucket":                 ("S3", _extract_s3_bucket_ids),
+    "CreateEndpoint":               ("SageMaker", _extract_sagemaker_endpoint_ids),
+    "CreateTopic":                  ("SNS", _extract_sns_topic_ids),
+
+    # DELETE (12개 신규 리소스)
+    "DeleteQueue":                  ("SQS", _extract_sqs_queue_name),
+    "DeleteService":                ("ECS", _extract_ecs_service_ids),
+    "DeleteCluster":                ("MSK", _extract_msk_cluster_ids),
+    "DeleteTable":                  ("DynamoDB", _extract_dynamodb_table_ids),
+    "DeleteDistribution":           ("CloudFront", _extract_cloudfront_delete_ids),
+    "DeleteWebACL":                 ("WAF", _extract_waf_delete_ids),
+    "DeleteHealthCheck":            ("Route53", _extract_route53_delete_ids),
+    "DeleteConnection":             ("DX", _extract_dx_connection_ids),
+    "DeleteFileSystem":             ("EFS", _extract_efs_file_system_ids),
+    "DeleteBucket":                 ("S3", _extract_s3_bucket_ids),
+    "DeleteEndpoint":               ("SageMaker", _extract_sagemaker_endpoint_ids),
+    "DeleteTopic":                  ("SNS", _extract_sns_topic_ids),
 
 }
 
@@ -335,6 +572,43 @@ def _resolve_elb_type(resource_id: str) -> str:
     return "ELB"
 
 
+def _resolve_multi_tag_type(resource_arn: str) -> str:
+    """TagResource/UntagResource ARN에서 서비스 타입 판별.
+
+    ARN 패턴:
+    - arn:aws:lambda:... → Lambda
+    - arn:aws:apigateway:... → APIGW
+    - arn:aws:acm:... → ACM
+    - arn:aws:backup:... → Backup
+    - arn:aws:mq:... → MQ
+    - arn:aws:es:... → OpenSearch
+    """
+    _ARN_SERVICE_MAP = {
+        ":lambda:": "Lambda",
+        ":apigateway:": "APIGW",
+        ":acm:": "ACM",
+        ":backup:": "Backup",
+        ":mq:": "MQ",
+        ":es:": "OpenSearch",
+        ":ecs:": "ECS",
+        ":kafka:": "MSK",
+        ":dynamodb:": "DynamoDB",
+        ":cloudfront:": "CloudFront",
+        ":wafv2:": "WAF",
+        ":route53:": "Route53",
+        ":directconnect:": "DX",
+        ":elasticfilesystem:": "EFS",
+        ":s3:": "S3",
+        ":sagemaker:": "SageMaker",
+        ":sns:": "SNS",
+    }
+    for pattern, rtype in _ARN_SERVICE_MAP.items():
+        if pattern in resource_arn:
+            return rtype
+    logger.warning("Cannot resolve MULTI tag type from ARN: %s", resource_arn)
+    return "UNKNOWN"
+
+
 def _resolve_rds_aurora_type(db_instance_id: str) -> tuple[str, bool]:
     """describe_db_instances로 Engine 확인 후 AuroraRDS/RDS 판별.
 
@@ -383,9 +657,14 @@ def parse_cloudtrail_event(event: dict) -> list[ParsedEvent]:
 
     resource_type, ids_extractor = _API_MAP[event_name]
 
-    # CREATE 이벤트: responseElements에서 ID 추출 (CreateDBInstance, CreateCacheCluster만 requestParameters 사용)
+    # CREATE 이벤트: responseElements에서 ID 추출 (일부 이벤트는 requestParameters 사용)
     event_category = _get_event_category(event_name)
-    if event_category == "CREATE" and event_name not in ("CreateDBInstance", "CreateCacheCluster"):
+    _CREATE_FROM_REQUEST_PARAMS = (
+        "CreateDBInstance", "CreateCacheCluster",
+        "CreateService", "CreateCluster", "CreateTable",
+        "CreateBucket", "CreateEndpoint",
+    )
+    if event_category == "CREATE" and event_name not in _CREATE_FROM_REQUEST_PARAMS:
         extract_source = detail.get("responseElements") or {}
     else:
         extract_source = request_params
@@ -410,6 +689,9 @@ def parse_cloudtrail_event(event: dict) -> list[ParsedEvent]:
         # RDS → AuroraRDS 세분화 (describe_db_instances Engine 확인)
         elif rt == "RDS":
             rt, is_rds_fallback = _resolve_rds_aurora_type(resource_id)
+        # MULTI: TagResource/UntagResource ARN 기반 서비스 판별
+        elif rt == "MULTI":
+            rt = _resolve_multi_tag_type(resource_id)
 
         change_summary = (
             f"{event_name} on {rt} {resource_id}"

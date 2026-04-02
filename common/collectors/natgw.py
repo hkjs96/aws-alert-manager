@@ -99,6 +99,24 @@ def get_metrics(
     return metrics if metrics else None
 
 
+def resolve_alive_ids(tag_names: set[str]) -> set[str]:
+    """NAT Gateway 존재 여부 확인. deleting/deleted 제외."""
+    ec2 = _get_ec2_client()
+    alive: set[str] = set()
+    id_list = list(tag_names)
+    for i in range(0, len(id_list), 200):
+        batch = id_list[i:i + 200]
+        try:
+            resp = ec2.describe_nat_gateways(NatGatewayIds=batch)
+            for natgw in resp.get("NatGateways", []):
+                state = natgw.get("State", "")
+                if state not in ("deleted", "deleting"):
+                    alive.add(natgw["NatGatewayId"])
+        except ClientError as e:
+            logger.error("describe_nat_gateways failed: %s", e)
+    return alive
+
+
 def _collect_metric(namespace, cw_metric_name, dimensions,
                     start_time, end_time, result_key, metrics_dict):
     """단일 메트릭 조회 후 metrics_dict에 추가. 데이터 없으면 skip + info 로그."""

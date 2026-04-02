@@ -1,0 +1,12 @@
+{
+  "name": "Deploy After Tests Pass",
+  "version": "1.0.0",
+  "description": "테스트 통과 후 zip 패키징 → S3 업로드 → CFN 스택 업데이트 자동 실행",
+  "when": {
+    "type": "postTaskExecution"
+  },
+  "then": {
+    "type": "runCommand",
+    "command": "set -e && echo '=== Running tests ===' && pytest tests/ -x -q --tb=short && echo '=== Tests passed. Starting deployment ===' && VERSION=v$(date +%Y%m%d%H%M) && PROFILE=${AWS_PROFILE:-default} && python -c \"\nimport zipfile, os\n\ndef make_zip(zip_path, source_dir):\n    with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:\n        for root, dirs, files in os.walk(source_dir):\n            for f in files:\n                if f.endswith('.pyc') or '__pycache__' in root: continue\n                full = os.path.join(root, f)\n                zf.write(full, os.path.relpath(full, source_dir))\n\nos.makedirs('dist', exist_ok=True)\nmake_zip('dist/daily_monitor.zip', 'daily_monitor')\nmake_zip('dist/remediation_handler.zip', 'remediation_handler')\n\nwith zipfile.ZipFile('dist/common_layer.zip', 'w', zipfile.ZIP_DEFLATED) as zf:\n    for root, dirs, files in os.walk('common'):\n        for f in files:\n            if f.endswith('.pyc') or '__pycache__' in root: continue\n            full = os.path.join(root, f)\n            zf.write(full, os.path.join('python', os.path.relpath(full, '.')))\nprint('Packaging done')\n\" && echo \"=== Uploading to S3 (${VERSION}) ===\" && aws s3 cp dist/common_layer.zip s3://bjs-deploy-bucket/${VERSION}/common_layer.zip --profile ${PROFILE} && aws s3 cp dist/daily_monitor.zip s3://bjs-deploy-bucket/${VERSION}/daily_monitor.zip --profile ${PROFILE} && aws s3 cp dist/remediation_handler.zip s3://bjs-deploy-bucket/${VERSION}/remediation_handler.zip --profile ${PROFILE} && echo '=== Updating CloudFormation stack ===' && aws cloudformation update-stack --stack-name aws-monitoring-engine-prod --use-previous-template --parameters ParameterKey=DeploymentBucket,UsePreviousValue=true ParameterKey=CodeVersion,ParameterValue=${VERSION} ParameterKey=Environment,UsePreviousValue=true ParameterKey=DefaultCpuThreshold,UsePreviousValue=true ParameterKey=DefaultMemoryThreshold,UsePreviousValue=true ParameterKey=DefaultConnectionsThreshold,UsePreviousValue=true ParameterKey=DefaultFreeMemoryGBThreshold,UsePreviousValue=true ParameterKey=DefaultFreeStorageGBThreshold,UsePreviousValue=true ParameterKey=DefaultDiskThreshold,UsePreviousValue=true --capabilities CAPABILITY_NAMED_IAM --profile ${PROFILE} && echo \"=== Deployment triggered: ${VERSION} ===\""
+  }
+}

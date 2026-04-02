@@ -22,14 +22,30 @@ def _alarm_name(resource_id: str, metric: str) -> str:
     return f"{resource_id}-{metric}-{_get_env()}"
 
 
-def _shorten_elb_resource_id(resource_id: str, resource_type: str) -> str:
-    """ALB/NLB/TG ARN에서 짧은 식별자(name/hash)를 추출.
+def _shorten_elb_resource_id(resource_id: str, resource_type: str,
+                             resource_tags: dict | None = None) -> str:
+    """ALB/NLB/TG ARN 또는 APIGW HTTP/WS API ID에서 짧은 식별자를 추출.
 
-    - ALB: arn:...loadbalancer/app/{name}/{hash} → {name}/{hash}
-    - NLB: arn:...loadbalancer/net/{name}/{hash} → {name}/{hash}
-    - TG:  arn:...targetgroup/{name}/{hash}      → {name}/{hash}
+    - ALB: arn:...loadbalancer/app/{name}/{hash} -> {name}/{hash}
+    - NLB: arn:...loadbalancer/net/{name}/{hash} -> {name}/{hash}
+    - TG:  arn:...targetgroup/{name}/{hash}      -> {name}/{hash}
+    - APIGW HTTP/WS: {api_id} -> {api_name}/{api_id} (Name 태그 있을 때)
     - EC2/RDS 또는 ARN이 아닌 입력: 그대로 반환 (방어적 처리)
     """
+    if resource_type == "ACM":
+        tags = resource_tags or {}
+        domain = tags.get("Name", "")
+        return domain if domain else resource_id
+
+    if resource_type == "APIGW":
+        tags = resource_tags or {}
+        api_type = tags.get("_api_type", "REST")
+        if api_type in ("HTTP", "WEBSOCKET"):
+            api_name = tags.get("Name", "")
+            if api_name:
+                return f"{api_name}/{resource_id}"
+        return resource_id
+
     if resource_type not in ("ALB", "NLB", "TG"):
         return resource_id
     if not resource_id:
@@ -61,6 +77,7 @@ def _pretty_alarm_name(
     resource_name: str,
     metric: str,
     threshold: float,
+    resource_tags: dict | None = None,
 ) -> str:
     """
     알람 이름 생성 (새 포맷).
@@ -98,7 +115,7 @@ def _pretty_alarm_name(
     # 고정 부분 (절대 truncate 불가): prefix + threshold_part + suffix
     prefix = f"[{resource_type}] "
     threshold_part = f" {direction} {thr_str}{unit} "
-    short_id = _shorten_elb_resource_id(resource_id, resource_type)
+    short_id = _shorten_elb_resource_id(resource_id, resource_type, resource_tags)
     suffix = f"(TagName: {short_id})"
 
     fixed_len = len(prefix) + len(threshold_part) + len(suffix)

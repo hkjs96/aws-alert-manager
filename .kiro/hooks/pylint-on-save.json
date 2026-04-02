@@ -1,0 +1,13 @@
+{
+  "name": "Pylint on Save",
+  "version": "1.0.0",
+  "description": "Python 파일 저장 시 pylint로 함수 복잡도(§3) 및 코드 품질 자동 검사",
+  "when": {
+    "type": "fileEdited",
+    "patterns": ["**/*.py"]
+  },
+  "then": {
+    "type": "runCommand",
+    "command": "pylint --max-locals=15 --max-statements=50 --max-branches=12 --max-args=5 --disable=all --enable=too-many-locals,too-many-statements,too-many-branches,too-many-arguments $(git diff --name-only HEAD | grep '\\.py$' | tr '\\n' ' ') 2>/dev/null || true"
+  }
+}

@@ -5,6 +5,7 @@ Requirements: 1.1, 1.3, 1.4, 3.1, 3.3, 3.4, 3.5, 6.3, 6.4
 """
 
 import json
+from contextlib import ExitStack
 from unittest.mock import MagicMock, call, patch
 
 import pytest
@@ -34,22 +35,53 @@ def _make_resource(resource_id, resource_type="EC2", tags=None):
 
 def _patch_all_collectors(ec2_resources=None, rds_resources=None, elb_resources=None,
                          docdb_resources=None, elasticache_resources=None,
-                         natgw_resources=None):
-    """모든 collector를 패치하는 컨텍스트 매니저 반환."""
-    return (
-        patch("daily_monitor.lambda_handler.ec2_collector.collect_monitored_resources",
-              return_value=ec2_resources or []),
-        patch("daily_monitor.lambda_handler.rds_collector.collect_monitored_resources",
-              return_value=rds_resources or []),
-        patch("daily_monitor.lambda_handler.elb_collector.collect_monitored_resources",
-              return_value=elb_resources or []),
-        patch("daily_monitor.lambda_handler.docdb_collector.collect_monitored_resources",
-              return_value=docdb_resources or []),
-        patch("daily_monitor.lambda_handler.elasticache_collector.collect_monitored_resources",
-              return_value=elasticache_resources or []),
-        patch("daily_monitor.lambda_handler.natgw_collector.collect_monitored_resources",
-              return_value=natgw_resources or []),
-    )
+                         natgw_resources=None, lambda_resources=None,
+                         vpn_resources=None, apigw_resources=None,
+                         acm_resources=None, backup_resources=None,
+                         mq_resources=None, clb_resources=None,
+                         opensearch_resources=None,
+                         sqs_resources=None, ecs_resources=None,
+                         msk_resources=None, dynamodb_resources=None,
+                         cloudfront_resources=None, waf_resources=None,
+                         route53_resources=None, dx_resources=None,
+                         efs_resources=None, s3_resources=None,
+                         sagemaker_resources=None, sns_resources=None):
+    """모든 collector를 패치하는 ExitStack 컨텍스트 매니저 반환."""
+    stack = ExitStack()
+    collectors = [
+        ("ec2_collector", ec2_resources),
+        ("rds_collector", rds_resources),
+        ("elb_collector", elb_resources),
+        ("docdb_collector", docdb_resources),
+        ("elasticache_collector", elasticache_resources),
+        ("natgw_collector", natgw_resources),
+        ("lambda_collector", lambda_resources),
+        ("vpn_collector", vpn_resources),
+        ("apigw_collector", apigw_resources),
+        ("acm_collector", acm_resources),
+        ("backup_collector", backup_resources),
+        ("mq_collector", mq_resources),
+        ("clb_collector", clb_resources),
+        ("opensearch_collector", opensearch_resources),
+        ("sqs_collector", sqs_resources),
+        ("ecs_collector", ecs_resources),
+        ("msk_collector", msk_resources),
+        ("dynamodb_collector", dynamodb_resources),
+        ("cloudfront_collector", cloudfront_resources),
+        ("waf_collector", waf_resources),
+        ("route53_collector", route53_resources),
+        ("dx_collector", dx_resources),
+        ("efs_collector", efs_resources),
+        ("s3_collector", s3_resources),
+        ("sagemaker_collector", sagemaker_resources),
+        ("sns_collector", sns_resources),
+    ]
+    for name, resources in collectors:
+        stack.enter_context(
+            patch(f"daily_monitor.lambda_handler.{name}.collect_monitored_resources",
+                  return_value=resources or [])
+        )
+    return stack
 
 
 # ──────────────────────────────────────────────
@@ -70,8 +102,7 @@ def test_property_6_insufficient_data_no_alert(resource_ids):
     """Feature: aws-monitoring-engine, Property 6: InsufficientData 메트릭 알림 건너뛰기"""
     resources = [_make_resource(rid) for rid in resource_ids]
 
-    p1, p2, p3, p4, p5, p6 = _patch_all_collectors(ec2_resources=resources)
-    with p1, p2, p3, p4, p5, p6, \
+    with _patch_all_collectors(ec2_resources=resources), \
          patch("common.collectors.ec2.get_metrics", return_value=None), \
          patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
         result = handler({}, MagicMock())
@@ -100,8 +131,7 @@ def test_property_8_multiple_resources_individual_alerts(cpu_values):
     # 각 리소스마다 CPU 임계치 초과 메트릭 반환
     metrics_list = [{"CPU": v} for v in cpu_values]
 
-    p1, p2, p3, p4, p5, p6 = _patch_all_collectors(ec2_resources=resources)
-    with p1, p2, p3, p4, p5, p6, \
+    with _patch_all_collectors(ec2_resources=resources), \
          patch("common.collectors.ec2.get_metrics", side_effect=metrics_list), \
          patch("daily_monitor.lambda_handler.send_alert") as mock_alert, \
          patch("daily_monitor.lambda_handler.get_threshold", return_value=80.0):
@@ -120,8 +150,7 @@ class TestDailyMonitorHandler:
 
     def test_no_resources_no_alert(self):
         """수집 대상 0개 시 알림 미발송 - Requirements 1.3"""
-        p1, p2, p3, p4, p5, p6 = _patch_all_collectors()
-        with p1, p2, p3, p4, p5, p6, \
+        with _patch_all_collectors(), \
              patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
             result = handler({}, MagicMock())
 
@@ -132,8 +161,7 @@ class TestDailyMonitorHandler:
     def test_threshold_exceeded_sends_alert(self):
         """임계치 초과 시 SNS 알림 발송 - Requirements 3.1"""
         resources = [_make_resource("i-001")]
-        p1, p2, p3, p4, p5, p6 = _patch_all_collectors(ec2_resources=resources)
-        with p1, p2, p3, p4, p5, p6, \
+        with _patch_all_collectors(ec2_resources=resources), \
              patch("common.collectors.ec2.get_metrics",
                    return_value={"CPU": 95.0}), \
              patch("daily_monitor.lambda_handler.get_threshold", return_value=80.0), \
@@ -153,8 +181,7 @@ class TestDailyMonitorHandler:
     def test_threshold_not_exceeded_no_alert(self):
         """임계치 미초과 시 알림 미발송"""
         resources = [_make_resource("i-001")]
-        p1, p2, p3, p4, p5, p6 = _patch_all_collectors(ec2_resources=resources)
-        with p1, p2, p3, p4, p5, p6, \
+        with _patch_all_collectors(ec2_resources=resources), \
              patch("common.collectors.ec2.get_metrics",
                    return_value={"CPU": 50.0}), \
              patch("daily_monitor.lambda_handler.get_threshold", return_value=80.0), \
@@ -168,23 +195,36 @@ class TestDailyMonitorHandler:
         """Collector 오류 시 SNS 오류 알림 발송 후 다음 collector 계속 - Requirements 1.4"""
         rds_resources = [_make_resource("db-001", "RDS")]
 
-        with patch("daily_monitor.lambda_handler.ec2_collector.collect_monitored_resources",
-                   side_effect=Exception("EC2 API error")), \
-             patch("daily_monitor.lambda_handler.rds_collector.collect_monitored_resources",
-                   return_value=rds_resources), \
-             patch("daily_monitor.lambda_handler.elb_collector.collect_monitored_resources",
-                   return_value=[]), \
-             patch("daily_monitor.lambda_handler.docdb_collector.collect_monitored_resources",
-                   return_value=[]), \
-             patch("daily_monitor.lambda_handler.elasticache_collector.collect_monitored_resources",
-                   return_value=[]), \
-             patch("daily_monitor.lambda_handler.natgw_collector.collect_monitored_resources",
-                   return_value=[]), \
-             patch("common.collectors.rds.get_metrics",
-                   return_value={"CPU": 50.0}), \
-             patch("daily_monitor.lambda_handler.get_threshold", return_value=80.0), \
-             patch("daily_monitor.lambda_handler.send_error_alert") as mock_err, \
-             patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
+        stack = ExitStack()
+        # EC2만 에러, 나머지 빈 리스트
+        stack.enter_context(
+            patch("daily_monitor.lambda_handler.ec2_collector.collect_monitored_resources",
+                  side_effect=Exception("EC2 API error")))
+        stack.enter_context(
+            patch("daily_monitor.lambda_handler.rds_collector.collect_monitored_resources",
+                  return_value=rds_resources))
+        # 나머지 collector 모두 빈 리스트
+        for name in ("elb_collector", "docdb_collector", "elasticache_collector",
+                     "natgw_collector", "lambda_collector", "vpn_collector",
+                     "apigw_collector", "acm_collector", "backup_collector",
+                     "mq_collector", "clb_collector", "opensearch_collector",
+                     "sqs_collector", "ecs_collector", "msk_collector",
+                     "dynamodb_collector", "cloudfront_collector", "waf_collector",
+                     "route53_collector", "dx_collector", "efs_collector",
+                     "s3_collector", "sagemaker_collector", "sns_collector"):
+            stack.enter_context(
+                patch(f"daily_monitor.lambda_handler.{name}.collect_monitored_resources",
+                      return_value=[]))
+        stack.enter_context(
+            patch("common.collectors.rds.get_metrics", return_value={"CPU": 50.0}))
+        stack.enter_context(
+            patch("daily_monitor.lambda_handler.get_threshold", return_value=80.0))
+        mock_err = stack.enter_context(
+            patch("daily_monitor.lambda_handler.send_error_alert"))
+        mock_alert = stack.enter_context(
+            patch("daily_monitor.lambda_handler.send_alert"))
+
+        with stack:
             result = handler({}, MagicMock())
 
         # EC2 오류 알림 1건만 발송
@@ -208,8 +248,7 @@ class TestDailyMonitorHandler:
                 raise Exception("metric error")
             return {"CPU": 50.0}
 
-        p1, p2, p3, p4, p5, p6 = _patch_all_collectors(ec2_resources=resources)
-        with p1, p2, p3, p4, p5, p6, \
+        with _patch_all_collectors(ec2_resources=resources), \
              patch("common.collectors.ec2.get_metrics",
                    side_effect=get_metrics_side_effect), \
              patch("daily_monitor.lambda_handler.get_threshold", return_value=80.0), \
@@ -225,8 +264,7 @@ class TestDailyMonitorHandler:
     def test_free_memory_below_threshold_sends_alert(self):
         """FreeMemoryGB가 임계치 미만일 때 알림 발송 (낮을수록 위험)"""
         resources = [_make_resource("db-001", "RDS")]
-        p1, p2, p3, p4, p5, p6 = _patch_all_collectors(rds_resources=resources)
-        with p1, p2, p3, p4, p5, p6, \
+        with _patch_all_collectors(rds_resources=resources), \
              patch("common.collectors.rds.get_metrics",
                    return_value={"FreeMemoryGB": 1.0}), \
              patch("daily_monitor.lambda_handler.get_threshold", return_value=2.0), \
@@ -246,8 +284,7 @@ class TestDailyMonitorHandler:
     def test_free_memory_above_threshold_no_alert(self):
         """FreeMemoryGB가 임계치 이상이면 알림 미발송"""
         resources = [_make_resource("db-001", "RDS")]
-        p1, p2, p3, p4, p5, p6 = _patch_all_collectors(rds_resources=resources)
-        with p1, p2, p3, p4, p5, p6, \
+        with _patch_all_collectors(rds_resources=resources), \
              patch("common.collectors.rds.get_metrics",
                    return_value={"FreeMemoryGB": 5.0}), \
              patch("daily_monitor.lambda_handler.get_threshold", return_value=2.0), \
@@ -258,8 +295,7 @@ class TestDailyMonitorHandler:
 
     def test_returns_ok_status(self):
         """핸들러가 항상 status=ok 반환"""
-        p1, p2, p3, p4, p5, p6 = _patch_all_collectors()
-        with p1, p2, p3, p4, p5, p6:
+        with _patch_all_collectors():
             result = handler({}, MagicMock())
 
         assert result["status"] == "ok"
@@ -268,8 +304,7 @@ class TestDailyMonitorHandler:
         """ALB 리소스 임계치 초과 시 SNS 알림 발송"""
         alb_arn = "arn:aws:elasticloadbalancing:us-east-1:123:loadbalancer/app/my-alb/abc"
         resources = [_make_resource(alb_arn, resource_type="ALB")]
-        p1, p2, p3, p4, p5, p6 = _patch_all_collectors(elb_resources=resources)
-        with p1, p2, p3, p4, p5, p6, \
+        with _patch_all_collectors(elb_resources=resources), \
              patch("common.collectors.elb.get_metrics",
                    return_value={"RequestCount": 6000.0}), \
              patch("daily_monitor.lambda_handler.get_threshold", return_value=5000.0), \
@@ -290,8 +325,7 @@ class TestDailyMonitorHandler:
         """NLB 리소스 메트릭 없으면 알림 미발송"""
         nlb_arn = "arn:aws:elasticloadbalancing:us-east-1:123:loadbalancer/net/my-nlb/def"
         resources = [_make_resource(nlb_arn, resource_type="NLB")]
-        p1, p2, p3, p4, p5, p6 = _patch_all_collectors(elb_resources=resources)
-        with p1, p2, p3, p4, p5, p6, \
+        with _patch_all_collectors(elb_resources=resources), \
              patch("common.collectors.elb.get_metrics", return_value=None), \
              patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
             result = handler({}, MagicMock())
@@ -370,7 +404,7 @@ class TestClassifyAlarm:
 
 
 class TestCleanupOrphanAlarms:
-    """_cleanup_orphan_alarms 통합 테스트 — EC2/RDS/ELB/TG 고아 알람 정리."""
+    """_cleanup_orphan_alarms 통합 테스트 — collector-based 고아 알람 정리."""
 
     def test_ec2_orphan_deleted(self):
         """terminated EC2 인스턴스의 알람 삭제."""
@@ -381,15 +415,9 @@ class TestCleanupOrphanAlarms:
         ]}]
         mock_cw.get_paginator.return_value = mock_paginator
 
-        mock_ec2 = MagicMock()
-        mock_ec2.describe_instances.return_value = {
-            "Reservations": [{"Instances": [
-                {"InstanceId": "i-dead", "State": {"Name": "terminated"}},
-            ]}],
-        }
-
         with patch("daily_monitor.lambda_handler._get_cw_client", return_value=mock_cw), \
-             patch("daily_monitor.lambda_handler._get_ec2_client", return_value=mock_ec2):
+             patch("daily_monitor.lambda_handler.ec2_collector.resolve_alive_ids",
+                   return_value=set()):
             deleted = _cleanup_orphan_alarms()
 
         assert "[EC2] srv CPU > 80% (TagName: i-dead)" in deleted
@@ -397,8 +425,6 @@ class TestCleanupOrphanAlarms:
 
     def test_rds_orphan_deleted(self):
         """존재하지 않는 RDS 인스턴스의 알람 삭제."""
-        from botocore.exceptions import ClientError
-
         mock_cw = MagicMock()
         mock_paginator = MagicMock()
         mock_paginator.paginate.return_value = [{"MetricAlarms": [
@@ -406,22 +432,15 @@ class TestCleanupOrphanAlarms:
         ]}]
         mock_cw.get_paginator.return_value = mock_paginator
 
-        mock_rds = MagicMock()
-        mock_rds.describe_db_instances.side_effect = ClientError(
-            {"Error": {"Code": "DBInstanceNotFound", "Message": "not found"}},
-            "DescribeDBInstances",
-        )
-
         with patch("daily_monitor.lambda_handler._get_cw_client", return_value=mock_cw), \
-             patch("daily_monitor.lambda_handler._get_rds_client", return_value=mock_rds):
+             patch("daily_monitor.lambda_handler.rds_collector.resolve_alive_ids",
+                   return_value=set()):
             deleted = _cleanup_orphan_alarms()
 
         assert "[RDS] my-db CPUUtilization > 80% (TagName: db-gone)" in deleted
 
     def test_elb_orphan_deleted(self):
         """존재하지 않는 ELB의 알람 삭제."""
-        from botocore.exceptions import ClientError
-
         arn = "arn:aws:elasticloadbalancing:us-east-1:123:loadbalancer/app/my-alb/abc"
         mock_cw = MagicMock()
         mock_paginator = MagicMock()
@@ -430,14 +449,9 @@ class TestCleanupOrphanAlarms:
         ]}]
         mock_cw.get_paginator.return_value = mock_paginator
 
-        mock_elb = MagicMock()
-        mock_elb.describe_load_balancers.side_effect = ClientError(
-            {"Error": {"Code": "LoadBalancerNotFound", "Message": "not found"}},
-            "DescribeLoadBalancers",
-        )
-
         with patch("daily_monitor.lambda_handler._get_cw_client", return_value=mock_cw), \
-             patch("daily_monitor.lambda_handler._get_elb_client", return_value=mock_elb):
+             patch("daily_monitor.lambda_handler.elb_collector.resolve_alive_ids",
+                   return_value=set()):
             deleted = _cleanup_orphan_alarms()
 
         assert len(deleted) == 1
@@ -452,15 +466,9 @@ class TestCleanupOrphanAlarms:
         ]}]
         mock_cw.get_paginator.return_value = mock_paginator
 
-        mock_ec2 = MagicMock()
-        mock_ec2.describe_instances.return_value = {
-            "Reservations": [{"Instances": [
-                {"InstanceId": "i-alive", "State": {"Name": "running"}},
-            ]}],
-        }
-
         with patch("daily_monitor.lambda_handler._get_cw_client", return_value=mock_cw), \
-             patch("daily_monitor.lambda_handler._get_ec2_client", return_value=mock_ec2):
+             patch("daily_monitor.lambda_handler.ec2_collector.resolve_alive_ids",
+                   return_value={"i-alive"}):
             deleted = _cleanup_orphan_alarms()
 
         assert deleted == []
@@ -475,15 +483,9 @@ class TestCleanupOrphanAlarms:
         ]}]
         mock_cw.get_paginator.return_value = mock_paginator
 
-        mock_ec2 = MagicMock()
-        mock_ec2.describe_instances.return_value = {
-            "Reservations": [{"Instances": [
-                {"InstanceId": "i-0dead1234567890ab", "State": {"Name": "terminated"}},
-            ]}],
-        }
-
         with patch("daily_monitor.lambda_handler._get_cw_client", return_value=mock_cw), \
-             patch("daily_monitor.lambda_handler._get_ec2_client", return_value=mock_ec2):
+             patch("daily_monitor.lambda_handler.ec2_collector.resolve_alive_ids",
+                   return_value=set()):
             deleted = _cleanup_orphan_alarms()
 
         assert "i-0dead1234567890ab-CPU-prod" in deleted
@@ -502,8 +504,6 @@ class TestCleanupOrphanAlarms:
 
     def test_alb_orphan_deleted(self):
         """존재하지 않는 ALB의 알람 삭제."""
-        from botocore.exceptions import ClientError
-
         arn = "arn:aws:elasticloadbalancing:us-east-1:123:loadbalancer/app/my-alb/abc"
         mock_cw = MagicMock()
         mock_paginator = MagicMock()
@@ -512,14 +512,9 @@ class TestCleanupOrphanAlarms:
         ]}]
         mock_cw.get_paginator.return_value = mock_paginator
 
-        mock_elb = MagicMock()
-        mock_elb.describe_load_balancers.side_effect = ClientError(
-            {"Error": {"Code": "LoadBalancerNotFound", "Message": "not found"}},
-            "DescribeLoadBalancers",
-        )
-
         with patch("daily_monitor.lambda_handler._get_cw_client", return_value=mock_cw), \
-             patch("daily_monitor.lambda_handler._get_elb_client", return_value=mock_elb):
+             patch("daily_monitor.lambda_handler.elb_collector.resolve_alive_ids",
+                   return_value=set()):
             deleted = _cleanup_orphan_alarms()
 
         assert len(deleted) == 1
@@ -527,8 +522,6 @@ class TestCleanupOrphanAlarms:
 
     def test_nlb_orphan_deleted(self):
         """존재하지 않는 NLB의 알람 삭제."""
-        from botocore.exceptions import ClientError
-
         arn = "arn:aws:elasticloadbalancing:us-east-1:123:loadbalancer/net/my-nlb/def"
         mock_cw = MagicMock()
         mock_paginator = MagicMock()
@@ -537,14 +530,9 @@ class TestCleanupOrphanAlarms:
         ]}]
         mock_cw.get_paginator.return_value = mock_paginator
 
-        mock_elb = MagicMock()
-        mock_elb.describe_load_balancers.side_effect = ClientError(
-            {"Error": {"Code": "LoadBalancerNotFound", "Message": "not found"}},
-            "DescribeLoadBalancers",
-        )
-
         with patch("daily_monitor.lambda_handler._get_cw_client", return_value=mock_cw), \
-             patch("daily_monitor.lambda_handler._get_elb_client", return_value=mock_elb):
+             patch("daily_monitor.lambda_handler.elb_collector.resolve_alive_ids",
+                   return_value=set()):
             deleted = _cleanup_orphan_alarms()
 
         assert len(deleted) == 1
@@ -637,8 +625,6 @@ class TestCleanupOrphanAlarmsAuroraRDS:
 
     def test_aurora_rds_orphan_alarm_deleted(self):
         """삭제된 Aurora DB 인스턴스의 알람이 고아로 삭제됨."""
-        from botocore.exceptions import ClientError
-
         mock_cw = MagicMock()
         mock_paginator = MagicMock()
         mock_paginator.paginate.return_value = [{"MetricAlarms": [
@@ -646,14 +632,9 @@ class TestCleanupOrphanAlarmsAuroraRDS:
         ]}]
         mock_cw.get_paginator.return_value = mock_paginator
 
-        mock_rds = MagicMock()
-        mock_rds.describe_db_instances.side_effect = ClientError(
-            {"Error": {"Code": "DBInstanceNotFound", "Message": "not found"}},
-            "DescribeDBInstances",
-        )
-
         with patch("daily_monitor.lambda_handler._get_cw_client", return_value=mock_cw), \
-             patch("daily_monitor.lambda_handler._get_rds_client", return_value=mock_rds):
+             patch("daily_monitor.lambda_handler.rds_collector.resolve_alive_ids",
+                   return_value=set()):
             deleted = _cleanup_orphan_alarms()
 
         assert "[AuroraRDS] my-aurora FreeLocalStorage < 10GB (TagName: aurora-db-gone)" in deleted
@@ -668,25 +649,22 @@ class TestCleanupOrphanAlarmsAuroraRDS:
         ]}]
         mock_cw.get_paginator.return_value = mock_paginator
 
-        mock_rds = MagicMock()
-        mock_rds.describe_db_instances.return_value = {
-            "DBInstances": [{"DBInstanceIdentifier": "aurora-db-alive"}],
-        }
-
         with patch("daily_monitor.lambda_handler._get_cw_client", return_value=mock_cw), \
-             patch("daily_monitor.lambda_handler._get_rds_client", return_value=mock_rds):
+             patch("daily_monitor.lambda_handler.rds_collector.resolve_alive_ids",
+                   return_value={"aurora-db-alive"}):
             deleted = _cleanup_orphan_alarms()
 
         assert deleted == []
         mock_cw.delete_alarms.assert_not_called()
 
-    def test_aurora_rds_uses_find_alive_rds_instances(self):
-        """alive_checkers['AuroraRDS'] == _find_alive_rds_instances 검증."""
-        from daily_monitor.lambda_handler import _find_alive_rds_instances
+    def test_aurora_rds_uses_rds_collector_resolve_alive_ids(self):
+        """_RESOURCE_TYPE_TO_COLLECTOR['AuroraRDS'] == rds_collector 검증."""
+        from daily_monitor.lambda_handler import _RESOURCE_TYPE_TO_COLLECTOR
+        from common.collectors import rds as rds_mod
 
-        # Verify by checking that AuroraRDS alarms trigger RDS describe_db_instances
-        from botocore.exceptions import ClientError
+        assert _RESOURCE_TYPE_TO_COLLECTOR["AuroraRDS"] is rds_mod
 
+        # Also verify via integration: AuroraRDS alarms trigger rds_collector.resolve_alive_ids
         mock_cw = MagicMock()
         mock_paginator = MagicMock()
         mock_paginator.paginate.return_value = [{"MetricAlarms": [
@@ -694,20 +672,12 @@ class TestCleanupOrphanAlarmsAuroraRDS:
         ]}]
         mock_cw.get_paginator.return_value = mock_paginator
 
-        mock_rds = MagicMock()
-        mock_rds.describe_db_instances.side_effect = ClientError(
-            {"Error": {"Code": "DBInstanceNotFound", "Message": "not found"}},
-            "DescribeDBInstances",
-        )
-
         with patch("daily_monitor.lambda_handler._get_cw_client", return_value=mock_cw), \
-             patch("daily_monitor.lambda_handler._get_rds_client", return_value=mock_rds):
+             patch("daily_monitor.lambda_handler.rds_collector.resolve_alive_ids",
+                   return_value=set()) as mock_resolve:
             deleted = _cleanup_orphan_alarms()
 
-        # RDS describe_db_instances was called for the AuroraRDS alarm's resource_id
-        mock_rds.describe_db_instances.assert_called_once_with(
-            DBInstanceIdentifier="aurora-db-001",
-        )
+        mock_resolve.assert_called_once_with({"aurora-db-001"})
         assert len(deleted) == 1
 
 
@@ -844,10 +814,7 @@ class TestDailyMonitorDocDBIntegration:
         )
 
     def test_alive_checkers_includes_docdb(self):
-        """_cleanup_orphan_alarms()의 alive_checkers에 'DocDB' 키 존재 검증 — Req 8.1"""
-        # We verify by checking that a DocDB alarm triggers the RDS alive checker
-        from botocore.exceptions import ClientError
-
+        """_RESOURCE_TYPE_TO_COLLECTOR에 'DocDB' 키 존재 검증 — Req 8.1"""
         mock_cw = MagicMock()
         mock_paginator = MagicMock()
         mock_paginator.paginate.return_value = [{"MetricAlarms": [
@@ -855,20 +822,12 @@ class TestDailyMonitorDocDBIntegration:
         ]}]
         mock_cw.get_paginator.return_value = mock_paginator
 
-        mock_rds = MagicMock()
-        mock_rds.describe_db_instances.side_effect = ClientError(
-            {"Error": {"Code": "DBInstanceNotFound", "Message": "not found"}},
-            "DescribeDBInstances",
-        )
-
         with patch("daily_monitor.lambda_handler._get_cw_client", return_value=mock_cw), \
-             patch("daily_monitor.lambda_handler._get_rds_client", return_value=mock_rds):
+             patch("daily_monitor.lambda_handler.docdb_collector.resolve_alive_ids",
+                   return_value=set()):
             deleted = _cleanup_orphan_alarms()
 
         assert "[DocDB] my-docdb CPU > 80% (TagName: docdb-gone)" in deleted
-        mock_rds.describe_db_instances.assert_called_once_with(
-            DBInstanceIdentifier="docdb-gone",
-        )
 
     def test_docdb_alive_instance_not_deleted(self):
         """존재하는 DocDB 인스턴스의 알람은 삭제하지 않음 — Req 8.3"""
@@ -879,13 +838,9 @@ class TestDailyMonitorDocDBIntegration:
         ]}]
         mock_cw.get_paginator.return_value = mock_paginator
 
-        mock_rds = MagicMock()
-        mock_rds.describe_db_instances.return_value = {
-            "DBInstances": [{"DBInstanceIdentifier": "docdb-alive"}],
-        }
-
         with patch("daily_monitor.lambda_handler._get_cw_client", return_value=mock_cw), \
-             patch("daily_monitor.lambda_handler._get_rds_client", return_value=mock_rds):
+             patch("daily_monitor.lambda_handler.docdb_collector.resolve_alive_ids",
+                   return_value={"docdb-alive"}):
             deleted = _cleanup_orphan_alarms()
 
         assert deleted == []
@@ -960,3 +915,627 @@ class TestDailyMonitorDocDBIntegration:
 
         assert alerts == 1
         mock_alert.assert_called_once()
+
+
+# ──────────────────────────────────────────────
+# Task 9.1: Daily Monitor 8개 신규 리소스 통합 테스트
+# Validates: Requirements 1.5, 2.6, 3-A.4, 4.6, 5.5, 6.5, 7.5, 8.6, 12.1, 12.3
+# ──────────────────────────────────────────────
+
+
+class TestNewResourceDailyMonitorIntegration:
+    """Daily Monitor 8개 신규 Collector 통합 검증."""
+
+    # ── _COLLECTOR_MODULES 검증 ──
+
+    def test_collector_modules_includes_lambda(self):
+        """_COLLECTOR_MODULES에 lambda_collector 포함 — Req 1.5"""
+        from daily_monitor.lambda_handler import _COLLECTOR_MODULES
+        module_names = [m.__name__ for m in _COLLECTOR_MODULES]
+        assert "common.collectors.lambda_fn" in module_names
+
+    def test_collector_modules_includes_vpn(self):
+        """_COLLECTOR_MODULES에 vpn_collector 포함 — Req 2.6"""
+        from daily_monitor.lambda_handler import _COLLECTOR_MODULES
+        module_names = [m.__name__ for m in _COLLECTOR_MODULES]
+        assert "common.collectors.vpn" in module_names
+
+    def test_collector_modules_includes_apigw(self):
+        """_COLLECTOR_MODULES에 apigw_collector 포함 — Req 3-A.4"""
+        from daily_monitor.lambda_handler import _COLLECTOR_MODULES
+        module_names = [m.__name__ for m in _COLLECTOR_MODULES]
+        assert "common.collectors.apigw" in module_names
+
+    def test_collector_modules_includes_acm(self):
+        """_COLLECTOR_MODULES에 acm_collector 포함 — Req 4.6"""
+        from daily_monitor.lambda_handler import _COLLECTOR_MODULES
+        module_names = [m.__name__ for m in _COLLECTOR_MODULES]
+        assert "common.collectors.acm" in module_names
+
+    def test_collector_modules_includes_backup(self):
+        """_COLLECTOR_MODULES에 backup_collector 포함 — Req 5.5"""
+        from daily_monitor.lambda_handler import _COLLECTOR_MODULES
+        module_names = [m.__name__ for m in _COLLECTOR_MODULES]
+        assert "common.collectors.backup" in module_names
+
+    def test_collector_modules_includes_mq(self):
+        """_COLLECTOR_MODULES에 mq_collector 포함 — Req 6.5"""
+        from daily_monitor.lambda_handler import _COLLECTOR_MODULES
+        module_names = [m.__name__ for m in _COLLECTOR_MODULES]
+        assert "common.collectors.mq" in module_names
+
+    def test_collector_modules_includes_clb(self):
+        """_COLLECTOR_MODULES에 clb_collector 포함 — Req 7.5"""
+        from daily_monitor.lambda_handler import _COLLECTOR_MODULES
+        module_names = [m.__name__ for m in _COLLECTOR_MODULES]
+        assert "common.collectors.clb" in module_names
+
+    def test_collector_modules_includes_opensearch(self):
+        """_COLLECTOR_MODULES에 opensearch_collector 포함 — Req 8.6"""
+        from daily_monitor.lambda_handler import _COLLECTOR_MODULES
+        module_names = [m.__name__ for m in _COLLECTOR_MODULES]
+        assert "common.collectors.opensearch" in module_names
+
+    # ── _RESOURCE_TYPE_TO_COLLECTOR 검증 ──
+
+    def test_resource_type_to_collector_has_lambda_key(self):
+        """_RESOURCE_TYPE_TO_COLLECTOR에 'Lambda' 키 존재 — Req 12.1"""
+        from daily_monitor.lambda_handler import _RESOURCE_TYPE_TO_COLLECTOR
+        assert "Lambda" in _RESOURCE_TYPE_TO_COLLECTOR
+
+    def test_resource_type_to_collector_has_vpn_key(self):
+        """_RESOURCE_TYPE_TO_COLLECTOR에 'VPN' 키 존재 — Req 12.1"""
+        from daily_monitor.lambda_handler import _RESOURCE_TYPE_TO_COLLECTOR
+        assert "VPN" in _RESOURCE_TYPE_TO_COLLECTOR
+
+    def test_resource_type_to_collector_has_apigw_key(self):
+        """_RESOURCE_TYPE_TO_COLLECTOR에 'APIGW' 키 존재 — Req 12.1"""
+        from daily_monitor.lambda_handler import _RESOURCE_TYPE_TO_COLLECTOR
+        assert "APIGW" in _RESOURCE_TYPE_TO_COLLECTOR
+
+    def test_resource_type_to_collector_has_acm_key(self):
+        """_RESOURCE_TYPE_TO_COLLECTOR에 'ACM' 키 존재 — Req 12.1"""
+        from daily_monitor.lambda_handler import _RESOURCE_TYPE_TO_COLLECTOR
+        assert "ACM" in _RESOURCE_TYPE_TO_COLLECTOR
+
+    def test_resource_type_to_collector_has_backup_key(self):
+        """_RESOURCE_TYPE_TO_COLLECTOR에 'Backup' 키 존재 — Req 12.1"""
+        from daily_monitor.lambda_handler import _RESOURCE_TYPE_TO_COLLECTOR
+        assert "Backup" in _RESOURCE_TYPE_TO_COLLECTOR
+
+    def test_resource_type_to_collector_has_mq_key(self):
+        """_RESOURCE_TYPE_TO_COLLECTOR에 'MQ' 키 존재 — Req 12.1"""
+        from daily_monitor.lambda_handler import _RESOURCE_TYPE_TO_COLLECTOR
+        assert "MQ" in _RESOURCE_TYPE_TO_COLLECTOR
+
+    def test_resource_type_to_collector_has_clb_key(self):
+        """_RESOURCE_TYPE_TO_COLLECTOR에 'CLB' 키 존재 — Req 12.1"""
+        from daily_monitor.lambda_handler import _RESOURCE_TYPE_TO_COLLECTOR
+        assert "CLB" in _RESOURCE_TYPE_TO_COLLECTOR
+
+    def test_resource_type_to_collector_has_opensearch_key(self):
+        """_RESOURCE_TYPE_TO_COLLECTOR에 'OpenSearch' 키 존재 — Req 12.1"""
+        from daily_monitor.lambda_handler import _RESOURCE_TYPE_TO_COLLECTOR
+        assert "OpenSearch" in _RESOURCE_TYPE_TO_COLLECTOR
+
+    def test_collector_lambda_has_resolve_alive_ids(self):
+        """Lambda collector에 resolve_alive_ids 메서드 존재 — Req 12.3"""
+        from daily_monitor.lambda_handler import _RESOURCE_TYPE_TO_COLLECTOR
+        assert callable(getattr(_RESOURCE_TYPE_TO_COLLECTOR["Lambda"], "resolve_alive_ids", None))
+
+    def test_collector_vpn_has_resolve_alive_ids(self):
+        """VPN collector에 resolve_alive_ids 메서드 존재 — Req 12.3"""
+        from daily_monitor.lambda_handler import _RESOURCE_TYPE_TO_COLLECTOR
+        assert callable(getattr(_RESOURCE_TYPE_TO_COLLECTOR["VPN"], "resolve_alive_ids", None))
+
+    def test_collector_apigw_has_resolve_alive_ids(self):
+        """APIGW collector에 resolve_alive_ids 메서드 존재 — Req 12.3"""
+        from daily_monitor.lambda_handler import _RESOURCE_TYPE_TO_COLLECTOR
+        assert callable(getattr(_RESOURCE_TYPE_TO_COLLECTOR["APIGW"], "resolve_alive_ids", None))
+
+    def test_collector_acm_has_resolve_alive_ids(self):
+        """ACM collector에 resolve_alive_ids 메서드 존재 — Req 12.3"""
+        from daily_monitor.lambda_handler import _RESOURCE_TYPE_TO_COLLECTOR
+        assert callable(getattr(_RESOURCE_TYPE_TO_COLLECTOR["ACM"], "resolve_alive_ids", None))
+
+    def test_collector_backup_has_resolve_alive_ids(self):
+        """Backup collector에 resolve_alive_ids 메서드 존재 — Req 12.3"""
+        from daily_monitor.lambda_handler import _RESOURCE_TYPE_TO_COLLECTOR
+        assert callable(getattr(_RESOURCE_TYPE_TO_COLLECTOR["Backup"], "resolve_alive_ids", None))
+
+    def test_collector_mq_has_resolve_alive_ids(self):
+        """MQ collector에 resolve_alive_ids 메서드 존재 — Req 12.3"""
+        from daily_monitor.lambda_handler import _RESOURCE_TYPE_TO_COLLECTOR
+        assert callable(getattr(_RESOURCE_TYPE_TO_COLLECTOR["MQ"], "resolve_alive_ids", None))
+
+    def test_collector_clb_has_resolve_alive_ids(self):
+        """CLB collector에 resolve_alive_ids 메서드 존재 — Req 12.3"""
+        from daily_monitor.lambda_handler import _RESOURCE_TYPE_TO_COLLECTOR
+        assert callable(getattr(_RESOURCE_TYPE_TO_COLLECTOR["CLB"], "resolve_alive_ids", None))
+
+    def test_collector_opensearch_has_resolve_alive_ids(self):
+        """OpenSearch collector에 resolve_alive_ids 메서드 존재 — Req 12.3"""
+        from daily_monitor.lambda_handler import _RESOURCE_TYPE_TO_COLLECTOR
+        assert callable(getattr(_RESOURCE_TYPE_TO_COLLECTOR["OpenSearch"], "resolve_alive_ids", None))
+
+    # ── "낮을수록 위험" 메트릭 세트 검증 ──
+
+    def test_tunnel_state_lower_is_dangerous(self):
+        """TunnelState < threshold → 알림 발송 (낮을수록 위험) — Req 2.6"""
+        collector_mod = MagicMock()
+        collector_mod.get_metrics.return_value = {"TunnelState": 0.0}
+
+        with patch("daily_monitor.lambda_handler.get_threshold", return_value=1.0), \
+             patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
+            alerts = _process_resource(
+                "vpn-001", "VPN", {"Monitoring": "on"}, collector_mod,
+            )
+
+        assert alerts == 1
+        mock_alert.assert_called_once_with(
+            resource_id="vpn-001",
+            resource_type="VPN",
+            metric_name="TunnelState",
+            current_value=0.0,
+            threshold=1.0,
+            tag_name="",
+        )
+
+    def test_tunnel_state_above_threshold_no_alert(self):
+        """TunnelState >= threshold → 알림 미발송."""
+        collector_mod = MagicMock()
+        collector_mod.get_metrics.return_value = {"TunnelState": 1.0}
+
+        with patch("daily_monitor.lambda_handler.get_threshold", return_value=1.0), \
+             patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
+            alerts = _process_resource(
+                "vpn-001", "VPN", {"Monitoring": "on"}, collector_mod,
+            )
+
+        assert alerts == 0
+        mock_alert.assert_not_called()
+
+    def test_days_to_expiry_lower_is_dangerous(self):
+        """DaysToExpiry < threshold → 알림 발송 (낮을수록 위험) — Req 4.6"""
+        collector_mod = MagicMock()
+        collector_mod.get_metrics.return_value = {"DaysToExpiry": 7.0}
+
+        with patch("daily_monitor.lambda_handler.get_threshold", return_value=14.0), \
+             patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
+            alerts = _process_resource(
+                "arn:aws:acm:us-east-1:123:certificate/abc", "ACM",
+                {"Monitoring": "on"}, collector_mod,
+            )
+
+        assert alerts == 1
+        mock_alert.assert_called_once_with(
+            resource_id="arn:aws:acm:us-east-1:123:certificate/abc",
+            resource_type="ACM",
+            metric_name="DaysToExpiry",
+            current_value=7.0,
+            threshold=14.0,
+            tag_name="",
+        )
+
+    def test_days_to_expiry_above_threshold_no_alert(self):
+        """DaysToExpiry >= threshold → 알림 미발송."""
+        collector_mod = MagicMock()
+        collector_mod.get_metrics.return_value = {"DaysToExpiry": 30.0}
+
+        with patch("daily_monitor.lambda_handler.get_threshold", return_value=14.0), \
+             patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
+            alerts = _process_resource(
+                "arn:aws:acm:us-east-1:123:certificate/abc", "ACM",
+                {"Monitoring": "on"}, collector_mod,
+            )
+
+        assert alerts == 0
+        mock_alert.assert_not_called()
+
+    def test_os_free_storage_space_lower_is_dangerous(self):
+        """OSFreeStorageSpace < threshold → 알림 발송 (낮을수록 위험) — Req 8.6"""
+        collector_mod = MagicMock()
+        collector_mod.get_metrics.return_value = {"OSFreeStorageSpace": 10000.0}
+
+        with patch("daily_monitor.lambda_handler.get_threshold", return_value=20480.0), \
+             patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
+            alerts = _process_resource(
+                "my-domain", "OpenSearch", {"Monitoring": "on"}, collector_mod,
+            )
+
+        assert alerts == 1
+        mock_alert.assert_called_once_with(
+            resource_id="my-domain",
+            resource_type="OpenSearch",
+            metric_name="OSFreeStorageSpace",
+            current_value=10000.0,
+            threshold=20480.0,
+            tag_name="",
+        )
+
+    def test_os_free_storage_space_above_threshold_no_alert(self):
+        """OSFreeStorageSpace >= threshold → 알림 미발송."""
+        collector_mod = MagicMock()
+        collector_mod.get_metrics.return_value = {"OSFreeStorageSpace": 30000.0}
+
+        with patch("daily_monitor.lambda_handler.get_threshold", return_value=20480.0), \
+             patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
+            alerts = _process_resource(
+                "my-domain", "OpenSearch", {"Monitoring": "on"}, collector_mod,
+            )
+
+        assert alerts == 0
+        mock_alert.assert_not_called()
+
+
+# ──────────────────────────────────────────────
+# Task 9.1: Daily Monitor 12개 신규 리소스 통합 테스트
+# Validates: Requirements 1.5, 2-A.4, 3.6, 4.5, 5.6, 6.6, 7.7, 8.6, 9.6, 10-D.9, 11-C.8, 12.5, 16.1, 16.3
+# ──────────────────────────────────────────────
+
+
+class TestExtendedResourceDailyMonitorIntegration:
+    """Daily Monitor 12개 신규 Collector 통합 검증."""
+
+    # ── _COLLECTOR_MODULES 검증 (12개 신규 모듈) ──
+
+    def test_collector_modules_includes_sqs(self):
+        """_COLLECTOR_MODULES에 sqs_collector 포함 — Req 1.5"""
+        from daily_monitor.lambda_handler import _COLLECTOR_MODULES
+        module_names = [m.__name__ for m in _COLLECTOR_MODULES]
+        assert "common.collectors.sqs" in module_names
+
+    def test_collector_modules_includes_ecs(self):
+        """_COLLECTOR_MODULES에 ecs_collector 포함 — Req 2-A.4"""
+        from daily_monitor.lambda_handler import _COLLECTOR_MODULES
+        module_names = [m.__name__ for m in _COLLECTOR_MODULES]
+        assert "common.collectors.ecs" in module_names
+
+    def test_collector_modules_includes_msk(self):
+        """_COLLECTOR_MODULES에 msk_collector 포함 — Req 3.6"""
+        from daily_monitor.lambda_handler import _COLLECTOR_MODULES
+        module_names = [m.__name__ for m in _COLLECTOR_MODULES]
+        assert "common.collectors.msk" in module_names
+
+    def test_collector_modules_includes_dynamodb(self):
+        """_COLLECTOR_MODULES에 dynamodb_collector 포함 — Req 4.5"""
+        from daily_monitor.lambda_handler import _COLLECTOR_MODULES
+        module_names = [m.__name__ for m in _COLLECTOR_MODULES]
+        assert "common.collectors.dynamodb" in module_names
+
+    def test_collector_modules_includes_cloudfront(self):
+        """_COLLECTOR_MODULES에 cloudfront_collector 포함 — Req 5.6"""
+        from daily_monitor.lambda_handler import _COLLECTOR_MODULES
+        module_names = [m.__name__ for m in _COLLECTOR_MODULES]
+        assert "common.collectors.cloudfront" in module_names
+
+    def test_collector_modules_includes_waf(self):
+        """_COLLECTOR_MODULES에 waf_collector 포함 — Req 6.6"""
+        from daily_monitor.lambda_handler import _COLLECTOR_MODULES
+        module_names = [m.__name__ for m in _COLLECTOR_MODULES]
+        assert "common.collectors.waf" in module_names
+
+    def test_collector_modules_includes_route53(self):
+        """_COLLECTOR_MODULES에 route53_collector 포함 — Req 7.7"""
+        from daily_monitor.lambda_handler import _COLLECTOR_MODULES
+        module_names = [m.__name__ for m in _COLLECTOR_MODULES]
+        assert "common.collectors.route53" in module_names
+
+    def test_collector_modules_includes_dx(self):
+        """_COLLECTOR_MODULES에 dx_collector 포함 — Req 8.6"""
+        from daily_monitor.lambda_handler import _COLLECTOR_MODULES
+        module_names = [m.__name__ for m in _COLLECTOR_MODULES]
+        assert "common.collectors.dx" in module_names
+
+    def test_collector_modules_includes_efs(self):
+        """_COLLECTOR_MODULES에 efs_collector 포함 — Req 9.6"""
+        from daily_monitor.lambda_handler import _COLLECTOR_MODULES
+        module_names = [m.__name__ for m in _COLLECTOR_MODULES]
+        assert "common.collectors.efs" in module_names
+
+    def test_collector_modules_includes_s3(self):
+        """_COLLECTOR_MODULES에 s3_collector 포함 — Req 10-D.9"""
+        from daily_monitor.lambda_handler import _COLLECTOR_MODULES
+        module_names = [m.__name__ for m in _COLLECTOR_MODULES]
+        assert "common.collectors.s3" in module_names
+
+    def test_collector_modules_includes_sagemaker(self):
+        """_COLLECTOR_MODULES에 sagemaker_collector 포함 — Req 11-C.8"""
+        from daily_monitor.lambda_handler import _COLLECTOR_MODULES
+        module_names = [m.__name__ for m in _COLLECTOR_MODULES]
+        assert "common.collectors.sagemaker" in module_names
+
+    def test_collector_modules_includes_sns(self):
+        """_COLLECTOR_MODULES에 sns_collector 포함 — Req 12.5"""
+        from daily_monitor.lambda_handler import _COLLECTOR_MODULES
+        module_names = [m.__name__ for m in _COLLECTOR_MODULES]
+        assert "common.collectors.sns" in module_names
+
+    # ── _RESOURCE_TYPE_TO_COLLECTOR 검증 (12개 신규 타입) ──
+
+    def test_resource_type_to_collector_has_sqs(self):
+        """_RESOURCE_TYPE_TO_COLLECTOR에 'SQS' 키 존재 — Req 16.1"""
+        from daily_monitor.lambda_handler import _RESOURCE_TYPE_TO_COLLECTOR
+        assert "SQS" in _RESOURCE_TYPE_TO_COLLECTOR
+
+    def test_resource_type_to_collector_has_ecs(self):
+        """_RESOURCE_TYPE_TO_COLLECTOR에 'ECS' 키 존재 — Req 16.1"""
+        from daily_monitor.lambda_handler import _RESOURCE_TYPE_TO_COLLECTOR
+        assert "ECS" in _RESOURCE_TYPE_TO_COLLECTOR
+
+    def test_resource_type_to_collector_has_msk(self):
+        """_RESOURCE_TYPE_TO_COLLECTOR에 'MSK' 키 존재 — Req 16.1"""
+        from daily_monitor.lambda_handler import _RESOURCE_TYPE_TO_COLLECTOR
+        assert "MSK" in _RESOURCE_TYPE_TO_COLLECTOR
+
+    def test_resource_type_to_collector_has_dynamodb(self):
+        """_RESOURCE_TYPE_TO_COLLECTOR에 'DynamoDB' 키 존재 — Req 16.1"""
+        from daily_monitor.lambda_handler import _RESOURCE_TYPE_TO_COLLECTOR
+        assert "DynamoDB" in _RESOURCE_TYPE_TO_COLLECTOR
+
+    def test_resource_type_to_collector_has_cloudfront(self):
+        """_RESOURCE_TYPE_TO_COLLECTOR에 'CloudFront' 키 존재 — Req 16.1"""
+        from daily_monitor.lambda_handler import _RESOURCE_TYPE_TO_COLLECTOR
+        assert "CloudFront" in _RESOURCE_TYPE_TO_COLLECTOR
+
+    def test_resource_type_to_collector_has_waf(self):
+        """_RESOURCE_TYPE_TO_COLLECTOR에 'WAF' 키 존재 — Req 16.1"""
+        from daily_monitor.lambda_handler import _RESOURCE_TYPE_TO_COLLECTOR
+        assert "WAF" in _RESOURCE_TYPE_TO_COLLECTOR
+
+    def test_resource_type_to_collector_has_route53(self):
+        """_RESOURCE_TYPE_TO_COLLECTOR에 'Route53' 키 존재 — Req 16.1"""
+        from daily_monitor.lambda_handler import _RESOURCE_TYPE_TO_COLLECTOR
+        assert "Route53" in _RESOURCE_TYPE_TO_COLLECTOR
+
+    def test_resource_type_to_collector_has_dx(self):
+        """_RESOURCE_TYPE_TO_COLLECTOR에 'DX' 키 존재 — Req 16.1"""
+        from daily_monitor.lambda_handler import _RESOURCE_TYPE_TO_COLLECTOR
+        assert "DX" in _RESOURCE_TYPE_TO_COLLECTOR
+
+    def test_resource_type_to_collector_has_efs(self):
+        """_RESOURCE_TYPE_TO_COLLECTOR에 'EFS' 키 존재 — Req 16.1"""
+        from daily_monitor.lambda_handler import _RESOURCE_TYPE_TO_COLLECTOR
+        assert "EFS" in _RESOURCE_TYPE_TO_COLLECTOR
+
+    def test_resource_type_to_collector_has_s3(self):
+        """_RESOURCE_TYPE_TO_COLLECTOR에 'S3' 키 존재 — Req 16.1"""
+        from daily_monitor.lambda_handler import _RESOURCE_TYPE_TO_COLLECTOR
+        assert "S3" in _RESOURCE_TYPE_TO_COLLECTOR
+
+    def test_resource_type_to_collector_has_sagemaker(self):
+        """_RESOURCE_TYPE_TO_COLLECTOR에 'SageMaker' 키 존재 — Req 16.1"""
+        from daily_monitor.lambda_handler import _RESOURCE_TYPE_TO_COLLECTOR
+        assert "SageMaker" in _RESOURCE_TYPE_TO_COLLECTOR
+
+    def test_resource_type_to_collector_has_sns(self):
+        """_RESOURCE_TYPE_TO_COLLECTOR에 'SNS' 키 존재 — Req 16.1"""
+        from daily_monitor.lambda_handler import _RESOURCE_TYPE_TO_COLLECTOR
+        assert "SNS" in _RESOURCE_TYPE_TO_COLLECTOR
+
+    # ── resolve_alive_ids callable 검증 (12개 신규 타입) — Req 16.3 ──
+
+    def test_collector_sqs_has_resolve_alive_ids(self):
+        from daily_monitor.lambda_handler import _RESOURCE_TYPE_TO_COLLECTOR
+        assert callable(getattr(_RESOURCE_TYPE_TO_COLLECTOR["SQS"], "resolve_alive_ids", None))
+
+    def test_collector_ecs_has_resolve_alive_ids(self):
+        from daily_monitor.lambda_handler import _RESOURCE_TYPE_TO_COLLECTOR
+        assert callable(getattr(_RESOURCE_TYPE_TO_COLLECTOR["ECS"], "resolve_alive_ids", None))
+
+    def test_collector_msk_has_resolve_alive_ids(self):
+        from daily_monitor.lambda_handler import _RESOURCE_TYPE_TO_COLLECTOR
+        assert callable(getattr(_RESOURCE_TYPE_TO_COLLECTOR["MSK"], "resolve_alive_ids", None))
+
+    def test_collector_dynamodb_has_resolve_alive_ids(self):
+        from daily_monitor.lambda_handler import _RESOURCE_TYPE_TO_COLLECTOR
+        assert callable(getattr(_RESOURCE_TYPE_TO_COLLECTOR["DynamoDB"], "resolve_alive_ids", None))
+
+    def test_collector_cloudfront_has_resolve_alive_ids(self):
+        from daily_monitor.lambda_handler import _RESOURCE_TYPE_TO_COLLECTOR
+        assert callable(getattr(_RESOURCE_TYPE_TO_COLLECTOR["CloudFront"], "resolve_alive_ids", None))
+
+    def test_collector_waf_has_resolve_alive_ids(self):
+        from daily_monitor.lambda_handler import _RESOURCE_TYPE_TO_COLLECTOR
+        assert callable(getattr(_RESOURCE_TYPE_TO_COLLECTOR["WAF"], "resolve_alive_ids", None))
+
+    def test_collector_route53_has_resolve_alive_ids(self):
+        from daily_monitor.lambda_handler import _RESOURCE_TYPE_TO_COLLECTOR
+        assert callable(getattr(_RESOURCE_TYPE_TO_COLLECTOR["Route53"], "resolve_alive_ids", None))
+
+    def test_collector_dx_has_resolve_alive_ids(self):
+        from daily_monitor.lambda_handler import _RESOURCE_TYPE_TO_COLLECTOR
+        assert callable(getattr(_RESOURCE_TYPE_TO_COLLECTOR["DX"], "resolve_alive_ids", None))
+
+    def test_collector_efs_has_resolve_alive_ids(self):
+        from daily_monitor.lambda_handler import _RESOURCE_TYPE_TO_COLLECTOR
+        assert callable(getattr(_RESOURCE_TYPE_TO_COLLECTOR["EFS"], "resolve_alive_ids", None))
+
+    def test_collector_s3_has_resolve_alive_ids(self):
+        from daily_monitor.lambda_handler import _RESOURCE_TYPE_TO_COLLECTOR
+        assert callable(getattr(_RESOURCE_TYPE_TO_COLLECTOR["S3"], "resolve_alive_ids", None))
+
+    def test_collector_sagemaker_has_resolve_alive_ids(self):
+        from daily_monitor.lambda_handler import _RESOURCE_TYPE_TO_COLLECTOR
+        assert callable(getattr(_RESOURCE_TYPE_TO_COLLECTOR["SageMaker"], "resolve_alive_ids", None))
+
+    def test_collector_sns_has_resolve_alive_ids(self):
+        from daily_monitor.lambda_handler import _RESOURCE_TYPE_TO_COLLECTOR
+        assert callable(getattr(_RESOURCE_TYPE_TO_COLLECTOR["SNS"], "resolve_alive_ids", None))
+
+    # ── "낮을수록 위험" 메트릭 세트 검증 (5개 신규 메트릭) ──
+
+    def test_running_task_count_lower_is_dangerous(self):
+        """RunningTaskCount < threshold → 알림 발송 (낮을수록 위험) — Req 2-B.7"""
+        collector_mod = MagicMock()
+        collector_mod.get_metrics.return_value = {"RunningTaskCount": 0.0}
+
+        with patch("daily_monitor.lambda_handler.get_threshold", return_value=1.0), \
+             patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
+            alerts = _process_resource(
+                "my-service", "ECS", {"Monitoring": "on"}, collector_mod,
+            )
+
+        assert alerts == 1
+        mock_alert.assert_called_once_with(
+            resource_id="my-service",
+            resource_type="ECS",
+            metric_name="RunningTaskCount",
+            current_value=0.0,
+            threshold=1.0,
+            tag_name="",
+        )
+
+    def test_running_task_count_above_threshold_no_alert(self):
+        """RunningTaskCount >= threshold → 알림 미발송."""
+        collector_mod = MagicMock()
+        collector_mod.get_metrics.return_value = {"RunningTaskCount": 2.0}
+
+        with patch("daily_monitor.lambda_handler.get_threshold", return_value=1.0), \
+             patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
+            alerts = _process_resource(
+                "my-service", "ECS", {"Monitoring": "on"}, collector_mod,
+            )
+
+        assert alerts == 0
+        mock_alert.assert_not_called()
+
+    def test_active_controller_count_lower_is_dangerous(self):
+        """ActiveControllerCount < threshold → 알림 발송 (낮을수록 위험) — Req 3.3"""
+        collector_mod = MagicMock()
+        collector_mod.get_metrics.return_value = {"ActiveControllerCount": 0.0}
+
+        with patch("daily_monitor.lambda_handler.get_threshold", return_value=1.0), \
+             patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
+            alerts = _process_resource(
+                "my-cluster", "MSK", {"Monitoring": "on"}, collector_mod,
+            )
+
+        assert alerts == 1
+        mock_alert.assert_called_once_with(
+            resource_id="my-cluster",
+            resource_type="MSK",
+            metric_name="ActiveControllerCount",
+            current_value=0.0,
+            threshold=1.0,
+            tag_name="",
+        )
+
+    def test_active_controller_count_above_threshold_no_alert(self):
+        """ActiveControllerCount >= threshold → 알림 미발송."""
+        collector_mod = MagicMock()
+        collector_mod.get_metrics.return_value = {"ActiveControllerCount": 1.0}
+
+        with patch("daily_monitor.lambda_handler.get_threshold", return_value=1.0), \
+             patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
+            alerts = _process_resource(
+                "my-cluster", "MSK", {"Monitoring": "on"}, collector_mod,
+            )
+
+        assert alerts == 0
+        mock_alert.assert_not_called()
+
+    def test_health_check_status_lower_is_dangerous(self):
+        """HealthCheckStatus < threshold → 알림 발송 (낮을수록 위험) — Req 7.1"""
+        collector_mod = MagicMock()
+        collector_mod.get_metrics.return_value = {"HealthCheckStatus": 0.0}
+
+        with patch("daily_monitor.lambda_handler.get_threshold", return_value=1.0), \
+             patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
+            alerts = _process_resource(
+                "hc-001", "Route53", {"Monitoring": "on"}, collector_mod,
+            )
+
+        assert alerts == 1
+        mock_alert.assert_called_once_with(
+            resource_id="hc-001",
+            resource_type="Route53",
+            metric_name="HealthCheckStatus",
+            current_value=0.0,
+            threshold=1.0,
+            tag_name="",
+        )
+
+    def test_health_check_status_above_threshold_no_alert(self):
+        """HealthCheckStatus >= threshold → 알림 미발송."""
+        collector_mod = MagicMock()
+        collector_mod.get_metrics.return_value = {"HealthCheckStatus": 1.0}
+
+        with patch("daily_monitor.lambda_handler.get_threshold", return_value=1.0), \
+             patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
+            alerts = _process_resource(
+                "hc-001", "Route53", {"Monitoring": "on"}, collector_mod,
+            )
+
+        assert alerts == 0
+        mock_alert.assert_not_called()
+
+    def test_connection_state_lower_is_dangerous(self):
+        """ConnectionState < threshold → 알림 발송 (낮을수록 위험) — Req 8.1"""
+        collector_mod = MagicMock()
+        collector_mod.get_metrics.return_value = {"ConnectionState": 0.0}
+
+        with patch("daily_monitor.lambda_handler.get_threshold", return_value=1.0), \
+             patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
+            alerts = _process_resource(
+                "dxcon-001", "DX", {"Monitoring": "on"}, collector_mod,
+            )
+
+        assert alerts == 1
+        mock_alert.assert_called_once_with(
+            resource_id="dxcon-001",
+            resource_type="DX",
+            metric_name="ConnectionState",
+            current_value=0.0,
+            threshold=1.0,
+            tag_name="",
+        )
+
+    def test_connection_state_above_threshold_no_alert(self):
+        """ConnectionState >= threshold → 알림 미발송."""
+        collector_mod = MagicMock()
+        collector_mod.get_metrics.return_value = {"ConnectionState": 1.0}
+
+        with patch("daily_monitor.lambda_handler.get_threshold", return_value=1.0), \
+             patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
+            alerts = _process_resource(
+                "dxcon-001", "DX", {"Monitoring": "on"}, collector_mod,
+            )
+
+        assert alerts == 0
+        mock_alert.assert_not_called()
+
+    def test_burst_credit_balance_lower_is_dangerous(self):
+        """BurstCreditBalance < threshold → 알림 발송 (낮을수록 위험) — Req 9.3"""
+        collector_mod = MagicMock()
+        collector_mod.get_metrics.return_value = {"BurstCreditBalance": 500000000.0}
+
+        with patch("daily_monitor.lambda_handler.get_threshold", return_value=1000000000.0), \
+             patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
+            alerts = _process_resource(
+                "fs-001", "EFS", {"Monitoring": "on"}, collector_mod,
+            )
+
+        assert alerts == 1
+        mock_alert.assert_called_once_with(
+            resource_id="fs-001",
+            resource_type="EFS",
+            metric_name="BurstCreditBalance",
+            current_value=500000000.0,
+            threshold=1000000000.0,
+            tag_name="",
+        )
+
+    def test_burst_credit_balance_above_threshold_no_alert(self):
+        """BurstCreditBalance >= threshold → 알림 미발송."""
+        collector_mod = MagicMock()
+        collector_mod.get_metrics.return_value = {"BurstCreditBalance": 2000000000.0}
+
+        with patch("daily_monitor.lambda_handler.get_threshold", return_value=1000000000.0), \
+             patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
+            alerts = _process_resource(
+                "fs-001", "EFS", {"Monitoring": "on"}, collector_mod,
+            )
+
+        assert alerts == 0
+        mock_alert.assert_not_called()

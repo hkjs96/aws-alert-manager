@@ -146,6 +146,47 @@ def get_metrics(instance_id: str, resource_tags: dict | None = None) -> dict[str
     return metrics if metrics else None
 
 
+def resolve_alive_ids(tag_names: set[str]) -> set[str]:
+    """EC2 인스턴스 존재 여부 확인. terminated/shutting-down 제외."""
+    ec2 = _get_ec2_client()
+    alive: set[str] = set()
+    id_list = list(tag_names)
+
+    for i in range(0, len(id_list), 200):
+        batch = id_list[i:i + 200]
+        try:
+            resp = ec2.describe_instances(InstanceIds=batch)
+            for res in resp.get("Reservations", []):
+                for inst in res.get("Instances", []):
+                    state = inst.get("State", {}).get("Name", "")
+                    if state not in ("terminated", "shutting-down"):
+                        alive.add(inst["InstanceId"])
+        except ClientError as e:
+            code = e.response["Error"]["Code"]
+            if code == "InvalidInstanceID.NotFound":
+                _check_individually(ec2, batch, alive)
+            else:
+                logger.error("describe_instances failed: %s", e)
+
+    return alive
+
+
+def _check_individually(
+    ec2, batch: list[str], alive: set[str],
+) -> None:
+    """배치 조회 실패 시 개별 인스턴스 확인."""
+    for iid in batch:
+        try:
+            resp = ec2.describe_instances(InstanceIds=[iid])
+            for res in resp.get("Reservations", []):
+                for inst in res.get("Instances", []):
+                    state = inst.get("State", {}).get("Name", "")
+                    if state not in ("terminated", "shutting-down"):
+                        alive.add(inst["InstanceId"])
+        except ClientError:
+            pass  # 완전히 없는 인스턴스 → alive에 추가 안 함
+
+
 def _query_disk_metric(
     instance_id: str,
     path: str,

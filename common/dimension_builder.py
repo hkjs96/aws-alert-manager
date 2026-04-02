@@ -55,8 +55,37 @@ def _build_dimensions(
         ]
     elif resource_type in ("ALB", "NLB"):
         dimensions = [{"Name": dim_key, "Value": _extract_elb_dimension(resource_id)}]
+    elif resource_type == "ECS":
+        dimensions = [{"Name": "ServiceName", "Value": resource_id}]
+        cluster_name = resource_tags.get("_cluster_name", "")
+        if cluster_name:
+            dimensions.append({"Name": "ClusterName", "Value": cluster_name})
+        else:
+            logger.warning("ECS _cluster_name missing for %s", resource_id)
+    elif resource_type == "WAF":
+        dimensions = [{"Name": "WebACL", "Value": resource_id}]
+        waf_rule = resource_tags.get("_waf_rule", "ALL")
+        dimensions.append({"Name": "Rule", "Value": waf_rule})
+    elif resource_type == "S3":
+        dimensions = [{"Name": "BucketName", "Value": resource_id}]
+        if alarm_def.get("needs_storage_type"):
+            storage_type = resource_tags.get("_storage_type", "StandardStorage")
+            dimensions.append({"Name": "StorageType", "Value": storage_type})
+    elif resource_type == "SageMaker":
+        dimensions = [{"Name": "EndpointName", "Value": resource_id}]
+        variant_name = resource_tags.get("_variant_name", "")
+        if variant_name:
+            dimensions.append({"Name": "VariantName", "Value": variant_name})
+        else:
+            logger.warning("SageMaker _variant_name missing for %s", resource_id)
     else:
         dimensions = [{"Name": dim_key, "Value": resource_id}]
+
+    # OpenSearch Compound Dimension: DomainName + ClientId
+    if resource_type == "OpenSearch":
+        client_id = resource_tags.get("_client_id", "")
+        if client_id:
+            dimensions.append({"Name": "ClientId", "Value": client_id})
 
     dimensions.extend(alarm_def.get("extra_dimensions", []))
     return dimensions

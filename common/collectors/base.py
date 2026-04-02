@@ -52,6 +52,10 @@ class CollectorProtocol(Protocol):
         """CloudWatch에서 리소스 메트릭 조회. 데이터 없으면 None."""
         ...
 
+    def resolve_alive_ids(self, tag_names: set[str]) -> set[str]:
+        """알람 TagName 집합에서 실제 AWS 리소스가 존재하는 TagName 부분집합 반환."""
+        ...
+
 
 # ──────────────────────────────────────────────
 # CloudWatch 메트릭 조회 공통 유틸리티 (코딩 거버넌스 §10)

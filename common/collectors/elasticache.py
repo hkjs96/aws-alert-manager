@@ -126,6 +126,23 @@ def _collect_metric(namespace, cw_metric_name, dimensions,
                     dimensions[0]["Value"] if dimensions else "unknown")
 
 
+def resolve_alive_ids(tag_names: set[str]) -> set[str]:
+    """ElastiCache 클러스터 존재 여부 확인."""
+    client = _get_elasticache_client()
+    alive: set[str] = set()
+    for cid in tag_names:
+        try:
+            client.describe_cache_clusters(CacheClusterId=cid)
+            alive.add(cid)
+        except ClientError as e:
+            code = e.response["Error"]["Code"]
+            if code == "CacheClusterNotFound":
+                logger.info("ElastiCache cluster not found (orphan): %s", cid)
+            else:
+                logger.error("describe_cache_clusters failed for %s: %s", cid, e)
+    return alive
+
+
 def _get_tags(elasticache_client, cluster_arn: str) -> dict:
     """ElastiCache list_tags_for_resource 래퍼. ClientError 시 빈 dict 반환 + error 로그."""
     if not cluster_arn:
