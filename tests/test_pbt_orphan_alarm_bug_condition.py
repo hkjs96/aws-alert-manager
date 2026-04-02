@@ -115,6 +115,7 @@ def test_mq_single_instance_tagname_mismatch():
         EngineVersion="5.17.6",
         HostInstanceType="mq.t3.micro",
         PubliclyAccessible=False,
+        AutoMinorVersionUpgrade=True,
         Users=[{"Username": "admin", "Password": "Admin12345678!"}],
     )
 
@@ -143,6 +144,7 @@ def test_mq_active_standby_tagname_mismatch():
         EngineVersion="5.17.6",
         HostInstanceType="mq.t3.micro",
         PubliclyAccessible=False,
+        AutoMinorVersionUpgrade=True,
         Users=[{"Username": "admin", "Password": "Admin12345678!"}],
     )
 
