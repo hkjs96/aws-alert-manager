@@ -138,6 +138,77 @@ aws-monitoring-engine/
         └── elb.py                   # ELBCollector
 ```
 
+### 메트릭 및 태그 설계
+
+리소스별 수집 메트릭과 CloudWatch 조회에 필요한 Namespace/Dimension, 그리고 태그 키 규칙을 정의한다.
+
+#### EC2 메트릭
+
+| 메트릭 | CloudWatch Namespace | Dimension | 태그 키 | 비고 |
+|--------|---------------------|-----------|---------|------|
+| CPUUtilization | AWS/EC2 | InstanceId | `Threshold_CPU` | 기본 메트릭 |
+| mem_used_percent | CWAgent | InstanceId | `Threshold_Memory` | CWAgent 필요, 없으면 skip |
+| disk_used_percent | CWAgent | InstanceId + path + device + fstype | `Threshold_Disk_{path_key}` | CWAgent 필요, 없으면 skip |
+
+**Disk 경로 인코딩 규칙**: 태그 키에 경로를 인코딩한다. `/`는 `root`, 나머지는 선행 슬래시 제거 후 내부 슬래시를 `_`로 치환한다.
+
+```
+Threshold_Disk_root=85      → path=/
+Threshold_Disk_data=90      → path=/data
+Threshold_Disk_app=80       → path=/app
+Threshold_Disk_var_log=70   → path=/var/log
+```
+
+코드에서 `Threshold_Disk_` 접두사를 가진 태그를 전부 스캔하여 suffix를 경로로 역변환한다:
+- `root` → `/`
+- 그 외 → `/{suffix}` (단, `_`는 `/`로 복원하지 않음 — 단순 경로명 매핑)
+
+#### RDS 메트릭
+
+| 메트릭 | CloudWatch Namespace | Dimension | 태그 키 | 비고 |
+|--------|---------------------|-----------|---------|------|
+| CPUUtilization | AWS/RDS | DBInstanceIdentifier | `Threshold_CPU` | 직접 % |
+| FreeableMemory | AWS/RDS | DBInstanceIdentifier | `Threshold_FreeMemoryGB` | bytes → GB 변환 후 비교 |
+| FreeStorageSpace | AWS/RDS | DBInstanceIdentifier | `Threshold_FreeStorageGB` | bytes → GB 변환, AllocatedStorage는 describe_db_instances에서 조회 |
+| DatabaseConnections | AWS/RDS | DBInstanceIdentifier | `Threshold_Connections` | 직접 count |
+
+#### ELB (ALB) 메트릭
+
+ALB 자체와 TargetGroup을 별도로 모니터링한다. TG는 `Monitoring=on` 태그가 있는 것만 수집한다.
+
+| 수집 대상 | 메트릭 | Namespace | Dimension | 태그 키 |
+|-----------|--------|-----------|-----------|---------|
+| ALB | RequestCount | AWS/ApplicationELB | LoadBalancer | `Threshold_RequestCount` |
+| TG | RequestCount | AWS/ApplicationELB | LoadBalancer + TargetGroup | `Threshold_RequestCount` |
+| TG | HealthyHostCount | AWS/ApplicationELB | LoadBalancer + TargetGroup | `Threshold_HealthyHostCount` |
+
+**ELB 수집 흐름**:
+```
+ALBs with Monitoring=on 수집
+  → ALB 레벨 RequestCount 조회
+  → ALB에 연결된 TG 중 Monitoring=on 태그 있는 것만 수집
+    → TG 레벨 RequestCount, HealthyHostCount 조회
+```
+
+#### 전체 태그 키 참조표
+
+| 리소스 | 태그 키 | 값 형식 | 예시 |
+|--------|---------|---------|------|
+| EC2 | `Threshold_CPU` | 양의 숫자(%) | `90` |
+| EC2 | `Threshold_Memory` | 양의 숫자(%) | `80` |
+| EC2 | `Threshold_Disk_root` | 양의 숫자(%) | `85` |
+| EC2 | `Threshold_Disk_{path}` | 양의 숫자(%) | `90` |
+| RDS | `Threshold_CPU` | 양의 숫자(%) | `90` |
+| RDS | `Threshold_FreeMemoryGB` | 양의 숫자(GB) | `2` |
+| RDS | `Threshold_FreeStorageGB` | 양의 숫자(GB) | `10` |
+| RDS | `Threshold_Connections` | 양의 숫자(count) | `200` |
+| ALB | `Threshold_RequestCount` | 양의 숫자(count/min) | `10000` |
+| TG | `Monitoring` | `on` | `on` |
+| TG | `Threshold_HealthyHostCount` | 양의 숫자(count) | `1` |
+| TG | `Threshold_RequestCount` | 양의 숫자(count/min) | `500` |
+
+---
+
 ### Tag_Resolver (`common/tag_resolver.py`)
 
 태그 → 환경 변수 순으로 설정값을 조회하는 모듈. 향후 DB 교체를 고려한 인터페이스 제공.
@@ -148,6 +219,11 @@ HARDCODED_DEFAULTS = {
     "CPU": 80.0,
     "Memory": 80.0,
     "Connections": 100.0,
+    "FreeMemoryGB": 2.0,
+    "FreeStorageGB": 10.0,
+    "Disk": 85.0,          # 모든 Disk_{path} 메트릭의 기본값
+    "RequestCount": 10000.0,
+    "HealthyHostCount": 1.0,
 }
 
 def get_threshold(resource_tags: dict, metric_name: str) -> float:
@@ -155,47 +231,48 @@ def get_threshold(resource_tags: dict, metric_name: str) -> float:
     리소스 태그에서 임계치를 조회.
     조회 우선순위: 태그 값 → 환경 변수 기본값 → 시스템 하드코딩 기본값.
     어떤 경우에도 유효한 양의 숫자를 반환하며, 절대 None을 반환하거나 예외를 발생시키지 않는다.
-    metric_name: 'CPU' | 'Memory' | 'Connections'
+    metric_name: 'CPU' | 'Memory' | 'Disk_root' | 'Disk_data' | 'FreeMemoryGB' |
+                 'FreeStorageGB' | 'Connections' | 'RequestCount' | 'HealthyHostCount'
+    Disk 계열은 'Disk_'로 시작하며, 환경변수/하드코딩 폴백 시 'Disk' 키를 사용한다.
     """
+
+def get_disk_thresholds(resource_tags: dict) -> dict[str, float]:
+    """
+    태그에서 Threshold_Disk_* 패턴을 모두 스캔하여 {path: threshold} 딕셔너리 반환.
+    예: {"Threshold_Disk_root": "85", "Threshold_Disk_data": "90"}
+        → {"/": 85.0, "/data": 90.0}
+    태그가 없으면 빈 딕셔너리 반환 (Collector에서 CWAgent 메트릭 skip 처리).
+    """
+
+def disk_path_to_tag_suffix(path: str) -> str:
+    """경로를 태그 suffix로 변환. '/' → 'root', '/data' → 'data', '/var/log' → 'var_log'"""
+
+def tag_suffix_to_disk_path(suffix: str) -> str:
+    """태그 suffix를 경로로 역변환. 'root' → '/', 'data' → '/data'"""
 
 def has_monitoring_tag(resource_tags: dict) -> bool:
     """Monitoring=on 태그 존재 여부 반환"""
 
 def get_resource_tags(resource_id: str, resource_type: str) -> dict:
-    """AWS API를 통해 리소스 태그 조회"""
+    """AWS API를 통해 리소스 태그 조회. resource_type: 'EC2' | 'RDS' | 'ELB' | 'TG'"""
 ```
 
 **설계 결정**:
-- `get_threshold`는 태그 딕셔너리를 직접 받아 AWS API 의존성을 분리한다. 단위 테스트 시 AWS API 호출 없이 태그 딕셔너리만으로 테스트 가능하다.
-- `get_threshold`는 3단계 폴백 체인(태그 → 환경 변수 → 하드코딩 기본값)을 통해 어떤 상황에서도 유효한 양의 숫자를 반환한다. 이는 시스템 안정성을 보장하기 위한 핵심 설계 원칙이다.
+- `get_threshold`는 태그 딕셔너리를 직접 받아 AWS API 의존성을 분리한다.
+- Disk 메트릭은 경로별로 여러 개일 수 있으므로 `get_disk_thresholds()`로 별도 조회한다.
+- `Disk_*` 계열의 환경변수/하드코딩 폴백은 `Disk` 단일 키를 사용한다 (`DEFAULT_DISK_THRESHOLD`, `HARDCODED_DEFAULTS["Disk"]`).
 
-**폴백 로직 상세:**
+**폴백 로직 상세 (Disk 계열 포함):**
 ```python
 def get_threshold(resource_tags: dict, metric_name: str) -> float:
-    # 1단계: 태그에서 조회
-    tag_key = f"Threshold_{metric_name}"
-    tag_value = resource_tags.get(tag_key)
-    if tag_value is not None:
-        try:
-            val = float(tag_value)
-            if val > 0:
-                return val
-        except (ValueError, TypeError):
-            pass  # 무효 태그 → 다음 단계로
+    # Disk 계열 처리: metric_name이 'Disk_root', 'Disk_data' 등인 경우
+    # 태그 키는 f"Threshold_{metric_name}" 그대로 사용
+    # 환경변수/하드코딩 폴백은 'Disk' 기본 키 사용
+    base_metric = "Disk" if metric_name.startswith("Disk_") else metric_name
 
-    # 2단계: 환경 변수에서 조회
-    env_key = f"DEFAULT_{metric_name.upper()}_THRESHOLD"
-    env_value = os.environ.get(env_key)
-    if env_value is not None:
-        try:
-            val = float(env_value)
-            if val > 0:
-                return val
-        except (ValueError, TypeError):
-            pass  # 무효 환경 변수 → 다음 단계로
-
-    # 3단계: 시스템 하드코딩 기본값 (최종 폴백)
-    return HARDCODED_DEFAULTS[metric_name]
+    # 1단계: 태그에서 조회 (Threshold_{metric_name})
+    # 2단계: 환경 변수 (DEFAULT_{BASE_METRIC}_THRESHOLD)
+    # 3단계: HARDCODED_DEFAULTS[base_metric]
 ```
 
 ### SNS_Notifier (`common/sns_notifier.py`)
@@ -630,3 +707,166 @@ def test_collect_monitored_resources(mock_boto3):
     mock_ec2.describe_instances.return_value = {...}
     ...
 ```
+
+---
+
+## 향후 확장 아키텍처 (Phase 2 / Phase 3)
+
+> 현재 구현(Phase 1)은 태그 기반 단일 어카운트 구조를 유지한다.
+> 이 섹션은 향후 확장 방향을 설계 수준에서 기록하며, Phase 1 코드는 변경하지 않는다.
+
+### Phase 개요
+
+| Phase | 핵심 변경 | 상태 |
+|-------|-----------|------|
+| Phase 1 | 태그 기반 단일 어카운트, 환경변수 임계치 | **현재 구현** |
+| Phase 2 | 중앙 DynamoDB(운영환경정의서) 연동, 멀티 어카운트 | 설계 완료, 미구현 |
+| Phase 3 | 웹 UI (운영환경정의서 편집 + 알람 현황 조회) | 설계 예정 |
+
+---
+
+### Phase 2: 멀티 어카운트 + DynamoDB 운영환경정의서
+
+#### 배경 및 목적
+
+현재 24x7팀, 운영팀, MARK 솔루션 세 곳의 리소스 관리 데이터가 전부 달라 운영 혼선이 발생하고 있다.
+DynamoDB를 **단일 진실 공급원(Single Source of Truth)** 으로 삼아 세 곳의 관리 포인트를 통일한다.
+
+- 운영환경정의서 역할: DynamoDB가 리소스별 기본 임계치 및 메타데이터를 보관
+- 커스텀 태그 우선: 리소스에 직접 붙은 태그가 있으면 DynamoDB 값보다 우선 적용
+- 멀티 어카운트: 각 워크로드 어카운트의 Lambda가 중앙 어카운트 DynamoDB에 Cross-Account IAM으로 접근
+
+#### 임계치 조회 우선순위 (Phase 2)
+
+```
+커스텀 태그 (리소스에 직접 부착)
+  → DynamoDB 운영환경정의서 (중앙 어카운트)
+    → 환경 변수 기본값
+      → 시스템 하드코딩 기본값
+```
+
+Phase 1 대비 DynamoDB 조회 단계가 태그와 환경변수 사이에 추가된다.
+
+#### 멀티 어카운트 아키텍처
+
+```mermaid
+flowchart TB
+    subgraph CentralAccount["중앙 관리 어카운트"]
+        DDB["DynamoDB\n운영환경정의서\n(Single Source of Truth)"]
+        WebUI["Phase 3: 웹 UI\n(운영환경정의서 편집)"]
+    end
+
+    subgraph WorkloadAccountA["워크로드 어카운트 A"]
+        LambdaA["Daily_Monitor\nRemediation_Handler"]
+        ResourcesA["EC2 / RDS / ELB"]
+    end
+
+    subgraph WorkloadAccountB["워크로드 어카운트 B"]
+        LambdaB["Daily_Monitor\nRemediation_Handler"]
+        ResourcesB["EC2 / RDS / ELB"]
+    end
+
+    LambdaA -- "Cross-Account IAM Role\n(sts:AssumeRole)" --> DDB
+    LambdaB -- "Cross-Account IAM Role\n(sts:AssumeRole)" --> DDB
+    WebUI --> DDB
+```
+
+#### DynamoDB 테이블 스키마
+
+테이블명: `aws-monitoring-engine-config`
+
+| 속성 | 타입 | 역할 | 예시 |
+|------|------|------|------|
+| `resource_id` (PK) | String | 리소스 ID | `i-1234567890abcdef0` |
+| `account_id` (SK) | String | AWS 어카운트 ID | `123456789012` |
+| `resource_type` | String | 리소스 유형 | `EC2` |
+| `environment` | String | 운영 환경 | `prod` |
+| `thresholds` | Map | 메트릭별 임계치 | `{"CPU": 90, "Memory": 80}` |
+| `description` | String | 운영환경정의서 설명 | `주문 처리 서버` |
+| `owner_team` | String | 담당 팀 | `24x7` |
+| `updated_at` | String | 최종 수정 시각 (ISO 8601) | `2026-03-05T09:00:00Z` |
+| `updated_by` | String | 수정자 | `ops-team` |
+
+**접근 패턴**:
+- 단건 조회: `resource_id` + `account_id` (PK + SK)
+- 어카운트 전체 조회: `account_id` GSI (Global Secondary Index)
+- 환경별 조회: `environment` + `account_id` GSI
+
+#### DynamoDB 트리거 (Phase 2 추가 기능)
+
+DynamoDB Streams를 활용하여 운영환경정의서 값이 변경되면 실제 CloudWatch 알람을 자동으로 갱신한다.
+
+```
+DynamoDB 값 변경
+  → DynamoDB Streams
+    → AlarmSync Lambda (신규)
+      → CloudWatch 알람 수정 (UpdateAlarm)
+        또는 삭제 후 재생성 (DeleteAlarms → PutMetricAlarm)
+```
+
+> 알람 이름 변경 불가 제약: CloudWatch 알람은 생성 후 이름 변경이 불가능하다.
+> 따라서 알람 이름은 `{resource_id}-{metric_name}-{environment}` 형식으로 고정하고,
+> 임계치 변경 시에는 UpdateAlarm으로 처리하며, 리소스 ID가 바뀌는 경우에만 삭제 후 재생성한다.
+
+#### 4가지 트리거 (Phase 2 전체 구조)
+
+| 트리거 | 처리 Lambda | 설명 |
+|--------|-------------|------|
+| EventBridge Scheduler (매일 09:00 KST) | Daily_Monitor | 전체 리소스 메트릭 점검 |
+| 수동 실행 (콘솔 또는 API) | Daily_Monitor | 즉시 점검 요청 |
+| CloudTrail 이벤트 (리소스 변경/삭제/태그) | Remediation_Handler | 실시간 감지 및 자동 조치 |
+| DynamoDB Streams (운영환경정의서 변경) | AlarmSync (신규) | CloudWatch 알람 자동 갱신 |
+
+---
+
+### Phase 1 → Phase 2 전환 포인트
+
+`tag_resolver.py`의 `get_threshold()` 인터페이스는 Phase 2에서도 변경하지 않는다.
+내부 구현에 DynamoDB 조회 단계만 추가하면 된다.
+
+```python
+# Phase 1 (현재)
+def get_threshold(resource_tags: dict, metric_name: str) -> float:
+    # 1. 태그 조회
+    # 2. 환경 변수 조회
+    # 3. 하드코딩 기본값
+
+# Phase 2 (전환 후) - 인터페이스 동일, 내부만 변경
+def get_threshold(resource_tags: dict, metric_name: str, resource_id: str = None) -> float:
+    # 1. 태그 조회 (우선순위 최고)
+    # 2. DynamoDB 운영환경정의서 조회 (resource_id 필요)
+    # 3. 환경 변수 조회
+    # 4. 하드코딩 기본값
+```
+
+Cross-Account DynamoDB 접근을 위한 IAM 추가 권한:
+
+```yaml
+# Phase 2 추가 IAM 정책 (template.yaml)
+- Effect: Allow
+  Action:
+    - sts:AssumeRole
+  Resource: arn:aws:iam::<CENTRAL_ACCOUNT_ID>:role/MonitoringConfigReaderRole
+
+# 중앙 어카운트에 생성할 역할 (별도 CFN 스택)
+# MonitoringConfigReaderRole:
+#   - dynamodb:GetItem
+#   - dynamodb:Query
+#   - dynamodb:Scan (어카운트 전체 조회용)
+```
+
+---
+
+### Phase 3: 웹 UI
+
+운영환경정의서를 웹 브라우저에서 편집하고 알람 현황을 조회하는 UI.
+24x7팀과 운영팀이 동일한 화면을 사용하여 관리 포인트를 단일화한다.
+
+구성 후보 (비용/유지보수 최소화 기준):
+- **API Gateway + Lambda + S3 정적 호스팅**: 서버리스, 추가 인프라 없음
+- **DynamoDB** → 이미 Phase 2에서 구축된 테이블 재사용
+
+주요 화면:
+1. 리소스 목록 + 현재 임계치 (태그 vs DynamoDB 값 비교 표시)
+2. 운영환경정의서 편집 (임계치, 담당팀, 설명 수정)
+3. 알람 이력 조회 (SNS 발송 내역)
