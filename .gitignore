@@ -20,3 +20,8 @@ dm_output.json
 model.tar.gz
 output.json
 test_out.json
+
+# Frontend
+node_modules/
+frontend/.next/
+frontend/out/

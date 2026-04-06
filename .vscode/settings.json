@@ -25,5 +25,6 @@
     "!Join sequence",
     "!Select sequence",
     "!Condition scalar"
-  ]
+  ],
+  "typescript.autoClosingTags": false
 }
