@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ChevronLeft } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { ChevronLeft, ShieldCheck, ShieldOff } from "lucide-react";
 import { useMonitoringToggle } from "@/hooks/useMonitoringToggle";
 import type { Resource } from "@/types";
 
@@ -11,13 +12,17 @@ interface ResourceHeaderProps {
 }
 
 export function ResourceHeader({ resource }: ResourceHeaderProps) {
+  const router = useRouter();
   const { loadingIds, toggle } = useMonitoringToggle();
   const [monitoring, setMonitoring] = useState(resource.monitoring);
   const isToggling = loadingIds.has(resource.id);
 
   const handleToggle = async () => {
     const success = await toggle(resource.id, monitoring);
-    if (success) setMonitoring((prev) => !prev);
+    if (success) {
+      setMonitoring((prev) => !prev);
+      router.refresh();
+    }
   };
 
   const tags = [
@@ -57,28 +62,50 @@ export function ResourceHeader({ resource }: ResourceHeaderProps) {
         </div>
       </div>
 
-      <div className="bg-white/80 backdrop-blur-xl p-5 rounded-xl shadow-soft border border-slate-200 flex items-center gap-6">
-        <div>
-          <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">
-            Monitoring Status
-          </div>
-          <div className="text-lg font-headline font-bold text-primary">
-            {monitoring ? "Active Protection" : "Monitoring Off"}
-          </div>
+      <div
+        className={`p-5 rounded-xl shadow-soft border flex flex-col gap-3 transition-colors duration-300 min-w-[200px] ${
+          monitoring
+            ? "bg-green-50 border-green-200"
+            : "bg-slate-50 border-slate-200"
+        }`}
+      >
+        <div className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+          Monitoring Status
         </div>
-        <button
-          onClick={handleToggle}
-          disabled={isToggling}
-          className={`w-14 h-7 rounded-full relative transition-all duration-300 ${
-            monitoring ? "bg-primary" : "bg-slate-300"
-          } ${isToggling ? "opacity-50 cursor-not-allowed" : ""}`}
-        >
-          <div
-            className={`absolute top-1 w-5 h-5 bg-white rounded-full shadow-sm transition-all duration-300 ${
-              monitoring ? "left-8" : "left-1"
-            }`}
-          />
-        </button>
+        <div className={`text-base font-headline font-bold flex items-center gap-1.5 ${
+          monitoring ? "text-green-700" : "text-slate-500"
+        }`}>
+          {monitoring ? (
+            <ShieldCheck size={15} className="text-green-600" />
+          ) : (
+            <ShieldOff size={15} className="text-slate-400" />
+          )}
+          {monitoring ? "Monitoring On" : "Monitoring Off"}
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleToggle}
+            disabled={isToggling}
+            className={`w-12 h-6 rounded-full relative transition-all duration-300 flex-shrink-0 ${
+              monitoring ? "bg-green-500" : "bg-slate-300"
+            } ${isToggling ? "opacity-50 cursor-not-allowed" : ""}`}
+          >
+            <div
+              className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow-sm transition-all duration-300 ${
+                monitoring ? "left-6" : "left-0.5"
+              }`}
+            />
+          </button>
+          {monitoring ? (
+            <span className="text-[10px] font-bold bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
+              ON
+            </span>
+          ) : (
+            <span className="text-[10px] font-bold bg-slate-200 text-slate-500 px-2 py-0.5 rounded-full">
+              OFF
+            </span>
+          )}
+        </div>
       </div>
     </div>
   );

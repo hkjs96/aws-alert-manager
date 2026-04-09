@@ -15,18 +15,37 @@ import { FilterBar } from "./FilterBar";
 import { EnableModal } from "./EnableModal";
 import { DisableModal } from "./DisableModal";
 
+type SortDir = "asc" | "desc";
+
+interface CustomerDto {
+  id: string;
+  name: string;
+}
+
+interface AccountDto {
+  id: string;
+  name: string;
+  customerId: string;
+}
+
 interface ResourcesContentProps {
   resources: Resource[];
-  total: number;
-  page: number;
-  pageSize: number;
+  customers: CustomerDto[];
+  accounts: AccountDto[];
+}
+
+const DEFAULT_PAGE_SIZE = 25;
+const ALARM_CRITICAL_WEIGHT = 10;
+const ALARM_WARNING_WEIGHT = 1;
+
+function alarmScore(alarms: { critical: number; warning: number }): number {
+  return alarms.critical * ALARM_CRITICAL_WEIGHT + alarms.warning * ALARM_WARNING_WEIGHT;
 }
 
 export function ResourcesContent({
   resources,
-  total,
-  page,
-  pageSize,
+  customers,
+  accounts,
 }: ResourcesContentProps) {
   const router = useRouter();
   const { showToast } = useToast();
@@ -35,19 +54,81 @@ export function ResourcesContent({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [modal, setModal] = useState<"enable" | "disable" | null>(null);
   const [search, setSearch] = useState("");
+  const [customerFilter, setCustomerFilter] = useState("");
+  const [accountFilter, setAccountFilter] = useState("");
+  const [typeFilter, setTypeFilter] = useState("");
+  const [sortKey, setSortKey] = useState("name");
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [isSyncing, setIsSyncing] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
 
-  // Local search filter (client-side for quick search within current page)
-  const filtered = useMemo(
+  // Customer 선택 시 해당 Customer의 Account만 표시
+  const filteredAccounts = useMemo(
     () =>
-      resources.filter(
-        (r) =>
-          r.name.toLowerCase().includes(search.toLowerCase()) ||
-          r.id.toLowerCase().includes(search.toLowerCase()),
-      ),
-    [resources, search],
+      customerFilter
+        ? accounts.filter((a) => a.customerId === customerFilter)
+        : accounts,
+    [accounts, customerFilter],
   );
+
+  const handleCustomerChange = (v: string) => {
+    setCustomerFilter(v);
+    setAccountFilter("");
+    setPage(1);
+  };
+
+  const handleSort = (key: string) => {
+    if (sortKey === key) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir("asc");
+    }
+    setPage(1);
+  };
+
+  // 필터링
+  const filtered = useMemo(() => {
+    return resources.filter((r) => {
+      if (customerFilter) {
+        const accountIds = accounts
+          .filter((a) => a.customerId === customerFilter)
+          .map((a) => a.id);
+        if (!accountIds.includes(r.account)) return false;
+      }
+      if (accountFilter && r.account !== accountFilter) return false;
+      if (typeFilter && r.type !== typeFilter) return false;
+      if (search) {
+        const q = search.toLowerCase();
+        if (!r.name.toLowerCase().includes(q) && !r.id.toLowerCase().includes(q))
+          return false;
+      }
+      return true;
+    });
+  }, [resources, customerFilter, accountFilter, typeFilter, search, accounts]);
+
+  // 정렬
+  const sorted = useMemo(() => {
+    return [...filtered].sort((a, b) => {
+      let cmp = 0;
+      if (sortKey === "alarms") {
+        cmp = alarmScore(a.alarms) - alarmScore(b.alarms);
+      } else {
+        const aVal = String(a[sortKey as keyof Resource] ?? "");
+        const bVal = String(b[sortKey as keyof Resource] ?? "");
+        cmp = aVal.localeCompare(bVal);
+      }
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+  }, [filtered, sortKey, sortDir]);
+
+  // Client-side pagination
+  const paginated = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return sorted.slice(start, start + pageSize);
+  }, [sorted, page, pageSize]);
 
   // Selection analysis
   const selectedResources = resources.filter((r) => selected.has(r.id));
@@ -69,9 +150,10 @@ export function ResourcesContent({
   const handleSync = async () => {
     setIsSyncing(true);
     try {
-      // Simulate API call — replace with syncResources() when backend ready
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      showToast("success", "동기화 완료: 3개 발견, 1개 업데이트, 0개 제거");
+      const res = await fetch("/api/resources/sync", { method: "POST" });
+      if (!res.ok) throw new Error("sync failed");
+      const result = await res.json() as { discovered: number; updated: number; removed: number };
+      showToast("success", `동기화 완료: ${result.discovered}개 발견, ${result.updated}개 업데이트, ${result.removed}개 제거`);
       router.refresh();
     } catch {
       showToast("error", "리소스 동기화에 실패했습니다.");
@@ -92,18 +174,9 @@ export function ResourcesContent({
     }
   };
 
-  const handlePageChange = (newPage: number) => {
-    const params = new URLSearchParams();
-    params.set("page", String(newPage));
-    params.set("page_size", String(pageSize));
-    router.push(`/resources?${params.toString()}`);
-  };
-
   const handlePageSizeChange = (newSize: number) => {
-    const params = new URLSearchParams();
-    params.set("page", "1");
-    params.set("page_size", String(newSize));
-    router.push(`/resources?${params.toString()}`);
+    setPageSize(newSize);
+    setPage(1);
   };
 
   const handleBulkComplete = () => {
@@ -143,7 +216,18 @@ export function ResourcesContent({
       </div>
 
       {/* Filter bar */}
-      <FilterBar search={search} onSearchChange={setSearch} />
+      <FilterBar
+        search={search}
+        onSearchChange={(v) => { setSearch(v); setPage(1); }}
+        customerFilter={customerFilter}
+        onCustomerChange={handleCustomerChange}
+        accountFilter={accountFilter}
+        onAccountChange={(v) => { setAccountFilter(v); setPage(1); }}
+        typeFilter={typeFilter}
+        onTypeChange={(v) => { setTypeFilter(v); setPage(1); }}
+        customers={customers}
+        accounts={filteredAccounts}
+      />
 
       {/* Bulk action bar */}
       <BulkActionBar
@@ -155,19 +239,22 @@ export function ResourcesContent({
 
       {/* Resource table */}
       <ResourceTable
-        resources={filtered}
+        resources={paginated}
         selectedKeys={selected}
         loadingToggleIds={loadingIds}
         onSelectionChange={setSelected}
         onToggleMonitoring={handleToggleMonitoring}
+        sortKey={sortKey}
+        sortDir={sortDir}
+        onSort={handleSort}
       />
 
-      {/* Pagination */}
+      {/* Pagination — client-side */}
       <Pagination
         page={page}
         pageSize={pageSize}
-        total={total}
-        onPageChange={handlePageChange}
+        total={sorted.length}
+        onPageChange={setPage}
         onPageSizeChange={handlePageSizeChange}
       />
 
@@ -191,4 +278,3 @@ export function ResourcesContent({
     </div>
   );
 }
-

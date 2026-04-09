@@ -1,8 +1,10 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { Database } from "lucide-react";
+import { Database, ChevronUp, ChevronDown } from "lucide-react";
 import type { Resource } from "@/types";
+
+type SortDir = "asc" | "desc";
 
 interface ResourceTableProps {
   resources: Resource[];
@@ -10,7 +12,18 @@ interface ResourceTableProps {
   loadingToggleIds: Set<string>;
   onSelectionChange: (keys: Set<string>) => void;
   onToggleMonitoring: (id: string, current: boolean) => void;
+  sortKey: string;
+  sortDir: SortDir;
+  onSort: (key: string) => void;
 }
+
+const SORTABLE_COLUMNS: { key: string; label: string }[] = [
+  { key: "name", label: "Name" },
+  { key: "type", label: "Type" },
+  { key: "account", label: "Account" },
+  { key: "region", label: "Region" },
+  { key: "alarms", label: "Active Alarms" },
+];
 
 export function ResourceTable({
   resources,
@@ -18,6 +31,9 @@ export function ResourceTable({
   loadingToggleIds,
   onSelectionChange,
   onToggleMonitoring,
+  sortKey,
+  sortDir,
+  onSort,
 }: ResourceTableProps) {
   const router = useRouter();
   const allSelected =
@@ -52,12 +68,31 @@ export function ResourceTable({
               />
             </th>
             <th className="px-4 py-4">Resource ID</th>
-            <th className="px-4 py-4">Name</th>
-            <th className="px-4 py-4">Type</th>
-            <th className="px-4 py-4">Account</th>
-            <th className="px-4 py-4">Region</th>
+            {SORTABLE_COLUMNS.map((col) => {
+              const isActive = sortKey === col.key;
+              return (
+                <th
+                  key={col.key}
+                  className={`px-4 py-4 cursor-pointer select-none hover:text-slate-800 ${isActive ? "text-slate-800" : ""}`}
+                  onClick={() => onSort(col.key)}
+                >
+                  <span className="inline-flex items-center gap-1">
+                    {col.label}
+                    <span className="inline-flex flex-col">
+                      <ChevronUp
+                        size={10}
+                        className={isActive && sortDir === "asc" ? "text-slate-700" : "opacity-30"}
+                      />
+                      <ChevronDown
+                        size={10}
+                        className={isActive && sortDir === "desc" ? "text-slate-700" : "opacity-30"}
+                      />
+                    </span>
+                  </span>
+                </th>
+              );
+            })}
             <th className="px-4 py-4">Monitoring</th>
-            <th className="px-6 py-4">Active Alarms</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-100">
@@ -75,10 +110,7 @@ export function ResourceTable({
                     : ""
               }`}
             >
-              <td
-                className="px-6 py-3"
-                onClick={(e) => e.stopPropagation()}
-              >
+              <td className="px-6 py-3" onClick={(e) => e.stopPropagation()}>
                 <input
                   type="checkbox"
                   checked={selectedKeys.has(res.id)}
@@ -100,24 +132,19 @@ export function ResourceTable({
                   </span>
                 </div>
               </td>
-              <td className="px-4 py-3 text-sm text-slate-500">
-                {res.account}
-              </td>
+              <td className="px-4 py-3 text-sm text-slate-500">{res.account}</td>
               <td className="px-4 py-3 text-sm font-medium text-slate-700">
                 {res.region}
               </td>
-              <td
-                className="px-4 py-3"
-                onClick={(e) => e.stopPropagation()}
-              >
+              <td className="px-4 py-3">
+                <AlarmBadge alarms={res.alarms} />
+              </td>
+              <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                 <MonitoringToggle
                   enabled={res.monitoring}
                   loading={loadingToggleIds.has(res.id)}
                   onToggle={() => onToggleMonitoring(res.id, res.monitoring)}
                 />
-              </td>
-              <td className="px-6 py-3">
-                <AlarmBadge alarms={res.alarms} />
               </td>
             </tr>
           ))}
@@ -153,7 +180,11 @@ function MonitoringToggle({
   );
 }
 
-function AlarmBadge({ alarms }: { alarms: { critical: number; warning: number } }) {
+function AlarmBadge({
+  alarms,
+}: {
+  alarms: { critical: number; warning: number };
+}) {
   if (alarms.critical > 0) {
     return (
       <span className="bg-error/10 text-error px-2 py-0.5 rounded text-[10px] font-black border border-error/20 flex items-center gap-1 w-max">

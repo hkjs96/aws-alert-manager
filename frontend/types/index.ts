@@ -25,7 +25,7 @@ export interface Resource {
 
 export type SeverityLevel = "SEV-1" | "SEV-2" | "SEV-3" | "SEV-4" | "SEV-5";
 export type SourceType = "System" | "Customer" | "Custom";
-export type DirectionSimple = ">" | "<";
+export type DirectionSimple = ">" | ">=" | "<" | "<=";
 export type CloudProvider = "aws" | "azure" | "gcp";
 
 export interface AlarmConfig {

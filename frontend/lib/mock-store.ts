@@ -68,6 +68,14 @@ export function updateResourceMonitoring(id: string, monitoring: boolean): void 
   if (r) r.monitoring = monitoring;
 }
 
+export function addResource(resource: Resource): void {
+  resources.push(resource);
+}
+
+export function resourceExists(id: string): boolean {
+  return resources.some((r) => r.id === id);
+}
+
 // ---------------------------------------------------------------------------
 // Computed stats
 // ---------------------------------------------------------------------------

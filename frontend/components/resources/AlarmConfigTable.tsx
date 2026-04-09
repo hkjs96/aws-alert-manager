@@ -51,6 +51,9 @@ export function AlarmConfigTable({
             metric_key: c.metric_key,
             threshold: c.threshold,
             monitoring: c.monitoring,
+            unit: c.unit,
+            direction: c.direction,
+            severity: c.severity,
           })),
       });
       showToast("success", "알람 설정이 저장되었습니다.");

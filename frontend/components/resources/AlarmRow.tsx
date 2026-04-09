@@ -1,7 +1,22 @@
-import { ArrowUp, ArrowDown } from "lucide-react";
-import { SeverityBadge } from "@/components/shared/SeverityBadge";
 import { SourceBadge } from "@/components/shared/SourceBadge";
-import type { AlarmConfig } from "@/types";
+import type { AlarmConfig, DirectionSimple, SeverityLevel } from "@/types";
+
+const UNIT_OPTIONS = [
+  "Percent", "Bytes", "Kilobytes", "Megabytes", "Gigabytes", "Terabytes",
+  "Count", "Count/Second",
+  "Seconds", "Milliseconds", "Microseconds",
+  "Bits", "Bits/Second", "Bytes/Second",
+  "None",
+] as const;
+
+const DIRECTION_OPTIONS = [
+  { value: ">", label: ">" },
+  { value: ">=", label: ">=" },
+  { value: "<", label: "<" },
+  { value: "<=", label: "<=" },
+] as const;
+
+const SEVERITY_OPTIONS: SeverityLevel[] = ["SEV-1", "SEV-2", "SEV-3", "SEV-4", "SEV-5"];
 
 export interface EditableConfig extends AlarmConfig {
   dirty: boolean;
@@ -23,7 +38,6 @@ interface AlarmRowProps {
 
 export function AlarmRow({ row, index, onUpdate }: AlarmRowProps) {
   const stateColor = STATE_COLORS[row.state] ?? "text-slate-500 bg-slate-100";
-  const DirIcon = row.direction === ">" ? ArrowUp : ArrowDown;
 
   return (
     <tr className="bg-white/30 hover:bg-white transition-colors">
@@ -44,12 +58,38 @@ export function AlarmRow({ row, index, onUpdate }: AlarmRowProps) {
           className="w-20 bg-white border border-slate-200 rounded px-2 py-1 font-mono text-sm focus:ring-1 focus:ring-primary outline-none"
         />
       </td>
-      <td className="px-4 py-5 text-sm text-slate-500">{row.unit}</td>
+      <td className="px-4 py-5">
+        <select
+          value={row.unit}
+          onChange={(e) => onUpdate(index, { unit: e.target.value })}
+          className="bg-white border border-slate-200 rounded px-2 py-1 text-sm focus:ring-1 focus:ring-primary outline-none min-w-[100px]"
+        >
+          {UNIT_OPTIONS.map((u) => (
+            <option key={u} value={u}>{u}</option>
+          ))}
+        </select>
+      </td>
       <td className="px-4 py-5 text-center">
-        <DirIcon size={16} className="text-error mx-auto" />
+        <select
+          value={row.direction}
+          onChange={(e) => onUpdate(index, { direction: e.target.value as DirectionSimple })}
+          className="bg-white border border-slate-200 rounded px-2 py-1 text-sm focus:ring-1 focus:ring-primary outline-none"
+        >
+          {DIRECTION_OPTIONS.map((d) => (
+            <option key={d.value} value={d.value}>{d.label}</option>
+          ))}
+        </select>
       </td>
       <td className="px-4 py-5">
-        <SeverityBadge severity={row.severity} />
+        <select
+          value={row.severity}
+          onChange={(e) => onUpdate(index, { severity: e.target.value as SeverityLevel })}
+          className="bg-white border border-slate-200 rounded px-2 py-1 text-sm focus:ring-1 focus:ring-primary outline-none"
+        >
+          {SEVERITY_OPTIONS.map((s) => (
+            <option key={s} value={s}>{s}</option>
+          ))}
+        </select>
       </td>
       <td className="px-4 py-5">
         <SourceBadge source={row.source} />
