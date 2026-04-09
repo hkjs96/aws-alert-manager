@@ -7,7 +7,7 @@
     "patterns": ["**/*.py"]
   },
   "then": {
-    "type": "runCommand",
-    "command": "pylint --max-locals=15 --max-statements=50 --max-branches=12 --max-args=5 --disable=all --enable=too-many-locals,too-many-statements,too-many-branches,too-many-arguments $(git diff --name-only HEAD | grep '\\.py$' | tr '\\n' ' ') 2>/dev/null || true"
+    "type": "askAgent",
+    "prompt": "Python 파일이 저장되었습니다. 해당 파일에 대해 다음 pylint 복잡도 기준을 확인하세요:\n- 로컬 변수 15개 이하\n- statements 50개 이하\n- branches 12개 이하\n- 함수 인자 5개 이하\n초과하는 함수가 있으면 헬퍼 함수로 분리를 제안하세요."
   }
 }

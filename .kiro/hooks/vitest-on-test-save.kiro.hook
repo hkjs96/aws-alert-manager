@@ -1,0 +1,19 @@
+{
+  "enabled": true,
+  "name": "Vitest on Test File Save",
+  "description": "프론트엔드 테스트 파일 저장 시 테스트 실행 리마인드",
+  "version": "1",
+  "when": {
+    "type": "fileEdited",
+    "patterns": [
+      "frontend/**/*.test.ts",
+      "frontend/**/*.test.tsx",
+      "frontend/**/*.spec.ts",
+      "frontend/**/*.spec.tsx"
+    ]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "프론트엔드 테스트 파일이 저장되었습니다. frontend 디렉토리에서 vitest를 실행하여 테스트 결과를 확인하세요. 명령어: npx vitest --run --reporter=verbose (cwd: frontend)"
+  }
+}

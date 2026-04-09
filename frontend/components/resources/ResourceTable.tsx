@@ -1,120 +1,177 @@
 "use client";
 
+import { useRouter } from "next/navigation";
+import { Database } from "lucide-react";
 import type { Resource } from "@/types";
-import { MonitoringToggle } from "@/components/shared/MonitoringToggle";
-import { SeverityBadge } from "@/components/shared/SeverityBadge";
 
 interface ResourceTableProps {
   resources: Resource[];
   selectedKeys: Set<string>;
+  loadingToggleIds: Set<string>;
   onSelectionChange: (keys: Set<string>) => void;
-  onRowClick: (resource: Resource) => void;
-  onToggleMonitoring: (id: string, enabled: boolean) => void;
-  loading?: boolean;
+  onToggleMonitoring: (id: string, current: boolean) => void;
 }
 
 export function ResourceTable({
   resources,
   selectedKeys,
+  loadingToggleIds,
   onSelectionChange,
-  onRowClick,
   onToggleMonitoring,
-  loading = false,
 }: ResourceTableProps) {
-  const allSelected = resources.length > 0 && resources.every((r) => selectedKeys.has(r.id));
+  const router = useRouter();
+  const allSelected =
+    resources.length > 0 && resources.every((r) => selectedKeys.has(r.id));
 
   const toggleAll = () => {
-    if (allSelected) onSelectionChange(new Set());
-    else onSelectionChange(new Set(resources.map((r) => r.id)));
+    if (allSelected) {
+      onSelectionChange(new Set());
+    } else {
+      onSelectionChange(new Set(resources.map((r) => r.id)));
+    }
   };
 
-  const toggleRow = (id: string) => {
+  const toggleOne = (id: string) => {
     const next = new Set(selectedKeys);
-    if (next.has(id)) next.delete(id); else next.add(id);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
     onSelectionChange(next);
   };
 
-  if (loading) {
-    return (
-      <div className="rounded-lg border border-slate-200">
-        {Array.from({ length: 5 }).map((_, i) => (
-          <div key={i} className="flex gap-4 border-b border-slate-100 px-4 py-4">
-            {Array.from({ length: 8 }).map((_, j) => (
-              <div key={j} className="h-4 flex-1 animate-pulse rounded bg-slate-100" />
-            ))}
-          </div>
-        ))}
-      </div>
-    );
-  }
-
-  if (resources.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center rounded-lg border border-slate-200 py-16 text-slate-400">
-        <p>필터에 맞는 리소스가 없습니다.</p>
-      </div>
-    );
-  }
-
   return (
-    <div className="overflow-x-auto rounded-lg border border-slate-200">
-      <table className="w-full text-sm">
-        <thead className="sticky top-0 bg-slate-50 text-left text-xs font-medium uppercase tracking-wider text-slate-500">
-          <tr>
-            <th className="w-10 px-4 py-3">
-              <input type="checkbox" checked={allSelected} onChange={toggleAll} className="rounded" />
+    <div className="bg-white rounded-xl shadow-sm overflow-hidden border border-slate-200 shadow-soft">
+      <table className="w-full text-left border-collapse">
+        <thead className="bg-slate-50">
+          <tr className="text-[11px] font-bold uppercase tracking-widest text-slate-500">
+            <th className="px-6 py-4 w-12">
+              <input
+                type="checkbox"
+                checked={allSelected}
+                onChange={toggleAll}
+                className="rounded border-slate-300 text-primary focus:ring-primary"
+              />
             </th>
-            <th className="px-4 py-3">고객사</th>
-            <th className="px-4 py-3">리소스 ID</th>
-            <th className="px-4 py-3">이름</th>
-            <th className="px-4 py-3">유형</th>
-            <th className="px-4 py-3">어카운트</th>
-            <th className="px-4 py-3">리전</th>
-            <th className="px-4 py-3">모니터링</th>
-            <th className="px-4 py-3">활성 알람</th>
+            <th className="px-4 py-4">Resource ID</th>
+            <th className="px-4 py-4">Name</th>
+            <th className="px-4 py-4">Type</th>
+            <th className="px-4 py-4">Account</th>
+            <th className="px-4 py-4">Region</th>
+            <th className="px-4 py-4">Monitoring</th>
+            <th className="px-6 py-4">Active Alarms</th>
           </tr>
         </thead>
-        <tbody>
-          {resources.map((r, i) => (
+        <tbody className="divide-y divide-slate-100">
+          {resources.map((res, i) => (
             <tr
-              key={r.id}
-              className={`border-b border-slate-100 cursor-pointer hover:bg-blue-50/50 ${i % 2 === 1 ? "bg-slate-50/50" : ""}`}
-              onClick={() => onRowClick(r)}
+              key={res.id}
+              onClick={() =>
+                router.push(`/resources/${encodeURIComponent(res.name)}`)
+              }
+              className={`hover:bg-slate-50 cursor-pointer ${
+                selectedKeys.has(res.id)
+                  ? "bg-blue-50/40"
+                  : i % 2 === 1
+                    ? "bg-slate-50/20"
+                    : ""
+              }`}
             >
-              <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
-                <input type="checkbox" checked={selectedKeys.has(r.id)} onChange={() => toggleRow(r.id)} className="rounded" />
+              <td
+                className="px-6 py-3"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <input
+                  type="checkbox"
+                  checked={selectedKeys.has(res.id)}
+                  onChange={() => toggleOne(res.id)}
+                  className="rounded border-slate-300 text-primary focus:ring-primary"
+                />
               </td>
-              <td className="px-4 py-3 text-slate-600">{r.customer_id}</td>
-              <td className="px-4 py-3 font-mono text-xs text-blue-600">{r.id}</td>
-              <td className="px-4 py-3 font-medium">{r.name}</td>
+              <td className="px-4 py-3 font-mono text-xs text-primary font-medium">
+                {res.id}
+              </td>
+              <td className="px-4 py-3 font-semibold text-sm text-slate-900">
+                {res.name}
+              </td>
               <td className="px-4 py-3">
-                <span className="inline-flex items-center rounded-md bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700">
-                  {r.type}
-                </span>
+                <div className="flex items-center gap-2 bg-slate-100 rounded-full px-2 py-1 w-max">
+                  <Database size={12} className="text-slate-500" />
+                  <span className="text-[10px] font-bold uppercase">
+                    {res.type}
+                  </span>
+                </div>
               </td>
-              <td className="px-4 py-3 font-mono text-xs text-slate-500">{r.account_id}</td>
-              <td className="px-4 py-3 text-slate-500">{r.region}</td>
-              <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
-                <MonitoringToggle enabled={r.monitoring} onChange={(v) => onToggleMonitoring(r.id, v)} />
+              <td className="px-4 py-3 text-sm text-slate-500">
+                {res.account}
               </td>
-              <td className="px-4 py-3">
-                {r.active_alarms.length > 0 ? (
-                  <div className="flex gap-1">
-                    {r.active_alarms.map((a) => (
-                      <span key={a.severity} className="flex items-center gap-1">
-                        <span className="text-xs font-medium">{a.count}</span>
-                        <SeverityBadge severity={a.severity} />
-                      </span>
-                    ))}
-                  </div>
-                ) : (
-                  <span className="text-xs text-slate-400">0 ACTIVE</span>
-                )}
+              <td className="px-4 py-3 text-sm font-medium text-slate-700">
+                {res.region}
+              </td>
+              <td
+                className="px-4 py-3"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <MonitoringToggle
+                  enabled={res.monitoring}
+                  loading={loadingToggleIds.has(res.id)}
+                  onToggle={() => onToggleMonitoring(res.id, res.monitoring)}
+                />
+              </td>
+              <td className="px-6 py-3">
+                <AlarmBadge alarms={res.alarms} />
               </td>
             </tr>
           ))}
         </tbody>
       </table>
     </div>
+  );
+}
+
+function MonitoringToggle({
+  enabled,
+  loading,
+  onToggle,
+}: {
+  enabled: boolean;
+  loading: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      onClick={onToggle}
+      disabled={loading}
+      className={`w-8 h-4 rounded-full relative transition-colors ${
+        loading ? "opacity-50 cursor-wait" : ""
+      } ${enabled ? "bg-primary" : "bg-slate-300"}`}
+    >
+      <div
+        className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all ${
+          enabled ? "left-[18px]" : "left-0.5"
+        }`}
+      />
+    </button>
+  );
+}
+
+function AlarmBadge({ alarms }: { alarms: { critical: number; warning: number } }) {
+  if (alarms.critical > 0) {
+    return (
+      <span className="bg-error/10 text-error px-2 py-0.5 rounded text-[10px] font-black border border-error/20 flex items-center gap-1 w-max">
+        <span className="w-1 h-1 bg-error rounded-full animate-pulse" />
+        {alarms.critical} CRITICAL
+      </span>
+    );
+  }
+  if (alarms.warning > 0) {
+    return (
+      <span className="bg-amber-100 text-amber-700 px-2 py-0.5 rounded text-[10px] font-black border border-amber-200">
+        {alarms.warning} WARNING
+      </span>
+    );
+  }
+  return (
+    <span className="text-slate-400 text-[10px] font-bold uppercase bg-slate-100 px-2 py-0.5 rounded">
+      0 ACTIVE
+    </span>
   );
 }

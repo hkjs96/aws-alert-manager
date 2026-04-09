@@ -1,53 +1,50 @@
 "use client";
 
+import { Eye, EyeOff, Settings, AlertTriangle } from "lucide-react";
+
 interface BulkActionBarProps {
   selectedCount: number;
-  onClear: () => void;
-  onEnableMonitoring: () => void;
-  onDisableMonitoring: () => void;
-  onConfigureAlarms: () => void;
+  isMixedType: boolean;
+  onEnable: () => void;
+  onDisable: () => void;
 }
 
 export function BulkActionBar({
   selectedCount,
-  onClear,
-  onEnableMonitoring,
-  onDisableMonitoring,
-  onConfigureAlarms,
+  isMixedType,
+  onEnable,
+  onDisable,
 }: BulkActionBarProps) {
   if (selectedCount === 0) return null;
 
   return (
-    <div className="fixed bottom-0 left-60 right-0 z-20 flex h-16 items-center justify-between border-t border-slate-200 bg-white px-6 shadow-[0_-2px_8px_rgba(0,0,0,0.06)]">
-      <div className="flex items-center gap-3">
-        <span className="rounded-md bg-accent px-2.5 py-1 text-sm font-medium text-white">
-          {selectedCount}개 선택
+    <div className="flex items-center gap-4 rounded-xl border border-blue-200 bg-blue-50 px-5 py-3 shadow-sm">
+      <span className="rounded-lg bg-primary px-3 py-1.5 text-sm font-bold text-white">
+        {selectedCount} SELECTED
+      </span>
+      <span className="text-sm text-slate-600">
+        Resources targeted for bulk update
+      </span>
+      {isMixedType && selectedCount > 1 && (
+        <span className="flex items-center gap-1 text-xs text-amber-600 font-medium">
+          <AlertTriangle size={12} /> Mixed types — alarm config disabled
         </span>
-        <button onClick={onClear} className="text-sm text-slate-500 hover:text-slate-700 underline">
-          해제
-        </button>
-      </div>
-      <div className="flex items-center gap-2">
+      )}
+      <div className="ml-auto flex items-center gap-2">
         <button
-          onClick={onEnableMonitoring}
-          className="rounded-md bg-green-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-green-700"
+          onClick={onEnable}
+          className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50"
         >
-          모니터링 활성화
+          <Eye size={14} /> Enable
         </button>
         <button
-          onClick={onDisableMonitoring}
-          className="rounded-md border border-red-300 px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50"
+          onClick={onDisable}
+          className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50"
         >
-          모니터링 비활성화
+          <EyeOff size={14} /> Disable
         </button>
-        <button
-          onClick={onConfigureAlarms}
-          className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700"
-        >
-          알람 설정
-        </button>
-        <button className="rounded-md border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50">
-          CSV 내보내기
+        <button className="flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white shadow-sm">
+          <Settings size={14} /> Configure Alarms
         </button>
       </div>
     </div>

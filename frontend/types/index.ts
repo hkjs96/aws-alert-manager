@@ -1,45 +1,32 @@
-// ──────────────────────────────────────────────
-// Alarm States & Severity
-// ──────────────────────────────────────────────
+export type View = "dashboard" | "resources" | "alarms" | "settings" | "detail";
 
-export type AlarmState = "OK" | "ALARM" | "INSUFFICIENT_DATA" | "OFF";
+export type AlarmState = "ALARM" | "OK" | "INSUFFICIENT" | "OFF" | "MUTED";
 
-export type SeverityLevel = "SEV-1" | "SEV-2" | "SEV-3" | "SEV-4" | "SEV-5";
-
-export type SourceType = "System" | "Customer" | "Custom";
-
-export type Direction = "GreaterThanThreshold" | "GreaterThanOrEqualToThreshold"
-  | "LessThanThreshold" | "LessThanOrEqualToThreshold";
-
-export type DirectionSimple = ">" | "<";
-
-export type CloudProvider = "aws" | "azure" | "gcp";
-
-// ──────────────────────────────────────────────
-// Resource
-// ──────────────────────────────────────────────
+export interface Alarm {
+  id: string;
+  time: string;
+  resource: string;
+  arn: string;
+  type: string;
+  metric: string;
+  state: AlarmState;
+  value: string;
+}
 
 export interface Resource {
   id: string;
   name: string;
   type: string;
-  account_id: string;
-  customer_id: string;
+  account: string;
   region: string;
-  provider: CloudProvider;
   monitoring: boolean;
-  active_alarms: AlarmSummary[];
-  tags: Record<string, string>;
+  alarms: { critical: number; warning: number };
 }
 
-export interface AlarmSummary {
-  count: number;
-  severity: SeverityLevel;
-}
-
-// ──────────────────────────────────────────────
-// Alarm Configuration
-// ──────────────────────────────────────────────
+export type SeverityLevel = "SEV-1" | "SEV-2" | "SEV-3" | "SEV-4" | "SEV-5";
+export type SourceType = "System" | "Customer" | "Custom";
+export type DirectionSimple = ">" | "<";
+export type CloudProvider = "aws" | "azure" | "gcp";
 
 export interface AlarmConfig {
   metric_key: string;
@@ -56,10 +43,6 @@ export interface AlarmConfig {
   mount_path?: string;
 }
 
-// ──────────────────────────────────────────────
-// Customer & Account
-// ──────────────────────────────────────────────
-
 export interface Customer {
   customer_id: string;
   name: string;
@@ -75,65 +58,6 @@ export interface Account {
   regions: string[];
   connection_status: "connected" | "failed" | "untested";
   last_tested_at?: string;
-}
-
-// ──────────────────────────────────────────────
-// Threshold Override
-// ──────────────────────────────────────────────
-
-export interface ThresholdOverride {
-  customer_id: string;
-  resource_type: string;
-  metric_key: string;
-  threshold_value: number;
-  updated_by?: string;
-  updated_at?: string;
-}
-
-// ──────────────────────────────────────────────
-// Job (async bulk operations)
-// ──────────────────────────────────────────────
-
-export type JobStatus = "pending" | "in_progress" | "completed" | "partial_failure" | "failed";
-
-export interface Job {
-  job_id: string;
-  job_type: string;
-  status: JobStatus;
-  total_count: number;
-  completed_count: number;
-  failed_count: number;
-  created_at: string;
-  updated_at?: string;
-  results?: JobResult[];
-}
-
-export interface JobResult {
-  resource_id: string;
-  status: "success" | "failed";
-  error?: string;
-}
-
-// ──────────────────────────────────────────────
-// Metric (for autocomplete)
-// ──────────────────────────────────────────────
-
-export interface MetricInfo {
-  metric_name: string;
-  namespace: string;
-  dimensions: Record<string, string>;
-  unit?: string;
-}
-
-// ──────────────────────────────────────────────
-// API Responses
-// ──────────────────────────────────────────────
-
-export interface PaginatedResponse<T> {
-  items: T[];
-  total: number;
-  page: number;
-  page_size: number;
 }
 
 export interface DashboardStats {

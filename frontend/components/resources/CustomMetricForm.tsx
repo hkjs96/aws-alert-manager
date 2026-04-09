@@ -1,104 +1,164 @@
 "use client";
 
-import { useState } from "react";
-import type { DirectionSimple } from "@/types";
+import { useState, useEffect } from "react";
+import { X, Check, AlertTriangle } from "lucide-react";
+import { fetchAvailableMetrics } from "@/lib/api-functions";
+import type { AvailableMetric } from "@/types/api";
+import type { AlarmConfig } from "@/types";
 
 interface CustomMetricFormProps {
-  onAdd: (metric: { name: string; threshold: number; direction: DirectionSimple; unit: string }) => void;
-  onCancel: () => void;
-  availableMetrics?: { metric_name: string; namespace: string }[];
+  resourceId: string;
+  open: boolean;
+  onClose: () => void;
+  onAdd: (config: AlarmConfig) => void;
 }
 
-export function CustomMetricForm({ onAdd, onCancel, availableMetrics = [] }: CustomMetricFormProps) {
-  const [name, setName] = useState("");
-  const [threshold, setThreshold] = useState<number>(0);
-  const [direction, setDirection] = useState<DirectionSimple>(">");
-  const [unit, setUnit] = useState("");
-  const [showSuggestions, setShowSuggestions] = useState(false);
+export function CustomMetricForm({ resourceId, open, onClose, onAdd }: CustomMetricFormProps) {
+  const [metrics, setMetrics] = useState<AvailableMetric[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [selected, setSelected] = useState<AvailableMetric | null>(null);
+  const [threshold, setThreshold] = useState(80);
+  const [unit, setUnit] = useState("Count");
+  const [direction, setDirection] = useState<">" | "<">(">");
 
-  const filtered = availableMetrics.filter((m) =>
-    m.metric_name.toLowerCase().includes(name.toLowerCase())
-  );
-  const found = availableMetrics.some((m) => m.metric_name === name);
+  useEffect(() => {
+    if (!open) return;
+    setLoading(true);
+    fetchAvailableMetrics(resourceId)
+      .then(setMetrics)
+      .catch(() => setMetrics([]))
+      .finally(() => setLoading(false));
+  }, [open, resourceId]);
+
+  if (!open) return null;
 
   const handleSubmit = () => {
-    if (!name || threshold <= 0) return;
-    onAdd({ name, threshold, direction, unit });
+    if (!selected) return;
+    const config: AlarmConfig = {
+      metric_key: `custom-${selected.metric_name}`,
+      metric_name: selected.metric_name,
+      namespace: selected.namespace,
+      threshold,
+      unit,
+      direction,
+      severity: "SEV-3",
+      source: "Custom",
+      state: "OFF",
+      current_value: null,
+      monitoring: true,
+    };
+    onAdd(config);
+    resetForm();
+    onClose();
   };
 
+  const resetForm = () => {
+    setSelected(null);
+    setThreshold(80);
+    setUnit("Count");
+    setDirection(">");
+  };
+
+  // Simple existence check: metric is "found" if it's in the available list
+  const metricExists = selected !== null;
+
   return (
-    <div className="rounded-lg border border-blue-200 bg-blue-50/50 p-4">
-      <div className="flex flex-wrap items-end gap-3">
-        <div className="relative flex-1">
-          <label className="mb-1 block text-xs font-medium text-slate-600">메트릭명</label>
-          <input
-            type="text"
-            value={name}
-            onChange={(e) => { setName(e.target.value); setShowSuggestions(true); }}
-            onFocus={() => setShowSuggestions(true)}
-            placeholder="메트릭명 입력 또는 선택..."
-            className="w-full rounded-md border border-slate-200 px-3 py-1.5 text-sm"
-          />
-          {showSuggestions && name && filtered.length > 0 && (
-            <div className="absolute z-10 mt-1 max-h-40 w-full overflow-y-auto rounded-md border border-slate-200 bg-white shadow-lg">
-              {filtered.slice(0, 10).map((m) => (
-                <button
-                  key={`${m.metric_name}-${m.namespace}`}
-                  onClick={() => { setName(m.metric_name); setShowSuggestions(false); }}
-                  className="block w-full px-3 py-1.5 text-left text-sm hover:bg-blue-50"
-                >
-                  {m.metric_name} <span className="text-xs text-slate-400">({m.namespace})</span>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
+    <div className="border border-primary/20 bg-primary/5 rounded-xl p-6 space-y-4">
+      <div className="flex justify-between items-center">
+        <h3 className="font-headline font-bold text-sm">Add Custom Metric</h3>
+        <button onClick={onClose} className="text-slate-400 hover:text-slate-600">
+          <X size={16} />
+        </button>
+      </div>
+
+      {/* Metric dropdown */}
+      <div>
+        <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1">
+          Metric
+        </label>
+        {loading ? (
+          <div className="h-9 bg-white animate-pulse rounded-lg" />
+        ) : (
+          <select
+            value={selected ? `${selected.metric_name}|${selected.namespace}` : ""}
+            onChange={(e) => {
+              const [name, ns] = e.target.value.split("|");
+              const m = metrics.find((x) => x.metric_name === name && x.namespace === ns);
+              setSelected(m ?? null);
+            }}
+            className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white focus:ring-1 focus:ring-primary outline-none"
+          >
+            <option value="">Select a metric...</option>
+            {metrics.map((m) => (
+              <option key={`${m.metric_name}-${m.namespace}`} value={`${m.metric_name}|${m.namespace}`}>
+                {m.metric_name} ({m.namespace})
+              </option>
+            ))}
+          </select>
+        )}
+        {selected && (
+          <div className="mt-1 flex items-center gap-1.5 text-xs">
+            {metricExists ? (
+              <>
+                <Check size={14} className="text-green-600" />
+                <span className="text-green-700">Metric found</span>
+              </>
+            ) : (
+              <>
+                <AlertTriangle size={14} className="text-amber-600" />
+                <span className="text-amber-700">Metric not found in CloudWatch</span>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Threshold + Unit + Direction */}
+      <div className="grid grid-cols-3 gap-4">
         <div>
-          <label className="mb-1 block text-xs font-medium text-slate-600">임계치</label>
+          <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1">
+            Threshold
+          </label>
           <input
             type="number"
             value={threshold}
             onChange={(e) => setThreshold(Number(e.target.value))}
-            className="w-24 rounded-md border border-slate-200 px-3 py-1.5 text-sm font-mono"
+            className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm font-mono bg-white focus:ring-1 focus:ring-primary outline-none"
           />
         </div>
         <div>
-          <label className="mb-1 block text-xs font-medium text-slate-600">방향</label>
-          <select
-            value={direction}
-            onChange={(e) => setDirection(e.target.value as DirectionSimple)}
-            className="rounded-md border border-slate-200 px-3 py-1.5 text-sm"
-          >
-            <option value=">">▲ Greater Than</option>
-            <option value="<">▼ Less Than</option>
-          </select>
-        </div>
-        <div>
-          <label className="mb-1 block text-xs font-medium text-slate-600">단위</label>
+          <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1">
+            Unit
+          </label>
           <input
             type="text"
             value={unit}
             onChange={(e) => setUnit(e.target.value)}
-            placeholder="%"
-            className="w-16 rounded-md border border-slate-200 px-3 py-1.5 text-sm"
+            className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white focus:ring-1 focus:ring-primary outline-none"
           />
         </div>
-        <button onClick={handleSubmit} className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700">
-          추가
-        </button>
-        <button onClick={onCancel} className="rounded-md border border-slate-200 px-3 py-1.5 text-sm hover:bg-slate-50">
-          취소
-        </button>
-      </div>
-      {name && (
-        <div className="mt-2 text-xs">
-          {found ? (
-            <span className="text-green-600">✅ Metric found in CloudWatch</span>
-          ) : (
-            <span className="text-amber-600">⚠️ Metric not found. Alarm will be INSUFFICIENT_DATA until data appears.</span>
-          )}
+        <div>
+          <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1">
+            Direction
+          </label>
+          <select
+            value={direction}
+            onChange={(e) => setDirection(e.target.value as ">" | "<")}
+            className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white focus:ring-1 focus:ring-primary outline-none"
+          >
+            <option value=">">&gt; (Above)</option>
+            <option value="<">&lt; (Below)</option>
+          </select>
         </div>
-      )}
+      </div>
+
+      <button
+        onClick={handleSubmit}
+        disabled={!selected}
+        className="bg-primary text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
+      >
+        Add Metric
+      </button>
     </div>
   );
 }

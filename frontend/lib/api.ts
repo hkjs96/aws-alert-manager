@@ -1,35 +1,21 @@
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "/api";
+import type { GlobalFilterParams } from "@/types/api";
+import { ApiError } from "@/types/api";
 
-export class ApiError extends Error {
-  constructor(
-    public status: number,
-    public code: string,
-    message: string,
-  ) {
-    super(message);
-    this.name = "ApiError";
-  }
-}
+export { ApiError };
 
-export async function apiFetch<T>(
-  path: string,
-  options?: RequestInit,
-): Promise<T> {
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
+
+export async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   const url = `${API_BASE_URL}${path}`;
   let res: Response;
-
   try {
     res = await fetch(url, {
       ...options,
-      headers: {
-        "Content-Type": "application/json",
-        ...options?.headers,
-      },
+      headers: { "Content-Type": "application/json", ...options?.headers },
     });
   } catch {
-    throw new ApiError(0, "NETWORK_ERROR", "네트워크 연결을 확인해주세요.");
+    throw new ApiError(0, "NETWORK_ERROR", "네트워크 연결을 확인해주세요");
   }
-
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new ApiError(
@@ -38,20 +24,27 @@ export async function apiFetch<T>(
       body.message ?? `요청 실패 (${res.status})`,
     );
   }
-
-  return res.json();
+  return res.json() as Promise<T>;
 }
 
-// Convenience methods
-export const api = {
-  get: <T>(path: string) => apiFetch<T>(path),
+export function buildFilterParams(filters: GlobalFilterParams): URLSearchParams {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(filters)) {
+    if (value !== undefined && value !== "") {
+      params.set(key, value);
+    }
+  }
+  return params;
+}
 
-  post: <T>(path: string, body: unknown) =>
-    apiFetch<T>(path, { method: "POST", body: JSON.stringify(body) }),
-
-  put: <T>(path: string, body: unknown) =>
-    apiFetch<T>(path, { method: "PUT", body: JSON.stringify(body) }),
-
-  delete: <T>(path: string) =>
-    apiFetch<T>(path, { method: "DELETE" }),
-};
+export function buildQueryString(
+  params: Record<string, string | number | boolean | undefined>,
+): string {
+  const sp = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined) {
+      sp.set(key, String(value));
+    }
+  }
+  return sp.toString();
+}
