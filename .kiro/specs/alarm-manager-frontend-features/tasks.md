@@ -2,7 +2,16 @@
 
 ## Overview
 
-현재 mock 데이터 기반 UI를 실제 백엔드 API 연동으로 전환하고, 글로벌 필터, 서버사이드 페이지네이션, 벌크 액션, 토스트 알림, 에러/로딩 상태 등 17개 요구사항을 5개 Phase로 나누어 구현한다. 백엔드 REST API가 아직 없으므로 Phase 1에서 Next.js Route Handler 기반 Mock API를 먼저 생성한다.
+현재 mock 데이터 기반 UI를 실제 백엔드 API 연동으로 전환하고, 글로벌 필터, 클라이언트사이드 필터링/정렬/페이지네이션, 벌크 액션, 토스트 알림, 에러/로딩 상태 등 17개 요구사항을 5개 Phase로 나누어 구현한다. 백엔드 REST API가 아직 없으므로 Phase 1에서 Next.js Route Handler 기반 Mock API를 먼저 생성한다.
+
+### 최근 변경 반영 (2958d04)
+- Resources 페이지: 서버사이드 → 클라이언트사이드 필터링/정렬/페이지네이션으로 전환
+- FilterBar: Customer/Account/Type 드롭다운이 실제 데이터 연동으로 개선
+- ResourceTable: 컬럼별 정렬 기능 추가 (Name, Type, Account, Region, Alarms)
+- Sync API: mock-store와 실제 연동 (addResource, resourceExists)
+- AlarmRow: Unit/Direction/Severity 드롭다운 편집 가능으로 개선
+- DirectionSimple 타입: `>=`, `<=` 추가
+- ResourceHeader: 모니터링 토글 UI 개선 (ShieldCheck/ShieldOff, 색상 피드백, router.refresh)
 
 ## Tasks
 
@@ -47,7 +56,7 @@
     - 네트워크 에러 시 `status: 0, code: "NETWORK_ERROR"` 반환
     - _Requirements: 1.1, 1.2, 1.3, 1.5_
 
-  - [ ]* 1.5 API 클라이언트 속성 테스트 작성
+  - [x]* 1.5 API 클라이언트 속성 테스트 작성
     - **Property 1: API 에러 응답 구조화** — HTTP 에러 상태 코드(400~599)에 대해 throw되는 에러 객체가 `status`, `code`, `message` 필드를 포함하는지 검증
     - **Validates: Requirements 1.2**
 
@@ -132,13 +141,14 @@
   - Ensure all tests pass, ask the user if questions arise.
 
 - [x] 5. Phase 3 — Resources 목록 (Req 4, 5, 16, 17)
-  - [x] 5.1 Resources Server/Client 분리 리팩터링
-    - `app/resources/page.tsx` — Server Component로 전환, `fetchResources(searchParams)` 호출
-    - `components/resources/ResourcesContent.tsx` (Client) — 필터, 검색, 정렬 상태 관리
-    - `components/resources/ResourceTable.tsx` (Client) — 체크박스 선택, 모니터링 토글, 행 클릭
+  - [x] 5.1 Resources 클라이언트사이드 필터/정렬/페이지네이션 구현
+    - `app/resources/page.tsx` — Server Component, 전체 리소스 + customers + accounts를 props로 전달
+    - `components/resources/ResourcesContent.tsx` (Client) — Customer/Account/Type/Search 필터, 정렬, 클라이언트사이드 페이지네이션 상태 관리
+    - `components/resources/FilterBar.tsx` (Client) — Customer → Account 캐스케이딩 드롭다운, Resource Type 필터, Quick Search
+    - `components/resources/ResourceTable.tsx` (Client) — 체크박스 선택, 모니터링 토글, 행 클릭, 컬럼별 정렬 (Name, Type, Account, Region, Alarms)
     - `components/resources/BulkActionBar.tsx` (Client) — 선택 카운트, Enable/Disable 버튼
-    - 서버사이드 페이지네이션: Pagination 컴포넌트 연동 (page, page_size, sort, order → URL searchParams)
-    - 필터 변경 시 API 재호출 (Customer, Account, Resource Type, search → searchParams)
+    - 클라이언트사이드 페이지네이션: Pagination 컴포넌트 연동 (page, pageSize 상태)
+    - 정렬: alarmScore 가중치 (critical×10 + warning×1) 기반 Alarms 컬럼 정렬
     - _Requirements: 4.1, 4.2, 4.3, 4.4, 4.5, 4.6_
 
   - [x] 5.2 Resources loading.tsx + error.tsx 구현
@@ -152,14 +162,15 @@
     - 성공 시 토글 상태 업데이트, 실패 시 이전 상태로 롤백 + 에러 토스트
     - _Requirements: 16.1, 16.2, 16.3, 16.4_
 
-  - [ ]* 5.4 모니터링 토글 롤백 속성 테스트 작성
+  - [x]* 5.4 모니터링 토글 롤백 속성 테스트 작성
     - **Property 18: 모니터링 토글 실패 시 롤백** — API 실패 시 토글 상태가 원래 값으로 복원되는지 검증
     - **Validates: Requirements 16.4**
 
   - [x] 5.5 리소스 동기화 기능 구현
-    - "Sync Resources" 버튼 클릭 시 `POST /api/resources/sync` 호출
+    - "Sync Resources" 버튼 클릭 시 `POST /api/resources/sync` 호출 (mock-store 실제 연동)
+    - Sync API가 SYNC_CANDIDATES에서 미존재 리소스를 mock-store에 추가
     - 진행 중 버튼에 스피너 + disabled (LoadingButton 사용)
-    - 성공 시 Toast에 동기화 요약 (discovered, updated, removed) 표시
+    - 성공 시 Toast에 동기화 요약 (discovered, updated, removed) 표시 — 실제 카운트 반영
     - 실패 시 에러 Toast 표시
     - 완료 후 리소스 목록 자동 재페칭 (`router.refresh()`)
     - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.5_
@@ -214,16 +225,19 @@
     - _Requirements: 7.4, 7.5, 15.1, 15.2_
 
   - [x] 7.5 알람 설정 저장 기능 구현
-    - AlarmConfigTable에서 임계치 수정/메트릭 토글 시 unsaved changes 추적
+    - AlarmConfigTable에서 임계치/Unit/Direction/Severity 수정 시 unsaved changes 추적
+    - AlarmRow에서 Unit(드롭다운), Direction(>, >=, <, <= 드롭다운), Severity(SEV-1~5 드롭다운) 편집 가능
+    - AlarmConfigTable 저장 시 unit, direction, severity 필드도 함께 전송
     - unsaved indicator 표시 (변경 사항 있을 때)
     - "Save Changes" 클릭 시 `PUT /api/resources/{id}/alarms` 호출
     - 저장 중 LoadingButton 사용, 성공 시 Toast + unsaved indicator 해제
     - 실패 시 에러 Toast + unsaved changes 유지
     - "Reset to Defaults" 클릭 시 시스템 기본값으로 복원 (API 호출 없음)
-    - Monitoring Status 토글 시 `PUT /api/resources/{id}/monitoring` 호출
+    - Monitoring Status 토글 시 `PUT /api/resources/{id}/monitoring` 호출 + `router.refresh()`
+    - ResourceHeader: ShieldCheck/ShieldOff 아이콘, 모니터링 상태별 색상 피드백 (green/slate)
     - _Requirements: 8.1, 8.2, 8.3, 8.4, 8.5, 8.6, 8.7_
 
-  - [ ]* 7.6 알람 설정 속성 테스트 작성
+  - [x]* 7.6 알람 설정 속성 테스트 작성
     - **Property 12: 미저장 변경 감지** — 현재 값이 저장된 값과 다르면 unsaved indicator 표시, 동일하면 숨김 검증
     - **Validates: Requirements 8.1**
     - **Property 13: 기본값 리셋 라운드트립** — Reset to Defaults 후 모든 임계치가 시스템 기본값과 동일한지 검증
@@ -312,3 +326,33 @@
 - Property 테스트는 fast-check 라이브러리 사용 (이미 devDependencies에 설치됨)
 - TDD 사이클 (Red → Green → Refactor) 준수, 테스트 설명은 한국어로 작성
 - 파일 200줄 제한 준수 — 초과 시 역할별 분리
+
+## 미완료 태스크 우선순위 분석
+
+### 수행 권장 (실질적 가치 높음)
+
+| 태스크 | 이유 |
+|--------|------|
+| 1.5 API 클라이언트 속성 테스트 | apiFetch 에러 핸들링은 모든 페이지에서 사용. 에러 구조가 깨지면 전체 UX 영향 |
+| 5.4 모니터링 토글 롤백 테스트 | 토글 실패 시 UI 상태 불일치는 사용자 혼란 유발. 핵심 인터랙션 |
+| 7.6 알람 설정 속성 테스트 | unsaved 감지 + 기본값 리셋은 데이터 손실 방지 핵심 로직 |
+
+### 수행 선택적 (있으면 좋지만 급하지 않음)
+
+| 태스크 | 이유 |
+|--------|------|
+| 1.7 필터 파라미터 속성 테스트 | 클라이언트사이드 전환으로 URL 라운드트립 중요도 감소 |
+| 3.2 GlobalFilterBar 속성 테스트 | 캐스케이딩 로직이 ResourcesContent FilterBar로 이동됨 |
+| 5.6 동기화 토스트 메시지 테스트 | 토스트 메시지 포맷 검증. 낮은 위험도 |
+| 7.2 벌크 액션 속성 테스트 | 벌크 요청 ID 완전성 검증. 중요하지만 단위 테스트로 충분 |
+
+### 스킵 권장 (ROI 낮음)
+
+| 태스크 | 이유 |
+|--------|------|
+| 1.2 API 타입 속성 테스트 | TypeScript 타입 시스템이 이미 검증 |
+| 1.9 토스트 속성 테스트 | 색상 매핑은 시각적 확인으로 충분 |
+| 1.11 공통 UI 속성 테스트 | 뱃지 색상 매핑은 변경 빈도 낮음 |
+| 5.8 CSV 내보내기 속성 테스트 | 파일명 포맷은 단순 문자열 검증 |
+| 7.8 커스텀 메트릭 속성 테스트 | 표시 형식은 단위 테스트로 충분 |
+| 9.7 임계치 계층 속성 테스트 | Phase2 백엔드 연동 시 재검증 필요 |

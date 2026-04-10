@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
-import { MOCK_RESOURCES, getMockAlarmConfigs, getMockEvents } from "@/lib/mock-data";
+import { getResources } from "@/lib/mock-store";
+import { getMockAlarmConfigs, getMockEvents } from "@/lib/mock-data";
 import { ResourceDetailClient } from "@/components/resources/ResourceDetailClient";
 import { ResourceEvents } from "@/components/resources/ResourceEvents";
 import type { Metadata } from "next";
@@ -14,7 +15,7 @@ interface ResourceDetailPageProps {
 export async function generateMetadata({ params }: ResourceDetailPageProps): Promise<Metadata> {
   const { id } = await params;
   const decodedId = decodeURIComponent(id);
-  const resource = MOCK_RESOURCES.find((r) => r.name === decodedId || r.id === decodedId);
+  const resource = getResources().find((r) => r.name === decodedId || r.id === decodedId);
   return {
     title: resource ? `${resource.name} | Alarm Manager` : "Resource Detail | Alarm Manager",
     description: resource
@@ -27,8 +28,8 @@ export default async function ResourceDetailPage({ params }: ResourceDetailPageP
   const { id } = await params;
   const decodedId = decodeURIComponent(id);
 
-  // Find resource by name or id
-  const resource = MOCK_RESOURCES.find((r) => r.name === decodedId || r.id === decodedId);
+  // Find resource by name or id (from mock-store for monitoring state sync)
+  const resource = getResources().find((r) => r.name === decodedId || r.id === decodedId);
   if (!resource) notFound();
 
   // Parallel data fetching (mock for now)

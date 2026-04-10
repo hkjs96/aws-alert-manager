@@ -11,8 +11,10 @@ import type { EditableConfig } from "./AlarmRow";
 interface AlarmConfigTableProps {
   resourceId: string;
   initialConfigs: AlarmConfig[];
+  monitoringEnabled?: boolean;
   onAddCustomMetric: () => void;
   onRegisterAdd?: (fn: (config: AlarmConfig) => void) => void;
+  onRegisterSetAllMonitoring?: (fn: (enabled: boolean) => void) => void;
 }
 
 function toEditable(configs: AlarmConfig[]): EditableConfig[] {
@@ -22,8 +24,10 @@ function toEditable(configs: AlarmConfig[]): EditableConfig[] {
 export function AlarmConfigTable({
   resourceId,
   initialConfigs,
+  monitoringEnabled,
   onAddCustomMetric,
   onRegisterAdd,
+  onRegisterSetAllMonitoring,
 }: AlarmConfigTableProps) {
   const { showToast } = useToast();
   const [configs, setConfigs] = useState<EditableConfig[]>(toEditable(initialConfigs));
@@ -56,10 +60,10 @@ export function AlarmConfigTable({
             severity: c.severity,
           })),
       });
-      showToast("success", "알람 설정이 저장되었습니다.");
+      showToast("success", "Alarm configuration saved.");
       setConfigs((prev) => prev.map((c) => ({ ...c, dirty: false })));
     } catch {
-      showToast("error", "알람 설정 저장에 실패했습니다.");
+      showToast("error", "Failed to save alarm configuration.");
     } finally {
       setIsSaving(false);
     }
@@ -67,15 +71,22 @@ export function AlarmConfigTable({
 
   const handleReset = () => {
     setConfigs(toEditable(originals));
-    showToast("info", "시스템 기본값으로 복원되었습니다.");
+    showToast("info", "시스템 Reset to Defaults되었습니다.");
   };
 
   const addCustomConfig = useCallback((config: AlarmConfig) => {
     setConfigs((prev) => [...prev, { ...config, dirty: true }]);
   }, []);
 
+  const setAllMonitoring = useCallback((enabled: boolean) => {
+    setConfigs((prev) =>
+      prev.map((c) => ({ ...c, monitoring: enabled, dirty: true })),
+    );
+  }, []);
+
   // Register the add function so parent can call it
   if (onRegisterAdd) onRegisterAdd(addCustomConfig);
+  if (onRegisterSetAllMonitoring) onRegisterSetAllMonitoring(setAllMonitoring);
 
   return (
     <div className="bg-slate-50 rounded-xl overflow-hidden border border-slate-200">
@@ -95,10 +106,15 @@ export function AlarmConfigTable({
       </div>
 
       <div className="overflow-x-auto">
+        {monitoringEnabled === false && (
+          <div className="bg-amber-50 border-b border-amber-200 px-8 py-3 text-sm text-amber-700 font-medium">
+            Monitoring is disabled. Alarms will be activated based on the settings below when monitoring is turned on.
+          </div>
+        )}
         <table className="w-full text-left border-collapse">
           <thead>
             <tr className="text-[11px] uppercase tracking-[0.1em] text-slate-500 font-bold">
-              <th className="pl-8 py-4 w-16">Monitor</th>
+              <th className="pl-8 py-4 w-16">Active</th>
               <th className="px-4 py-4">Metric</th>
               <th className="px-4 py-4">Threshold</th>
               <th className="px-4 py-4">Unit</th>
@@ -106,7 +122,8 @@ export function AlarmConfigTable({
               <th className="px-4 py-4">Severity</th>
               <th className="px-4 py-4">Source</th>
               <th className="px-4 py-4">State</th>
-              <th className="pr-8 py-4 text-right">Current Value</th>
+              <th className="pr-4 py-4 text-right">Current</th>
+              <th className="pr-4 py-4"></th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
@@ -132,12 +149,6 @@ export function AlarmConfigTable({
           className="border border-slate-300 text-slate-600 px-4 py-2 rounded-lg text-sm font-semibold hover:bg-slate-50"
         >
           Reset to Defaults
-        </button>
-        <button
-          disabled
-          className="border border-slate-200 text-slate-400 px-4 py-2 rounded-lg text-sm font-semibold cursor-not-allowed"
-        >
-          Apply Customer Defaults
         </button>
       </div>
     </div>

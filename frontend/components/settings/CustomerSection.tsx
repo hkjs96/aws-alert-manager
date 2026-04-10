@@ -23,20 +23,27 @@ export function CustomerSection({ customers }: CustomerSectionProps) {
 
   const handleRegister = async () => {
     if (!name.trim() || !code.trim()) {
-      setError("Display Name과 Entity Code를 모두 입력해주세요.");
+      setError("Please enter both Display Name and Entity Code.");
       return;
     }
     setError("");
     setIsSubmitting(true);
     try {
-      // Simulate POST /api/customers
-      await new Promise((resolve) => setTimeout(resolve, 800));
-      showToast("success", `고객사 "${name}" 등록이 완료되었습니다.`);
+      const res = await fetch("/api/customers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: name.trim(), code: code.trim() }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.message ?? "Failed");
+      }
+      showToast("success", `Customer "${name}" has been registered.`);
       setName("");
       setCode("");
       router.refresh();
     } catch {
-      setError("고객사 등록에 실패했습니다.");
+      setError("Failed to register customer.");
     } finally {
       setIsSubmitting(false);
     }
@@ -45,12 +52,12 @@ export function CustomerSection({ customers }: CustomerSectionProps) {
   const handleDelete = async () => {
     if (!deleteTarget) return;
     try {
-      // Simulate DELETE /api/customers/{id}
-      await new Promise((resolve) => setTimeout(resolve, 500));
-      showToast("success", `고객사 "${deleteTarget.name}" 삭제가 완료되었습니다.`);
+      const res = await fetch(`/api/customers/${deleteTarget.customer_id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error("Failed");
+      showToast("success", `Customer "${deleteTarget.name}" has been deleted.`);
       router.refresh();
     } catch {
-      showToast("error", "고객사 삭제에 실패했습니다.");
+      showToast("error", "Failed to delete customer.");
     } finally {
       setDeleteTarget(null);
     }
@@ -140,9 +147,9 @@ export function CustomerSection({ customers }: CustomerSectionProps) {
       {/* Delete confirmation */}
       <ConfirmDialog
         isOpen={!!deleteTarget}
-        title="고객사 삭제"
-        message={`"${deleteTarget?.name}" 고객사를 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.`}
-        confirmLabel="삭제"
+        title="Delete Customer"
+        message={`"${deleteTarget?.name}" customer? This action cannot be undone.`}
+        confirmLabel="Delete"
         variant="danger"
         onConfirm={handleDelete}
         onCancel={() => setDeleteTarget(null)}

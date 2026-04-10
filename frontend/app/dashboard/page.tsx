@@ -1,5 +1,6 @@
 import { Suspense } from "react";
 import { computeDashboardStats, getAlarms } from "@/lib/mock-store";
+import { MOCK_CUSTOMERS, MOCK_ACCOUNTS } from "@/lib/mock-data";
 import { DashboardContent } from "@/components/dashboard/DashboardContent";
 import { Skeleton } from "@/components/shared/Skeleton";
 import type { Metadata } from "next";
@@ -9,22 +10,16 @@ export const metadata: Metadata = {
   description: "System overview and real-time health monitoring for AWS infrastructure.",
 };
 
-// When real backend API is ready, replace mock imports with:
-// import { fetchDashboardStats, fetchRecentAlarms } from "@/lib/api-functions";
-
 export default async function DashboardPage() {
-  // Pragmatic approach: use mock data directly for now.
-  // When the real backend API is ready, swap to:
-  //   const [stats, alarmsRes] = await Promise.all([
-  //     fetchDashboardStats({}),
-  //     fetchRecentAlarms({}, { page: 1, page_size: 25 }),
-  //   ]);
   const stats = computeDashboardStats();
   const alarms = getAlarms();
 
+  const customers = MOCK_CUSTOMERS.map((c) => ({ id: c.customer_id, name: c.name }));
+  const accounts = MOCK_ACCOUNTS.map((a) => ({ id: a.account_id, name: a.name, customerId: a.customer_id }));
+
   return (
     <Suspense fallback={<DashboardSkeleton />}>
-      <DashboardContent stats={stats} alarms={alarms} />
+      <DashboardContent stats={stats} alarms={alarms} customers={customers} accounts={accounts} />
     </Suspense>
   );
 }

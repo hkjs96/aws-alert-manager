@@ -1,8 +1,7 @@
 "use client";
 
 import { Search } from "lucide-react";
-
-const RESOURCE_TYPES = ["EC2", "S3", "RDS", "LAMBDA", "ALB"] as const;
+import { SUPPORTED_RESOURCE_TYPES } from "@/lib/constants";
 
 interface FilterBarProps {
   search: string;
@@ -30,7 +29,7 @@ export function FilterBar({
   accounts,
 }: FilterBarProps) {
   return (
-    <section className="bg-slate-100 rounded-xl p-4 grid grid-cols-1 md:grid-cols-4 gap-4 items-center">
+    <section className="bg-white/80 backdrop-blur rounded-xl p-4 grid grid-cols-1 md:grid-cols-4 gap-4 items-center border border-slate-200 shadow-sm">
       {/* Customer */}
       <div className="space-y-1">
         <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 ml-1">
@@ -39,7 +38,7 @@ export function FilterBar({
         <select
           value={customerFilter}
           onChange={(e) => onCustomerChange(e.target.value)}
-          className="w-full bg-white border-none rounded-lg text-sm px-3 py-2 shadow-sm focus:ring-2 focus:ring-primary/20 outline-none"
+          className="w-full bg-slate-50 border border-slate-200 rounded-lg text-sm px-3 py-2 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-colors"
         >
           <option value="">All Customers</option>
           {customers.map((c) => (
@@ -58,7 +57,7 @@ export function FilterBar({
         <select
           value={accountFilter}
           onChange={(e) => onAccountChange(e.target.value)}
-          className="w-full bg-white border-none rounded-lg text-sm px-3 py-2 shadow-sm focus:ring-2 focus:ring-primary/20 outline-none"
+          className="w-full bg-slate-50 border border-slate-200 rounded-lg text-sm px-3 py-2 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-colors"
         >
           <option value="">All Accounts</option>
           {accounts.map((a) => (
@@ -77,10 +76,10 @@ export function FilterBar({
         <select
           value={typeFilter}
           onChange={(e) => onTypeChange(e.target.value)}
-          className="w-full bg-white border-none rounded-lg text-sm px-3 py-2 shadow-sm focus:ring-2 focus:ring-primary/20 outline-none"
+          className="w-full bg-slate-50 border border-slate-200 rounded-lg text-sm px-3 py-2 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-colors"
         >
           <option value="">All Types</option>
-          {RESOURCE_TYPES.map((t) => (
+          {SUPPORTED_RESOURCE_TYPES.map((t) => (
             <option key={t} value={t}>
               {t}
             </option>

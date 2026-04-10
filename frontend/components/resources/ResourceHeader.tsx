@@ -9,9 +9,10 @@ import type { Resource } from "@/types";
 
 interface ResourceHeaderProps {
   resource: Resource;
+  onMonitoringChange?: (newState: boolean) => void;
 }
 
-export function ResourceHeader({ resource }: ResourceHeaderProps) {
+export function ResourceHeader({ resource, onMonitoringChange }: ResourceHeaderProps) {
   const router = useRouter();
   const { loadingIds, toggle } = useMonitoringToggle();
   const [monitoring, setMonitoring] = useState(resource.monitoring);
@@ -20,7 +21,9 @@ export function ResourceHeader({ resource }: ResourceHeaderProps) {
   const handleToggle = async () => {
     const success = await toggle(resource.id, monitoring);
     if (success) {
-      setMonitoring((prev) => !prev);
+      const newState = !monitoring;
+      setMonitoring(newState);
+      onMonitoringChange?.(newState);
       router.refresh();
     }
   };

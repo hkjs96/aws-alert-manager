@@ -4,14 +4,13 @@ import { useState, useEffect } from "react";
 import { Settings, Save } from "lucide-react";
 import { useToast } from "@/components/shared/Toast";
 import { LoadingButton } from "@/components/shared/LoadingButton";
-import { getMockThresholdOverrides, TYPE_DEFAULT_METRICS } from "@/lib/mock-data";
+import { getMockThresholdOverrides } from "@/lib/mock-data";
+import { SUPPORTED_RESOURCE_TYPES } from "@/lib/constants";
 import type { ThresholdOverride } from "@/types/api";
-
-const RESOURCE_TYPES = Object.keys(TYPE_DEFAULT_METRICS);
 
 export function ThresholdSection() {
   const { showToast } = useToast();
-  const [activeType, setActiveType] = useState(RESOURCE_TYPES[0]);
+  const [activeType, setActiveType] = useState(SUPPORTED_RESOURCE_TYPES[0]);
   const [thresholds, setThresholds] = useState<ThresholdOverride[]>([]);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -36,9 +35,9 @@ export function ThresholdSection() {
     try {
       // Simulate PUT /api/thresholds/{type}
       await new Promise((resolve) => setTimeout(resolve, 800));
-      showToast("success", `${activeType} 임계치가 저장되었습니다.`);
+      showToast("success", `${activeType} thresholds saved.`);
     } catch {
-      showToast("error", "임계치 저장에 실패했습니다.");
+      showToast("error", "Failed to save thresholds.");
     } finally {
       setIsSaving(false);
     }
@@ -61,7 +60,7 @@ export function ThresholdSection() {
 
       {/* Resource type tabs — horizontal scroll */}
       <div className="flex gap-2 overflow-x-auto pb-2 mb-6 scrollbar-thin">
-        {RESOURCE_TYPES.map((type) => (
+        {SUPPORTED_RESOURCE_TYPES.map((type) => (
           <button
             key={type}
             onClick={() => setActiveType(type)}

@@ -13,7 +13,14 @@ interface ResourceDetailClientProps {
 
 export function ResourceDetailClient({ resource, alarmConfigs }: ResourceDetailClientProps) {
   const [showCustomForm, setShowCustomForm] = useState(false);
+  const [monitoring, setMonitoring] = useState(resource.monitoring);
   const addConfigRef = useRef<((config: AlarmConfig) => void) | null>(null);
+  const setAllMonitoringRef = useRef<((enabled: boolean) => void) | null>(null);
+
+  const handleMonitoringChange = useCallback((newState: boolean) => {
+    setMonitoring(newState);
+    setAllMonitoringRef.current?.(newState);
+  }, []);
 
   const handleAddCustomMetric = useCallback((config: AlarmConfig) => {
     addConfigRef.current?.(config);
@@ -21,13 +28,15 @@ export function ResourceDetailClient({ resource, alarmConfigs }: ResourceDetailC
 
   return (
     <>
-      <ResourceHeader resource={resource} />
+      <ResourceHeader resource={resource} onMonitoringChange={handleMonitoringChange} />
 
       <AlarmConfigTable
         resourceId={resource.id}
         initialConfigs={alarmConfigs}
+        monitoringEnabled={monitoring}
         onAddCustomMetric={() => setShowCustomForm(true)}
         onRegisterAdd={(fn) => { addConfigRef.current = fn; }}
+        onRegisterSetAllMonitoring={(fn) => { setAllMonitoringRef.current = fn; }}
       />
 
       {showCustomForm && (

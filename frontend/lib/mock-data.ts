@@ -102,6 +102,11 @@ export function getMockAlarmConfigs(resourceId: string): AlarmConfig[] {
     state: resource.monitoring ? "OK" as const : "OFF" as const,
     current_value: resource.monitoring ? m.threshold * 0.6 : null,
     monitoring: resource.monitoring,
+    period: 300,
+    evaluation_periods: 1,
+    datapoints_to_alarm: 1,
+    treat_missing_data: "missing" as const,
+    statistic: "Average" as const,
   }));
 }
 

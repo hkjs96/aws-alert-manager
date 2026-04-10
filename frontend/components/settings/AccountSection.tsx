@@ -44,21 +44,28 @@ export function AccountSection({ accounts, customers }: AccountSectionProps) {
 
   const handleConnect = async () => {
     if (!accountId.trim() || !roleArn.trim() || !name.trim()) {
-      setError("모든 필드를 입력해주세요.");
+      setError("Please fill in all fields.");
       return;
     }
     setError("");
     setIsSubmitting(true);
     try {
-      // Simulate POST /api/accounts
-      await new Promise((resolve) => setTimeout(resolve, 800));
-      showToast("success", `어카운트 "${name}" 연결이 완료되었습니다.`);
+      const res = await fetch("/api/accounts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ account_id: accountId.trim(), role_arn: roleArn.trim(), name: name.trim(), customer_id: customerId }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.message ?? "Failed");
+      }
+      showToast("success", `Account "${name}" has been connected.`);
       setAccountId("");
       setRoleArn("");
       setName("");
       router.refresh();
     } catch {
-      setError("어카운트 연결에 실패했습니다.");
+      setError("Failed to connect account.");
     } finally {
       setIsSubmitting(false);
     }
@@ -67,16 +74,16 @@ export function AccountSection({ accounts, customers }: AccountSectionProps) {
   const handleTest = async (id: string) => {
     setTestingId(id);
     try {
-      // Simulate POST /api/accounts/{id}/test
-      await new Promise((resolve) => setTimeout(resolve, 1200));
-      const result = Math.random() > 0.3 ? "connected" : "failed";
-      setStatuses((prev) => ({ ...prev, [id]: result }));
+      const res = await fetch(`/api/accounts/${id}/test`, { method: "POST" });
+      if (!res.ok) throw new Error("Failed");
+      const data = await res.json() as { status: string };
+      setStatuses((prev) => ({ ...prev, [id]: data.status }));
       showToast(
-        result === "connected" ? "success" : "error",
-        result === "connected" ? "연결 테스트 성공" : "연결 테스트 실패",
+        data.status === "connected" ? "success" : "error",
+        data.status === "connected" ? "Connection test passed" : "Connection test failed",
       );
     } catch {
-      showToast("error", "연결 테스트에 실패했습니다.");
+      showToast("error", "Connection test failed.");
     } finally {
       setTestingId(null);
     }

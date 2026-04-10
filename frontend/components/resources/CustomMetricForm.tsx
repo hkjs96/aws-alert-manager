@@ -19,7 +19,7 @@ export function CustomMetricForm({ resourceId, open, onClose, onAdd }: CustomMet
   const [selected, setSelected] = useState<AvailableMetric | null>(null);
   const [threshold, setThreshold] = useState(80);
   const [unit, setUnit] = useState("Count");
-  const [direction, setDirection] = useState<">" | "<">(">");
+  const [direction, setDirection] = useState<">" | ">=" | "<" | "<=">(">");
 
   useEffect(() => {
     if (!open) return;
@@ -130,12 +130,19 @@ export function CustomMetricForm({ resourceId, open, onClose, onAdd }: CustomMet
           <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1">
             Unit
           </label>
-          <input
-            type="text"
+          <select
             value={unit}
             onChange={(e) => setUnit(e.target.value)}
             className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white focus:ring-1 focus:ring-primary outline-none"
-          />
+          >
+            {["Percent", "Bytes", "Kilobytes", "Megabytes", "Gigabytes", "Terabytes",
+              "Count", "Count/Second",
+              "Seconds", "Milliseconds", "Microseconds",
+              "Bits", "Bits/Second", "Bytes/Second",
+              "None"].map((u) => (
+              <option key={u} value={u}>{u}</option>
+            ))}
+          </select>
         </div>
         <div>
           <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1">
@@ -143,11 +150,13 @@ export function CustomMetricForm({ resourceId, open, onClose, onAdd }: CustomMet
           </label>
           <select
             value={direction}
-            onChange={(e) => setDirection(e.target.value as ">" | "<")}
+            onChange={(e) => setDirection(e.target.value as ">" | ">=" | "<" | "<=")}
             className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white focus:ring-1 focus:ring-primary outline-none"
           >
             <option value=">">&gt; (Above)</option>
+            <option value=">=">&gt;= (Above or Equal)</option>
             <option value="<">&lt; (Below)</option>
+            <option value="<=">&lt;= (Below or Equal)</option>
           </select>
         </div>
       </div>

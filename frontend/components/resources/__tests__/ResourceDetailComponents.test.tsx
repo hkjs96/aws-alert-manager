@@ -88,7 +88,7 @@ describe("ResourceHeader", () => {
 
   it("모니터링 활성 상태를 표시한다", () => {
     render(<ResourceHeader resource={MOCK_RESOURCE} />, { wrapper: Wrapper });
-    expect(screen.getByText("Active Protection")).toBeInTheDocument();
+    expect(screen.getByText("Monitoring On")).toBeInTheDocument();
   });
 
   it("Back to Resource Fleet 링크를 표시한다", () => {

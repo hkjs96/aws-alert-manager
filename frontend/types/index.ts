@@ -28,6 +28,9 @@ export type SourceType = "System" | "Customer" | "Custom";
 export type DirectionSimple = ">" | ">=" | "<" | "<=";
 export type CloudProvider = "aws" | "azure" | "gcp";
 
+export type TreatMissingData = "missing" | "breaching" | "notBreaching" | "ignore";
+export type AlarmStatistic = "Average" | "Sum" | "Maximum" | "Minimum" | "SampleCount";
+
 export interface AlarmConfig {
   metric_key: string;
   metric_name: string;
@@ -41,6 +44,12 @@ export interface AlarmConfig {
   current_value: number | null;
   monitoring: boolean;
   mount_path?: string;
+  // Advanced settings (read-only in Phase 1, editable in Phase 2)
+  period?: number;                       // seconds (default: 300)
+  evaluation_periods?: number;           // default: 1
+  datapoints_to_alarm?: number;          // default: 1
+  treat_missing_data?: TreatMissingData; // default: "missing"
+  statistic?: AlarmStatistic;            // default: "Average"
 }
 
 export interface Customer {
