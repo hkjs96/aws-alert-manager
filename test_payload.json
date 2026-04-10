@@ -1,1 +1,0 @@
-{"RequestType": "Create", "ResponseURL": "https://httpbin.org/put", "StackId": "test", "RequestId": "test-req", "LogicalResourceId": "InitialAlarmSync", "ResourceProperties": {"DailyMonitorArn": "arn:aws:lambda:us-east-1:949501913924:function:aws-monitoring-engine-daily-monitor-dev", "TriggerVersion": "manual-test"}}
