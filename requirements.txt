@@ -1,8 +1,0 @@
-# Production
-boto3>=1.35.0
-
-# Test
-hypothesis>=6.100.0
-pytest>=9.0.0
-pytest-mock>=3.14.0
-moto[ec2,rds,elbv2,cloudwatch,sns]>=5.0.0
