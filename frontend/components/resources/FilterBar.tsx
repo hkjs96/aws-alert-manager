@@ -14,6 +14,7 @@ interface FilterBarProps {
   onTypeChange: (v: string) => void;
   customers: { id: string; name: string }[];
   accounts: { id: string; name: string }[];
+  hideSearch?: boolean;
 }
 
 export function FilterBar({
@@ -27,9 +28,12 @@ export function FilterBar({
   onTypeChange,
   customers,
   accounts,
+  hideSearch,
 }: FilterBarProps) {
+  const gridCols = hideSearch ? "grid-cols-1 md:grid-cols-3" : "grid-cols-1 md:grid-cols-4";
+
   return (
-    <section className="bg-white/80 backdrop-blur rounded-xl p-4 grid grid-cols-1 md:grid-cols-4 gap-4 items-center border border-slate-200 shadow-sm">
+    <section className={`bg-white/80 backdrop-blur rounded-xl p-4 grid ${gridCols} gap-4 items-center border border-slate-200 shadow-sm`}>
       {/* Customer */}
       <div className="space-y-1">
         <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 ml-1">
@@ -88,21 +92,23 @@ export function FilterBar({
       </div>
 
       {/* Quick Search */}
-      <div className="space-y-1">
-        <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 ml-1">
-          Quick Search
-        </label>
-        <div className="relative">
-          <Search className="absolute left-2 top-1.5 text-slate-400" size={16} />
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => onSearchChange(e.target.value)}
-            className="w-full bg-white border-none rounded-lg text-sm pl-8 pr-3 py-2 shadow-sm focus:ring-2 focus:ring-primary/20 outline-none"
-            placeholder="Resource ID or Name..."
-          />
+      {!hideSearch && (
+        <div className="space-y-1">
+          <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 ml-1">
+            Quick Search
+          </label>
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => onSearchChange(e.target.value)}
+              className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none"
+              placeholder="Resource or Metric..."
+            />
+          </div>
         </div>
-      </div>
+      )}
     </section>
   );
 }

@@ -15,14 +15,14 @@ interface ResourceTableProps {
   sortKey: string;
   sortDir: SortDir;
   onSort: (key: string) => void;
+  totalResourceCount?: number;
+  onClearFilters?: () => void;
 }
 
 const SORTABLE_COLUMNS: { key: string; label: string }[] = [
-  { key: "name", label: "Name" },
-  { key: "type", label: "Type" },
-  { key: "account", label: "Account" },
+  { key: "name", label: "Resource" },
   { key: "region", label: "Region" },
-  { key: "alarms", label: "Active Alarms" },
+  { key: "alarms", label: "Alarms" },
 ];
 
 export function ResourceTable({
@@ -34,10 +34,14 @@ export function ResourceTable({
   sortKey,
   sortDir,
   onSort,
+  totalResourceCount = 0,
+  onClearFilters,
 }: ResourceTableProps) {
   const router = useRouter();
   const allSelected =
     resources.length > 0 && resources.every((r) => selectedKeys.has(r.id));
+
+  const isEmpty = resources.length === 0;
 
   const toggleAll = () => {
     if (allSelected) {
@@ -54,6 +58,10 @@ export function ResourceTable({
     onSelectionChange(next);
   };
 
+  if (isEmpty) {
+    return <EmptyState totalCount={totalResourceCount} onClearFilters={onClearFilters} />;
+  }
+
   return (
     <div className="bg-white rounded-xl shadow-sm overflow-hidden border border-slate-200 shadow-soft">
       <table className="w-full text-left border-collapse">
@@ -67,7 +75,7 @@ export function ResourceTable({
                 className="rounded border-slate-300 text-primary focus:ring-primary"
               />
             </th>
-            <th className="px-4 py-4">Resource ID</th>
+            <th className="px-4 py-4">Status</th>
             {SORTABLE_COLUMNS.map((col) => {
               const isActive = sortKey === col.key;
               return (
@@ -118,26 +126,18 @@ export function ResourceTable({
                   className="rounded border-slate-300 text-primary focus:ring-primary"
                 />
               </td>
-              <td className="px-4 py-3 font-mono text-xs text-primary font-medium">
-                {res.id}
-              </td>
-              <td className="px-4 py-3 font-semibold text-sm text-slate-900">
-                {res.name}
+              <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                <StatusDot monitoring={res.monitoring} alarms={res.alarms} />
               </td>
               <td className="px-4 py-3">
-                <div className="flex items-center gap-2 bg-slate-100 rounded-full px-2 py-1 w-max">
-                  <Database size={12} className="text-slate-500" />
-                  <span className="text-[10px] font-bold uppercase">
-                    {res.type}
-                  </span>
-                </div>
+                <div className="font-semibold text-slate-800 text-sm">{res.name}</div>
+                <div className="text-xs text-slate-400">{res.type} · {res.account}</div>
               </td>
-              <td className="px-4 py-3 text-sm text-slate-500">{res.account}</td>
               <td className="px-4 py-3 text-sm font-medium text-slate-700">
                 {res.region}
               </td>
               <td className="px-4 py-3">
-                <AlarmBadge alarms={res.alarms} />
+                <AlarmBadges alarms={res.alarms} />
               </td>
               <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                 <MonitoringToggle
@@ -150,6 +150,46 @@ export function ResourceTable({
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+function EmptyState({
+  totalCount,
+  onClearFilters,
+}: {
+  totalCount: number;
+  onClearFilters?: () => void;
+}) {
+  const hasResources = totalCount > 0;
+
+  if (hasResources) {
+    return (
+      <div className="bg-white rounded-xl shadow-sm overflow-hidden border border-slate-200 shadow-soft">
+        <div className="flex flex-col items-center justify-center py-16 text-center">
+          <span className="text-4xl mb-4">🔍</span>
+          <h3 className="text-sm font-semibold text-slate-700 mb-1">검색 결과가 없습니다</h3>
+          <p className="text-xs text-slate-400 mb-4">검색어나 필터 조건을 변경해보세요</p>
+          {onClearFilters && (
+            <button
+              onClick={onClearFilters}
+              className="px-4 py-1.5 bg-primary text-white text-xs font-semibold rounded-md hover:opacity-90 transition-opacity"
+            >
+              필터 초기화
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-white rounded-xl shadow-sm overflow-hidden border border-slate-200 shadow-soft">
+      <div className="flex flex-col items-center justify-center py-16 text-center">
+        <span className="text-4xl mb-4">🌐</span>
+        <h3 className="text-sm font-semibold text-slate-700 mb-1">모니터링 중인 리소스가 없습니다</h3>
+        <p className="text-xs text-slate-400">리소스를 동기화해보세요</p>
+      </div>
     </div>
   );
 }
@@ -180,29 +220,71 @@ function MonitoringToggle({
   );
 }
 
-function AlarmBadge({
+function StatusDot({
+  monitoring,
+  alarms,
+}: {
+  monitoring: boolean;
+  alarms: { critical: number; warning: number };
+}) {
+  if (!monitoring) {
+    return (
+      <div className="relative inline-flex h-2.5 w-2.5">
+        <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-slate-400" />
+      </div>
+    );
+  }
+
+  if (alarms.critical > 0) {
+    return (
+      <div className="relative inline-flex h-2.5 w-2.5">
+        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+        <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500" />
+      </div>
+    );
+  }
+
+  if (alarms.warning > 0) {
+    return (
+      <div className="relative inline-flex h-2.5 w-2.5">
+        <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative inline-flex h-2.5 w-2.5">
+      <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-500" />
+    </div>
+  );
+}
+
+function AlarmBadges({
   alarms,
 }: {
   alarms: { critical: number; warning: number };
 }) {
-  if (alarms.critical > 0) {
+  const hasCritical = alarms.critical > 0;
+  const hasWarning = alarms.warning > 0;
+
+  if (!hasCritical && !hasWarning) {
     return (
-      <span className="bg-error/10 text-error px-2 py-0.5 rounded text-[10px] font-black border border-error/20 flex items-center gap-1 w-max">
-        <span className="w-1 h-1 bg-error rounded-full animate-pulse" />
-        {alarms.critical} CRITICAL
-      </span>
+      <span className="text-green-600 text-[10px] font-bold">✓</span>
     );
   }
-  if (alarms.warning > 0) {
-    return (
-      <span className="bg-amber-100 text-amber-700 px-2 py-0.5 rounded text-[10px] font-black border border-amber-200">
-        {alarms.warning} WARNING
-      </span>
-    );
-  }
+
   return (
-    <span className="text-slate-400 text-[10px] font-bold uppercase bg-slate-100 px-2 py-0.5 rounded">
-      0 ACTIVE
-    </span>
+    <div className="flex items-center gap-1">
+      {hasCritical && (
+        <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold bg-red-100 text-red-700 border border-red-200">
+          ● {alarms.critical}
+        </span>
+      )}
+      {hasWarning && (
+        <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-700 border border-amber-200">
+          ▲ {alarms.warning}
+        </span>
+      )}
+    </div>
   );
 }

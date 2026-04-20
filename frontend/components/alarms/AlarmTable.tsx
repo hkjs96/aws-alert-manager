@@ -4,6 +4,7 @@ import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { ExternalLink, ChevronUp, ChevronDown } from "lucide-react";
 import type { Alarm } from "@/types";
+import { formatRelativeTime } from "@/lib/time-utils";
 
 type SortDir = "asc" | "desc";
 
@@ -64,17 +65,29 @@ export function AlarmTable({ alarms }: AlarmTableProps) {
     });
   }, [alarms, sortKey, sortDir]);
 
+  if (alarms.length === 0) {
+    return (
+      <div className="bg-white rounded-xl shadow-sm overflow-hidden border border-slate-200 shadow-soft">
+        <div className="flex flex-col items-center justify-center py-12 text-center">
+          <span className="text-3xl mb-3">🔍</span>
+          <p className="text-sm font-semibold text-slate-600">조건에 맞는 알람이 없습니다</p>
+          <p className="text-xs text-slate-400 mt-1">필터 조건을 변경해보세요</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="bg-white rounded-xl shadow-sm overflow-hidden border border-slate-200 shadow-soft">
       <div className="overflow-x-auto">
-        <table className="w-full text-left border-collapse">
-          <thead>
-            <tr className="text-[10px] uppercase tracking-widest font-bold text-slate-500 border-b border-slate-100 bg-slate-50/50">
+        <table className="w-full text-sm">
+          <thead className="bg-slate-50 border-b border-slate-200">
+            <tr>
               {COLUMNS.map((col) => {
                 const isActive = sortKey === col.key;
                 return (
                   <th key={col.key}
-                    className={`px-6 py-4 ${col.align ?? ""} ${col.sortable ? "cursor-pointer select-none hover:text-slate-800" : ""} ${isActive ? "text-slate-800" : ""}`}
+                    className={`px-4 py-3 text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wider ${col.align ?? ""} ${col.sortable ? "cursor-pointer select-none hover:text-slate-800" : ""} ${isActive ? "text-slate-800" : ""}`}
                     onClick={col.sortable ? () => handleSort(col.key) : undefined}>
                     <span className="inline-flex items-center gap-1">
                       {col.label}
@@ -90,22 +103,24 @@ export function AlarmTable({ alarms }: AlarmTableProps) {
               })}
             </tr>
           </thead>
-          <tbody className="text-sm">
-            {sorted.map((alarm, i) => (
-              <tr key={alarm.id} className={`hover:bg-slate-50 transition-colors ${i % 2 === 1 ? "bg-slate-50/30" : ""}`}>
-                <td className="px-6 py-4 font-mono text-xs text-slate-500">{alarm.time}</td>
-                <td className="px-6 py-4">
+          <tbody className="divide-y divide-slate-100">
+            {sorted.map((alarm) => (
+              <tr key={alarm.id} className={`transition-colors ${alarm.state === "ALARM" ? "bg-red-50 border-l-2 border-l-red-500" : ""} ${alarm.state === "ALARM" ? "" : "hover:bg-slate-50"}`}>
+                <td className="px-4 py-3 font-mono text-xs text-slate-500">
+                  <span title={alarm.time}>{formatRelativeTime(alarm.time)}</span>
+                </td>
+                <td className="px-4 py-3">
                   <span className="font-bold text-slate-900 block">{alarm.resource}</span>
                   <span className="text-[10px] font-mono text-slate-400">{alarm.arn}</span>
                 </td>
-                <td className="px-6 py-4 font-medium text-slate-700">{alarm.metric}</td>
-                <td className="px-6 py-4">
+                <td className="px-4 py-3 font-medium text-slate-700">{alarm.metric}</td>
+                <td className="px-4 py-3">
                   <span className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-bold ring-1 ${STATE_STYLES[alarm.state] ?? STATE_STYLES.OFF}`}>
                     <span className={`w-1.5 h-1.5 rounded-full ${DOT_STYLES[alarm.state] ?? DOT_STYLES.OFF}`} />{alarm.state}
                   </span>
                 </td>
-                <td className={`px-6 py-4 text-right font-mono font-bold ${alarm.state === "ALARM" ? "text-error" : "text-slate-600"}`}>{alarm.value}</td>
-                <td className="px-6 py-4 text-center">
+                <td className={`px-4 py-3 text-right font-mono font-bold ${alarm.state === "ALARM" ? "text-red-600" : "text-slate-600"}`}>{alarm.value}</td>
+                <td className="px-4 py-3 text-center">
                   <button onClick={() => router.push(`/resources/${encodeURIComponent(alarm.resource)}`)}
                     className="p-1.5 hover:bg-slate-200 rounded-md text-slate-500 transition-colors">
                     <ExternalLink size={16} />

@@ -3,8 +3,12 @@ Shared boto3 client singletons — 모든 모듈에서 동일한 캐시된 클�
 """
 
 import functools
+import logging
 
 import boto3
+from botocore.exceptions import ClientError
+
+logger = logging.getLogger(__name__)
 
 
 @functools.lru_cache(maxsize=None)
@@ -26,12 +30,27 @@ def create_clients_for_account(
 
     Returns:
         {"cw": cloudwatch_client, "ec2": ec2_client, "rds": rds_client, "elbv2": elbv2_client}
+
+    Raises:
+        ClientError: IAM 권한 없음 또는 Role ARN이 잘못된 경우
+        ValueError: role_arn이 비어 있는 경우
     """
+    if not role_arn:
+        raise ValueError("role_arn must not be empty")
+
     sts = boto3.client("sts")
-    creds = sts.assume_role(
-        RoleArn=role_arn,
-        RoleSessionName=session_name,
-    )["Credentials"]
+    try:
+        response = sts.assume_role(
+            RoleArn=role_arn,
+            RoleSessionName=session_name,
+        )
+    except ClientError as e:
+        logger.error(
+            "Failed to assume role %s (session=%s): %s", role_arn, session_name, e
+        )
+        raise
+
+    creds = response["Credentials"]
     kwargs = {
         "aws_access_key_id": creds["AccessKeyId"],
         "aws_secret_access_key": creds["SecretAccessKey"],

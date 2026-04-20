@@ -16,12 +16,22 @@ from common import ResourceInfo
 # ──────────────────────────────────────────────
 
 @pytest.fixture(autouse=True)
+def _aws_default_region():
+    """모든 테스트에 AWS_DEFAULT_REGION을 설정해 NoRegionError 방지."""
+    with patch.dict(os.environ, {"AWS_DEFAULT_REGION": "us-east-1"}, clear=False):
+        yield
+
+
+@pytest.fixture(autouse=True)
 def _reset_all_cw_clients():
-    """모든 모듈의 캐시된 CloudWatch 클라이언트 초기화."""
+    """모든 모듈의 캐시된 boto3 클라이언트 초기화 (CW + SNS)."""
     from common._clients import _get_cw_client
+    from common.sns_notifier import _get_sns_client
     _get_cw_client.cache_clear()
+    _get_sns_client.cache_clear()
     yield
     _get_cw_client.cache_clear()
+    _get_sns_client.cache_clear()
 
 
 @pytest.fixture

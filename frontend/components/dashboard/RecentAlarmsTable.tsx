@@ -89,6 +89,28 @@ export function RecentAlarmsTable({ alarms }: RecentAlarmsTableProps) {
     return sorted.slice(start, start + pageSize);
   }, [sorted, page, pageSize]);
 
+  if (alarms.length === 0) {
+    return (
+      <div className="bg-white rounded-xl shadow-sm overflow-hidden border border-slate-200 shadow-soft">
+        <div className="px-8 py-6 flex justify-between items-center bg-slate-50/50">
+          <h3 className="font-headline font-bold text-lg text-slate-900">Recent Alarm Triggers</h3>
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+            <input type="text" value={search}
+              onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+              placeholder="Search resources or metrics..."
+              className="pl-10 pr-4 py-1.5 bg-white border border-slate-200 rounded-lg text-sm w-64 focus:ring-2 focus:ring-primary/20 outline-none" />
+          </div>
+        </div>
+        <div className="flex flex-col items-center justify-center py-12 text-center">
+          <span className="text-3xl mb-3">🔔</span>
+          <p className="text-sm font-semibold text-slate-600">최근 알람 이벤트가 없습니다</p>
+          <p className="text-xs text-slate-400 mt-1">모니터링 중인 리소스에서 상태 변경이 없었습니다</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="bg-white rounded-xl shadow-sm overflow-hidden border border-slate-200 shadow-soft">
       <div className="px-8 py-6 flex justify-between items-center bg-slate-50/50">
@@ -101,14 +123,14 @@ export function RecentAlarmsTable({ alarms }: RecentAlarmsTableProps) {
             className="pl-10 pr-4 py-1.5 bg-white border border-slate-200 rounded-lg text-sm w-64 focus:ring-2 focus:ring-primary/20 outline-none" />
         </div>
       </div>
-      <table className="w-full text-left border-collapse">
-        <thead>
-          <tr className="text-[10px] uppercase tracking-widest font-bold text-slate-500 border-b border-slate-100">
+      <table className="w-full text-sm">
+        <thead className="bg-slate-50 border-b border-slate-200">
+          <tr>
             {COLUMNS.map((col) => {
               const isActive = sortKey === col.key;
               return (
                 <th key={col.key}
-                  className={`px-6 py-4 ${col.align ?? ""} ${col.sortable ? "cursor-pointer select-none hover:text-slate-800" : ""} ${isActive ? "text-slate-800" : ""}`}
+                  className={`px-4 py-3 text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wider ${col.align ?? ""} ${col.sortable ? "cursor-pointer select-none hover:text-slate-800" : ""} ${isActive ? "text-slate-800" : ""}`}
                   onClick={col.sortable ? () => handleSort(col.key) : undefined}>
                   <span className="inline-flex items-center gap-1">
                     {col.label}
@@ -124,23 +146,23 @@ export function RecentAlarmsTable({ alarms }: RecentAlarmsTableProps) {
             })}
           </tr>
         </thead>
-        <tbody className="text-sm">
-          {paged.map((alarm, i) => (
+        <tbody className="divide-y divide-slate-100">
+          {paged.map((alarm) => (
             <tr key={alarm.id} onClick={() => router.push(`/resources/${encodeURIComponent(alarm.resource)}`)}
-              className={`hover:bg-slate-50 cursor-pointer ${i % 2 === 1 ? "bg-slate-50/30" : ""}`}>
-              <td className="px-6 py-4 font-mono text-xs text-slate-500">{alarm.time}</td>
-              <td className="px-6 py-4">
+              className="hover:bg-slate-50 transition-colors cursor-pointer">
+              <td className="px-4 py-3 font-mono text-xs text-slate-500">{alarm.time}</td>
+              <td className="px-4 py-3">
                 <span className="font-bold text-slate-900 block">{alarm.resource}</span>
                 <span className="text-[10px] font-mono text-slate-400">{alarm.arn}</span>
               </td>
-              <td className="px-6 py-4"><span className="bg-slate-100 px-2 py-0.5 rounded text-[10px] font-bold text-slate-600">{alarm.type}</span></td>
-              <td className="px-6 py-4 font-medium text-slate-700">{alarm.metric}</td>
-              <td className="px-6 py-4">
+              <td className="px-4 py-3"><span className="bg-slate-100 px-2 py-0.5 rounded text-[10px] font-bold text-slate-600">{alarm.type}</span></td>
+              <td className="px-4 py-3 font-medium text-slate-700">{alarm.metric}</td>
+              <td className="px-4 py-3">
                 <span className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-bold ring-1 ${stateRing(alarm.state)}`}>
                   <span className={`w-1.5 h-1.5 rounded-full ${stateDot(alarm.state)}`} />{alarm.state}
                 </span>
               </td>
-              <td className={`px-6 py-4 text-right font-mono font-bold ${alarm.state === "ALARM" ? "text-error" : "text-slate-600"}`}>{alarm.value}</td>
+              <td className={`px-4 py-3 text-right font-mono font-bold ${alarm.state === "ALARM" ? "text-error" : "text-slate-600"}`}>{alarm.value}</td>
             </tr>
           ))}
         </tbody>

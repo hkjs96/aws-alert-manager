@@ -1,6 +1,5 @@
 import { Suspense } from "react";
-import { computeDashboardStats, getAlarms } from "@/lib/mock-store";
-import { MOCK_CUSTOMERS, MOCK_ACCOUNTS } from "@/lib/mock-data";
+import { fetchDashboardStats, fetchAlarms, fetchCustomerOptions, fetchAccountOptions } from "@/lib/server/data";
 import { DashboardContent } from "@/components/dashboard/DashboardContent";
 import { Skeleton } from "@/components/shared/Skeleton";
 import type { Metadata } from "next";
@@ -11,11 +10,12 @@ export const metadata: Metadata = {
 };
 
 export default async function DashboardPage() {
-  const stats = computeDashboardStats();
-  const alarms = getAlarms();
-
-  const customers = MOCK_CUSTOMERS.map((c) => ({ id: c.customer_id, name: c.name }));
-  const accounts = MOCK_ACCOUNTS.map((a) => ({ id: a.account_id, name: a.name, customerId: a.customer_id }));
+  const [stats, alarms, customers, accounts] = await Promise.all([
+    fetchDashboardStats(),
+    fetchAlarms(),
+    fetchCustomerOptions(),
+    fetchAccountOptions(),
+  ]);
 
   return (
     <Suspense fallback={<DashboardSkeleton />}>

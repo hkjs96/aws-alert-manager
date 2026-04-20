@@ -4,9 +4,11 @@ import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { RefreshCw, Plus } from "lucide-react";
 import type { DashboardStats, Alarm } from "@/types";
+import { Button } from "@/components/shared/Button";
 import { StatCardGrid } from "./StatCardGrid";
 import { RecentAlarmsTable } from "./RecentAlarmsTable";
 import { CreateAlarmModal } from "./create-alarm/CreateAlarmModal";
+import { FilterBar } from "@/components/resources/FilterBar";
 import { SUPPORTED_RESOURCE_TYPES } from "@/lib/constants";
 
 interface CustomerDto { id: string; name: string }
@@ -60,57 +62,40 @@ export function DashboardContent({ stats, alarms, customers, accounts }: Dashboa
     };
   }, [stats, filteredAlarms, customerFilter, accountFilter, typeFilter, filteredAccounts]);
 
-  const selCls = "bg-slate-50 border border-slate-200 rounded-lg text-sm px-3 py-2 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-colors";
-
   return (
     <div className="space-y-8">
-      <div className="flex justify-between items-end">
+      {/* Page Header */}
+      <header className="flex items-start justify-between">
         <div>
-          <h1 className="text-3xl font-headline font-extrabold tracking-tight text-slate-900">
-            System Overview
-          </h1>
-          <p className="text-slate-500 text-sm mt-1">
-            Real-time health monitoring for AWS infrastructure.
-          </p>
+          <h1 className="text-2xl font-bold text-slate-800 font-headline">System Overview</h1>
+          <p className="text-sm text-slate-500 mt-1">Real-time health monitoring for AWS infrastructure.</p>
         </div>
-        <div className="flex gap-3">
-          <button onClick={() => router.refresh()}
-            className="px-4 py-2 bg-white text-slate-700 text-sm font-semibold rounded-lg shadow-sm border border-slate-200 hover:bg-slate-50 flex items-center gap-2">
-            <RefreshCw size={16} /> Refresh
-          </button>
-          <button onClick={() => setIsModalOpen(true)}
-            className="px-4 py-2 bg-primary text-white text-sm font-semibold rounded-lg shadow-lg shadow-primary/20 flex items-center gap-2">
-            <Plus size={18} /> Create Alarm
-          </button>
+        <div className="flex items-center gap-3">
+          <Button variant="secondary" onClick={() => router.refresh()} icon={<RefreshCw size={16} />}>
+            Refresh
+          </Button>
+          <Button variant="primary" onClick={() => setIsModalOpen(true)} icon={<Plus size={18} />}>
+            Create Alarm
+          </Button>
         </div>
-      </div>
+      </header>
 
       <StatCardGrid stats={filteredStats} />
 
       {/* Filter bar */}
-      <section className="bg-white/80 backdrop-blur rounded-xl p-4 grid grid-cols-1 md:grid-cols-3 gap-4 items-center border border-slate-200 shadow-sm">
-        <div className="space-y-1">
-          <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 ml-1">Customer</label>
-          <select value={customerFilter} onChange={(e) => handleCustomerChange(e.target.value)} className={`w-full ${selCls}`}>
-            <option value="">All Customers</option>
-            {customers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
-        </div>
-        <div className="space-y-1">
-          <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 ml-1">Account</label>
-          <select value={accountFilter} onChange={(e) => setAccountFilter(e.target.value)} className={`w-full ${selCls}`}>
-            <option value="">All Accounts</option>
-            {filteredAccounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-          </select>
-        </div>
-        <div className="space-y-1">
-          <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 ml-1">Resource Type</label>
-          <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className={`w-full ${selCls}`}>
-            <option value="">All Types</option>
-            {SUPPORTED_RESOURCE_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-          </select>
-        </div>
-      </section>
+      <FilterBar
+        search=""
+        onSearchChange={() => {}}
+        customerFilter={customerFilter}
+        onCustomerChange={handleCustomerChange}
+        accountFilter={accountFilter}
+        onAccountChange={setAccountFilter}
+        typeFilter={typeFilter}
+        onTypeChange={setTypeFilter}
+        customers={customers}
+        accounts={filteredAccounts}
+        hideSearch
+      />
 
       <RecentAlarmsTable alarms={filteredAlarms} />
 

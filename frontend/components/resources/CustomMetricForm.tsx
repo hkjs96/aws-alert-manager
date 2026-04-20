@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { X, Check, AlertTriangle } from "lucide-react";
+import { Button } from "@/components/shared/Button";
 import { fetchAvailableMetrics } from "@/lib/api-functions";
 import type { AvailableMetric } from "@/types/api";
 import type { AlarmConfig } from "@/types";
@@ -66,9 +67,7 @@ export function CustomMetricForm({ resourceId, open, onClose, onAdd }: CustomMet
     <div className="border border-primary/20 bg-primary/5 rounded-xl p-6 space-y-4">
       <div className="flex justify-between items-center">
         <h3 className="font-headline font-bold text-sm">Add Custom Metric</h3>
-        <button onClick={onClose} className="text-slate-400 hover:text-slate-600">
-          <X size={16} />
-        </button>
+        <Button variant="ghost" onClick={onClose} icon={<X size={16} />} />
       </div>
 
       {/* Metric dropdown */}
@@ -161,13 +160,13 @@ export function CustomMetricForm({ resourceId, open, onClose, onAdd }: CustomMet
         </div>
       </div>
 
-      <button
+      <Button
+        variant="primary"
         onClick={handleSubmit}
         disabled={!selected}
-        className="bg-primary text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
       >
         Add Metric
-      </button>
+      </Button>
     </div>
   );
 }

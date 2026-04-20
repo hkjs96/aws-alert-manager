@@ -1,5 +1,4 @@
-import { getAlarms } from "@/lib/mock-store";
-import { MOCK_ALARM_SUMMARY, MOCK_CUSTOMERS, MOCK_ACCOUNTS } from "@/lib/mock-data";
+import { fetchAlarms, fetchAlarmSummary, fetchCustomerOptions, fetchAccountOptions } from "@/lib/server/data";
 import { AlarmsContent } from "@/components/alarms/AlarmsContent";
 import type { Metadata } from "next";
 
@@ -9,10 +8,12 @@ export const metadata: Metadata = {
 };
 
 export default async function AlarmsPage() {
-  const alarms = getAlarms();
-  const summary = MOCK_ALARM_SUMMARY;
-  const customers = MOCK_CUSTOMERS.map((c) => ({ id: c.customer_id, name: c.name }));
-  const accounts = MOCK_ACCOUNTS.map((a) => ({ id: a.account_id, name: a.name, customerId: a.customer_id }));
+  const [alarms, summary, customers, accounts] = await Promise.all([
+    fetchAlarms(),
+    fetchAlarmSummary(),
+    fetchCustomerOptions(),
+    fetchAccountOptions(),
+  ]);
 
   return (
     <AlarmsContent

@@ -1,6 +1,7 @@
 "use client";
 
 import { Eye, EyeOff, Settings, AlertTriangle } from "lucide-react";
+import { Button } from "@/components/shared/Button";
 
 interface BulkActionBarProps {
   selectedCount: number;
@@ -31,21 +32,15 @@ export function BulkActionBar({
         </span>
       )}
       <div className="ml-auto flex items-center gap-2">
-        <button
-          onClick={onEnable}
-          className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50"
-        >
-          <Eye size={14} /> Enable
-        </button>
-        <button
-          onClick={onDisable}
-          className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50"
-        >
-          <EyeOff size={14} /> Disable
-        </button>
-        <button className="flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white shadow-sm">
-          <Settings size={14} /> Configure Alarms
-        </button>
+        <Button variant="secondary" size="sm" onClick={onEnable} icon={<Eye size={14} />}>
+          Enable
+        </Button>
+        <Button variant="secondary" size="sm" onClick={onDisable} icon={<EyeOff size={14} />}>
+          Disable
+        </Button>
+        <Button variant="primary" size="sm" icon={<Settings size={14} />}>
+          Configure Alarms
+        </Button>
       </div>
     </div>
   );

@@ -127,7 +127,6 @@ def _create_standard_alarm(
 ) -> str | None:
     """단일 표준(하드코딩) 알람 생성. 성공 시 알람 이름 반환."""
     sns_arn = _get_sns_alert_arn()
-    sns_arn = _get_sns_alert_arn()
     resource_name = resource_tags.get("Name", "")
     metric = alarm_def["metric"]
 

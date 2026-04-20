@@ -4,6 +4,7 @@ import { useState, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { Download, RefreshCw } from "lucide-react";
 import type { Resource } from "@/types";
+import { Button } from "@/components/shared/Button";
 import { useToast } from "@/components/shared/Toast";
 import { LoadingButton } from "@/components/shared/LoadingButton";
 import { Pagination } from "@/components/shared/Pagination";
@@ -179,6 +180,14 @@ export function ResourcesContent({
     setPage(1);
   };
 
+  const handleClearFilters = () => {
+    setSearch("");
+    setCustomerFilter("");
+    setAccountFilter("");
+    setTypeFilter("");
+    setPage(1);
+  };
+
   const handleBulkComplete = () => {
     setModal(null);
     setSelected(new Set());
@@ -247,6 +256,8 @@ export function ResourcesContent({
         sortKey={sortKey}
         sortDir={sortDir}
         onSort={handleSort}
+        totalResourceCount={resources.length}
+        onClearFilters={handleClearFilters}
       />
 
       {/* Pagination — client-side */}

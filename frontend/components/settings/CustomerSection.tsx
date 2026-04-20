@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Users, Plus, Trash2 } from "lucide-react";
 import type { Customer } from "@/types";
+import { Button } from "@/components/shared/Button";
 import { useToast } from "@/components/shared/Toast";
 import { LoadingButton } from "@/components/shared/LoadingButton";
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
@@ -64,50 +65,64 @@ export function CustomerSection({ customers }: CustomerSectionProps) {
   };
 
   return (
-    <div className="bg-white rounded-xl p-8 shadow-soft border border-slate-200">
-      <div className="flex items-center justify-between mb-6">
-        <h2 className="text-xl font-headline font-semibold flex items-center gap-2">
-          <Users size={20} className="text-primary" /> Customer List
-        </h2>
-        <span className="bg-slate-100 text-primary px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider">
-          {customers.length} ACTIVE
-        </span>
+    <div className="bg-white rounded-xl border border-slate-200 shadow-soft overflow-hidden">
+      {/* Section header */}
+      <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+        <div>
+          <h2 className="text-base font-semibold text-slate-800 flex items-center gap-2">
+            <Users size={18} className="text-primary" /> Customer List
+          </h2>
+          <p className="text-xs text-slate-400 mt-0.5">Manage your registered customers</p>
+        </div>
+        {customers.length > 0 && (
+          <span className="bg-slate-100 text-primary px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider">
+            {customers.length} ACTIVE
+          </span>
+        )}
       </div>
 
-      {/* Customer table */}
-      <div className="bg-slate-50 rounded-lg overflow-hidden">
-        <table className="w-full text-left text-sm">
-          <thead>
-            <tr className="text-slate-400 text-[11px] font-bold uppercase tracking-wider">
-              <th className="py-3 px-4">Name</th>
-              <th className="py-3 px-4">ID</th>
-              <th className="py-3 px-4 text-right">Accounts</th>
-              <th className="py-3 px-4 w-10" />
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-200">
-            {customers.map((c) => (
-              <tr key={c.customer_id} className="hover:bg-white transition-colors">
-                <td className="py-3 px-4 font-semibold">{c.name}</td>
-                <td className="py-3 px-4 font-mono text-[11px]">{c.customer_id}</td>
-                <td className="py-3 px-4 text-right">{c.account_count}</td>
-                <td className="py-3 px-4">
-                  <button
-                    onClick={() => setDeleteTarget(c)}
-                    className="p-1 hover:bg-red-50 rounded text-slate-400 hover:text-red-500 transition-colors"
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                </td>
+      {/* Customer table or empty state */}
+      <div className="overflow-x-auto">
+        {customers.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-12 text-center">
+            <span className="text-3xl mb-3">👥</span>
+            <p className="text-sm font-semibold text-slate-600">등록된 고객사가 없습니다</p>
+            <p className="text-xs text-slate-400 mt-1">새 고객사를 추가해보세요</p>
+          </div>
+        ) : (
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50 border-b border-slate-200">
+              <tr>
+                <th className="px-4 py-3 text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Name</th>
+                <th className="px-4 py-3 text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">ID</th>
+                <th className="px-4 py-3 text-right text-[11px] font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Accounts</th>
+                <th className="px-4 py-3 text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Action</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {customers.map((c) => (
+                <tr key={c.customer_id} className="hover:bg-slate-50 transition-colors">
+                  <td className="px-4 py-3 font-semibold text-slate-900">{c.name}</td>
+                  <td className="px-4 py-3 font-mono text-[11px] text-slate-600">{c.customer_id}</td>
+                  <td className="px-4 py-3 text-right text-slate-600">{c.account_count}</td>
+                  <td className="px-4 py-3">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setDeleteTarget(c)}
+                      icon={<Trash2 size={14} />}
+                    />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
 
       {/* Register form */}
-      <div className="mt-8 pt-8 border-t border-slate-100">
-        <h3 className="text-sm font-semibold mb-4 text-slate-500 uppercase tracking-widest">
+      <div className="px-6 py-6 border-t border-slate-100 bg-slate-50">
+        <h3 className="text-sm font-semibold mb-4 text-slate-700 uppercase tracking-widest">
           Add New Customer
         </h3>
         <div className="grid grid-cols-2 gap-4">
@@ -142,6 +157,7 @@ export function CustomerSection({ customers }: CustomerSectionProps) {
         >
           <Plus size={16} /> Register Customer
         </LoadingButton>
+        {/* Note: Register button kept as LoadingButton to maintain custom full-width styling */}
       </div>
 
       {/* Delete confirmation */}

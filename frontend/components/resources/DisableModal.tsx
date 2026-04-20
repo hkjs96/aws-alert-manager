@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Button } from "@/components/shared/Button";
 import { useToast } from "@/components/shared/Toast";
 import { LoadingButton } from "@/components/shared/LoadingButton";
 
@@ -50,12 +51,7 @@ export function DisableModal({
           삭제됩니다.
         </p>
         <div className="mt-5 flex justify-end gap-2">
-          <button
-            onClick={onClose}
-            className="rounded-lg border border-slate-200 px-4 py-2 text-sm hover:bg-slate-50"
-          >
-            취소
-          </button>
+          <Button variant="secondary" onClick={onClose}>취소</Button>
           <LoadingButton
             isLoading={isSubmitting}
             onClick={handleSubmit}

@@ -1,12 +1,9 @@
 import { notFound } from "next/navigation";
-import { getResources } from "@/lib/mock-store";
+import { fetchResource } from "@/lib/server/data";
 import { getMockAlarmConfigs, getMockEvents } from "@/lib/mock-data";
 import { ResourceDetailClient } from "@/components/resources/ResourceDetailClient";
 import { ResourceEvents } from "@/components/resources/ResourceEvents";
 import type { Metadata } from "next";
-
-// When real backend API is ready, replace mock imports with:
-// import { fetchResource, fetchAlarmConfigs } from "@/lib/api-functions";
 
 interface ResourceDetailPageProps {
   params: Promise<{ id: string }>;
@@ -15,7 +12,7 @@ interface ResourceDetailPageProps {
 export async function generateMetadata({ params }: ResourceDetailPageProps): Promise<Metadata> {
   const { id } = await params;
   const decodedId = decodeURIComponent(id);
-  const resource = getResources().find((r) => r.name === decodedId || r.id === decodedId);
+  const resource = await fetchResource(decodedId);
   return {
     title: resource ? `${resource.name} | Alarm Manager` : "Resource Detail | Alarm Manager",
     description: resource
@@ -28,17 +25,10 @@ export default async function ResourceDetailPage({ params }: ResourceDetailPageP
   const { id } = await params;
   const decodedId = decodeURIComponent(id);
 
-  // Find resource by name or id (from mock-store for monitoring state sync)
-  const resource = getResources().find((r) => r.name === decodedId || r.id === decodedId);
+  const resource = await fetchResource(decodedId);
   if (!resource) notFound();
 
-  // Parallel data fetching (mock for now)
-  // When real API is ready:
-  //   const [resource, alarmConfigs, events] = await Promise.all([
-  //     fetchResource(decodedId),
-  //     fetchAlarmConfigs(decodedId),
-  //     fetchEvents(decodedId),
-  //   ]);
+  // TODO: AWS SDK 연동 시 fetchAlarmConfigs(resource.id), fetchEvents(resource.id) 로 교체
   const alarmConfigs = getMockAlarmConfigs(resource.id);
   const events = getMockEvents(resource.id);
 

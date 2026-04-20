@@ -13,6 +13,7 @@ import logging
 import re
 
 import boto3
+from botocore.exceptions import ClientError
 
 # Lambda 환경에서 root logger 레벨 설정 (모든 모듈에 적용)
 logging.getLogger().setLevel(logging.INFO)
@@ -125,7 +126,7 @@ def lambda_handler(event, context):
         orphaned = _cleanup_orphan_alarms()
         if orphaned:
             logger.info("Cleaned up orphan alarms: %s", orphaned)
-    except Exception as e:
+    except ClientError as e:
         logger.error("Failed to cleanup orphan alarms: %s", e)
     total_processed = 0
     total_alerts = 0
@@ -134,7 +135,7 @@ def lambda_handler(event, context):
     for collector_mod in _COLLECTOR_MODULES:
         try:
             resources = collector_mod.collect_monitored_resources()
-        except Exception as e:
+        except ClientError as e:
             logger.error(
                 "Failed to collect resources from %s: %s",
                 collector_mod.__name__, e,
@@ -162,7 +163,7 @@ def lambda_handler(event, context):
                 alarms_synced["created"] += len(sync_result.get("created", []))
                 alarms_synced["updated"] += len(sync_result.get("updated", []))
                 alarms_synced["ok"] += len(sync_result.get("ok", []))
-            except Exception as e:
+            except ClientError as e:
                 logger.error(
                     "Failed to sync alarms for %s (%s): %s",
                     resource_id, resource_type, e,
@@ -175,7 +176,7 @@ def lambda_handler(event, context):
                 )
                 total_processed += 1
                 total_alerts += alerts
-            except Exception as e:
+            except (ClientError, RuntimeError, ValueError) as e:
                 logger.error(
                     "Unexpected error processing resource %s (%s): %s",
                     resource_id, resource_type, e,

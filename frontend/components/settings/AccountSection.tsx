@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Cloud, Link as LinkIcon } from "lucide-react";
 import type { Account, Customer } from "@/types";
+import { Button } from "@/components/shared/Button";
 import { useToast } from "@/components/shared/Toast";
 import { LoadingButton } from "@/components/shared/LoadingButton";
 
@@ -92,65 +93,77 @@ export function AccountSection({ accounts, customers }: AccountSectionProps) {
   const getStatus = (acc: Account) => statuses[acc.account_id] ?? acc.connection_status;
 
   return (
-    <div className="bg-white rounded-xl p-8 shadow-soft border border-slate-200">
-      <div className="flex items-center justify-between mb-6">
-        <h2 className="text-xl font-headline font-semibold flex items-center gap-2">
-          <Cloud size={20} className="text-primary" /> Account Registry
-        </h2>
+    <div className="bg-white rounded-xl border border-slate-200 shadow-soft overflow-hidden">
+      {/* Section header */}
+      <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+        <div>
+          <h2 className="text-base font-semibold text-slate-800 flex items-center gap-2">
+            <Cloud size={18} className="text-primary" /> Account Registry
+          </h2>
+          <p className="text-xs text-slate-400 mt-0.5">Connected AWS accounts and their status</p>
+        </div>
       </div>
 
-      {/* Account table */}
-      <div className="bg-slate-50 rounded-lg overflow-hidden mb-8">
-        <table className="w-full text-left text-sm">
-          <thead>
-            <tr className="text-slate-400 text-[11px] font-bold uppercase tracking-wider">
-              <th className="py-3 px-6">Account ID</th>
-              <th className="py-3 px-6">Name</th>
-              <th className="py-3 px-6">Customer</th>
-              <th className="py-3 px-6">Status</th>
-              <th className="py-3 px-6">Action</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-200">
-            {accounts.map((acc) => {
-              const status = getStatus(acc);
-              const style = STATUS_STYLES[status] ?? STATUS_STYLES.untested;
-              return (
-                <tr key={acc.account_id} className="hover:bg-white transition-colors">
-                  <td className="py-4 px-6 font-mono text-xs text-primary">
-                    {acc.account_id}
-                  </td>
-                  <td className="py-4 px-6 font-semibold">{acc.name}</td>
-                  <td className="py-4 px-6">
-                    <span className="bg-slate-200 px-2 py-1 rounded-full text-[10px] font-medium">
-                      {customers.find((c) => c.customer_id === acc.customer_id)?.name ?? acc.customer_id}
-                    </span>
-                  </td>
-                  <td className="py-4 px-6">
-                    <div className={`flex items-center gap-2 text-[10px] font-bold ${style.text}`}>
-                      <span className={`w-1.5 h-1.5 rounded-full ${style.dot}`} />
-                      {status.toUpperCase()}
-                    </div>
-                  </td>
-                  <td className="py-4 px-6">
-                    <LoadingButton
-                      isLoading={testingId === acc.account_id}
-                      onClick={() => handleTest(acc.account_id)}
-                      className="text-xs font-semibold text-primary hover:underline"
-                    >
-                      Test Connection
-                    </LoadingButton>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+      {/* Account table or empty state */}
+      <div className="overflow-x-auto">
+        {accounts.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-12 text-center">
+            <span className="text-3xl mb-3">🔗</span>
+            <p className="text-sm font-semibold text-slate-600">연결된 계정이 없습니다</p>
+            <p className="text-xs text-slate-400 mt-1">AWS 계정을 추가해보세요</p>
+          </div>
+        ) : (
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50 border-b border-slate-200">
+              <tr>
+                <th className="px-4 py-3 text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Account ID</th>
+                <th className="px-4 py-3 text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Name</th>
+                <th className="px-4 py-3 text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Customer</th>
+                <th className="px-4 py-3 text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Status</th>
+                <th className="px-4 py-3 text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Action</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {accounts.map((acc) => {
+                const status = getStatus(acc);
+                const style = STATUS_STYLES[status] ?? STATUS_STYLES.untested;
+                return (
+                  <tr key={acc.account_id} className="hover:bg-slate-50 transition-colors">
+                    <td className="px-4 py-3 font-mono text-xs text-primary">
+                      {acc.account_id}
+                    </td>
+                    <td className="px-4 py-3 font-semibold text-slate-900">{acc.name}</td>
+                    <td className="px-4 py-3">
+                      <span className="bg-slate-200 px-2 py-1 rounded-full text-[10px] font-medium">
+                        {customers.find((c) => c.customer_id === acc.customer_id)?.name ?? acc.customer_id}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className={`flex items-center gap-2 text-[10px] font-bold ${style.text}`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${style.dot}`} />
+                        {status.toUpperCase()}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <LoadingButton
+                        isLoading={testingId === acc.account_id}
+                        onClick={() => handleTest(acc.account_id)}
+                        className="text-xs font-semibold text-primary hover:underline"
+                      >
+                        Test Connection
+                      </LoadingButton>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
       </div>
 
       {/* Connect form */}
-      <div className="pt-8 border-t border-slate-100">
-        <h3 className="text-sm font-semibold mb-6 text-slate-500 uppercase tracking-widest">
+      <div className="px-6 py-6 border-t border-slate-100 bg-slate-50">
+        <h3 className="text-sm font-semibold mb-6 text-slate-700 uppercase tracking-widest">
           Onboard AWS Account
         </h3>
         <div className="grid grid-cols-2 gap-6">
@@ -187,6 +200,7 @@ export function AccountSection({ accounts, customers }: AccountSectionProps) {
           >
             <LinkIcon size={16} /> Connect Account
           </LoadingButton>
+          {/* Note: Connect button kept as LoadingButton to preserve dark bg styling */}
         </div>
       </div>
     </div>

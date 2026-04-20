@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { X, AlertTriangle } from "lucide-react";
+import { Button } from "@/components/shared/Button";
 import { useToast } from "@/components/shared/Toast";
 import { LoadingButton } from "@/components/shared/LoadingButton";
 import {
@@ -76,7 +77,7 @@ export function EnableModal({
       <div className="w-full max-w-2xl rounded-xl bg-white shadow-xl">
         <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
           <h3 className="text-lg font-semibold text-slate-800">모니터링 활성화</h3>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600"><X size={20} /></button>
+          <Button variant="ghost" onClick={onClose} icon={<X size={20} />} />
         </div>
         <div className="max-h-[60vh] overflow-y-auto px-6 py-4 space-y-4">
           <p className="text-sm text-slate-600">
@@ -109,7 +110,7 @@ export function EnableModal({
             {isSameType ? `${metrics.filter((m) => m.enabled).length + customMetrics.length}개 메트릭 활성화 예정` : "기본 알람으로 활성화"}
           </p>
           <div className="flex gap-2">
-            <button onClick={onClose} className="rounded-lg border border-slate-200 px-4 py-2 text-sm hover:bg-slate-50">취소</button>
+            <Button variant="secondary" onClick={onClose}>취소</Button>
             <LoadingButton
               isLoading={isSubmitting}
               onClick={handleSubmit}
