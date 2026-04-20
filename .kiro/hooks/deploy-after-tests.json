@@ -1,0 +1,12 @@
+{
+  "name": "Deploy After Tests Pass",
+  "version": "1.0.0",
+  "description": "태스크 완료 후 테스트 실행 → zip 패키징 → S3 업로드 → CFN 스택 업데이트",
+  "when": {
+    "type": "postTaskExecution"
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "태스크가 완료되었습니다. 다음 배포 절차를 순서대로 실행하세요:\n1. pytest tests/ -x -q --tb=short 로 전체 테스트 실행\n2. 테스트 통과 시 python 스크립트로 zip 패키징 (daily_monitor, remediation_handler, common_layer)\n3. aws s3 cp 로 dist/*.zip을 S3 버킷에 업로드\n4. aws cloudformation update-stack 으로 스택 업데이트\n\n테스트 실패 시 배포를 중단하고 실패 원인을 보고하세요."
+  }
+}
