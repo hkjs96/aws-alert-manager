@@ -38,6 +38,8 @@ frontend/.next/
 frontend/out/
 frontend/tsconfig.tsbuildinfo
 frontend/.env*.local
+frontend/playwright-report/
+frontend/test-results/
 
 # IDE
 .vscode/
