@@ -5,10 +5,18 @@ boto3 모킹, 환경 변수, 샘플 리소스 데이터 픽스처 제공
 """
 
 import os
-import pytest
+import sys
 from unittest.mock import patch, MagicMock
 
+# tests/ 디렉터리를 sys.path에 추가 — patch_helpers 등 로컬 헬퍼 import 지원
+sys.path.insert(0, os.path.dirname(__file__))
+
+import pytest
+
 from common import ResourceInfo
+
+# 재사용 가능한 패치 헬퍼는 patch_helpers.py에 정의 — 직접 import해서 사용 가능
+from patch_helpers import patch_infra_stages, patch_all_collectors  # noqa: F401
 
 
 # ──────────────────────────────────────────────

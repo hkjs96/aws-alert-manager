@@ -13,7 +13,7 @@ import boto3
 from botocore.exceptions import ClientError
 
 from common import ResourceInfo
-from common.collectors.base import query_metric, CW_LOOKBACK_MINUTES, CW_STAT_AVG
+from common.collectors.base import query_metric, CW_LOOKBACK_MINUTES, CW_STAT_AVG, collect_metric
 
 logger = logging.getLogger(__name__)
 
@@ -344,14 +344,16 @@ def get_metrics(db_instance_id: str, resource_tags: dict | None = None) -> dict[
     dim = [{"Name": "DBInstanceIdentifier", "Value": db_instance_id}]
     metrics: dict[str, float] = {}
 
-    _collect_metric("AWS/RDS", "CPUUtilization", dim, start_time, end_time,
-                    "CPU", metrics, transform=None)
-    _collect_metric("AWS/RDS", "FreeableMemory", dim, start_time, end_time,
-                    "FreeMemoryGB", metrics, transform=lambda v: v / _BYTES_PER_GB)
-    _collect_metric("AWS/RDS", "FreeStorageSpace", dim, start_time, end_time,
-                    "FreeStorageGB", metrics, transform=lambda v: v / _BYTES_PER_GB)
-    _collect_metric("AWS/RDS", "DatabaseConnections", dim, start_time, end_time,
-                    "Connections", metrics, transform=None)
+    collect_metric("AWS/RDS", "CPUUtilization", dim, start_time, end_time,
+                   "CPU", metrics, stat=CW_STAT_AVG, transform=None, resource_label="RDS")
+    collect_metric("AWS/RDS", "FreeableMemory", dim, start_time, end_time,
+                   "FreeMemoryGB", metrics, stat=CW_STAT_AVG,
+                   transform=lambda v: v / _BYTES_PER_GB, resource_label="RDS")
+    collect_metric("AWS/RDS", "FreeStorageSpace", dim, start_time, end_time,
+                   "FreeStorageGB", metrics, stat=CW_STAT_AVG,
+                   transform=lambda v: v / _BYTES_PER_GB, resource_label="RDS")
+    collect_metric("AWS/RDS", "DatabaseConnections", dim, start_time, end_time,
+                   "Connections", metrics, stat=CW_STAT_AVG, transform=None, resource_label="RDS")
 
     return metrics if metrics else None
 
@@ -384,10 +386,10 @@ def get_aurora_metrics(db_instance_id: str, resource_tags: dict | None = None) -
     metrics: dict[str, float] = {}
 
     # Always: CPU, Connections
-    _collect_metric("AWS/RDS", "CPUUtilization", dim, start_time, end_time,
-                    "CPU", metrics, transform=None)
-    _collect_metric("AWS/RDS", "DatabaseConnections", dim, start_time, end_time,
-                    "Connections", metrics, transform=None)
+    collect_metric("AWS/RDS", "CPUUtilization", dim, start_time, end_time,
+                   "CPU", metrics, stat=CW_STAT_AVG, transform=None, resource_label="AuroraRDS")
+    collect_metric("AWS/RDS", "DatabaseConnections", dim, start_time, end_time,
+                   "Connections", metrics, stat=CW_STAT_AVG, transform=None, resource_label="AuroraRDS")
 
     is_serverless = resource_tags.get("_is_serverless_v2") == "true"
     is_writer = resource_tags.get("_is_cluster_writer") == "true"
@@ -395,39 +397,29 @@ def get_aurora_metrics(db_instance_id: str, resource_tags: dict | None = None) -
 
     # Provisioned: FreeMemoryGB, FreeLocalStorageGB
     if not is_serverless:
-        _collect_metric("AWS/RDS", "FreeableMemory", dim, start_time, end_time,
-                        "FreeMemoryGB", metrics, transform=lambda v: v / _BYTES_PER_GB)
-        _collect_metric("AWS/RDS", "FreeLocalStorage", dim, start_time, end_time,
-                        "FreeLocalStorageGB", metrics, transform=lambda v: v / _BYTES_PER_GB)
+        collect_metric("AWS/RDS", "FreeableMemory", dim, start_time, end_time,
+                       "FreeMemoryGB", metrics, stat=CW_STAT_AVG,
+                       transform=lambda v: v / _BYTES_PER_GB, resource_label="AuroraRDS")
+        collect_metric("AWS/RDS", "FreeLocalStorage", dim, start_time, end_time,
+                       "FreeLocalStorageGB", metrics, stat=CW_STAT_AVG,
+                       transform=lambda v: v / _BYTES_PER_GB, resource_label="AuroraRDS")
 
     # Serverless v2: ACUUtilization only (FreeableMemory/ServerlessDatabaseCapacity 제외)
     if is_serverless:
-        _collect_metric("AWS/RDS", "ACUUtilization", dim, start_time, end_time,
-                        "ACUUtilization", metrics, transform=None)
+        collect_metric("AWS/RDS", "ACUUtilization", dim, start_time, end_time,
+                       "ACUUtilization", metrics, stat=CW_STAT_AVG, transform=None, resource_label="AuroraRDS")
 
     # Writer with readers: AuroraReplicaLagMaximum → ReplicaLag
     if is_writer and has_readers:
-        _collect_metric("AWS/RDS", "AuroraReplicaLagMaximum", dim, start_time, end_time,
-                        "ReplicaLag", metrics, transform=None)
+        collect_metric("AWS/RDS", "AuroraReplicaLagMaximum", dim, start_time, end_time,
+                       "ReplicaLag", metrics, stat=CW_STAT_AVG, transform=None, resource_label="AuroraRDS")
 
     # Reader: AuroraReplicaLag → ReaderReplicaLag
     if not is_writer:
-        _collect_metric("AWS/RDS", "AuroraReplicaLag", dim, start_time, end_time,
-                        "ReaderReplicaLag", metrics, transform=None)
+        collect_metric("AWS/RDS", "AuroraReplicaLag", dim, start_time, end_time,
+                       "ReaderReplicaLag", metrics, stat=CW_STAT_AVG, transform=None, resource_label="AuroraRDS")
 
     return metrics if metrics else None
-
-
-def _collect_metric(namespace, cw_metric_name, dimensions,
-                    start_time, end_time, result_key, metrics_dict, transform):
-    """단일 메트릭 조회 후 metrics_dict에 추가. 데이터 없으면 skip."""
-    value = query_metric(namespace, cw_metric_name, dimensions,
-                         start_time, end_time, CW_STAT_AVG)
-    if value is not None:
-        metrics_dict[result_key] = transform(value) if transform else value
-    else:
-        logger.info("Skipping %s metric for RDS %s: no data", result_key,
-                    dimensions[0]["Value"] if dimensions else "unknown")
 
 
 def resolve_alive_ids(tag_names: set[str]) -> set[str]:

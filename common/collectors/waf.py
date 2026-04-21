@@ -14,7 +14,7 @@ import boto3
 from botocore.exceptions import ClientError
 
 from common import ResourceInfo
-from common.collectors.base import query_metric, CW_LOOKBACK_MINUTES, CW_STAT_SUM
+from common.collectors.base import query_metric, CW_LOOKBACK_MINUTES, CW_STAT_SUM, collect_metric
 
 logger = logging.getLogger(__name__)
 
@@ -95,12 +95,15 @@ def get_metrics(
     ]
     metrics: dict[str, float] = {}
 
-    _collect_metric("AWS/WAFV2", "BlockedRequests", dims,
-                    start_time, end_time, "WAFBlockedRequests", metrics, CW_STAT_SUM)
-    _collect_metric("AWS/WAFV2", "AllowedRequests", dims,
-                    start_time, end_time, "WAFAllowedRequests", metrics, CW_STAT_SUM)
-    _collect_metric("AWS/WAFV2", "CountedRequests", dims,
-                    start_time, end_time, "WAFCountedRequests", metrics, CW_STAT_SUM)
+    collect_metric("AWS/WAFV2", "BlockedRequests", dims,
+                   start_time, end_time, "WAFBlockedRequests", metrics,
+                   stat=CW_STAT_SUM, resource_label="WAF")
+    collect_metric("AWS/WAFV2", "AllowedRequests", dims,
+                   start_time, end_time, "WAFAllowedRequests", metrics,
+                   stat=CW_STAT_SUM, resource_label="WAF")
+    collect_metric("AWS/WAFV2", "CountedRequests", dims,
+                   start_time, end_time, "WAFCountedRequests", metrics,
+                   stat=CW_STAT_SUM, resource_label="WAF")
 
     return metrics if metrics else None
 
@@ -124,18 +127,6 @@ def resolve_alive_ids(tag_names: set[str]) -> set[str]:
             logger.info("WAF WebACL not found (orphan): %s", name)
 
     return alive
-
-
-def _collect_metric(namespace, cw_metric_name, dimensions,
-                    start_time, end_time, result_key, metrics_dict, stat):
-    """단일 메트릭 조회 후 metrics_dict에 추가. 데이터 없으면 skip + info 로그."""
-    value = query_metric(namespace, cw_metric_name, dimensions,
-                         start_time, end_time, stat)
-    if value is not None:
-        metrics_dict[result_key] = value
-    else:
-        logger.info("Skipping %s metric for WAF %s: no data", result_key,
-                    dimensions[0]["Value"] if dimensions else "unknown")
 
 
 def _get_tags(wafv2_client, resource_arn: str) -> dict:

@@ -14,11 +14,9 @@ import boto3
 from botocore.exceptions import ClientError
 
 from common import ResourceInfo
-from common.collectors.base import query_metric, CW_LOOKBACK_MINUTES
+from common.collectors.base import query_metric, CW_LOOKBACK_MINUTES, CW_STAT_MIN, collect_metric
 
 logger = logging.getLogger(__name__)
-
-CW_STAT_MIN = "Minimum"
 
 
 # ──────────────────────────────────────────────
@@ -150,19 +148,8 @@ def get_metrics(
     dim = [{"Name": "CertificateArn", "Value": resource_id}]
     metrics: dict[str, float] = {}
 
-    _collect_metric("AWS/CertificateManager", "DaysToExpiry", dim,
-                    start_time, end_time, "DaysToExpiry", metrics)
+    collect_metric("AWS/CertificateManager", "DaysToExpiry", dim,
+                   start_time, end_time, "DaysToExpiry", metrics,
+                   stat=CW_STAT_MIN, resource_label="ACM")
 
     return metrics if metrics else None
-
-
-def _collect_metric(namespace, cw_metric_name, dimensions,
-                    start_time, end_time, result_key, metrics_dict):
-    """단일 메트릭 조회 후 metrics_dict에 추가. 데이터 없으면 skip + info 로그."""
-    value = query_metric(namespace, cw_metric_name, dimensions,
-                         start_time, end_time, CW_STAT_MIN)
-    if value is not None:
-        metrics_dict[result_key] = value
-    else:
-        logger.info("Skipping %s metric for ACM %s: no data", result_key,
-                    dimensions[0]["Value"] if dimensions else "unknown")

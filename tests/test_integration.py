@@ -11,45 +11,13 @@ Requirements: 1.1, 3.1, 4.1, 5.1, 8.1
 - collector.get_metrics는 common.collectors.{ec2|rds|elb}.get_metrics 로 패치
 """
 
-from contextlib import ExitStack
 from unittest.mock import MagicMock, patch
 import pytest
 from botocore.exceptions import ClientError
 
+from patch_helpers import patch_all_collectors, patch_infra_stages
 from daily_monitor.lambda_handler import lambda_handler as daily_handler
 from remediation_handler.lambda_handler import lambda_handler as remediation_handler
-
-
-_ALL_COLLECTORS = (
-    "ec2", "rds", "elb", "docdb", "elasticache", "natgw", "lambda_fn",
-    "vpn", "apigw", "acm", "backup", "mq", "clb", "opensearch",
-    "sqs", "ecs", "msk", "dynamodb", "cloudfront", "waf",
-    "route53", "dx", "efs", "s3", "sagemaker", "sns",
-)
-
-
-def _patch_infra_stages():
-    """lambda_handler의 0단계(orphan cleanup)와 1단계(alarm sync)를 mock."""
-    stack = ExitStack()
-    stack.enter_context(
-        patch("daily_monitor.lambda_handler._cleanup_orphan_alarms", return_value=[])
-    )
-    stack.enter_context(
-        patch("daily_monitor.lambda_handler.sync_alarms_for_resource", return_value={})
-    )
-    return stack
-
-
-def _patch_all_collectors(**overrides):
-    """모든 collector를 mock. overrides에 명시된 것만 지정 값 사용, 나머지는 []."""
-    stack = ExitStack()
-    for mod in _ALL_COLLECTORS:
-        resources = overrides.get(f"{mod}_resources", [])
-        stack.enter_context(
-            patch(f"common.collectors.{mod}.collect_monitored_resources",
-                  return_value=resources)
-        )
-    return stack
 
 
 # ──────────────────────────────────────────────
@@ -63,8 +31,8 @@ class TestDailyMonitorIntegration:
         """EC2 CPU 임계치 초과 → SNS 알림 발송 전체 흐름 - Requirements 1.1, 3.1"""
         ec2_resource = {"id": "i-001", "type": "EC2", "tags": {"Monitoring": "on"}, "region": "ap-northeast-2"}
 
-        with _patch_infra_stages(), \
-             _patch_all_collectors(ec2_resources=[ec2_resource]), \
+        with patch_infra_stages(), \
+             patch_all_collectors(ec2_resources=[ec2_resource]), \
              patch("common.collectors.ec2.get_metrics", return_value={"CPU": 95.0}), \
              patch("common.tag_resolver.get_threshold", return_value=80.0), \
              patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
@@ -90,8 +58,8 @@ class TestDailyMonitorIntegration:
         def mock_threshold(tags, metric_name):
             return {"CPU": 80.0, "Connections": 100.0}.get(metric_name, 80.0)
 
-        with _patch_infra_stages(), \
-             _patch_all_collectors(rds_resources=[rds_resource]), \
+        with patch_infra_stages(), \
+             patch_all_collectors(rds_resources=[rds_resource]), \
              patch("common.collectors.rds.get_metrics", return_value={"CPU": 90.0, "Connections": 150.0}), \
              patch("common.tag_resolver.get_threshold", side_effect=mock_threshold), \
              patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
@@ -106,8 +74,8 @@ class TestDailyMonitorIntegration:
         """임계치 미초과 → 알림 없음 - Requirements 3.1"""
         ec2_resource = {"id": "i-002", "type": "EC2", "tags": {"Monitoring": "on"}, "region": "ap-northeast-2"}
 
-        with _patch_infra_stages(), \
-             _patch_all_collectors(ec2_resources=[ec2_resource]), \
+        with patch_infra_stages(), \
+             patch_all_collectors(ec2_resources=[ec2_resource]), \
              patch("common.collectors.ec2.get_metrics", return_value={"CPU": 50.0}), \
              patch("common.tag_resolver.get_threshold", return_value=80.0), \
              patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
@@ -122,8 +90,8 @@ class TestDailyMonitorIntegration:
         """메트릭 없음(None) → 건너뜀, 알림 없음 - Requirements 3.5"""
         ec2_resource = {"id": "i-003", "type": "EC2", "tags": {"Monitoring": "on"}, "region": "ap-northeast-2"}
 
-        with _patch_infra_stages(), \
-             _patch_all_collectors(ec2_resources=[ec2_resource]), \
+        with patch_infra_stages(), \
+             patch_all_collectors(ec2_resources=[ec2_resource]), \
              patch("common.collectors.ec2.get_metrics", return_value=None), \
              patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
 
@@ -138,8 +106,8 @@ class TestDailyMonitorIntegration:
         rds_resource = {"id": "db-001", "type": "RDS", "tags": {"Monitoring": "on"}, "region": "ap-northeast-2"}
         ec2_error = ClientError({"Error": {"Code": "RequestExpired", "Message": "mock"}}, "describe_instances")
 
-        with _patch_infra_stages(), \
-             _patch_all_collectors(rds_resources=[rds_resource]), \
+        with patch_infra_stages(), \
+             patch_all_collectors(rds_resources=[rds_resource]), \
              patch("common.collectors.ec2.collect_monitored_resources",
                    side_effect=ec2_error), \
              patch("common.collectors.rds.get_metrics", return_value={"CPU": 50.0}), \

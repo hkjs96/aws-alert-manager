@@ -14,7 +14,7 @@ import boto3
 from botocore.exceptions import ClientError
 
 from common import ResourceInfo
-from common.collectors.base import query_metric, CW_LOOKBACK_MINUTES, CW_STAT_AVG
+from common.collectors.base import query_metric, CW_LOOKBACK_MINUTES, CW_STAT_AVG, collect_metric
 
 logger = logging.getLogger(__name__)
 
@@ -89,14 +89,18 @@ def get_metrics(
     dim = [{"Name": "Cluster Name", "Value": resource_id}]
     metrics: dict[str, float] = {}
 
-    _collect_metric("AWS/Kafka", "SumOffsetLag", dim,
-                    start_time, end_time, "OffsetLag", metrics, "Maximum")
-    _collect_metric("AWS/Kafka", "BytesInPerSec", dim,
-                    start_time, end_time, "BytesInPerSec", metrics, CW_STAT_AVG)
-    _collect_metric("AWS/Kafka", "UnderReplicatedPartitions", dim,
-                    start_time, end_time, "UnderReplicatedPartitions", metrics, "Maximum")
-    _collect_metric("AWS/Kafka", "ActiveControllerCount", dim,
-                    start_time, end_time, "ActiveControllerCount", metrics, CW_STAT_AVG)
+    collect_metric("AWS/Kafka", "SumOffsetLag", dim,
+                   start_time, end_time, "OffsetLag", metrics,
+                   stat="Maximum", resource_label="MSK")
+    collect_metric("AWS/Kafka", "BytesInPerSec", dim,
+                   start_time, end_time, "BytesInPerSec", metrics,
+                   stat=CW_STAT_AVG, resource_label="MSK")
+    collect_metric("AWS/Kafka", "UnderReplicatedPartitions", dim,
+                   start_time, end_time, "UnderReplicatedPartitions", metrics,
+                   stat="Maximum", resource_label="MSK")
+    collect_metric("AWS/Kafka", "ActiveControllerCount", dim,
+                   start_time, end_time, "ActiveControllerCount", metrics,
+                   stat=CW_STAT_AVG, resource_label="MSK")
 
     return metrics if metrics else None
 
@@ -122,14 +126,3 @@ def resolve_alive_ids(tag_names: set[str]) -> set[str]:
             logger.info("MSK cluster not found (orphan): %s", name)
     return alive
 
-
-def _collect_metric(namespace, cw_metric_name, dimensions,
-                    start_time, end_time, result_key, metrics_dict, stat):
-    """단일 메트릭 조회 후 metrics_dict에 추가. 데이터 없으면 skip + info 로그."""
-    value = query_metric(namespace, cw_metric_name, dimensions,
-                         start_time, end_time, stat)
-    if value is not None:
-        metrics_dict[result_key] = value
-    else:
-        logger.info("Skipping %s metric for MSK %s: no data", result_key,
-                    dimensions[0]["Value"] if dimensions else "unknown")

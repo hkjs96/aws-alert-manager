@@ -14,7 +14,7 @@ import boto3
 from botocore.exceptions import ClientError
 
 from common import ResourceInfo
-from common.collectors.base import query_metric, CW_LOOKBACK_MINUTES, CW_STAT_AVG
+from common.collectors.base import query_metric, CW_LOOKBACK_MINUTES, CW_STAT_AVG, collect_metric
 
 logger = logging.getLogger(__name__)
 
@@ -105,32 +105,22 @@ def get_metrics(
     dim = [{"Name": "DBInstanceIdentifier", "Value": db_instance_id}]
     metrics: dict[str, float] = {}
 
-    _collect_metric("AWS/DocDB", "CPUUtilization", dim, start_time, end_time,
-                    "CPU", metrics, transform=None)
-    _collect_metric("AWS/DocDB", "FreeableMemory", dim, start_time, end_time,
-                    "FreeMemoryGB", metrics, transform=lambda v: v / _BYTES_PER_GB)
-    _collect_metric("AWS/DocDB", "FreeLocalStorage", dim, start_time, end_time,
-                    "FreeLocalStorageGB", metrics, transform=lambda v: v / _BYTES_PER_GB)
-    _collect_metric("AWS/DocDB", "DatabaseConnections", dim, start_time, end_time,
-                    "Connections", metrics, transform=None)
-    _collect_metric("AWS/DocDB", "ReadLatency", dim, start_time, end_time,
-                    "ReadLatency", metrics, transform=None)
-    _collect_metric("AWS/DocDB", "WriteLatency", dim, start_time, end_time,
-                    "WriteLatency", metrics, transform=None)
+    collect_metric("AWS/DocDB", "CPUUtilization", dim, start_time, end_time,
+                   "CPU", metrics, stat=CW_STAT_AVG, transform=None, resource_label="DocDB")
+    collect_metric("AWS/DocDB", "FreeableMemory", dim, start_time, end_time,
+                   "FreeMemoryGB", metrics, stat=CW_STAT_AVG,
+                   transform=lambda v: v / _BYTES_PER_GB, resource_label="DocDB")
+    collect_metric("AWS/DocDB", "FreeLocalStorage", dim, start_time, end_time,
+                   "FreeLocalStorageGB", metrics, stat=CW_STAT_AVG,
+                   transform=lambda v: v / _BYTES_PER_GB, resource_label="DocDB")
+    collect_metric("AWS/DocDB", "DatabaseConnections", dim, start_time, end_time,
+                   "Connections", metrics, stat=CW_STAT_AVG, transform=None, resource_label="DocDB")
+    collect_metric("AWS/DocDB", "ReadLatency", dim, start_time, end_time,
+                   "ReadLatency", metrics, stat=CW_STAT_AVG, transform=None, resource_label="DocDB")
+    collect_metric("AWS/DocDB", "WriteLatency", dim, start_time, end_time,
+                   "WriteLatency", metrics, stat=CW_STAT_AVG, transform=None, resource_label="DocDB")
 
     return metrics if metrics else None
-
-
-def _collect_metric(namespace, cw_metric_name, dimensions,
-                    start_time, end_time, result_key, metrics_dict, transform):
-    """단일 메트릭 조회 후 metrics_dict에 추가. 데이터 없으면 skip + info 로그."""
-    value = query_metric(namespace, cw_metric_name, dimensions,
-                         start_time, end_time, CW_STAT_AVG)
-    if value is not None:
-        metrics_dict[result_key] = transform(value) if transform else value
-    else:
-        logger.info("Skipping %s metric for DocDB %s: no data", result_key,
-                    dimensions[0]["Value"] if dimensions else "unknown")
 
 
 def resolve_alive_ids(tag_names: set[str]) -> set[str]:

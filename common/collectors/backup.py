@@ -13,7 +13,7 @@ import boto3
 from botocore.exceptions import ClientError
 
 from common import ResourceInfo
-from common.collectors.base import query_metric, CW_LOOKBACK_MINUTES, CW_STAT_SUM
+from common.collectors.base import query_metric, CW_LOOKBACK_MINUTES, CW_STAT_SUM, collect_metric
 
 logger = logging.getLogger(__name__)
 
@@ -88,10 +88,12 @@ def get_metrics(
     dim = [{"Name": "BackupVaultName", "Value": resource_id}]
     metrics: dict[str, float] = {}
 
-    _collect_metric("AWS/Backup", "NumberOfBackupJobsFailed", dim,
-                    start_time, end_time, "BackupJobsFailed", metrics)
-    _collect_metric("AWS/Backup", "NumberOfBackupJobsAborted", dim,
-                    start_time, end_time, "BackupJobsAborted", metrics)
+    collect_metric("AWS/Backup", "NumberOfBackupJobsFailed", dim,
+                   start_time, end_time, "BackupJobsFailed", metrics,
+                   stat=CW_STAT_SUM, resource_label="Backup")
+    collect_metric("AWS/Backup", "NumberOfBackupJobsAborted", dim,
+                   start_time, end_time, "BackupJobsAborted", metrics,
+                   stat=CW_STAT_SUM, resource_label="Backup")
 
     return metrics if metrics else None
 
@@ -111,18 +113,6 @@ def resolve_alive_ids(tag_names: set[str]) -> set[str]:
             else:
                 logger.error("describe_backup_vault failed for %s: %s", name, e)
     return alive
-
-
-def _collect_metric(namespace, cw_metric_name, dimensions,
-                    start_time, end_time, result_key, metrics_dict):
-    """단일 메트릭 조회 후 metrics_dict에 추가. 데이터 없으면 skip + info 로그."""
-    value = query_metric(namespace, cw_metric_name, dimensions,
-                         start_time, end_time, CW_STAT_SUM)
-    if value is not None:
-        metrics_dict[result_key] = value
-    else:
-        logger.info("Skipping %s metric for Backup %s: no data", result_key,
-                    dimensions[0]["Value"] if dimensions else "unknown")
 
 
 def _get_tags(backup_client, vault_arn: str) -> dict:
