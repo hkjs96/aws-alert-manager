@@ -6,10 +6,11 @@ import { GlobalFilterBar } from "../GlobalFilterBar";
 
 // --- Next.js navigation mocks ---
 const mockPush = vi.fn();
+const mockReplace = vi.fn();
 const mockSearchParams = new URLSearchParams();
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: mockPush }),
+  useRouter: () => ({ push: mockPush, replace: mockReplace }),
   usePathname: () => "/dashboard",
   useSearchParams: () => mockSearchParams,
 }));
@@ -31,13 +32,32 @@ vi.mock("@/lib/api-functions", () => ({
   fetchAccounts: vi.fn(() => Promise.resolve(mockAccounts)),
 }));
 
+// --- useOwnedCustomers mock ---
+vi.mock("@/hooks/useOwnedCustomers", () => ({
+  useOwnedCustomers: vi.fn(),
+}));
+
+import { useOwnedCustomers } from "@/hooks/useOwnedCustomers";
+
+function makeOwnedState(ownedIds: string[]) {
+  return {
+    ownedCustomerIds: ownedIds,
+    isLoading: false,
+    toggleOwned: vi.fn(async () => {}),
+    isOwned: (id: string) => ownedIds.includes(id),
+  };
+}
+
 describe("GlobalFilterBar", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // Reset searchParams
     for (const key of [...mockSearchParams.keys()]) {
       mockSearchParams.delete(key);
     }
+    // 기본: 두 고객사 모두 담당
+    vi.mocked(useOwnedCustomers).mockReturnValue(
+      makeOwnedState(["cust-001", "cust-002"]),
+    );
   });
 
   it("초기 렌더링 시 3개 드롭다운을 표시한다", async () => {
@@ -122,13 +142,44 @@ describe("GlobalFilterBar", () => {
   it("Service 드롭다운에 EC2, RDS, S3, LAMBDA, ALB 옵션을 표시한다", async () => {
     render(<GlobalFilterBar />);
     await waitFor(() => {
-      const serviceSelect = screen.getByLabelText("Service filter");
-      expect(serviceSelect).toBeInTheDocument();
+      expect(screen.getByLabelText("Service filter")).toBeInTheDocument();
     });
     expect(screen.getByText("EC2")).toBeInTheDocument();
     expect(screen.getByText("RDS")).toBeInTheDocument();
     expect(screen.getByText("S3")).toBeInTheDocument();
     expect(screen.getByText("LAMBDA")).toBeInTheDocument();
     expect(screen.getByText("ALB")).toBeInTheDocument();
+  });
+
+  // --- 담당 고객사 필터 관련 ---
+
+  it("OwnedCustomers에 포함된 고객사만 Customer 드롭다운에 나타난다", async () => {
+    vi.mocked(useOwnedCustomers).mockReturnValue(makeOwnedState(["cust-001"]));
+    render(<GlobalFilterBar />);
+    await waitFor(() => {
+      expect(screen.getByText("Acme Corp")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("Globex Inc")).not.toBeInTheDocument();
+  });
+
+  it("OwnedCustomers가 비어있으면 Customer 드롭다운이 disabled되고 placeholder가 표시된다", async () => {
+    vi.mocked(useOwnedCustomers).mockReturnValue(makeOwnedState([]));
+    render(<GlobalFilterBar />);
+    await waitFor(() => {
+      const select = screen.getByLabelText("Customer filter");
+      expect(select).toBeDisabled();
+    });
+    expect(screen.getByText("담당 고객사 없음")).toBeInTheDocument();
+  });
+
+  it("URL에 OwnedCustomers에 없는 customer_id가 있으면 router.replace로 파라미터를 제거한다", async () => {
+    vi.mocked(useOwnedCustomers).mockReturnValue(makeOwnedState(["cust-001"]));
+    mockSearchParams.set("customer_id", "cust-002"); // 담당 아닌 고객사
+    render(<GlobalFilterBar />);
+    await waitFor(() => {
+      expect(mockReplace).toHaveBeenCalledWith(
+        expect.not.stringContaining("customer_id=cust-002"),
+      );
+    });
   });
 });

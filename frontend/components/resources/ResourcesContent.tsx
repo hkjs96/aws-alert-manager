@@ -9,6 +9,8 @@ import { useToast } from "@/components/shared/Toast";
 import { LoadingButton } from "@/components/shared/LoadingButton";
 import { Pagination } from "@/components/shared/Pagination";
 import { useMonitoringToggle } from "@/hooks/useMonitoringToggle";
+import { useOwnedCustomers } from "@/hooks/useOwnedCustomers";
+import { OwnedEmptyState } from "@/components/shared/OwnedEmptyState";
 import { downloadCsv } from "@/lib/exportCsv";
 import { ResourceTable } from "./ResourceTable";
 import { BulkActionBar } from "./BulkActionBar";
@@ -51,6 +53,7 @@ export function ResourcesContent({
   const router = useRouter();
   const { showToast } = useToast();
   const { loadingIds, toggle } = useMonitoringToggle();
+  const { ownedCustomerIds } = useOwnedCustomers();
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [modal, setModal] = useState<"enable" | "disable" | null>(null);
@@ -90,9 +93,22 @@ export function ResourcesContent({
     setPage(1);
   };
 
+  // 담당 고객사에 속한 account_id 목록 (owned scope)
+  const ownedAccountIds = useMemo(
+    () =>
+      accounts
+        .filter((a) => ownedCustomerIds.includes(a.customerId))
+        .map((a) => a.id),
+    [accounts, ownedCustomerIds],
+  );
+
   // 필터링
   const filtered = useMemo(() => {
     return resources.filter((r) => {
+      // 담당 고객사 범위 필터 (explicit customerFilter가 없을 때)
+      if (!customerFilter && ownedCustomerIds.length > 0) {
+        if (!ownedAccountIds.includes(r.account)) return false;
+      }
       if (customerFilter) {
         const accountIds = accounts
           .filter((a) => a.customerId === customerFilter)
@@ -193,6 +209,10 @@ export function ResourcesContent({
     setSelected(new Set());
     router.refresh();
   };
+
+  if (ownedCustomerIds.length === 0) {
+    return <OwnedEmptyState />;
+  }
 
   return (
     <div className="space-y-8">

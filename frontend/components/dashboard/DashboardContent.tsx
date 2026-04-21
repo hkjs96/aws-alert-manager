@@ -10,6 +10,8 @@ import { RecentAlarmsTable } from "./RecentAlarmsTable";
 import { CreateAlarmModal } from "./create-alarm/CreateAlarmModal";
 import { FilterBar } from "@/components/resources/FilterBar";
 import { SUPPORTED_RESOURCE_TYPES } from "@/lib/constants";
+import { useOwnedCustomers } from "@/hooks/useOwnedCustomers";
+import { OwnedEmptyState } from "@/components/shared/OwnedEmptyState";
 
 interface CustomerDto { id: string; name: string }
 interface AccountDto { id: string; name: string; customerId: string }
@@ -25,6 +27,7 @@ interface DashboardContentProps {
 
 export function DashboardContent({ stats, alarms, customers, accounts }: DashboardContentProps) {
   const router = useRouter();
+  const { ownedCustomerIds } = useOwnedCustomers();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [customerFilter, setCustomerFilter] = useState("");
   const [accountFilter, setAccountFilter] = useState("");
@@ -40,8 +43,17 @@ export function DashboardContent({ stats, alarms, customers, accounts }: Dashboa
     setAccountFilter("");
   };
 
+  const ownedAccountIds = useMemo(
+    () => accounts.filter((a) => ownedCustomerIds.includes(a.customerId)).map((a) => a.id),
+    [accounts, ownedCustomerIds],
+  );
+
   const filteredAlarms = useMemo(() => {
     return alarms.filter((a) => {
+      // 담당 고객사 범위 필터 (explicit customerFilter가 없을 때)
+      if (!customerFilter && ownedAccountIds.length > 0) {
+        if (!ownedAccountIds.some((id) => a.arn.includes(id))) return false;
+      }
       if (accountFilter && !a.arn.includes(accountFilter)) return false;
       if (typeFilter && a.type !== typeFilter) return false;
       if (customerFilter) {
@@ -50,7 +62,7 @@ export function DashboardContent({ stats, alarms, customers, accounts }: Dashboa
       }
       return true;
     });
-  }, [alarms, customerFilter, accountFilter, typeFilter, accounts]);
+  }, [alarms, customerFilter, accountFilter, typeFilter, accounts, ownedAccountIds]);
 
   const filteredStats: DashboardStats = useMemo(() => {
     if (!customerFilter && !accountFilter && !typeFilter) return stats;
@@ -61,6 +73,10 @@ export function DashboardContent({ stats, alarms, customers, accounts }: Dashboa
       account_count: customerFilter ? filteredAccounts.length : stats.account_count,
     };
   }, [stats, filteredAlarms, customerFilter, accountFilter, typeFilter, filteredAccounts]);
+
+  if (ownedCustomerIds.length === 0) {
+    return <OwnedEmptyState />;
+  }
 
   return (
     <div className="space-y-8">

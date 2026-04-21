@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState, Suspense } from "react";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import type { Customer, Account } from "@/types/index";
 import { fetchCustomers, fetchAccounts } from "@/lib/api-functions";
+import { useOwnedCustomers } from "@/hooks/useOwnedCustomers";
 
 const SERVICES = ["EC2", "RDS", "S3", "LAMBDA", "ALB"] as const;
 
@@ -11,24 +12,45 @@ function GlobalFilterBarInner() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const { ownedCustomerIds } = useOwnedCustomers();
 
-  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [allCustomers, setAllCustomers] = useState<Customer[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
 
   const customerId = searchParams.get("customer_id") ?? "";
   const accountId = searchParams.get("account_id") ?? "";
   const service = searchParams.get("service") ?? "";
 
+  // 담당 고객사만 드롭다운에 표시
+  const customers = allCustomers.filter((c) =>
+    ownedCustomerIds.includes(c.customer_id),
+  );
+
   useEffect(() => {
     Promise.all([fetchCustomers(), fetchAccounts()])
       .then(([c, a]) => {
-        setCustomers(c);
+        setAllCustomers(c);
         setAccounts(a);
       })
       .catch(() => {
         // 에러 시 빈 목록 유지
       });
   }, []);
+
+  // URL에 비담당 customer_id가 있으면 조용히 제거
+  useEffect(() => {
+    if (
+      customerId &&
+      ownedCustomerIds.length > 0 &&
+      !ownedCustomerIds.includes(customerId)
+    ) {
+      const params = new URLSearchParams(searchParams.toString());
+      params.delete("customer_id");
+      params.delete("account_id");
+      params.delete("service");
+      router.replace(`${pathname}?${params.toString()}`);
+    }
+  }, [customerId, ownedCustomerIds, searchParams, pathname, router]);
 
   const updateParams = useCallback(
     (updates: Record<string, string>) => {
@@ -70,20 +92,29 @@ function GlobalFilterBarInner() {
     ? accounts.filter((a) => a.customer_id === customerId)
     : accounts;
 
+  const noOwnedCustomers = ownedCustomerIds.length === 0;
+
   return (
     <div className="flex items-center gap-3">
       <select
         value={customerId}
         onChange={(e) => handleCustomerChange(e.target.value)}
-        className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-700 outline-none focus:ring-2 focus:ring-primary/20"
+        disabled={noOwnedCustomers}
+        className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-700 outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-50 disabled:cursor-not-allowed"
         aria-label="Customer filter"
       >
-        <option value="">All Customers</option>
-        {customers.map((c) => (
-          <option key={c.customer_id} value={c.customer_id}>
-            {c.name}
-          </option>
-        ))}
+        {noOwnedCustomers ? (
+          <option value="">담당 고객사 없음</option>
+        ) : (
+          <>
+            <option value="">All Customers</option>
+            {customers.map((c) => (
+              <option key={c.customer_id} value={c.customer_id}>
+                {c.name}
+              </option>
+            ))}
+          </>
+        )}
       </select>
 
       <select

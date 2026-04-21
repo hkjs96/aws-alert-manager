@@ -8,6 +8,7 @@ import { Button } from "@/components/shared/Button";
 import { useToast } from "@/components/shared/Toast";
 import { LoadingButton } from "@/components/shared/LoadingButton";
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
+import { useOwnedCustomers } from "@/hooks/useOwnedCustomers";
 
 interface CustomerSectionProps {
   customers: Customer[];
@@ -16,6 +17,7 @@ interface CustomerSectionProps {
 export function CustomerSection({ customers }: CustomerSectionProps) {
   const router = useRouter();
   const { showToast } = useToast();
+  const { ownedCustomerIds, toggleOwned, isOwned } = useOwnedCustomers();
   const [name, setName] = useState("");
   const [code, setCode] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -81,6 +83,13 @@ export function CustomerSection({ customers }: CustomerSectionProps) {
         )}
       </div>
 
+      {/* 담당 고객사 없을 때 안내 배너 */}
+      {customers.length > 0 && ownedCustomerIds.length === 0 && (
+        <div className="mx-6 mt-4 rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-800">
+          담당 고객사를 선택하면 다른 화면에서 해당 고객사만 표시됩니다
+        </div>
+      )}
+
       {/* Customer table or empty state */}
       <div className="overflow-x-auto">
         {customers.length === 0 ? (
@@ -93,6 +102,7 @@ export function CustomerSection({ customers }: CustomerSectionProps) {
           <table className="w-full text-sm">
             <thead className="bg-slate-50 border-b border-slate-200">
               <tr>
+                <th className="px-4 py-3 text-center text-[11px] font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">담당</th>
                 <th className="px-4 py-3 text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Name</th>
                 <th className="px-4 py-3 text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">ID</th>
                 <th className="px-4 py-3 text-right text-[11px] font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Accounts</th>
@@ -102,6 +112,15 @@ export function CustomerSection({ customers }: CustomerSectionProps) {
             <tbody className="divide-y divide-slate-100">
               {customers.map((c) => (
                 <tr key={c.customer_id} className="hover:bg-slate-50 transition-colors">
+                  <td className="px-4 py-3 text-center">
+                    <input
+                      type="checkbox"
+                      aria-label="담당"
+                      checked={isOwned(c.customer_id)}
+                      onChange={() => toggleOwned(c.customer_id)}
+                      className="w-4 h-4 accent-primary cursor-pointer"
+                    />
+                  </td>
                   <td className="px-4 py-3 font-semibold text-slate-900">{c.name}</td>
                   <td className="px-4 py-3 font-mono text-[11px] text-slate-600">{c.customer_id}</td>
                   <td className="px-4 py-3 text-right text-slate-600">{c.account_count}</td>

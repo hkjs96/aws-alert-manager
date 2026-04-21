@@ -95,6 +95,20 @@ export function parseFilters(searchParams: URLSearchParams): FilterState {
 }
 
 /**
+ * 담당 고객사 필터 파라미터를 쿼리 문자열에 포함시킨다.
+ * customer_id가 지정된 경우 우선하며, 없는 경우에만 owned_customer_ids를 포함한다.
+ * ⚠️ Phase1: UX 필터 — 실제 접근 제어는 Phase2 BE에서 JWT claim으로 수행
+ */
+export function buildOwnedFilterParam(
+  customerId: string | undefined,
+  ownedCustomerIds: string[],
+): Record<string, string> {
+  if (customerId) return { customer_id: customerId };
+  if (ownedCustomerIds.length === 0) return {};
+  return { owned_customer_ids: ownedCustomerIds.join(",") };
+}
+
+/**
  * 페이지네이션 파라미터를 검증하고 반환한다.
  * page는 1 이상으로 클램핑, page_size는 ALLOWED_PAGE_SIZES 중 하나여야 한다.
  */

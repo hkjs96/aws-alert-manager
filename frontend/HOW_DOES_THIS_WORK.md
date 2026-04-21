@@ -57,6 +57,48 @@ frontend/
 - URL searchParams로 필터 상태 관리
 - 모든 API 호출에 필터 파라미터 전달
 
+### 내 담당 고객사 필터 (Phase1)
+
+엔지니어가 담당하는 고객사만 UI에 표시하는 UX 필터.
+
+**작동 방식:**
+
+```
+localStorage ("userCustomers:guest") — 담당 customer_id 목록 저장
+  ↓
+useOwnedCustomers() hook — useSyncExternalStore로 글로벌 상태 구독
+  ↓
+GlobalFilterBar  — 담당 고객사만 드롭다운에 표시, 비담당 URL 파라미터 자동 제거
+Dashboard / Resources / Alarms — ownedAccountIds 기반 데이터 필터링
+OwnedEmptyState  — 담당 고객사 미설정 시 안내 화면
+```
+
+**핵심 파일:**
+
+| 파일 | 역할 |
+|------|------|
+| `lib/ownedCustomers/store.ts` | `UserCustomerStore` 인터페이스 정의 |
+| `lib/ownedCustomers/localStorageStore.ts` | Phase1 구현체 (localStorage + cross-tab sync) |
+| `lib/ownedCustomers/apiStore.ts` | Phase2 stub (BE API 연동 예정) |
+| `hooks/useOwnedCustomers.ts` | React hook, `useSyncExternalStore` 사용 |
+| `components/settings/CustomerSection.tsx` | 담당 여부 체크박스 UI |
+| `components/shared/OwnedEmptyState.tsx` | 미설정 안내 컴포넌트 |
+
+**Phase1 한계 및 주의사항:**
+
+- localStorage는 클라이언트 UX 필터일 뿐, 보안 경계가 아님
+- 브라우저 DevTools로 localStorage 수정 시 다른 고객사 데이터 접근 가능
+- 실제 접근 제어는 Phase2 BE에서 JWT claim 기반으로 수행 예정
+- API Route (`app/api/`)의 `owned_customer_ids` 파라미터도 UX 편의 목적이며, Phase2에서는 BE가 JWT로 직접 필터링
+
+**Phase2 전환 시:**
+
+`lib/ownedCustomers/store.ts`의 factory 반환값을 `apiStore`로 교체하면 UI/hook 변경 없이 전환 가능:
+```typescript
+// store.ts (Phase2)
+export { createUserCustomerStore } from "./apiStore";
+```
+
 ### API 클라이언트 (`lib/api.ts`)
 - `apiFetch<T>()` — 타입 안전한 fetch 래퍼
 - `ApiError` 클래스로 에러 구조화 (status, code, message)

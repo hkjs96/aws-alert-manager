@@ -13,6 +13,8 @@ import { FilterBar } from "@/components/resources/FilterBar";
 import { downloadCsv } from "@/lib/exportCsv";
 import { AlarmSummaryCards } from "./AlarmSummaryCards";
 import { AlarmTable } from "./AlarmTable";
+import { useOwnedCustomers } from "@/hooks/useOwnedCustomers";
+import { OwnedEmptyState } from "@/components/shared/OwnedEmptyState";
 
 const FILTER_TABS: AlarmStateFilter[] = ["ALL", "ALARM", "INSUFFICIENT", "OK", "OFF"];
 
@@ -31,6 +33,7 @@ interface AlarmsContentProps {
 export function AlarmsContent({ alarms, summary, customers, accounts }: AlarmsContentProps) {
   const router = useRouter();
   const { showToast } = useToast();
+  const { ownedCustomerIds } = useOwnedCustomers();
   const [search, setSearch] = useState("");
   const [stateFilter, setStateFilter] = useState<AlarmStateFilter>("ALL");
   const [customerFilter, setCustomerFilter] = useState("");
@@ -51,6 +54,11 @@ export function AlarmsContent({ alarms, summary, customers, accounts }: AlarmsCo
     setPage(1);
   };
 
+  const ownedAccountIds = useMemo(
+    () => accounts.filter((a) => ownedCustomerIds.includes(a.customerId)).map((a) => a.id),
+    [accounts, ownedCustomerIds],
+  );
+
   const stateCounts = useMemo(() => {
     const counts: Record<string, number> = { ALL: 0, ALARM: 0, INSUFFICIENT: 0, OK: 0, OFF: 0 };
     alarms.forEach((a) => {
@@ -62,6 +70,10 @@ export function AlarmsContent({ alarms, summary, customers, accounts }: AlarmsCo
 
   const filtered = useMemo(() => {
     return alarms.filter((a) => {
+      // 담당 고객사 범위 필터 (explicit customerFilter가 없을 때)
+      if (!customerFilter && ownedAccountIds.length > 0) {
+        if (!ownedAccountIds.some((id) => a.arn.includes(id))) return false;
+      }
       if (stateFilter !== "ALL" && a.state !== stateFilter) return false;
       if (typeFilter && a.type !== typeFilter) return false;
       if (accountFilter && !a.arn.includes(accountFilter)) return false;
@@ -75,7 +87,7 @@ export function AlarmsContent({ alarms, summary, customers, accounts }: AlarmsCo
       }
       return true;
     });
-  }, [alarms, stateFilter, customerFilter, accountFilter, typeFilter, search, accounts]);
+  }, [alarms, stateFilter, customerFilter, accountFilter, typeFilter, search, accounts, ownedAccountIds]);
 
   const paginated = useMemo(() => {
     const start = (page - 1) * pageSize;
@@ -96,6 +108,10 @@ export function AlarmsContent({ alarms, summary, customers, accounts }: AlarmsCo
       setIsExporting(false);
     }
   };
+
+  if (ownedCustomerIds.length === 0) {
+    return <OwnedEmptyState />;
+  }
 
   return (
     <div className="space-y-8">
