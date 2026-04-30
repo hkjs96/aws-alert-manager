@@ -150,7 +150,30 @@ Resources:
           DEFAULT_DISK_THRESHOLD: !Ref DefaultDiskThreshold
           ENVIRONMENT: !FindInMap [EnvShortName, !Ref Environment, short]
 
-  # -- EventBridge Scheduler: Daily Monitor --
+  # -- Orchestrator Lambda -------------------
+  OrchestratorFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub
+        - aws-monitoring-engine-orchestrator-${EnvShort}
+        - EnvShort: !FindInMap [EnvShortName, !Ref Environment, short]
+      Description: Daily Monitor Orchestrator — reads account list and fans out to Worker Lambdas
+      Runtime: !FindInMap [LambdaConfig, Settings, Runtime]
+      Timeout: 60
+      MemorySize: 128
+      Handler: orchestrator.lambda_handler
+      Role: !GetAtt OrchestratorRole.Arn
+      Layers:
+        - !Ref CommonLayer
+      Code:
+        S3Bucket: !Ref DeploymentBucket
+        S3Key: !Sub ${CodeVersion}/daily_monitor.zip
+      Environment:
+        Variables:
+          WORKER_FUNCTION_NAME: !Ref DailyMonitorFunction
+          MONITORED_ACCOUNTS: ""   # JSON array — Phase 2에서 DynamoDB로 교체
+
+  # -- EventBridge Scheduler: Daily Monitor (Orchestrator 경유) --
   DailyMonitorSchedule:
     Type: AWS::Scheduler::Schedule
     Properties:
@@ -164,14 +187,14 @@ Resources:
       FlexibleTimeWindow:
         Mode: "OFF"
       Target:
-        Arn: !GetAtt DailyMonitorFunction.Arn
+        Arn: !GetAtt OrchestratorFunction.Arn
         RoleArn: !GetAtt SchedulerInvokeRole.Arn
 
-  # -- Lambda Permission: Scheduler -> DailyMonitor --
+  # -- Lambda Permission: Scheduler -> Orchestrator --
   DailyMonitorSchedulerPermission:
     Type: AWS::Lambda::Permission
     Properties:
-      FunctionName: !GetAtt DailyMonitorFunction.Arn
+      FunctionName: !GetAtt OrchestratorFunction.Arn
       Action: lambda:InvokeFunction
       Principal: scheduler.amazonaws.com
       SourceArn: !GetAtt DailyMonitorSchedule.Arn
@@ -343,13 +366,13 @@ Resources:
               Service: scheduler.amazonaws.com
             Action: sts:AssumeRole
       Policies:
-        - PolicyName: InvokeDailyMonitor
+        - PolicyName: InvokeOrchestrator
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
               - Effect: Allow
                 Action: lambda:InvokeFunction
-                Resource: !GetAtt DailyMonitorFunction.Arn
+                Resource: !GetAtt OrchestratorFunction.Arn
 
   # -- IAM Role: Daily Monitor ---------------
   MonitoringEngineRole:
@@ -532,6 +555,37 @@ Resources:
                 Resource:
                   - !Ref MonitoringAlertTopic
                   - !Ref ErrorAlertTopic
+              # -- 멀티 어카운트: 대상 계정 Role AssumeRole --
+              - Effect: Allow
+                Action:
+                  - sts:AssumeRole
+                Resource: "arn:aws:iam::*:role/AlarmManagerRole"
+                # TODO: Phase 2에서 각 고객사의 실제 Role ARN으로 교체
+
+  # -- IAM Role: Orchestrator ----------------
+  OrchestratorRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub
+        - aws-monitoring-engine-orchestrator-role-${EnvShort}
+        - EnvShort: !FindInMap [EnvShortName, !Ref Environment, short]
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: InvokeWorker
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: lambda:InvokeFunction
+                Resource: !GetAtt DailyMonitorFunction.Arn
 
   # -- IAM Role: Remediation Handler ---------
   RemediationHandlerRole:

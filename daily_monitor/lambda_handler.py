@@ -1,11 +1,13 @@
 """
-Daily_Monitor Lambda Handler
+Daily_Monitor Lambda Handler (Worker)
 
-매일 1회 실행되어:
-1. Monitoring=on 리소스의 CloudWatch Alarm 누락/불일치 점검 및 동기화
-2. 메트릭 조회 → 임계치 비교 → SNS 알림 발송 (알람 보완)
+Orchestrator로부터 계정 정보를 event로 받아 해당 계정의 리소스를 처리한다.
 
-단일 리소스 실패가 전체 실행을 중단시키지 않는 격리 패턴 적용.
+event 형식 (Orchestrator → Worker):
+  {"account_id": "111111111111", "role_arn": "arn:aws:iam::111111111111:role/AlarmManagerRole"}
+  role_arn가 빈 문자열이면 AssumeRole 없이 현재 Lambda 계정으로 실행 (단일 계정 모드).
+
+직접 EventBridge로 invoke 시(event 미포함)에도 단일 계정 모드로 동작하여 기존 호환 유지.
 """
 
 import functools
@@ -110,9 +112,65 @@ def _get_cw_client():
     return boto3.client("cloudwatch")
 
 
+# ──────────────────────────────────────────────
+# 멀티 어카운트 세션 전환 (RISK-01, RISK-07 대응)
+# ──────────────────────────────────────────────
+
+
+def _switch_account_session(role_arn: str, account_id: str) -> None:
+    """STS AssumeRole로 대상 계정 세션 전환 후 모든 lru_cache 클라이언트 무효화.
+
+    boto3.setup_default_session()으로 프로세스 전체 기본 자격증명을 교체하므로
+    이후 생성되는 모든 boto3 클라이언트가 대상 계정 credentials를 사용한다.
+    Lambda는 컨테이너당 단일 invocation이므로 setup_default_session은 안전하다.
+    Warm start 재사용 시 캐시된 이전 계정 클라이언트를 무효화하기 위해 cache_clear 필수.
+    """
+    sts = boto3.client("sts")
+    try:
+        resp = sts.assume_role(
+            RoleArn=role_arn,
+            RoleSessionName=f"DailyMonitor-{account_id}",
+        )
+    except ClientError as e:
+        logger.error("AssumeRole failed for %s (account=%s): %s", role_arn, account_id, e)
+        raise
+
+    creds = resp["Credentials"]
+    boto3.setup_default_session(
+        aws_access_key_id=creds["AccessKeyId"],
+        aws_secret_access_key=creds["SecretAccessKey"],
+        aws_session_token=creds["SessionToken"],
+    )
+    _clear_all_client_caches()
+    logger.info("Switched to account %s via AssumeRole", account_id)
+
+
+def _clear_all_client_caches() -> None:
+    """모든 모듈의 lru_cache boto3 클라이언트를 무효화하여 새 세션으로 재생성되도록 한다."""
+    import common._clients as _cl
+    from common.collectors import base as base_col
+
+    # 핸들러 + 공통 모듈 클라이언트
+    _get_cw_client.cache_clear()
+    _cl._get_cw_client.cache_clear()
+    _cl._get_cw_client_for_region.cache_clear()
+    base_col._get_cw_client.cache_clear()
+
+    # 각 collector 모듈의 _get_*_client 함수 일괄 무효화
+    for mod in _COLLECTOR_MODULES:
+        for attr in dir(mod):
+            if attr.startswith("_get") and "client" in attr:
+                fn = getattr(mod, attr, None)
+                if callable(fn) and hasattr(fn, "cache_clear"):
+                    fn.cache_clear()
+
+
 def lambda_handler(event, context):
     """
-    Lambda 핸들러 진입점.
+    Lambda 핸들러 진입점 (Worker).
+
+    event.role_arn이 있으면 해당 계정으로 세션 전환 후 처리.
+    없으면 현재 Lambda 실행 계정(단일 계정 모드)으로 동작.
 
     0단계: 고아 알람 정리 (terminated 인스턴스 알람 삭제)
     1단계: 알람 동기화 (누락/불일치 점검)
@@ -121,6 +179,16 @@ def lambda_handler(event, context):
     Returns:
         {"status": "ok", "processed": N, "alerts": M, "alarms_synced": {...}}
     """
+    # 멀티 어카운트: Orchestrator가 주입한 계정 정보로 세션 전환
+    role_arn = event.get("role_arn", "") if isinstance(event, dict) else ""
+    account_id = event.get("account_id", "self") if isinstance(event, dict) else "self"
+
+    if role_arn:
+        try:
+            _switch_account_session(role_arn, account_id)
+        except ClientError:
+            return {"status": "error", "account_id": account_id, "reason": "assume_role_failed"}
+
     # 0단계: 고아 알람 정리
     try:
         orphaned = _cleanup_orphan_alarms()
@@ -187,11 +255,12 @@ def lambda_handler(event, context):
                 )
 
     logger.info(
-        "Daily monitor complete: processed=%d, alerts=%d, alarms_synced=%s",
-        total_processed, total_alerts, alarms_synced,
+        "Daily monitor complete: account=%s, processed=%d, alerts=%d, alarms_synced=%s",
+        account_id, total_processed, total_alerts, alarms_synced,
     )
     return {
         "status": "ok",
+        "account_id": account_id,
         "processed": total_processed,
         "alerts": total_alerts,
         "alarms_synced": alarms_synced,

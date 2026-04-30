@@ -69,9 +69,11 @@ def valid_dynamic_tags(draw):
     metrics = {}
     for _ in range(n_tags):
         name = draw(valid_metric_names)
-        # 하드코딩 목록과 Disk_ 접두사 제외
+        # 하드코딩 목록, Disk_ 접두사, 퍼센트 기반 헬퍼 태그 제외
+        # FreeMemoryPct/FreeLocalStoragePct는 _parse_threshold_tags가 명시적으로 스킵
         assume(name not in hardcoded)
         assume(not name.startswith("Disk_"))
+        assume(name not in {"FreeMemoryPct", "FreeLocalStoragePct"})
         value = draw(positive_values)
         tag_key = f"Threshold_{name}"
         # 태그 키 128자 이하
