@@ -548,6 +548,8 @@ Resources:
                   - cloudwatch:DeleteAlarms
                   - cloudwatch:DescribeAlarms
                   - cloudwatch:ListMetrics
+                  - cloudwatch:TagResource
+                  - cloudwatch:ListTagsForResource
                 Resource: "*"
               - Effect: Allow
                 Action:

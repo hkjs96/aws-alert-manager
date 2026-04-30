@@ -1692,6 +1692,7 @@ def _metric_name_to_key(metric_name: str) -> str:
         "ClusterStatus.yellow": "ClusterStatusYellow",
         "ClusterIndexWritesBlocked": "ClusterIndexWritesBlocked",
         "MasterCPUUtilization": "MasterCPU",
+        "JVMMemoryPressure": "JVMMemoryPressure",
         "MasterJVMMemoryPressure": "MasterJVMMemoryPressure",
         "ApproximateNumberOfMessagesVisible": "SQSMessagesVisible",
         "ApproximateAgeOfOldestMessage": "SQSOldestMessage",
@@ -1727,4 +1728,84 @@ def _metric_name_to_key(metric_name: str) -> str:
         "NumberOfNotificationsFailed": "SNSNotificationsFailed",
         "NumberOfMessagesPublished": "SNSMessagesPublished",
     }
+    return mapping.get(metric_name, "")
+
+
+# ──────────────────────────────────────────────
+# Severity 등급 체계 (Phase2 §13, PagerDuty SEV 기준)
+# ──────────────────────────────────────────────
+
+# 메트릭 키 → 기본 Severity 매핑.
+# 기준: 해당 메트릭이 ALARM 상태일 때의 비즈니스 영향도.
+# 미정의 메트릭은 get_severity()에서 "SEV-5"로 폴백.
+_DEFAULT_SEVERITY: dict[str, str] = {
+    # SEV-1: 서비스 완전 중단 또는 접근 불가
+    "StatusCheckFailed":  "SEV-1",
+    "HealthyHostCount":   "SEV-1",
+    "TunnelState":        "SEV-1",
+    "ConnectionState":    "SEV-1",
+    "HealthCheckStatus":  "SEV-1",
+    "ActiveControllerCount": "SEV-1",
+
+    # SEV-2: 에러 급증, 서비스 품질 심각 저하
+    "ELB5XX":                "SEV-2",
+    "CLB5XX":                "SEV-2",
+    "Errors":                "SEV-2",
+    "UnHealthyHostCount":    "SEV-2",
+    "Api5XXError":           "SEV-2",
+    "Api5xx":                "SEV-2",
+    "ErrorPortAllocation":   "SEV-2",
+    "TargetConnectionError": "SEV-2",
+
+    # SEV-3: 리소스 포화 근접, 조치 안 하면 장애 가능
+    "CPU":                "SEV-3",
+    "Memory":             "SEV-3",
+    "Disk":               "SEV-3",
+    "FreeMemoryGB":       "SEV-3",
+    "FreeStorageGB":      "SEV-3",
+    "FreeLocalStorageGB": "SEV-3",
+    "EngineCPU":          "SEV-3",
+    "ACUUtilization":     "SEV-3",
+    "DaysToExpiry":       "SEV-3",
+    "ReplicaLag":         "SEV-3",
+    "ReaderReplicaLag":   "SEV-3",
+    "PacketsDropCount":   "SEV-3",
+    "Evictions":          "SEV-3",
+    "OSFreeStorageSpace": "SEV-3",
+
+    # SEV-4: 성능 저하, 사용자 체감 가능하나 서비스 중단 아님
+    "ReadLatency":          "SEV-4",
+    "WriteLatency":         "SEV-4",
+    "TargetResponseTime":   "SEV-4",
+    "TGResponseTime":       "SEV-4",
+    "Duration":             "SEV-4",
+    "ApiLatency":           "SEV-4",
+    "ELB4XX":               "SEV-4",
+    "Api4XXError":          "SEV-4",
+    "Api4xx":               "SEV-4",
+    "BurstCreditBalance":   "SEV-4",
+
+    # SEV-5: 트래픽/용량 참고 지표, 추세 모니터링
+    "RequestCount":           "SEV-5",
+    "Connections":            "SEV-5",
+    "CurrConnections":        "SEV-5",
+    "ProcessedBytes":         "SEV-5",
+    "ActiveFlowCount":        "SEV-5",
+    "NewFlowCount":           "SEV-5",
+    "ConnectionAttempts":     "SEV-5",
+    "RequestCountPerTarget":  "SEV-5",
+    "ServerlessDatabaseCapacity": "SEV-5",
+    "SwapUsage":              "SEV-5",
+}
+
+
+def get_severity(metric_key: str) -> str:
+    """메트릭 키에 대한 기본 Severity 등급 반환.
+
+    Disk_ prefix (Disk_root, Disk_data 등)는 모두 SEV-3 (포화도).
+    미정의 메트릭은 SEV-5 폴백.
+    """
+    if metric_key.startswith("Disk_"):
+        return "SEV-3"
+    return _DEFAULT_SEVERITY.get(metric_key, "SEV-5")
     return mapping.get(metric_name, metric_name)

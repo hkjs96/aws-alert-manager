@@ -5,6 +5,7 @@ CloudWatch put_metric_alarm 호출을 담당하는 알람 생성 전담 모듈.
 표준/Disk/동적 알람 생성 및 재생성 로직을 포함한다.
 """
 
+import functools
 import logging
 import os
 
@@ -21,6 +22,7 @@ from common.alarm_naming import (
 from common.alarm_registry import (
     _get_alarm_defs,
     _metric_name_to_key,
+    get_severity,
 )
 from common.dimension_builder import (
     _build_dimensions,
@@ -45,6 +47,38 @@ logger = logging.getLogger("common.alarm_manager")
 
 def _get_sns_alert_arn() -> str:
     return os.environ.get("SNS_TOPIC_ARN_ALERT", "")
+
+
+# ──────────────────────────────────────────────
+# Severity 태그 부여 (Phase2 §13-4)
+# ──────────────────────────────────────────────
+
+
+@functools.lru_cache(maxsize=None)
+def _get_aws_account_id() -> str:
+    """현재 AWS 계정 ID (lru_cache — Lambda 컨테이너 생애주기 동안 1회만 STS 호출)."""
+    return boto3.client("sts").get_caller_identity()["Account"]
+
+
+def _tag_alarm_with_severity(alarm_name: str, metric_key: str, cw) -> None:
+    """알람 생성 직후 Severity + ManagedBy 태그를 부여한다.
+
+    tag_resource 실패는 알람 생성 성공에 영향을 주지 않도록 예외를 흡수한다.
+    """
+    severity = get_severity(metric_key)
+    region = cw.meta.region_name
+    account_id = _get_aws_account_id()
+    alarm_arn = f"arn:aws:cloudwatch:{region}:{account_id}:alarm:{alarm_name}"
+    try:
+        cw.tag_resource(
+            ResourceARN=alarm_arn,
+            Tags=[
+                {"Key": "Severity", "Value": severity},
+                {"Key": "ManagedBy", "Value": "AlarmManager"},
+            ],
+        )
+    except ClientError as e:
+        logger.warning("Failed to tag alarm %s with severity: %s", alarm_name, e)
 
 
 def _create_disk_alarms(
@@ -113,6 +147,7 @@ def _create_disk_alarms(
             )
             logger.info("Created disk alarm: %s (path=%s, threshold=%.2f)", name, path, disk_threshold)
             created.append(name)
+            _tag_alarm_with_severity(name, alarm_metric, cw)
         except ClientError as e:
             logger.error("Failed to create disk alarm %s: %s", name, e)
     return created
@@ -173,6 +208,7 @@ def _create_standard_alarm(
             TreatMissingData=alarm_def.get("treat_missing_data", "missing"),
         )
         logger.info("Created alarm: %s (threshold=%.2f)", name, threshold)
+        _tag_alarm_with_severity(name, alarm_def["metric"], cw)
         return name
     except ClientError as e:
         logger.error("Failed to create alarm %s: %s", name, e)
@@ -253,6 +289,7 @@ def _create_dynamic_alarm(
             OKActions=[sns_arn] if sns_arn else [],
             TreatMissingData="missing",
         )
+        _tag_alarm_with_severity(name, metric_name, cw)
         logger.info(
             "Created dynamic alarm: %s (metric=%s, threshold=%.2f, comparison=%s)",
             name, metric_name, threshold, comparison,
@@ -336,6 +373,7 @@ def _create_single_alarm(
             TreatMissingData=alarm_def.get("treat_missing_data", "missing"),
         )
         logger.info("Created single alarm: %s (threshold=%.2f)", name, threshold)
+        _tag_alarm_with_severity(name, metric, cw)
     except ClientError as e:
         logger.error("Failed to create single alarm %s: %s", name, e)
 
