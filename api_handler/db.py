@@ -2,7 +2,7 @@
 DynamoDB 클라이언트 및 공통 헬퍼.
 
 테이블 이름은 환경변수로 주입:
-  CUSTOMERS_TABLE, ACCOUNTS_TABLE, THRESHOLD_OVERRIDES_TABLE
+  CUSTOMERS_TABLE, ACCOUNTS_TABLE, THRESHOLD_OVERRIDES_TABLE, JOB_STATUS_TABLE
 """
 
 import functools
@@ -31,6 +31,10 @@ def accounts_table():
 
 def threshold_overrides_table():
     return _get_dynamodb().Table(os.environ["THRESHOLD_OVERRIDES_TABLE"])
+
+
+def job_status_table():
+    return _get_dynamodb().Table(os.environ["JOB_STATUS_TABLE"])
 
 
 def scan_all(table) -> list[dict]:
