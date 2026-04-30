@@ -13,19 +13,19 @@ Dashboard의 "Create Alarm" 버튼으로 열리는 멀티스텝 모달을 구현
     - `isSubmitEnabled(track, metrics, customMetrics)` — 트랙 1: customMetrics ≥ 1, 트랙 2: enabled metrics ≥ 1 또는 customMetrics ≥ 1
     - _Requirements: 3.2, 3.4, 3.5, 7.1, 7.2, 8.1, 8.2_
 
-  - [ ]* 1.2 `filterAccounts` 속성 테스트 작성
+  - [x] 1.2 `filterAccounts` 속성 테스트 작성
     - **Property 4: 어카운트 필터링 정확성** — 임의의 customer_id에 대해 반환된 모든 어카운트의 customer_id가 일치하고, 해당 customer_id를 가진 모든 어카운트가 빠짐없이 포함되는지 검증
     - **Validates: Requirements 3.2**
 
-  - [ ]* 1.3 `filterResources` 속성 테스트 작성
+  - [x] 1.3 `filterResources` 속성 테스트 작성
     - **Property 5: 트랙별 리소스 필터링 정확성** — 임의의 (track, accountId)에 대해 반환된 리소스가 account 일치 + 트랙별 monitoring 조건을 만족하고, 조건을 만족하는 모든 리소스가 빠짐없이 포함되는지 검증
     - **Validates: Requirements 3.4, 3.5**
 
-  - [ ]* 1.4 `isSubmitEnabled` 속성 테스트 작성
+  - [x] 1.4 `isSubmitEnabled` 속성 테스트 작성
     - **Property 9: Submit 버튼 활성화 조건 정합성** — 임의의 (track, metrics enabled 상태, customMetrics 개수)에 대해 활성화 여부가 설계 문서의 조건과 동치인지 검증
     - **Validates: Requirements 7.1, 7.2, 8.1, 8.2**
 
-  - [ ]* 1.5 순수 함수 단위 테스트 작성 (`__tests__/lib/alarm-modal-utils.test.ts`)
+  - [x] 1.5 순수 함수 단위 테스트 작성 (`__tests__/lib/alarm-modal-utils.test.ts`)
     - filterAccounts: 빈 배열, 일치하는 어카운트, 일치하지 않는 customer_id
     - filterResources: 트랙 1 monitoring=true만, 트랙 2 monitoring=false만, 빈 결과
     - isSubmitEnabled: 트랙 1 커스텀 메트릭 0개/1개, 트랙 2 기본 메트릭 전체 비활성화 + 커스텀 0개/1개
@@ -42,7 +42,7 @@ Dashboard의 "Create Alarm" 버튼으로 열리는 멀티스텝 모달을 구현
     - `data-testid` 속성 추가 (track-card-1, track-card-2)
     - _Requirements: 2.1, 2.2, 2.3_
 
-  - [ ]* 3.2 TrackSelector 단위 테스트 작성
+  - [x] 3.2 TrackSelector 단위 테스트 작성
     - 두 카드 렌더링 확인, 클릭 시 onSelectTrack 호출 확인, 선택 상태 스타일 확인
     - _Requirements: 2.1, 2.2, 2.3_
 
@@ -56,7 +56,7 @@ Dashboard의 "Create Alarm" 버튼으로 열리는 멀티스텝 모달을 구현
     - `data-testid` 속성 추가 (customer-select, account-select, resource-select)
     - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 9.1, 9.2, 9.3_
 
-  - [ ]* 4.2 ResourceFilterStep 단위 테스트 작성
+  - [x] 4.2 ResourceFilterStep 단위 테스트 작성
     - 고객사 목록 렌더링, 어카운트 캐스케이딩 필터, 트랙별 리소스 필터, 빈 상태 메시지 표시
     - _Requirements: 3.1, 3.2, 3.4, 3.5, 9.1, 9.2, 9.3_
 
@@ -68,7 +68,7 @@ Dashboard의 "Create Alarm" 버튼으로 열리는 멀티스텝 모달을 구현
     - `addCustomFromDropdown` 핸들러 구현 (커스텀 메트릭 추가 로직)
     - _Requirements: 4.1, 4.2, 4.3, 4.4, 4.5, 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 5.7, 5.8, 9.4_
 
-  - [ ]* 5.2 MetricConfigStep 단위 테스트 작성
+  - [x] 5.2 MetricConfigStep 단위 테스트 작성
     - 트랙 1: 커스텀 메트릭 드롭다운만 표시, 기본 메트릭 테이블 미표시
     - 트랙 2: MetricConfigSection 렌더링, 기본 메트릭 + 커스텀 메트릭 영역 표시
     - 빈 메트릭 안내 메시지 표시
@@ -95,21 +95,21 @@ Dashboard의 "Create Alarm" 버튼으로 열리는 멀티스텝 모달을 구현
     - `data-testid` 속성 추가 (create-alarm-modal, close-button)
     - _Requirements: 1.1, 1.2, 1.3, 1.4, 2.4, 3.3, 3.6, 7.3, 7.4, 7.5, 7.6, 8.3, 8.4, 8.5, 8.6_
 
-  - [ ]* 7.3 CreateAlarmModal 단위 테스트 작성
+  - [x] 7.3 CreateAlarmModal 단위 테스트 작성
     - 모달 열기/닫기, X 버튼 클릭 시 상태 초기화, Cancel 클릭 시 상태 초기화
     - 트랙 선택 후 ResourceFilterStep 표시, 리소스 선택 후 MetricConfigStep 표시
     - API 호출 성공 시 Toast + 모달 닫기, 실패 시 Toast + 모달 유지
     - _Requirements: 1.1, 1.2, 1.3, 1.4, 7.4, 7.5, 8.4, 8.5_
 
-  - [ ]* 7.4 캐스케이딩 초기화 속성 테스트 작성
+  - [x] 7.4 캐스케이딩 초기화 속성 테스트 작성
     - **Property 3: 캐스케이딩 초기화** — 임의의 필터 상태에서 상위 드롭다운 변경 시 하위 선택값이 모두 초기화되는지 검증
     - **Validates: Requirements 3.3, 3.6**
 
-  - [ ]* 7.5 모달 재오픈 초기 상태 속성 테스트 작성
+  - [x] 7.5 모달 재오픈 초기 상태 속성 테스트 작성
     - **Property 1: 모달 재오픈 시 초기 상태 복원** — 임의의 ModalState에서 모달 닫고 다시 열면 초기 상태로 복원되는지 검증
     - **Validates: Requirements 1.4**
 
-  - [ ]* 7.6 트랙 변경 시 하위 상태 초기화 속성 테스트 작성
+  - [x] 7.6 트랙 변경 시 하위 상태 초기화 속성 테스트 작성
     - **Property 2: 트랙 변경 시 하위 상태 전체 초기화** — 임의의 하위 상태에서 트랙 변경 시 모든 하위 상태가 초기값으로 리셋되는지 검증
     - **Validates: Requirements 2.4**
 
@@ -123,7 +123,7 @@ Dashboard의 "Create Alarm" 버튼으로 열리는 멀티스텝 모달을 구현
     - `<CreateAlarmModal open={isModalOpen} onClose={() => setIsModalOpen(false)} />` 렌더링
     - _Requirements: 1.1_
 
-  - [ ]* 9.2 DashboardContent 연동 테스트 작성
+  - [x]* 9.2 DashboardContent 연동 테스트 작성
     - "Create Alarm" 버튼 클릭 시 모달 표시 확인
     - _Requirements: 1.1_
 
