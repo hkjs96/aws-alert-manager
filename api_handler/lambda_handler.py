@@ -66,10 +66,15 @@ def lambda_handler(event, context):
     method = event.get("requestContext", {}).get("http", {}).get("method", "GET").upper()
     raw_path = event.get("rawPath", event.get("path", "/"))
 
-    # API Gateway stage prefix 제거 (/prod/customers → /customers)
+    # API Gateway stage prefix 제거 (/prod/api/customers → /api/customers)
     stage = os.environ.get("API_STAGE", "")
     if stage and raw_path.startswith(f"/{stage}"):
         raw_path = raw_path[len(f"/{stage}"):]
+
+    # /api prefix 제거 (/api/customers → /customers)
+    # 프론트엔드가 apiFetch("/api/customers")로 호출하기 때문에 필요
+    if raw_path.startswith("/api"):
+        raw_path = raw_path[4:] or "/"
 
     logger.info("%s %s", method, raw_path)
 
