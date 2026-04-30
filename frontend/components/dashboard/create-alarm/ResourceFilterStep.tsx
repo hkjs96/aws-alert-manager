@@ -1,13 +1,16 @@
 "use client";
 
-import { getCustomers, getAccounts, getResources } from "@/lib/mock-store";
+import { useEffect, useState } from "react";
 import { filterAccounts, filterResources, type Track } from "@/lib/alarm-modal-utils";
+import { fetchCustomers, fetchAccounts } from "@/lib/api-functions";
+import type { Customer, Account, Resource } from "@/types";
 
 interface ResourceFilterStepProps {
   track: Track;
   customerId: string;
   accountId: string;
   resourceId: string;
+  allResources: Resource[];  // 부모 CreateAlarmModal에서 주입 (중복 페치 방지)
   onCustomerChange: (id: string) => void;
   onAccountChange: (id: string) => void;
   onResourceChange: (id: string) => void;
@@ -15,10 +18,23 @@ interface ResourceFilterStepProps {
 
 export function ResourceFilterStep({
   track, customerId, accountId, resourceId,
+  allResources,
   onCustomerChange, onAccountChange, onResourceChange,
 }: ResourceFilterStepProps) {
-  const accounts = customerId ? filterAccounts(getAccounts(), customerId) : [];
-  const resources = accountId ? filterResources(getResources(), accountId, track) : [];
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [allAccounts, setAllAccounts] = useState<Account[]>([]);
+
+  useEffect(() => {
+    void Promise.all([fetchCustomers(), fetchAccounts()])
+      .then(([c, a]) => {
+        setCustomers(c);
+        setAllAccounts(a);
+      })
+      .catch(() => {});
+  }, []);
+
+  const accounts = customerId ? filterAccounts(allAccounts, customerId) : [];
+  const resources = accountId ? filterResources(allResources, accountId, track) : [];
 
   return (
     <div className="space-y-4">
@@ -34,7 +50,7 @@ export function ResourceFilterStep({
           className="w-full rounded border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-primary/20 outline-none"
         >
           <option value="">고객사를 선택하세요...</option>
-          {getCustomers().map((c) => (
+          {customers.map((c) => (
             <option key={c.customer_id} value={c.customer_id}>{c.name}</option>
           ))}
         </select>

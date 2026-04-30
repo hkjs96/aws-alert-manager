@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { X } from "lucide-react";
 import { useToast } from "@/components/shared/Toast";
-import { getResources } from "@/lib/mock-store";
+import { fetchResources } from "@/lib/api-functions";
 import { isSubmitEnabled, type Track } from "@/lib/alarm-modal-utils";
+import type { Resource } from "@/types";
 import { METRICS_BY_TYPE, type MetricRow } from "@/components/resources/MetricConfigSection";
 import { TrackSelector } from "./TrackSelector";
 import { ResourceFilterStep } from "./ResourceFilterStep";
@@ -39,6 +40,13 @@ export function CreateAlarmModal({ open, onClose, onSuccess }: CreateAlarmModalP
   const [customMetrics, setCustomMetrics] = useState<MetricRow[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showCustom, setShowCustom] = useState(false);
+  const [allResources, setAllResources] = useState<Resource[]>([]);
+
+  useEffect(() => {
+    if (open) {
+      void fetchResources({ page: 1, page_size: 200 }).then((r) => setAllResources(r.items)).catch(() => {});
+    }
+  }, [open]);
   const [selectedCwMetric, setSelectedCwMetric] = useState("");
   const [customThreshold, setCustomThreshold] = useState(0);
   const [customUnit, setCustomUnit] = useState("");
@@ -63,7 +71,7 @@ export function CreateAlarmModal({ open, onClose, onSuccess }: CreateAlarmModalP
     onClose();
   }, [resetState, onClose]);
 
-  const selectedResource = getResources().find((r) => r.id === resourceId);
+  const selectedResource = allResources.find((r) => r.id === resourceId);
   const resourceType = selectedResource?.type ?? "";
 
   const handleSelectTrack = (t: Track) => {
@@ -96,7 +104,7 @@ export function CreateAlarmModal({ open, onClose, onSuccess }: CreateAlarmModalP
   const handleResourceChange = (id: string) => {
     setResourceId(id);
     if (id && track === 2) {
-      const res = getResources().find((r) => r.id === id);
+      const res = allResources.find((r) => r.id === id);
       if (res) {
         const defaultMetrics = METRICS_BY_TYPE[res.type] ?? [];
         setMetrics(defaultMetrics.map((m) => ({ ...m })));
@@ -185,6 +193,7 @@ export function CreateAlarmModal({ open, onClose, onSuccess }: CreateAlarmModalP
               customerId={customerId}
               accountId={accountId}
               resourceId={resourceId}
+              allResources={allResources}
               onCustomerChange={handleCustomerChange}
               onAccountChange={handleAccountChange}
               onResourceChange={handleResourceChange}
