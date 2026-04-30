@@ -25,7 +25,7 @@ vi.mock("@/lib/api-functions", () => ({
 }));
 
 const defaultProps = {
-  stats: { monitored_count: 0, active_alarms: 0, alarm_summary: { critical: 0, warning: 0, ok: 0 } },
+  stats: { monitored_count: 0, unmonitored_count: 0, account_count: 0, active_alarms: 0, alarm_summary: { critical: 0, warning: 0, ok: 0 } },
   alarms: [],
   customers: [],
   accounts: [],
