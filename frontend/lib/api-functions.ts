@@ -153,9 +153,10 @@ export function fetchThresholds(
 export function saveThresholds(
   type: string,
   overrides: ThresholdOverride[],
+  customerId?: string,
 ): Promise<void> {
   return apiFetch(`/api/thresholds/${type}`, {
     method: "PUT",
-    body: JSON.stringify(overrides),
+    body: JSON.stringify({ customer_id: customerId ?? "", overrides }),
   });
 }
