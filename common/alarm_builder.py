@@ -10,7 +10,7 @@ import logging
 import os
 
 import boto3
-from botocore.exceptions import ClientError
+from botocore.exceptions import BotoCoreError, ClientError
 
 import common._clients as _clients
 from common.alarm_naming import (
@@ -64,12 +64,13 @@ def _tag_alarm_with_severity(alarm_name: str, metric_key: str, cw) -> None:
     """알람 생성 직후 Severity + ManagedBy 태그를 부여한다.
 
     tag_resource 실패는 알람 생성 성공에 영향을 주지 않도록 예외를 흡수한다.
+    BotoCoreError: NoCredentialsError 등 자격증명 문제 포함.
     """
     severity = get_severity(metric_key)
-    region = cw.meta.region_name
-    account_id = _get_aws_account_id()
-    alarm_arn = f"arn:aws:cloudwatch:{region}:{account_id}:alarm:{alarm_name}"
     try:
+        region = cw.meta.region_name
+        account_id = _get_aws_account_id()
+        alarm_arn = f"arn:aws:cloudwatch:{region}:{account_id}:alarm:{alarm_name}"
         cw.tag_resource(
             ResourceARN=alarm_arn,
             Tags=[
@@ -77,7 +78,7 @@ def _tag_alarm_with_severity(alarm_name: str, metric_key: str, cw) -> None:
                 {"Key": "ManagedBy", "Value": "AlarmManager"},
             ],
         )
-    except ClientError as e:
+    except (ClientError, BotoCoreError) as e:
         logger.warning("Failed to tag alarm %s with severity: %s", alarm_name, e)
 
 
