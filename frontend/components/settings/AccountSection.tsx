@@ -7,6 +7,7 @@ import type { Account, Customer } from "@/types";
 import { Button } from "@/components/shared/Button";
 import { useToast } from "@/components/shared/Toast";
 import { LoadingButton } from "@/components/shared/LoadingButton";
+import { createAccount, testConnection } from "@/lib/api-functions";
 
 interface AccountSectionProps {
   accounts: Account[];
@@ -51,22 +52,20 @@ export function AccountSection({ accounts, customers }: AccountSectionProps) {
     setError("");
     setIsSubmitting(true);
     try {
-      const res = await fetch("/api/accounts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ account_id: accountId.trim(), role_arn: roleArn.trim(), name: name.trim(), customer_id: customerId }),
+      await createAccount({
+        account_id: accountId.trim(),
+        role_arn: roleArn.trim(),
+        name: name.trim(),
+        customer_id: customerId,
       });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.message ?? "Failed");
-      }
       showToast("success", `Account "${name}" has been connected.`);
       setAccountId("");
       setRoleArn("");
       setName("");
       router.refresh();
-    } catch {
-      setError("Failed to connect account.");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Failed to connect account.";
+      setError(msg);
     } finally {
       setIsSubmitting(false);
     }
@@ -75,9 +74,7 @@ export function AccountSection({ accounts, customers }: AccountSectionProps) {
   const handleTest = async (id: string) => {
     setTestingId(id);
     try {
-      const res = await fetch(`/api/accounts/${id}/test`, { method: "POST" });
-      if (!res.ok) throw new Error("Failed");
-      const data = await res.json() as { status: string };
+      const data = await testConnection(id);
       setStatuses((prev) => ({ ...prev, [id]: data.status }));
       showToast(
         data.status === "connected" ? "success" : "error",

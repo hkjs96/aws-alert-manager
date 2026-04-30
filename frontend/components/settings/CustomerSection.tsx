@@ -9,6 +9,7 @@ import { useToast } from "@/components/shared/Toast";
 import { LoadingButton } from "@/components/shared/LoadingButton";
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { useOwnedCustomers } from "@/hooks/useOwnedCustomers";
+import { createCustomer as apiCreateCustomer, deleteCustomer as apiDeleteCustomer } from "@/lib/api-functions";
 
 interface CustomerSectionProps {
   customers: Customer[];
@@ -32,21 +33,14 @@ export function CustomerSection({ customers }: CustomerSectionProps) {
     setError("");
     setIsSubmitting(true);
     try {
-      const res = await fetch("/api/customers", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: name.trim(), code: code.trim() }),
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.message ?? "Failed");
-      }
+      await apiCreateCustomer({ name: name.trim(), code: code.trim() });
       showToast("success", `Customer "${name}" has been registered.`);
       setName("");
       setCode("");
       router.refresh();
-    } catch {
-      setError("Failed to register customer.");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Failed to register customer.";
+      setError(msg);
     } finally {
       setIsSubmitting(false);
     }
@@ -55,8 +49,7 @@ export function CustomerSection({ customers }: CustomerSectionProps) {
   const handleDelete = async () => {
     if (!deleteTarget) return;
     try {
-      const res = await fetch(`/api/customers/${deleteTarget.customer_id}`, { method: "DELETE" });
-      if (!res.ok) throw new Error("Failed");
+      await apiDeleteCustomer(deleteTarget.customer_id);
       showToast("success", `Customer "${deleteTarget.name}" has been deleted.`);
       router.refresh();
     } catch {
