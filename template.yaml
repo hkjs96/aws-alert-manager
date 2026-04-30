@@ -117,6 +117,42 @@ Resources:
           DEFAULT_DISK_THRESHOLD: !Ref DefaultDiskThreshold
           ENVIRONMENT: !FindInMap [EnvShortName, !Ref Environment, short]
 
+  # -- Dead Letter Queue: Remediation Handler (RISK-08) --
+  RemediationDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub
+        - aws-monitoring-engine-remediation-dlq-${EnvShort}
+        - EnvShort: !FindInMap [EnvShortName, !Ref Environment, short]
+      MessageRetentionPeriod: 1209600  # 14일 (최대)
+      Tags:
+        - Key: ManagedBy
+          Value: AlarmManager
+
+  # -- CloudWatch Alarm: DLQ 메시지 축적 감지 --
+  RemediationDLQAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub
+        - "[RemediationDLQ] 처리 실패 이벤트 축적 (${EnvShort})"
+        - EnvShort: !FindInMap [EnvShortName, !Ref Environment, short]
+      AlarmDescription: "Remediation Handler 실패 이벤트가 DLQ에 쌓임. 즉시 확인 필요."
+      Namespace: AWS/SQS
+      MetricName: ApproximateNumberOfMessagesVisible
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt RemediationDLQ.QueueName
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref ErrorAlertTopic
+      OKActions:
+        - !Ref ErrorAlertTopic
+
   # -- Remediation Handler Lambda -------------
   RemediationHandlerFunction:
     Type: AWS::Lambda::Function
@@ -135,6 +171,8 @@ Resources:
       Code:
         S3Bucket: !Ref DeploymentBucket
         S3Key: !Sub ${CodeVersion}/remediation_handler.zip
+      DeadLetterConfig:
+        TargetArn: !GetAtt RemediationDLQ.Arn
       Environment:
         Variables:
           SNS_TOPIC_ARN: !Ref MonitoringAlertTopic
@@ -739,6 +777,11 @@ Resources:
                   - !Ref RemediationAlertTopic
                   - !Ref LifecycleAlertTopic
                   - !Ref ErrorAlertTopic
+              # -- DLQ: Lambda 실패 시 Dead Letter Queue에 메시지 전송 --
+              - Effect: Allow
+                Action:
+                  - sqs:SendMessage
+                Resource: !GetAtt RemediationDLQ.Arn
 
   # -- IAM Role: Initial Sync Lambda --------
   InitialSyncRole:
