@@ -69,7 +69,7 @@
     - _Requirements: 12.3_
   - [x] 10.3 Phase 2 구현: APIGW REST 동시 curl 요청 (20회, xargs -P 10)
     - _Requirements: 12.4_
-  - [ ] 10.4 Phase 3 구현: APIGW HTTP 순차 curl 요청 (20회)
+  - [x] 10.4 Phase 3 구현: APIGW HTTP 순차 curl 요청 (20회)
     - _Requirements: 12.5_
   - [x] 10.5 Phase 4 구현: WebSocket 연결 테스트 (5 cycles, wscat 우선 → curl fallback)
     - _Requirements: 12.6_
