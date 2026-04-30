@@ -70,6 +70,195 @@ Mappings:
 
 Resources:
 
+  # ════════════════════════════════════════════
+  # DynamoDB 테이블 (api_handler 데이터 저장소)
+  # ════════════════════════════════════════════
+
+  CustomersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub
+        - aws-monitoring-customers-${EnvShort}
+        - EnvShort: !FindInMap [EnvShortName, !Ref Environment, short]
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: customer_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: customer_id
+          KeyType: HASH
+      Tags:
+        - Key: ManagedBy
+          Value: AlarmManager
+
+  AccountsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub
+        - aws-monitoring-accounts-${EnvShort}
+        - EnvShort: !FindInMap [EnvShortName, !Ref Environment, short]
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: customer_id
+          AttributeType: S
+        - AttributeName: account_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: customer_id
+          KeyType: HASH
+        - AttributeName: account_id
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: account_id-index
+          KeySchema:
+            - AttributeName: account_id
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+      Tags:
+        - Key: ManagedBy
+          Value: AlarmManager
+
+  ThresholdOverridesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub
+        - aws-monitoring-threshold-overrides-${EnvShort}
+        - EnvShort: !FindInMap [EnvShortName, !Ref Environment, short]
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: scope_id    # "customer_id:cust-001" 또는 "resource_id:i-12345"
+          AttributeType: S
+        - AttributeName: metric_key  # "CPU", "FreeMemoryGB" 등
+          AttributeType: S
+      KeySchema:
+        - AttributeName: scope_id
+          KeyType: HASH
+        - AttributeName: metric_key
+          KeyType: RANGE
+      Tags:
+        - Key: ManagedBy
+          Value: AlarmManager
+
+  # ════════════════════════════════════════════
+  # API Handler Lambda + API Gateway
+  # ════════════════════════════════════════════
+
+  ApiHandlerFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub
+        - aws-monitoring-engine-api-handler-${EnvShort}
+        - EnvShort: !FindInMap [EnvShortName, !Ref Environment, short]
+      Description: REST API handler for Alarm Manager frontend
+      Runtime: !FindInMap [LambdaConfig, Settings, Runtime]
+      Timeout: 30
+      MemorySize: 256
+      Handler: lambda_handler.lambda_handler
+      Role: !GetAtt ApiHandlerRole.Arn
+      Code:
+        S3Bucket: !Ref DeploymentBucket
+        S3Key: !Sub ${CodeVersion}/api_handler.zip
+      Environment:
+        Variables:
+          CUSTOMERS_TABLE: !Ref CustomersTable
+          ACCOUNTS_TABLE: !Ref AccountsTable
+          THRESHOLD_OVERRIDES_TABLE: !Ref ThresholdOverridesTable
+          API_STAGE: !FindInMap [EnvShortName, !Ref Environment, short]
+
+  ApiHandlerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub
+        - aws-monitoring-engine-api-handler-role-${EnvShort}
+        - EnvShort: !FindInMap [EnvShortName, !Ref Environment, short]
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: ApiHandlerPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:Query
+                  - dynamodb:Scan
+                Resource:
+                  - !GetAtt CustomersTable.Arn
+                  - !GetAtt AccountsTable.Arn
+                  - !Sub "${AccountsTable.Arn}/index/*"
+                  - !GetAtt ThresholdOverridesTable.Arn
+              - Effect: Allow
+                Action:
+                  - cloudwatch:DescribeAlarms
+                  - cloudwatch:ListTagsForResource
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - sts:AssumeRole
+                Resource: "arn:aws:iam::*:role/AlarmManagerRole"
+
+  AlarmManagerHttpApi:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: !Sub
+        - alarm-manager-api-${EnvShort}
+        - EnvShort: !FindInMap [EnvShortName, !Ref Environment, short]
+      ProtocolType: HTTP
+      CorsConfiguration:
+        AllowOrigins:
+          - "*"
+        AllowHeaders:
+          - Content-Type
+          - x-api-key
+        AllowMethods:
+          - GET
+          - POST
+          - PUT
+          - DELETE
+          - OPTIONS
+
+  AlarmManagerApiIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref AlarmManagerHttpApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt ApiHandlerFunction.Arn
+      PayloadFormatVersion: "2.0"
+
+  AlarmManagerApiRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref AlarmManagerHttpApi
+      RouteKey: "$default"
+      Target: !Sub "integrations/${AlarmManagerApiIntegration}"
+
+  AlarmManagerApiStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref AlarmManagerHttpApi
+      StageName: !FindInMap [EnvShortName, !Ref Environment, short]
+      AutoDeploy: true
+
+  ApiHandlerPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt ApiHandlerFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${AlarmManagerHttpApi}/*"
+
   # -- Lambda Layer: common module ------------
   CommonLayer:
     Type: AWS::Lambda::LayerVersion
@@ -879,6 +1068,20 @@ Resources:
       TriggerVersion: !Ref CodeVersion
 
 Outputs:
+  ApiEndpointUrl:
+    Description: "API Gateway endpoint URL (NEXT_PUBLIC_API_BASE_URL에 설정)"
+    Value: !Sub
+      - "https://${AlarmManagerHttpApi}.execute-api.${AWS::Region}.amazonaws.com/${EnvShort}"
+      - EnvShort: !FindInMap [EnvShortName, !Ref Environment, short]
+
+  CustomersTableName:
+    Description: DynamoDB Customers table name
+    Value: !Ref CustomersTable
+
+  AccountsTableName:
+    Description: DynamoDB Accounts table name
+    Value: !Ref AccountsTable
+
   DailyMonitorFunctionArn:
     Description: Daily Monitor Lambda ARN
     Value: !GetAtt DailyMonitorFunction.Arn
