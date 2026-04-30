@@ -216,31 +216,21 @@ Aurora 인스턴스가 삭제된 후 CloudTrail `DeleteDBInstance` 이벤트를 
 
 ---
 
-## KI-009: Dynamic Alarm Direction Limitation (GreaterThanThreshold Only)
+## KI-009: ~~Dynamic Alarm Direction Limitation~~ — **해결됨**
 
-### Phenomenon
-Dynamic alarms created via `Threshold_*` tags always use `GreaterThanThreshold` comparison.
-For "higher is better" metrics like `BufferCacheHitRatio` or `HealthyHostCount`, this creates
-inverted alarms that trigger when the value is healthy (e.g., BufferCacheHitRatio 100% > 95 threshold → ALARM).
+**해결 버전:** phase2 브랜치 (alarm_manager.py `_parse_threshold_tags`)
 
-### Cause
-The `_create_dynamic_alarm()` function hardcodes `ComparisonOperator="GreaterThanThreshold"` for all
-dynamic alarms. There is no mechanism in the tag key to specify the comparison direction.
+### 해결 방법
 
-Hardcoded alarms handle this correctly because each alarm definition explicitly specifies the comparison
-operator (e.g., `HealthyHostCount` uses `LessThanThreshold`, `FreeMemoryGB` uses `LessThanThreshold`).
+`Threshold_LT_{MetricName}={Value}` 태그 prefix로 `LessThanThreshold` 비교 연산자를 사용할 수 있다.
 
-### Affected Metrics
-"Higher is better" metrics where `LessThanThreshold` would be correct:
-- `BufferCacheHitRatio` (Aurora) — high = good, alert when low
-- `HealthyHostCount` (TG) — already hardcoded, but if used dynamically would be inverted
-- Any custom metric where lower values indicate problems
+```
+# "낮을수록 위험" 메트릭에 사용
+Threshold_LT_BufferCacheHitRatio=90   → BufferCacheHitRatio < 90 시 ALARM
+Threshold_LT_FreeConnections=10       → FreeConnections < 10 시 ALARM
 
-### Current Workaround
-- Use hardcoded alarm definitions for "higher is better" metrics instead of dynamic tags
-- Or accept the inverted alarm and interpret ALARM state as "metric is healthy" (not recommended)
+# 기존 방식 (높을수록 위험, 기본값)
+Threshold_CPU=90                      → CPU > 90 시 ALARM
+```
 
-### Future Fix Options
-1. Tag-based direction: `Threshold_LT_BufferCacheHitRatio=95` (LT prefix = LessThanThreshold)
-2. Separate tag for direction: `ThresholdDirection_BufferCacheHitRatio=LT`
-3. Add commonly needed "higher is better" metrics to hardcoded alarm definitions
+**구현 위치:** `common/alarm_manager.py` `_parse_threshold_tags()` — `LT_` prefix 감지 후 `LessThanThreshold` 반환.
