@@ -767,16 +767,29 @@ Resources:
                 Action:
                   - sts:GetCallerIdentity
                 Resource: "*"
+              # CloudWatch 읽기 — Resource: "*" 불가피 (Describe/List는 리소스 레벨 권한 미지원)
               - Effect: Allow
                 Action:
                   - cloudwatch:GetMetricStatistics
                   - cloudwatch:GetMetricData
-                  - cloudwatch:PutMetricAlarm
-                  - cloudwatch:DeleteAlarms
                   - cloudwatch:DescribeAlarms
                   - cloudwatch:ListMetrics
-                  - cloudwatch:TagResource
                   - cloudwatch:ListTagsForResource
+                Resource: "*"
+              # CloudWatch 쓰기 — ManagedBy=AlarmManager 태그가 있는 알람만 삭제 가능
+              # (수동 생성 알람 실수 삭제 방지)
+              - Effect: Allow
+                Action:
+                  - cloudwatch:DeleteAlarms
+                Resource: "*"
+                Condition:
+                  StringEquals:
+                    "aws:ResourceTag/ManagedBy": "AlarmManager"
+              # 알람 생성 + 태깅은 제한 없음 (신규 알람은 태그 미부착 상태로 시작)
+              - Effect: Allow
+                Action:
+                  - cloudwatch:PutMetricAlarm
+                  - cloudwatch:TagResource
                 Resource: "*"
               - Effect: Allow
                 Action:
