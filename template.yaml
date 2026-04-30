@@ -144,6 +144,48 @@ Resources:
   # API Handler Lambda + API Gateway
   # ════════════════════════════════════════════
 
+  JobStatusTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub
+        - aws-monitoring-job-status-${EnvShort}
+        - EnvShort: !FindInMap [EnvShortName, !Ref Environment, short]
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: job_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: job_id
+          KeyType: HASH
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+      Tags:
+        - Key: ManagedBy
+          Value: AlarmManager
+
+  BulkOperationDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub
+        - aws-monitoring-engine-bulk-dlq-${EnvShort}.fifo
+        - EnvShort: !FindInMap [EnvShortName, !Ref Environment, short]
+      FifoQueue: true
+      MessageRetentionPeriod: 1209600
+
+  BulkOperationQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub
+        - aws-monitoring-engine-bulk-${EnvShort}.fifo
+        - EnvShort: !FindInMap [EnvShortName, !Ref Environment, short]
+      FifoQueue: true
+      ContentBasedDeduplication: false
+      VisibilityTimeout: 900
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt BulkOperationDLQ.QueueArn
+        maxReceiveCount: 3
+
   ApiHandlerFunction:
     Type: AWS::Lambda::Function
     Properties:
@@ -164,6 +206,8 @@ Resources:
           CUSTOMERS_TABLE: !Ref CustomersTable
           ACCOUNTS_TABLE: !Ref AccountsTable
           THRESHOLD_OVERRIDES_TABLE: !Ref ThresholdOverridesTable
+          JOB_STATUS_TABLE: !Ref JobStatusTable
+          BULK_OPERATION_QUEUE_URL: !Ref BulkOperationQueue
           API_STAGE: !FindInMap [EnvShortName, !Ref Environment, short]
 
   ApiHandlerRole:
@@ -199,6 +243,11 @@ Resources:
                   - !GetAtt AccountsTable.Arn
                   - !Sub "${AccountsTable.Arn}/index/*"
                   - !GetAtt ThresholdOverridesTable.Arn
+                  - !GetAtt JobStatusTable.Arn
+              - Effect: Allow
+                Action:
+                  - sqs:SendMessage
+                Resource: !GetAtt BulkOperationQueue.Arn
               - Effect: Allow
                 Action:
                   - cloudwatch:DescribeAlarms
@@ -208,6 +257,79 @@ Resources:
                 Action:
                   - sts:AssumeRole
                 Resource: "arn:aws:iam::*:role/AlarmManagerRole"
+
+  SqsWorkerFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub
+        - aws-monitoring-engine-sqs-worker-${EnvShort}
+        - EnvShort: !FindInMap [EnvShortName, !Ref Environment, short]
+      Description: SQS worker for bulk alarm operations
+      Runtime: !FindInMap [LambdaConfig, Settings, Runtime]
+      Timeout: 900
+      MemorySize: 256
+      Handler: lambda_handler.lambda_handler
+      Role: !GetAtt SqsWorkerRole.Arn
+      Code:
+        S3Bucket: !Ref DeploymentBucket
+        S3Key: !Sub ${CodeVersion}/sqs_worker.zip
+      Environment:
+        Variables:
+          JOB_STATUS_TABLE: !Ref JobStatusTable
+          BULK_OPERATION_QUEUE_URL: !Ref BulkOperationQueue
+
+  SqsWorkerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub
+        - aws-monitoring-engine-sqs-worker-role-${EnvShort}
+        - EnvShort: !FindInMap [EnvShortName, !Ref Environment, short]
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: SqsWorkerPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:UpdateItem
+                Resource: !GetAtt JobStatusTable.Arn
+              - Effect: Allow
+                Action:
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:GetQueueAttributes
+                Resource: !GetAtt BulkOperationQueue.Arn
+              - Effect: Allow
+                Action:
+                  - cloudwatch:PutMetricAlarm
+                  - cloudwatch:DeleteAlarms
+                  - cloudwatch:DescribeAlarms
+                  - cloudwatch:ListTagsForResource
+                  - cloudwatch:TagResource
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - sts:AssumeRole
+                Resource: "arn:aws:iam::*:role/AlarmManagerRole"
+
+  SqsWorkerEventSourceMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      EventSourceArn: !GetAtt BulkOperationQueue.Arn
+      FunctionName: !GetAtt SqsWorkerFunction.Arn
+      BatchSize: 10
+      FunctionResponseTypes:
+        - ReportBatchItemFailures
 
   AlarmManagerHttpApi:
     Type: AWS::ApiGatewayV2::Api
@@ -1118,3 +1240,11 @@ Outputs:
   ErrorAlertTopicArn:
     Description: Error alert SNS topic ARN
     Value: !Ref ErrorAlertTopic
+
+  BulkOperationQueueUrl:
+    Description: SQS FIFO queue URL for bulk alarm operations
+    Value: !Ref BulkOperationQueue
+
+  JobStatusTableName:
+    Description: DynamoDB Job Status table name
+    Value: !Ref JobStatusTable
