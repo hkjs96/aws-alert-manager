@@ -21,7 +21,7 @@
     - 기존 `types/index.ts`의 도메인 타입을 확장하되 별도 파일로 분리
     - _Requirements: 1.1_
 
-  - [ ]* 1.2 API 타입 속성 테스트 작성
+  - [x]* 1.2 API 타입 속성 테스트 작성
     - **Property 2: 글로벌 필터 API 전파** — `buildFilterParams()`가 비어있지 않은 필터 값만 쿼리 파라미터로 포함하는지 검증
     - **Validates: Requirements 1.3, 2.4**
 
@@ -67,7 +67,7 @@
     - `buildSortParams()` — 정렬 파라미터 생성
     - _Requirements: 2.3, 4.2, 4.4_
 
-  - [ ]* 1.7 필터 파라미터 속성 테스트 작성
+  - [x]* 1.7 필터 파라미터 속성 테스트 작성
     - **Property 4: 필터 URL 라운드트립** — 필터 값을 직렬화 후 파싱하면 원래 값과 동일한지 검증
     - **Validates: Requirements 2.3**
     - **Property 5: 페이지네이션 파라미터 정합성** — page ≥ 1, page_size ∈ {25, 50, 100} 검증
@@ -84,7 +84,7 @@
     - layout.tsx에 `<ToastProvider>` 래핑 추가
     - _Requirements: 14.1, 14.2, 14.3, 14.4, 14.5_
 
-  - [ ]* 1.9 토스트 속성 테스트 작성
+  - [x]* 1.9 토스트 속성 테스트 작성
     - **Property 16: 토스트 변형별 색상 매핑** — 각 변형(success/error/warning/info)이 지정된 색상 클래스를 포함하는지 검증
     - **Validates: Requirements 14.2**
 
@@ -98,7 +98,7 @@
     - `components/shared/SourceBadge.tsx` — System/Customer/Custom 출처 뱃지
     - _Requirements: 15.1, 15.2, 15.3, 15.4, 7.6, 7.7_
 
-  - [ ]* 1.11 공통 UI 속성 테스트 작성
+  - [x]* 1.11 공통 UI 속성 테스트 작성
     - **Property 10: Severity 뱃지 색상 매핑** — SEV-1~SEV-5 각 레벨에 지정된 아웃라인 색상 클래스 검증
     - **Validates: Requirements 7.6**
     - **Property 11: Source 뱃지 색상 매핑** — System/Customer/Custom 각 타입에 지정된 색상 클래스 검증
@@ -119,7 +119,7 @@
     - TopBar.tsx에 GlobalFilterBar 통합
     - _Requirements: 2.1, 2.2, 2.3, 2.5_
 
-  - [ ]* 3.2 GlobalFilterBar 속성 테스트 작성
+  - [x]* 3.2 GlobalFilterBar 속성 테스트 작성
     - **Property 3: 캐스케이딩 어카운트 필터링** — 고객사 선택 시 해당 customer_id와 일치하는 어카운트만 표시되는지 검증
     - **Validates: Requirements 2.2**
 
@@ -175,7 +175,7 @@
     - 완료 후 리소스 목록 자동 재페칭 (`router.refresh()`)
     - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.5_
 
-  - [ ]* 5.6 동기화 토스트 메시지 속성 테스트 작성
+  - [x]* 5.6 동기화 토스트 메시지 속성 테스트 작성
     - **Property 7: 동기화 결과 토스트 메시지 정합성** — 성공 토스트에 discovered, updated, removed 세 가지 카운트가 모두 포함되는지 검증
     - **Validates: Requirements 5.3**
 
@@ -186,7 +186,7 @@
     - 내보내기 중 버튼 로딩 표시
     - _Requirements: 17.1, 17.3, 17.4_
 
-  - [ ]* 5.8 CSV 내보내기 속성 테스트 작성
+  - [x]* 5.8 CSV 내보내기 속성 테스트 작성
     - **Property 19: CSV 내보내기 필터 전파** — 현재 필터 파라미터가 내보내기 요청에 모두 포함되는지 검증
     - **Validates: Requirements 17.1, 17.2**
     - **Property 20: CSV 파일명 형식** — 파일명이 `{type}_{YYYY-MM-DD}.csv` 형식인지 검증
@@ -205,7 +205,7 @@
     - 완료 후 선택 초기화 + `router.refresh()`
     - _Requirements: 6.1, 6.2, 6.3, 6.4, 6.5, 6.6_
 
-  - [ ]* 7.2 벌크 액션 속성 테스트 작성
+  - [x]* 7.2 벌크 액션 속성 테스트 작성
     - **Property 8: 벌크 요청 리소스 ID 완전성** — 선택된 모든 ID가 요청에 포함되고 선택되지 않은 ID는 제외되는지 검증
     - **Validates: Requirements 6.1, 6.2**
     - **Property 9: 벌크 결과 토스트 메시지 정합성** — 전체 성공 시 success 토스트에 처리 건수, 부분 실패 시 warning 토스트에 실패 ID 목록 포함 검증
@@ -251,7 +251,7 @@
     - 제출 시 알람 설정 테이블에 unsaved change로 추가
     - _Requirements: 9.1, 9.2, 9.3, 9.4, 9.5_
 
-  - [ ]* 7.8 커스텀 메트릭 속성 테스트 작성
+  - [x]* 7.8 커스텀 메트릭 속성 테스트 작성
     - **Property 14: 커스텀 메트릭 표시 형식** — 자동완성 표시 텍스트가 `"{metric_name} ({namespace})"` 형식인지 검증
     - **Validates: Requirements 9.2**
     - **Property 15: 커스텀 메트릭 검증 표시기** — 존재하면 초록색, 미존재하면 앰버색 표시기 렌더링 검증
@@ -305,7 +305,7 @@
     - 성공 시 Toast 표시
     - _Requirements: 13.1, 13.2, 13.3, 13.4, 13.5_
 
-  - [ ]* 9.7 임계치 계층 속성 테스트 작성
+  - [x]* 9.7 임계치 계층 속성 테스트 작성
     - **Property 21: 임계치 계층 활성 레벨 표시** — 고객사 오버라이드 존재 시 "Customer" 레벨 활성, 미존재 시 "System" 레벨 활성 표시 검증
     - **Validates: Requirements 13.4**
 
