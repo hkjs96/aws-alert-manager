@@ -420,6 +420,7 @@ Resources:
           SNS_TOPIC_ARN_REMEDIATION: !Ref RemediationAlertTopic
           SNS_TOPIC_ARN_LIFECYCLE: !Ref LifecycleAlertTopic
           SNS_TOPIC_ARN_ERROR: !Ref ErrorAlertTopic
+          SNS_TOPIC_ARN_GLOBAL_ALERT: !GetAtt GlobalAlertSetup.TopicArn
           DEFAULT_CPU_THRESHOLD: !Ref DefaultCpuThreshold
           DEFAULT_MEMORY_THRESHOLD: !Ref DefaultMemoryThreshold
           DEFAULT_CONNECTIONS_THRESHOLD: !Ref DefaultConnectionsThreshold
@@ -491,6 +492,7 @@ Resources:
           SNS_TOPIC_ARN_REMEDIATION: !Ref RemediationAlertTopic
           SNS_TOPIC_ARN_LIFECYCLE: !Ref LifecycleAlertTopic
           SNS_TOPIC_ARN_ERROR: !Ref ErrorAlertTopic
+          SNS_TOPIC_ARN_GLOBAL_ALERT: !GetAtt GlobalAlertSetup.TopicArn
           DEFAULT_CPU_THRESHOLD: !Ref DefaultCpuThreshold
           DEFAULT_MEMORY_THRESHOLD: !Ref DefaultMemoryThreshold
           DEFAULT_CONNECTIONS_THRESHOLD: !Ref DefaultConnectionsThreshold
@@ -919,6 +921,7 @@ Resources:
                 Resource:
                   - !Ref MonitoringAlertTopic
                   - !Ref ErrorAlertTopic
+                  - !GetAtt GlobalAlertSetup.TopicArn
               # -- 멀티 어카운트: 대상 계정 Role AssumeRole --
               - Effect: Allow
                 Action:
@@ -1101,11 +1104,114 @@ Resources:
                   - !Ref RemediationAlertTopic
                   - !Ref LifecycleAlertTopic
                   - !Ref ErrorAlertTopic
+                  - !GetAtt GlobalAlertSetup.TopicArn
               # -- DLQ: Lambda 실패 시 Dead Letter Queue에 메시지 전송 --
               - Effect: Allow
                 Action:
                   - sqs:SendMessage
                 Resource: !GetAtt RemediationDLQ.Arn
+
+  # -- IAM Role: Global Alert Setup Lambda --
+  GlobalAlertSetupRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub
+        - aws-monitoring-engine-global-alert-setup-role-${EnvShort}
+        - EnvShort: !FindInMap [EnvShortName, !Ref Environment, short]
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: GlobalSnsSetupPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sns:CreateTopic
+                  - sns:DeleteTopic
+                  - sns:GetTopicAttributes
+                Resource: !Sub "arn:aws:sns:us-east-1:${AWS::AccountId}:*"
+
+  # -- Custom Resource: us-east-1 Global SNS Topic --
+  GlobalAlertSetupFunction:
+    Type: AWS::Lambda::Function
+    DependsOn:
+      - GlobalAlertSetupRole
+    Properties:
+      FunctionName: !Sub
+        - aws-monitoring-engine-global-alert-setup-${EnvShort}
+        - EnvShort: !FindInMap [EnvShortName, !Ref Environment, short]
+      Description: CFN Custom Resource - creates us-east-1 SNS topic for global service alarms
+      Runtime: python3.12
+      Timeout: 60
+      MemorySize: 128
+      Handler: index.handler
+      Role: !GetAtt GlobalAlertSetupRole.Arn
+      Code:
+        ZipFile: |
+          import boto3, json, logging, urllib.request
+          logger = logging.getLogger()
+          logger.setLevel(logging.INFO)
+
+          def send_response(event, status, physical_id, data=None, reason=""):
+              body = json.dumps({
+                  "Status": status,
+                  "Reason": reason,
+                  "StackId": event["StackId"],
+                  "RequestId": event["RequestId"],
+                  "LogicalResourceId": event["LogicalResourceId"],
+                  "PhysicalResourceId": physical_id,
+                  "Data": data or {},
+              }).encode()
+              req = urllib.request.Request(
+                  event["ResponseURL"], data=body, method="PUT",
+                  headers={"Content-Type": "application/json"},
+              )
+              urllib.request.urlopen(req, timeout=10)
+
+          def handler(event, context):
+              logger.info("GlobalAlertSetup event: %s", json.dumps(event))
+              request_type = event.get("RequestType")
+              topic_name = event["ResourceProperties"]["TopicName"]
+              physical_id = event.get("PhysicalResourceId", "")
+              try:
+                  sns = boto3.client("sns", region_name="us-east-1")
+                  if request_type == "Create":
+                      resp = sns.create_topic(Name=topic_name)
+                      topic_arn = resp["TopicArn"]
+                      logger.info("Created SNS topic: %s", topic_arn)
+                      send_response(event, "SUCCESS", topic_arn, {"TopicArn": topic_arn})
+                  elif request_type == "Update":
+                      topic_arn = physical_id
+                      logger.info("Update: reusing existing topic %s", topic_arn)
+                      send_response(event, "SUCCESS", topic_arn, {"TopicArn": topic_arn})
+                  else:
+                      try:
+                          sns.delete_topic(TopicArn=physical_id)
+                          logger.info("Deleted SNS topic: %s", physical_id)
+                      except Exception as e:
+                          logger.error("Delete topic failed (non-blocking): %s", e)
+                      send_response(event, "SUCCESS", physical_id)
+              except Exception as e:
+                  logger.error("GlobalAlertSetup failed: %s", e)
+                  send_response(event, "FAILED", physical_id or "error", reason=str(e))
+
+  GlobalAlertSetup:
+    Type: AWS::CloudFormation::CustomResource
+    DependsOn:
+      - GlobalAlertSetupFunction
+    Properties:
+      ServiceToken: !GetAtt GlobalAlertSetupFunction.Arn
+      TopicName: !Sub
+        - aws-monitoring-engine-global-alert-${EnvShort}
+        - EnvShort: !FindInMap [EnvShortName, !Ref Environment, short]
 
   # -- IAM Role: Initial Sync Lambda --------
   InitialSyncRole:
@@ -1248,3 +1354,7 @@ Outputs:
   JobStatusTableName:
     Description: DynamoDB Job Status table name
     Value: !Ref JobStatusTable
+
+  GlobalAlertTopicArn:
+    Description: us-east-1 SNS topic ARN for global service alarms (CloudFront/Route53)
+    Value: !GetAtt GlobalAlertSetup.TopicArn

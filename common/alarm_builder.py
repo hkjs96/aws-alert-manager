@@ -49,6 +49,11 @@ def _get_sns_alert_arn() -> str:
     return os.environ.get("SNS_TOPIC_ARN_ALERT", "")
 
 
+def _get_global_sns_arn() -> str:
+    """us-east-1 글로벌 서비스 알람용 SNS ARN. 미설정 시 빈 문자열(AlarmActions 비움)."""
+    return os.environ.get("SNS_TOPIC_ARN_GLOBAL_ALERT", "")
+
+
 # ──────────────────────────────────────────────
 # Severity 태그 부여 (Phase2 §13-4)
 # ──────────────────────────────────────────────
@@ -170,8 +175,8 @@ def _create_standard_alarm(
     region = alarm_def.get("region")
     if region:
         cw = _clients._get_cw_client_for_region(region)
-        # 글로벌 서비스 알람은 크로스 리전 SNS를 지원하지 않으므로 Actions 비움
-        sns_arn = ""
+        # 글로벌 서비스 알람: us-east-1 전용 SNS ARN 사용 (미설정 시 AlarmActions 비움)
+        sns_arn = _get_global_sns_arn()
 
     threshold, cw_threshold = resolve_threshold(alarm_def, resource_tags)
 
@@ -340,6 +345,7 @@ def _create_single_alarm(
     region = alarm_def.get("region")
     if region:
         cw = _clients._get_cw_client_for_region(region)
+        sns_arn = _get_global_sns_arn()
 
     threshold, cw_threshold = resolve_threshold(alarm_def, resource_tags)
 
