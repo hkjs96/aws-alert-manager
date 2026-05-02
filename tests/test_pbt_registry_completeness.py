@@ -32,7 +32,7 @@ _BASIC_RESOURCE_TYPES = ["EC2", "RDS", "ALB", "NLB", "DocDB"]
 def test_basic_resource_types_metric_set_matches_hardcoded(rt):
     """기본 리소스 타입의 alarm_defs 메트릭 집합이 HARDCODED_METRIC_KEYS와 일치."""
     defs = _get_alarm_defs(rt)
-    actual_metrics = {d["metric"] for d in defs}
+    actual_metrics = {d.get("metric_key") or d["metric"] for d in defs}
     expected_metrics = _HARDCODED_METRIC_KEYS[rt]
     assert actual_metrics == expected_metrics, (
         f"{rt}: expected {expected_metrics}, got {actual_metrics}"
@@ -56,7 +56,7 @@ def test_all_resource_types_have_dimension_key(rt):
 def test_tg_default_metrics():
     """TG 기본(ALB TG) 메트릭 집합이 HARDCODED_METRIC_KEYS와 일치."""
     defs = _get_alarm_defs("TG")
-    actual = {d["metric"] for d in defs}
+    actual = {d.get("metric_key") or d["metric"] for d in defs}
     assert actual == _HARDCODED_METRIC_KEYS["TG"]
 
 
@@ -64,7 +64,7 @@ def test_tg_nlb_excludes_alb_only_metrics():
     """NLB TG는 RequestCountPerTarget, TGResponseTime을 제외."""
     tags = {"_lb_type": "network"}
     defs = _get_alarm_defs("TG", tags)
-    actual = {d["metric"] for d in defs}
+    actual = {d.get("metric_key") or d["metric"] for d in defs}
     assert "RequestCountPerTarget" not in actual
     assert "TGResponseTime" not in actual
     assert "HealthyHostCount" in actual
@@ -82,7 +82,7 @@ def test_aurora_rds_metrics_include_base():
     """AuroraRDS 기본 메트릭이 HARDCODED_METRIC_KEYS에 포함."""
     tags = {"_is_serverless_v2": "false", "_is_writer": "true"}
     defs = _get_alarm_defs("AuroraRDS", tags)
-    actual = {d["metric"] for d in defs}
+    actual = {d.get("metric_key") or d["metric"] for d in defs}
     # 최소한 CPU, FreeMemoryGB, Connections는 포함
     assert {"CPU", "FreeMemoryGB", "Connections"}.issubset(actual)
 

@@ -21,7 +21,6 @@ from common.alarm_naming import (
 )
 from common.alarm_registry import (
     _get_alarm_defs,
-    _metric_name_to_key,
     get_severity,
 )
 from common.dimension_builder import (
@@ -106,7 +105,7 @@ def _create_disk_alarms(
     disk_dim_sets = _get_disk_dimensions(resource_id, extra_paths or None)
     if not disk_dim_sets:
         logger.warning(
-            "Skipping Disk alarm for %s: no CWAgent metrics found. "
+            "Skipping disk_used_percent alarm for %s: no CWAgent metrics found. "
             "Install CWAgent and wait for first metric report.",
             resource_id,
         )
@@ -170,6 +169,7 @@ def _create_standard_alarm(
     sns_arn = _get_sns_alert_arn()
     resource_name = resource_tags.get("Name", "")
     metric = alarm_def["metric"]
+    metric_key = alarm_def.get("metric_key") or metric
 
     # region 필드가 있으면 해당 리전의 CloudWatch 클라이언트 사용
     region = alarm_def.get("region")
@@ -190,10 +190,10 @@ def _create_standard_alarm(
 
     name = _pretty_alarm_name(
         resource_type, resource_id, resource_name,
-        metric, threshold, resource_tags,
+        metric_key, threshold, resource_tags,
     )
     desc = _build_alarm_description(
-        resource_type, resource_id, metric,
+        resource_type, resource_id, metric_key,
         f"Auto-created by AWS Monitoring Engine for {resource_type} {resource_id}",
     )
     try:
@@ -214,7 +214,7 @@ def _create_standard_alarm(
             TreatMissingData=alarm_def.get("treat_missing_data", "missing"),
         )
         logger.info("Created alarm: %s (threshold=%.2f)", name, threshold)
-        _tag_alarm_with_severity(name, alarm_def["metric"], cw)
+        _tag_alarm_with_severity(name, alarm_def.get("metric_key") or alarm_def["metric"], cw)
         return name
     except ClientError as e:
         logger.error("Failed to create alarm %s: %s", name, e)
@@ -312,14 +312,37 @@ def _create_dynamic_alarm(
 # ──────────────────────────────────────────────
 
 
+# 이전 내부 메트릭 키 → 새 CloudWatch 기반 메트릭 키 변환 (기배포 알람 AlarmDescription 호환)
+_LEGACY_KEY_MAP: dict[str, str] = {
+    "CPU": "CPUUtilization",
+    "Memory": "mem_used_percent",
+    "Disk": "disk_used_percent",
+    "FreeMemoryGB": "FreeableMemory",
+    "FreeStorageGB": "FreeStorageSpace",
+    "Connections": "DatabaseConnections",
+    "ELB5XX": "HTTPCode_ELB_5XX_Count",
+    "TCPClientReset": "TCP_Client_Reset_Count",
+    "TCPTargetReset": "TCP_Target_Reset_Count",
+    "TGResponseTime": "TargetResponseTime",
+}
+
+
 def _resolve_metric_key(alarm_info: dict) -> str:
     """알람 정보에서 메트릭 키를 해석 (메타데이터 우선, 폴백으로 MetricName)."""
     desc = alarm_info.get("AlarmDescription", "")
     metadata = _parse_alarm_metadata(desc)
     if metadata and "metric_key" in metadata:
         return metadata["metric_key"]
-    # 레거시 폴백: MetricName → 내부 키
-    return _metric_name_to_key(alarm_info.get("MetricName", ""))
+    metric_name = alarm_info.get("MetricName", "")
+    # 레거시 디스크 알람: MetricName=disk_used_percent → Disk_{suffix} 변환
+    if metric_name == "disk_used_percent":
+        path = next(
+            (d["Value"] for d in alarm_info.get("Dimensions", []) if d["Name"] == "path"),
+            "",
+        )
+        suffix = disk_path_to_tag_suffix(path) if path else "root"
+        return f"Disk_{suffix}"
+    return metric_name
 
 
 def _create_single_alarm(
@@ -426,7 +449,10 @@ def _recreate_alarm_by_name(
 
     # 3. put_metric_alarm으로 재생성
     alarm_defs = _get_alarm_defs(resource_type, resource_tags)
-    alarm_def = next((d for d in alarm_defs if d["metric"] == metric_key), None)
+    alarm_def = next(
+        (d for d in alarm_defs if (d.get("metric_key") or d["metric"]) == metric_key),
+        None,
+    )
     if alarm_def is None:
         logger.warning(
             "No alarm definition found for metric key %s (alarm: %s)",
@@ -434,7 +460,7 @@ def _recreate_alarm_by_name(
         )
         return
 
-    if metric_key == "Disk":
+    if metric_key.startswith("Disk_"):
         _recreate_disk_alarm(
             alarm_def, existing_dims, resource_id, resource_type,
             resource_name, resource_tags, cw, sns_arn,
@@ -460,7 +486,7 @@ def _recreate_disk_alarm(
     path = next((d["Value"] for d in existing_dims if d["Name"] == "path"), "/")
     suffix = disk_path_to_tag_suffix(path)
     threshold = get_threshold(resource_tags, f"Disk_{suffix}")
-    disk_metric_label = f"Disk-{path.lstrip('/') or 'root'}"
+    disk_metric_label = f"disk_used_percent-{path.lstrip('/') or 'root'}"
     name = _pretty_alarm_name(resource_type, resource_id, resource_name, disk_metric_label, threshold)
     _DISK_DIM_KEYS = {"InstanceId", "device", "fstype", "path"}
     clean_dims = [d for d in existing_dims if d["Name"] in _DISK_DIM_KEYS]

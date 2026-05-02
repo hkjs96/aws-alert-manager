@@ -52,17 +52,22 @@ def get_system_defaults(resource_type: str) -> list[dict]:
     seen: set[str] = set()
     result = []
     for d in alarm_defs:
-        key = d.get("metric", "")
+        key = d.get("metric_key") or d.get("metric", "")
         if not key or key in seen:
             continue
         seen.add(key)
 
-        display = _METRIC_DISPLAY.get(key, (d.get("metric_name", key), ">", ""))
+        cw_metric = d.get("metric_name") or d.get("metric", key)
+        display = (
+            _METRIC_DISPLAY.get(key)
+            or _METRIC_DISPLAY.get(cw_metric, (cw_metric, ">", ""))
+        )
         _, direction, unit = display
+        default_val = HARDCODED_DEFAULTS.get(key, HARDCODED_DEFAULTS.get(cw_metric, 0))
 
         result.append({
             "metric_key": key,
-            "system_default": float(d.get("threshold", HARDCODED_DEFAULTS.get(key, 0))),
+            "system_default": float(d.get("threshold", default_val)),
             "customer_override": None,
             "unit": unit,
             "direction": direction,

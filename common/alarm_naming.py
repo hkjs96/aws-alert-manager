@@ -89,19 +89,24 @@ def _pretty_alarm_name(
     _MAX_ALARM_NAME = 255
     _ELLIPSIS = "..."
 
-    direction, unit = _METRIC_DISPLAY.get(
-        metric.split("-")[0] if metric.startswith("Disk-") else metric,
-        ("unknown", ">", ""),
-    )[1:]
-    display_name = _METRIC_DISPLAY.get(
-        metric.split("-")[0] if metric.startswith("Disk-") else metric,
-        ("unknown", ">", ""),
-    )[0]
-    # Disk-root → disk_used_percent(/) , Disk-data → disk_used_percent(/data)
-    if metric.startswith("Disk-"):
+    # disk_used_percent_root → disk_used_percent(/)
+    # disk_used_percent_data → disk_used_percent(/data)
+    if metric.startswith("disk_used_percent_"):
+        suffix = metric[len("disk_used_percent_"):]
+        display_entry = _METRIC_DISPLAY.get("disk_used_percent", ("disk_used_percent", ">", "%"))
+        direction, unit = display_entry[1], display_entry[2]
+        display_name = display_entry[0]
+        display_metric = f"{display_name}(/)" if suffix == "root" else f"{display_name}(/{suffix})"
+    elif metric.startswith("Disk-"):
         path_part = metric[len("Disk-"):]
-        display_metric = f"{display_name}(/{path_part})" if path_part != "root" else f"{display_name}(/)"
+        display_entry = _METRIC_DISPLAY.get("disk_used_percent", ("disk_used_percent", ">", "%"))
+        direction, unit = display_entry[1], display_entry[2]
+        display_name = display_entry[0]
+        display_metric = f"{display_name}(/)" if path_part == "root" else f"{display_name}(/{path_part})"
     else:
+        display_entry = _METRIC_DISPLAY.get(metric, ("unknown", ">", ""))
+        direction, unit = display_entry[1], display_entry[2]
+        display_name = display_entry[0]
         display_metric = display_name
 
     # threshold 표시: 정수면 소수점 없이, 소수면 불필요한 0 제거

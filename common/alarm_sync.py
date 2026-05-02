@@ -16,7 +16,7 @@ from common.alarm_builder import (
     _recreate_alarm_by_name,
     _resolve_metric_key,
 )
-from common.alarm_registry import _get_alarm_defs, _get_hardcoded_metric_keys
+from common.alarm_registry import _get_alarm_defs
 from common.alarm_search import (
     _delete_alarm_names,
     _delete_all_alarms_for_resource,
@@ -42,9 +42,9 @@ def _sync_disk_alarms(
     result: dict[str, list],
 ) -> bool:
     """Disk 알람 동기화. 변경 필요 시 True 반환."""
-    disk_alarms = {k: v for k, v in key_to_alarm.items() if k.startswith("Disk")}
+    disk_alarms = {k: v for k, v in key_to_alarm.items() if k.startswith("Disk_")}
     if not disk_alarms:
-        result["created"].append("Disk")
+        result["created"].append("disk_used_percent")
         return True
 
     changed = False
@@ -75,19 +75,22 @@ def _sync_standard_alarms(
 ) -> bool:
     """표준 메트릭 알람 동기화. 변경 필요 시 True 반환."""
     metric = alarm_def["metric"]
-    if is_threshold_off(resource_tags, metric):
+    metric_key = alarm_def.get("metric_key") or metric
+
+    if is_threshold_off(resource_tags, metric_key):
         return False
 
-    if metric == "FreeMemoryGB":
+    if metric_key == "FreeMemoryGB":
         threshold, cw_threshold = _resolve_free_memory_threshold(resource_tags)
-    elif metric == "FreeLocalStorageGB":
+    elif metric_key == "FreeLocalStorageGB":
         threshold, cw_threshold = _resolve_free_local_storage_threshold(resource_tags)
     else:
-        threshold = get_threshold(resource_tags, metric)
+        threshold = get_threshold(resource_tags, metric_key)
         transform = alarm_def.get("transform_threshold")
         cw_threshold = transform(threshold) if transform else threshold
 
-    alarm_info = key_to_alarm.get(metric)
+    cw_name = alarm_def.get("metric_name") or metric
+    alarm_info = key_to_alarm.get(metric_key) or key_to_alarm.get(cw_name)
     if not alarm_info:
         result["created"].append(metric)
         return True
@@ -114,9 +117,11 @@ def _sync_off_hardcoded(
     cw = cw or _clients._get_cw_client()
     for alarm_def in alarm_defs:
         metric = alarm_def["metric"]
-        if not is_threshold_off(resource_tags, metric):
+        metric_key = alarm_def.get("metric_key") or metric
+        if not is_threshold_off(resource_tags, metric_key):
             continue
-        alarm_info = key_to_alarm.get(metric)
+        cw_name = alarm_def.get("metric_name") or metric
+        alarm_info = key_to_alarm.get(metric_key) or key_to_alarm.get(cw_name)
         if not alarm_info:
             continue
         name = alarm_info["AlarmName"]
@@ -153,13 +158,17 @@ def _sync_dynamic_alarms(
     cw = cw or _clients._get_cw_client()
     sns_arn = _get_sns_alert_arn()
     resource_name = resource_tags.get("Name", "")
-    hardcoded_keys = _get_hardcoded_metric_keys(resource_type, resource_tags)
+    alarm_defs = _get_alarm_defs(resource_type, resource_tags)
+    hardcoded_keys = (
+        {d.get("metric_key") or d["metric"] for d in alarm_defs}
+        | {d.get("metric_name") or d["metric"] for d in alarm_defs}
+    )
 
     dynamic_tags = _parse_threshold_tags(resource_tags, resource_type)
 
     existing_dynamic: dict[str, dict] = {
         mk: info for mk, info in key_to_alarm.items()
-        if mk not in hardcoded_keys and not mk.startswith("Disk")
+        if mk not in hardcoded_keys and not mk.startswith("Disk_")
     }
 
     for metric_name, (threshold, comparison) in dynamic_tags.items():
@@ -206,12 +215,12 @@ def _apply_sync_changes(
     _fwd: dict = {"cw": cw} if cw is not None else {}
     cw = cw or _clients._get_cw_client()
 
-    if "Disk" in result["created"] or not existing_names:
+    if "disk_used_percent" in result["created"] or not existing_names:
         created = create_alarms_for_resource(resource_id, resource_type, resource_tags, **_fwd)
         result["created"] = created
     else:
         for alarm_name in result["updated"]:
             _recreate_alarm_by_name(alarm_name, resource_id, resource_type, resource_tags, **_fwd)
         for metric in result["created"]:
-            if metric != "Disk":
+            if metric != "disk_used_percent":
                 _create_single_alarm(metric, resource_id, resource_type, resource_tags, **_fwd)

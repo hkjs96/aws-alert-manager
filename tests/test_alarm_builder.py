@@ -44,7 +44,7 @@ class Test_CreateStandardAlarm:
         from common.alarm_builder import _create_standard_alarm
         from common.alarm_registry import _get_alarm_defs
 
-        alarm_def = next(d for d in _get_alarm_defs("EC2", {}) if d["metric"] == "CPU")
+        alarm_def = next(d for d in _get_alarm_defs("EC2", {}) if d["metric"] == "CPUUtilization")
         resource_tags = {"Name": "web-server-01"}
 
         with patch.dict(os.environ, {"SNS_TOPIC_ARN_ALERT": sns_arn}):
@@ -65,7 +65,7 @@ class Test_CreateStandardAlarm:
         from common.alarm_builder import _create_standard_alarm
         from common.alarm_registry import _get_alarm_defs
 
-        alarm_def = next(d for d in _get_alarm_defs("EC2", {}) if d["metric"] == "CPU")
+        alarm_def = next(d for d in _get_alarm_defs("EC2", {}) if d["metric"] == "CPUUtilization")
 
         with patch.dict(os.environ, {"SNS_TOPIC_ARN_ALERT": sns_arn}):
             alarm_name = _create_standard_alarm(
@@ -84,7 +84,7 @@ class Test_CreateStandardAlarm:
         from common.alarm_builder import _create_standard_alarm
         from common.alarm_registry import _get_alarm_defs
 
-        alarm_def = next(d for d in _get_alarm_defs("EC2", {}) if d["metric"] == "CPU")
+        alarm_def = next(d for d in _get_alarm_defs("EC2", {}) if d["metric"] == "CPUUtilization")
 
         with patch.dict(os.environ, {"SNS_TOPIC_ARN_ALERT": sns_arn}):
             alarm_name = _create_standard_alarm(
@@ -104,7 +104,7 @@ class Test_CreateStandardAlarm:
         from common.alarm_builder import _create_standard_alarm
         from common.alarm_registry import _get_alarm_defs
 
-        alarm_def = next(d for d in _get_alarm_defs("EC2", {}) if d["metric"] == "CPU")
+        alarm_def = next(d for d in _get_alarm_defs("EC2", {}) if d["metric"] == "CPUUtilization")
 
         with patch.dict(os.environ, {}, clear=False):
             os.environ.pop("SNS_TOPIC_ARN_ALERT", None)
@@ -198,7 +198,7 @@ class Test_CreateStandardAlarm:
         from common.alarm_builder import _create_standard_alarm
         from common.alarm_registry import _get_alarm_defs
 
-        alarm_def = next(d for d in _get_alarm_defs("EC2", {}) if d["metric"] == "CPU")
+        alarm_def = next(d for d in _get_alarm_defs("EC2", {}) if d["metric"] == "CPUUtilization")
         alarm_def_copy = {**alarm_def}
         alarm_def_copy.pop("treat_missing_data", None)
 
@@ -244,7 +244,7 @@ class Test_CreateStandardAlarm:
         from common.alarm_registry import _get_alarm_defs
         from botocore.exceptions import ClientError
 
-        alarm_def = next(d for d in _get_alarm_defs("EC2", {}) if d["metric"] == "CPU")
+        alarm_def = next(d for d in _get_alarm_defs("EC2", {}) if d["metric"] == "CPUUtilization")
         failing_cw = MagicMock()
         failing_cw.put_metric_alarm.side_effect = ClientError(
             {"Error": {"Code": "InvalidParameterValue", "Message": "test"}}, "PutMetricAlarm"
@@ -273,7 +273,7 @@ class Test_CreateSingleAlarm:
 
         with patch.dict(os.environ, {"SNS_TOPIC_ARN_ALERT": sns_arn}):
             _create_single_alarm(
-                metric="CPU",
+                metric="CPUUtilization",
                 resource_id="i-0abcdef1234567890",
                 resource_type="EC2",
                 resource_tags={"Name": "test-instance"},
@@ -334,12 +334,12 @@ class Test_RecreateStandardAlarm:
         from common.alarm_builder import _recreate_standard_alarm
         from common.alarm_registry import _get_alarm_defs
 
-        alarm_def = next(d for d in _get_alarm_defs("EC2", {}) if d["metric"] == "CPU")
+        alarm_def = next(d for d in _get_alarm_defs("EC2", {}) if d["metric"] == "CPUUtilization")
 
         with patch.dict(os.environ, {"SNS_TOPIC_ARN_ALERT": sns_arn}):
             _recreate_standard_alarm(
                 alarm_def=alarm_def,
-                metric_key="CPU",
+                metric_key="CPUUtilization",
                 resource_id="i-0abcdef1234567890",
                 resource_type="EC2",
                 resource_name="web-server-01",
@@ -399,7 +399,7 @@ class Test_RecreateStandardAlarm:
         from common.alarm_registry import _get_alarm_defs
         from botocore.exceptions import ClientError
 
-        alarm_def = next(d for d in _get_alarm_defs("EC2", {}) if d["metric"] == "CPU")
+        alarm_def = next(d for d in _get_alarm_defs("EC2", {}) if d["metric"] == "CPUUtilization")
         failing_cw = MagicMock()
         failing_cw.put_metric_alarm.side_effect = ClientError(
             {"Error": {"Code": "InvalidParameterValue", "Message": "test"}}, "PutMetricAlarm"
@@ -408,7 +408,7 @@ class Test_RecreateStandardAlarm:
         # 예외 없이 완료되어야 한다
         _recreate_standard_alarm(
             alarm_def=alarm_def,
-            metric_key="CPU",
+            metric_key="CPUUtilization",
             resource_id="i-0abcdef1234567890",
             resource_type="EC2",
             resource_name="web-01",

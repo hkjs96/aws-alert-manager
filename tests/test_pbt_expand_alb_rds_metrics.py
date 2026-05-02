@@ -13,7 +13,6 @@ from common.alarm_manager import (
     _build_dimensions,
     _get_alarm_defs,
     _HARDCODED_METRIC_KEYS,
-    _metric_name_to_key,
     _parse_threshold_tags,
 )
 from common.tag_resolver import get_threshold
@@ -57,7 +56,7 @@ class TestAlarmDefinitionCompleteness:
         # Feature: expand-alb-rds-metrics, Property 1: 알람 정의 완전성
         # **Validates: Requirements 1.1, 2.1, 3.1, 6.1**
         alarm_defs = _get_alarm_defs(resource_type)
-        actual_keys = {d["metric"] for d in alarm_defs}
+        actual_keys = {d.get("metric_key") or d["metric"] for d in alarm_defs}
         expected_keys = _EXPECTED_METRIC_KEYS[resource_type]
 
         assert actual_keys >= expected_keys, (

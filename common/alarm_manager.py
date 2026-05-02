@@ -134,6 +134,9 @@ def _parse_threshold_tags(
         {metric_name: (threshold_value, comparison_operator)} 딕셔너리 (동적 메트릭만)
     """
     hardcoded = _get_hardcoded_metric_keys(resource_type, resource_tags)
+    # KI-005: CW metric_name 별칭도 필터링 (중복 동적 알람 방지)
+    _alarm_defs = _get_alarm_defs(resource_type, resource_tags)
+    hardcoded_cw_names = {d.get("metric_name") or d["metric"] for d in _alarm_defs}
     result: dict[str, tuple[float, str]] = {}
 
     for key, value in resource_tags.items():
@@ -155,7 +158,7 @@ def _parse_threshold_tags(
 
         if not metric_name:
             continue
-        if metric_name in hardcoded or _metric_name_to_key(metric_name) in hardcoded:
+        if metric_name in hardcoded or metric_name in hardcoded_cw_names:
             continue
         if len(key) > 128:
             logger.warning("Skipping dynamic tag %s: key exceeds 128 chars", key)
@@ -204,17 +207,18 @@ def create_alarms_for_resource(
     _delete_all_alarms_for_resource(resource_id, resource_type, **_fwd)
 
     for alarm_def in alarm_defs:
-        if alarm_def.get("dynamic_dimensions") and alarm_def["metric"] == "Disk":
+        if alarm_def.get("dynamic_dimensions") and alarm_def["metric"] == "disk_used_percent":
             disk_names = _create_disk_alarms(
                 resource_id, resource_type, resource_name,
                 resource_tags, alarm_def, cw, sns_arn,
             )
             created.extend(disk_names)
         else:
-            if is_threshold_off(resource_tags, alarm_def["metric"]):
+            metric_key = alarm_def.get("metric_key") or alarm_def["metric"]
+            if is_threshold_off(resource_tags, metric_key):
                 logger.info(
                     "Skipping alarm for %s metric %s: threshold set to off",
-                    resource_id, alarm_def["metric"],
+                    resource_id, metric_key,
                 )
                 continue
             name = _create_standard_alarm(
@@ -286,7 +290,7 @@ def sync_alarms_for_resource(
     needs_recreate = False
     for alarm_def in alarm_defs:
         metric = alarm_def["metric"]
-        if alarm_def.get("dynamic_dimensions") and metric == "Disk":
+        if alarm_def.get("dynamic_dimensions") and metric == "disk_used_percent":
             changed = _sync_disk_alarms(key_to_alarm, resource_tags, result)
             if changed:
                 needs_recreate = True

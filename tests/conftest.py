@@ -98,7 +98,7 @@ def sample_ec2_resource() -> ResourceInfo:
         type="EC2",
         tags={
             "Monitoring": "on",
-            "Threshold_CPU": "90",
+            "Threshold_CPUUtilization": "90",
             "Name": "test-ec2-instance",
         },
         region="us-east-1",
@@ -113,7 +113,7 @@ def sample_rds_resource() -> ResourceInfo:
         type="RDS",
         tags={
             "Monitoring": "on",
-            "Threshold_Connections": "200",
+            "Threshold_DatabaseConnections": "200",
             "Name": "test-rds-instance",
         },
         region="us-east-1",

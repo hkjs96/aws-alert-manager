@@ -20,7 +20,6 @@ from common.alarm_manager import (
     _get_hardcoded_metric_keys,
     _HARDCODED_METRIC_KEYS,
     _METRIC_DISPLAY,
-    _metric_name_to_key,
     _parse_alarm_metadata,
     _parse_threshold_tags,
     _pretty_alarm_name,
@@ -66,11 +65,11 @@ class TestHelpers:
         assert _alarm_name("db-001", "FreeMemoryGB") == "db-001-FreeMemoryGB-dev"
 
     def test_pretty_alarm_name_ec2_cpu(self):
-        name = _pretty_alarm_name("EC2", "i-001", "my-server", "CPU", 80)
+        name = _pretty_alarm_name("EC2", "i-001", "my-server", "CPUUtilization", 80)
         assert name == "[EC2] my-server CPUUtilization > 80% (TagName: i-001)"
 
     def test_pretty_alarm_name_no_name_tag(self):
-        name = _pretty_alarm_name("EC2", "i-001", "", "Memory", 90)
+        name = _pretty_alarm_name("EC2", "i-001", "", "mem_used_percent", 90)
         assert name == "[EC2] i-001 mem_used_percent > 90% (TagName: i-001)"
 
     def test_pretty_alarm_name_disk_root(self):
@@ -82,15 +81,15 @@ class TestHelpers:
         assert name == "[EC2] srv disk_used_percent(/data) > 90% (TagName: i-001)"
 
     def test_pretty_alarm_name_rds_free_memory(self):
-        name = _pretty_alarm_name("RDS", "db-001", "my-db", "FreeMemoryGB", 2)
+        name = _pretty_alarm_name("RDS", "db-001", "my-db", "FreeableMemory", 2)
         assert name == "[RDS] my-db FreeableMemory < 2GB (TagName: db-001)"
 
     def test_pretty_alarm_name_rds_connections(self):
-        name = _pretty_alarm_name("RDS", "db-001", "my-db", "Connections", 100)
+        name = _pretty_alarm_name("RDS", "db-001", "my-db", "DatabaseConnections", 100)
         assert name == "[RDS] my-db DatabaseConnections > 100 (TagName: db-001)"
 
     def test_pretty_alarm_name_float_threshold(self):
-        name = _pretty_alarm_name("EC2", "i-001", "srv", "CPU", 85.5)
+        name = _pretty_alarm_name("EC2", "i-001", "srv", "CPUUtilization", 85.5)
         assert name == "[EC2] srv CPUUtilization > 85.5% (TagName: i-001)"
 
     def test_pretty_alarm_name_always_within_255_chars(self):
@@ -102,7 +101,7 @@ class TestHelpers:
 
     def test_pretty_alarm_name_truncates_label_first(self):
         long_name = "my-very-long-server-name-" * 10
-        name = _pretty_alarm_name("EC2", "i-001", long_name, "CPU", 80)
+        name = _pretty_alarm_name("EC2", "i-001", long_name, "CPUUtilization", 80)
         assert len(name) <= 255
         assert "CPUUtilization" in name
         assert name.endswith("(TagName: i-001)")
@@ -122,7 +121,7 @@ class TestHelpers:
         assert name.endswith(f"(TagName: {long_id})")
 
     def test_pretty_alarm_name_short_inputs_unchanged(self):
-        name = _pretty_alarm_name("RDS", "db-001", "my-db", "CPU", 80)
+        name = _pretty_alarm_name("RDS", "db-001", "my-db", "CPUUtilization", 80)
         assert name == "[RDS] my-db CPUUtilization > 80% (TagName: db-001)"
         assert len(name) <= 255
 
@@ -164,13 +163,13 @@ class TestHelpers:
         defs = _get_alarm_defs("EC2")
         assert len(defs) == 4
         metrics = {d["metric"] for d in defs}
-        assert metrics == {"CPU", "Memory", "Disk", "StatusCheckFailed"}
+        assert metrics == {"CPUUtilization", "mem_used_percent", "disk_used_percent", "StatusCheckFailed"}
 
     def test_get_alarm_defs_rds(self):
         defs = _get_alarm_defs("RDS")
         assert len(defs) == 7
         metrics = {d["metric"] for d in defs}
-        assert metrics == {"CPU", "FreeMemoryGB", "FreeStorageGB", "Connections", "ReadLatency", "WriteLatency", "ConnectionAttempts"}
+        assert metrics == {"CPUUtilization", "FreeableMemory", "FreeStorageSpace", "DatabaseConnections", "ReadLatency", "WriteLatency", "ConnectionAttempts"}
 
     def test_get_alarm_defs_elb(self):
         defs = _get_alarm_defs("ELB")
@@ -183,7 +182,7 @@ class TestHelpers:
         defs = _get_alarm_defs("ALB")
         assert len(defs) == 5
         metrics = {d["metric"] for d in defs}
-        assert metrics == {"RequestCount", "ELB5XX", "TargetResponseTime", "ELB4XX", "TargetConnectionError"}
+        assert metrics == {"RequestCount", "HTTPCode_ELB_5XX_Count", "TargetResponseTime", "ELB4XX", "TargetConnectionError"}
         for d in defs:
             assert d["namespace"] == "AWS/ApplicationELB"
             assert d["dimension_key"] == "LoadBalancer"
@@ -192,7 +191,7 @@ class TestHelpers:
         defs = _get_alarm_defs("NLB")
         assert len(defs) == 5
         metrics = {d["metric"] for d in defs}
-        assert metrics == {"ProcessedBytes", "ActiveFlowCount", "NewFlowCount", "TCPClientReset", "TCPTargetReset"}
+        assert metrics == {"ProcessedBytes", "ActiveFlowCount", "NewFlowCount", "TCP_Client_Reset_Count", "TCP_Target_Reset_Count"}
         for d in defs:
             assert d["namespace"] == "AWS/NetworkELB"
             assert d["dimension_key"] == "LoadBalancer"
@@ -201,7 +200,7 @@ class TestHelpers:
         defs = _get_alarm_defs("TG")
         assert len(defs) == 4
         metrics = {d["metric"] for d in defs}
-        assert metrics == {"HealthyHostCount", "UnHealthyHostCount", "RequestCountPerTarget", "TGResponseTime"}
+        assert metrics == {"HealthyHostCount", "UnHealthyHostCount", "RequestCountPerTarget", "TargetResponseTime"}
         for d in defs:
             assert d["dimension_key"] == "TargetGroup"
 

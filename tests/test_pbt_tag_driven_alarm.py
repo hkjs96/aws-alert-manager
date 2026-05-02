@@ -28,7 +28,7 @@ from common.alarm_manager import (
     create_alarms_for_resource,
     sync_alarms_for_resource,
 )
-from common.alarm_registry import _get_alarm_defs, _metric_name_to_key
+from common.alarm_registry import _get_alarm_defs
 
 # ──────────────────────────────────────────────
 # 공통 상수

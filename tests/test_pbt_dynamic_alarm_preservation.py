@@ -30,7 +30,7 @@ from common.alarm_registry import _get_alarm_defs
 # ──────────────────────────────────────────────
 
 _HARDCODED_METRICS = {
-    rt: [d["metric"] for d in _get_alarm_defs(rt)]
+    rt: [d.get("metric_key") or d["metric"] for d in _get_alarm_defs(rt)]
     for rt in ["EC2", "RDS", "ALB", "NLB", "TG"]
 }
 
@@ -82,6 +82,7 @@ _METRIC_DISPLAY = {
     "CPU": "CPUUtilization",
     "Memory": "mem_used_percent",
     "Disk": "disk_used_percent",
+    "disk_used_percent": "disk_used_percent",
     "FreeMemoryGB": "FreeableMemory",
     "FreeStorageGB": "FreeStorageSpace",
     "Connections": "DatabaseConnections",
@@ -110,6 +111,7 @@ _METRIC_DIRECTION_UNIT = {
     "CPU": (">", "%"),
     "Memory": (">", "%"),
     "Disk": (">", "%"),
+    "disk_used_percent": (">", "%"),
     "FreeMemoryGB": ("<", "GB"),
     "FreeStorageGB": ("<", "GB"),
     "Connections": (">", ""),
@@ -209,7 +211,7 @@ def hardcoded_only_tags(draw):
 
     # 각 하드코딩 메트릭에 대해 임계치 태그 생성 (Disk 제외)
     for metric in metrics:
-        if metric == "Disk":
+        if metric in ("Disk", "disk_used_percent"):
             # Disk는 Threshold_Disk_root 형태
             thr = draw(positive_thresholds)
             tags["Threshold_Disk_root"] = str(int(thr)) if thr == int(thr) else str(thr)
@@ -262,7 +264,7 @@ def _get_expected_alarm_name(
     """기대되는 알람 이름 생성."""
     direction, unit = _METRIC_DIRECTION_UNIT[metric]
 
-    if metric == "Disk":
+    if metric in ("Disk", "disk_used_percent"):
         display = "disk_used_percent(/)"
     else:
         display = _METRIC_DISPLAY[metric]
@@ -369,7 +371,7 @@ class TestHardcodedAlarmPreservation:
         for metric in metrics:
             display = _METRIC_DISPLAY[metric]
 
-            if metric == "Disk":
+            if metric in ("Disk", "disk_used_percent"):
                 # Disk 알람은 display_name(/) 형태
                 matching = [
                     a for a in result
@@ -395,7 +397,7 @@ class TestHardcodedAlarmPreservation:
             actual_thr_str = m.group("thr")
             actual_thr = float(actual_thr_str)
 
-            if metric == "Disk":
+            if metric in ("Disk", "disk_used_percent"):
                 tag_key = "Threshold_Disk_root"
             else:
                 tag_key = f"Threshold_{metric}"
@@ -519,7 +521,7 @@ class TestHardcodedAlarmPreservation:
         for metric in metrics:
             display = _METRIC_DISPLAY[metric]
 
-            if metric == "Disk":
+            if metric in ("Disk", "disk_used_percent"):
                 matching = [a for a in result if f"{display}(/)" in a]
                 tag_key = "Threshold_Disk_root"
             else:

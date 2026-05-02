@@ -385,7 +385,7 @@ def get_aurora_metrics(db_instance_id: str, resource_tags: dict | None = None) -
     dim = [{"Name": "DBInstanceIdentifier", "Value": db_instance_id}]
     metrics: dict[str, float] = {}
 
-    # Always: CPU, Connections
+    # Always: CPUUtilization, DatabaseConnections
     collect_metric("AWS/RDS", "CPUUtilization", dim, start_time, end_time,
                    "CPU", metrics, stat=CW_STAT_AVG, transform=None, resource_label="AuroraRDS")
     collect_metric("AWS/RDS", "DatabaseConnections", dim, start_time, end_time,

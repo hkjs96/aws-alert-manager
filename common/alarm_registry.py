@@ -15,12 +15,23 @@ logger = logging.getLogger(__name__)
 # ──────────────────────────────────────────────
 
 _METRIC_DISPLAY = {
+    # Friendly keys (canonical — used in alarm descriptions and tag lookups)
     "CPU": ("CPUUtilization", ">", "%"),
     "Memory": ("mem_used_percent", ">", "%"),
-    "Disk": ("disk_used_percent", ">", "%"),
     "FreeMemoryGB": ("FreeableMemory", "<", "GB"),
     "FreeStorageGB": ("FreeStorageSpace", "<", "GB"),
     "Connections": ("DatabaseConnections", ">", ""),
+    "ELB5XX": ("HTTPCode_ELB_5XX_Count", ">", ""),
+    "TCPClientReset": ("TCP_Client_Reset_Count", ">", ""),
+    "TCPTargetReset": ("TCP_Target_Reset_Count", ">", ""),
+    "TGResponseTime": ("TargetResponseTime", ">", "s"),
+    # CW-name keyed entries (kept for backward compat with pre-existing alarms)
+    "CPUUtilization": ("CPUUtilization", ">", "%"),
+    "mem_used_percent": ("mem_used_percent", ">", "%"),
+    "disk_used_percent": ("disk_used_percent", ">", "%"),
+    "FreeableMemory": ("FreeableMemory", "<", "GB"),
+    "FreeStorageSpace": ("FreeStorageSpace", "<", "GB"),
+    "DatabaseConnections": ("DatabaseConnections", ">", ""),
     "RequestCount": ("RequestCount", ">", ""),
     "HealthyHostCount": ("HealthyHostCount", "<", ""),
     "UnHealthyHostCount": ("UnHealthyHostCount", ">", ""),
@@ -30,14 +41,13 @@ _METRIC_DISPLAY = {
     "StatusCheckFailed": ("StatusCheckFailed", ">", ""),
     "ReadLatency": ("ReadLatency", ">", "s"),
     "WriteLatency": ("WriteLatency", ">", "s"),
-    "ELB5XX": ("HTTPCode_ELB_5XX_Count", ">", ""),
+    "HTTPCode_ELB_5XX_Count": ("HTTPCode_ELB_5XX_Count", ">", ""),
     "ELB4XX": ("HTTPCode_ELB_4XX_Count", ">", ""),
     "TargetConnectionError": ("TargetConnectionErrorCount", ">", ""),
     "TargetResponseTime": ("TargetResponseTime", ">", "s"),
-    "TCPClientReset": ("TCP_Client_Reset_Count", ">", ""),
-    "TCPTargetReset": ("TCP_Target_Reset_Count", ">", ""),
+    "TCP_Client_Reset_Count": ("TCP_Client_Reset_Count", ">", ""),
+    "TCP_Target_Reset_Count": ("TCP_Target_Reset_Count", ">", ""),
     "RequestCountPerTarget": ("RequestCountPerTarget", ">", ""),
-    "TGResponseTime": ("TargetResponseTime", ">", "s"),
     "FreeLocalStorageGB": ("FreeLocalStorage", "<", "GB"),
     "ReplicaLag": ("AuroraReplicaLagMaximum", ">", "μs"),
     "ReaderReplicaLag": ("AuroraReplicaLag", ">", "μs"),
@@ -130,7 +140,8 @@ _METRIC_DISPLAY = {
 # CWAgent 미설치 시 Memory/Disk 알람은 INSUFFICIENT_DATA 상태로 대기
 _EC2_ALARMS = [
     {
-        "metric": "CPU",
+        "metric": "CPUUtilization",
+        "metric_key": "CPU",
         "namespace": "AWS/EC2",
         "metric_name": "CPUUtilization",
         "dimension_key": "InstanceId",
@@ -140,7 +151,8 @@ _EC2_ALARMS = [
         "evaluation_periods": 1,
     },
     {
-        "metric": "Memory",
+        "metric": "mem_used_percent",
+        "metric_key": "Memory",
         "namespace": "CWAgent",
         "metric_name": "mem_used_percent",
         "dimension_key": "InstanceId",
@@ -150,7 +162,7 @@ _EC2_ALARMS = [
         "evaluation_periods": 1,
     },
     {
-        "metric": "Disk",
+        "metric": "disk_used_percent",
         "namespace": "CWAgent",
         "metric_name": "disk_used_percent",
         "dimension_key": "InstanceId",
@@ -175,7 +187,8 @@ _EC2_ALARMS = [
 
 _RDS_ALARMS = [
     {
-        "metric": "CPU",
+        "metric": "CPUUtilization",
+        "metric_key": "CPU",
         "namespace": "AWS/RDS",
         "metric_name": "CPUUtilization",
         "dimension_key": "DBInstanceIdentifier",
@@ -185,7 +198,8 @@ _RDS_ALARMS = [
         "evaluation_periods": 1,
     },
     {
-        "metric": "FreeMemoryGB",
+        "metric": "FreeableMemory",
+        "metric_key": "FreeMemoryGB",
         "namespace": "AWS/RDS",
         "metric_name": "FreeableMemory",
         "dimension_key": "DBInstanceIdentifier",
@@ -196,7 +210,8 @@ _RDS_ALARMS = [
         "transform_threshold": lambda gb: gb * 1024 * 1024 * 1024,  # GB → bytes
     },
     {
-        "metric": "FreeStorageGB",
+        "metric": "FreeStorageSpace",
+        "metric_key": "FreeStorageGB",
         "namespace": "AWS/RDS",
         "metric_name": "FreeStorageSpace",
         "dimension_key": "DBInstanceIdentifier",
@@ -207,7 +222,8 @@ _RDS_ALARMS = [
         "transform_threshold": lambda gb: gb * 1024 * 1024 * 1024,
     },
     {
-        "metric": "Connections",
+        "metric": "DatabaseConnections",
+        "metric_key": "Connections",
         "namespace": "AWS/RDS",
         "metric_name": "DatabaseConnections",
         "dimension_key": "DBInstanceIdentifier",
@@ -260,7 +276,8 @@ _ALB_ALARMS = [
         "evaluation_periods": 1,
     },
     {
-        "metric": "ELB5XX",
+        "metric": "HTTPCode_ELB_5XX_Count",
+        "metric_key": "ELB5XX",
         "namespace": "AWS/ApplicationELB",
         "metric_name": "HTTPCode_ELB_5XX_Count",
         "dimension_key": "LoadBalancer",
@@ -333,7 +350,8 @@ _NLB_ALARMS = [
         "evaluation_periods": 1,
     },
     {
-        "metric": "TCPClientReset",
+        "metric": "TCP_Client_Reset_Count",
+        "metric_key": "TCPClientReset",
         "namespace": "AWS/NetworkELB",
         "metric_name": "TCP_Client_Reset_Count",
         "dimension_key": "LoadBalancer",
@@ -343,7 +361,8 @@ _NLB_ALARMS = [
         "evaluation_periods": 1,
     },
     {
-        "metric": "TCPTargetReset",
+        "metric": "TCP_Target_Reset_Count",
+        "metric_key": "TCPTargetReset",
         "namespace": "AWS/NetworkELB",
         "metric_name": "TCP_Target_Reset_Count",
         "dimension_key": "LoadBalancer",
@@ -386,7 +405,8 @@ _TG_ALARMS = [
         "evaluation_periods": 1,
     },
     {
-        "metric": "TGResponseTime",
+        "metric": "TargetResponseTime",
+        "metric_key": "TGResponseTime",
         "namespace": "AWS/ApplicationELB",
         "metric_name": "TargetResponseTime",
         "dimension_key": "TargetGroup",
@@ -400,7 +420,8 @@ _TG_ALARMS = [
 
 _AURORA_RDS_ALARMS = [
     {
-        "metric": "CPU",
+        "metric": "CPUUtilization",
+        "metric_key": "CPU",
         "namespace": "AWS/RDS",
         "metric_name": "CPUUtilization",
         "dimension_key": "DBInstanceIdentifier",
@@ -410,7 +431,8 @@ _AURORA_RDS_ALARMS = [
         "evaluation_periods": 1,
     },
     {
-        "metric": "FreeMemoryGB",
+        "metric": "FreeableMemory",
+        "metric_key": "FreeMemoryGB",
         "namespace": "AWS/RDS",
         "metric_name": "FreeableMemory",
         "dimension_key": "DBInstanceIdentifier",
@@ -421,7 +443,8 @@ _AURORA_RDS_ALARMS = [
         "transform_threshold": lambda gb: gb * 1073741824,
     },
     {
-        "metric": "Connections",
+        "metric": "DatabaseConnections",
+        "metric_key": "Connections",
         "namespace": "AWS/RDS",
         "metric_name": "DatabaseConnections",
         "dimension_key": "DBInstanceIdentifier",
@@ -551,7 +574,7 @@ _DOCDB_ALARMS = [
 
 _ELASTICACHE_ALARMS = [
     {
-        "metric": "CPU",
+        "metric": "CPUUtilization",
         "namespace": "AWS/ElastiCache",
         "metric_name": "CPUUtilization",
         "dimension_key": "CacheClusterId",
@@ -1421,7 +1444,7 @@ _SNS_ALARMS = [
     },
 ]
 
-_NLB_TG_EXCLUDED_METRICS = {"RequestCountPerTarget", "TGResponseTime"}
+_NLB_TG_EXCLUDED_METRICS = {"RequestCountPerTarget", "TargetResponseTime"}
 
 
 def _get_alarm_defs(resource_type: str, resource_tags: dict | None = None) -> list[dict]:
@@ -1492,16 +1515,16 @@ def _get_alarm_defs(resource_type: str, resource_tags: dict | None = None) -> li
     return []
 
 
-# resource_type별 하드코딩 메트릭 키
+# resource_type별 하드코딩 메트릭 키 (metric_key 기준; tag_key = Threshold_{metric_key})
 _HARDCODED_METRIC_KEYS: dict[str, set[str]] = {
-    "EC2": {"CPU", "Memory", "Disk", "StatusCheckFailed"},
+    "EC2": {"CPU", "Memory", "disk_used_percent", "StatusCheckFailed"},
     "RDS": {"CPU", "FreeMemoryGB", "FreeStorageGB", "Connections", "ReadLatency", "WriteLatency", "ConnectionAttempts"},
     "ALB": {"RequestCount", "ELB5XX", "TargetResponseTime", "ELB4XX", "TargetConnectionError"},
     "NLB": {"ProcessedBytes", "ActiveFlowCount", "NewFlowCount", "TCPClientReset", "TCPTargetReset"},
     "TG": {"HealthyHostCount", "UnHealthyHostCount", "RequestCountPerTarget", "TGResponseTime"},
     "AuroraRDS": {"CPU", "FreeMemoryGB", "Connections", "FreeLocalStorageGB", "ReplicaLag", "ReaderReplicaLag", "ACUUtilization", "ServerlessDatabaseCapacity"},
     "DocDB": {"CPU", "FreeMemoryGB", "Connections"},
-    "ElastiCache": {"CPU", "EngineCPU", "SwapUsage", "Evictions", "CurrConnections"},
+    "ElastiCache": {"CPUUtilization", "EngineCPU", "SwapUsage", "Evictions", "CurrConnections"},
     "NAT": {"PacketsDropCount", "ErrorPortAllocation"},
     "Lambda": {"Duration", "Errors"},
     "VPN": {"TunnelState"},
@@ -1616,119 +1639,31 @@ _GLOBAL_SERVICE_REGION: dict[str, str] = {
 def _get_hardcoded_metric_keys(resource_type: str, resource_tags: dict | None = None) -> set[str]:
     """resource_type과 resource_tags 기반으로 하드코딩 메트릭 키 집합을 반환.
 
-    _get_alarm_defs() 결과에서 동적으로 추출하여 NLB TG 등 LB 타입별 차이를 반영한다.
+    metric_key 우선, 없으면 metric 사용. NLB TG 등 LB 타입별 차이를 반영한다.
+    반환값은 Threshold_{key} 태그 suffix와 일치한다.
     """
     alarm_defs = _get_alarm_defs(resource_type, resource_tags)
-    return {d["metric"] for d in alarm_defs}
+    return {d.get("metric_key") or d["metric"] for d in alarm_defs}
 
 
-def _metric_name_to_key(metric_name: str) -> str:
-    """CloudWatch 메트릭 이름을 내부 메트릭 키로 변환.
+# _METRIC_DISPLAY의 display_name → metric_key 역방향 조회 캐시
+_METRIC_NAME_TO_KEY: dict[str, str] = {
+    display_name: key
+    for key, (display_name, _, _) in _METRIC_DISPLAY.items()
+    if display_name != key  # 동일한 경우 직접 키 조회로 처리
+}
 
-    CPUUtilization → CPU, mem_used_percent → Memory, disk_used_percent → Disk
+
+def _metric_name_to_key(cw_name: str) -> str:
+    """CloudWatch 메트릭 이름 → 내부 메트릭 키 변환.
+
+    1. 직접 키 매칭 (cw_name이 이미 metric_key인 경우)
+    2. display_name 역방향 조회 (_METRIC_DISPLAY[key][0] == cw_name)
+    3. 매칭 실패 시 cw_name 그대로 반환
     """
-    mapping = {
-        "CPUUtilization": "CPU",
-        "mem_used_percent": "Memory",
-        "disk_used_percent": "Disk",
-        "FreeableMemory": "FreeMemoryGB",
-        "FreeStorageSpace": "FreeStorageGB",
-        "DatabaseConnections": "Connections",
-        "RequestCount": "RequestCount",
-        "HealthyHostCount": "HealthyHostCount",
-        "UnHealthyHostCount": "UnHealthyHostCount",
-        "ProcessedBytes": "ProcessedBytes",
-        "ActiveFlowCount": "ActiveFlowCount",
-        "NewFlowCount": "NewFlowCount",
-        "StatusCheckFailed": "StatusCheckFailed",
-        "ReadLatency": "ReadLatency",
-        "WriteLatency": "WriteLatency",
-        "HTTPCode_ELB_5XX_Count": "ELB5XX",
-        "HTTPCode_ELB_4XX_Count": "ELB4XX",
-        "TargetConnectionErrorCount": "TargetConnectionError",
-        "TargetResponseTime": "TargetResponseTime",
-        "TCP_Client_Reset_Count": "TCPClientReset",
-        "TCP_Target_Reset_Count": "TCPTargetReset",
-        "RequestCountPerTarget": "RequestCountPerTarget",
-        "FreeLocalStorage": "FreeLocalStorageGB",
-        "AuroraReplicaLagMaximum": "ReplicaLag",
-        "AuroraReplicaLag": "ReaderReplicaLag",
-        "ACUUtilization": "ACUUtilization",
-        "ServerlessDatabaseCapacity": "ServerlessDatabaseCapacity",
-        "ConnectionAttempts": "ConnectionAttempts",
-        "EngineCPUUtilization": "EngineCPU",
-        "SwapUsage": "SwapUsage",
-        "Evictions": "Evictions",
-        "CurrConnections": "CurrConnections",
-        "PacketsDropCount": "PacketsDropCount",
-        "ErrorPortAllocation": "ErrorPortAllocation",
-        "Duration": "Duration",
-        "Errors": "Errors",
-        "TunnelState": "TunnelState",
-        "Latency": "ApiLatency",
-        "4XXError": "Api4XXError",
-        "5XXError": "Api5XXError",
-        "4xx": "Api4xx",
-        "5xx": "Api5xx",
-        "ConnectCount": "WsConnectCount",
-        "MessageCount": "WsMessageCount",
-        "IntegrationError": "WsIntegrationError",
-        "ExecutionError": "WsExecutionError",
-        "DaysToExpiry": "DaysToExpiry",
-        "NumberOfBackupJobsFailed": "BackupJobsFailed",
-        "NumberOfBackupJobsAborted": "BackupJobsAborted",
-        "CpuUtilization": "MqCPU",
-        "HeapUsage": "HeapUsage",
-        "JobSchedulerStorePercentUsage": "JobSchedulerStoreUsage",
-        "StorePercentUsage": "StoreUsage",
-        "UnHealthyHostCount": "CLBUnHealthyHost",
-        "HTTPCode_ELB_5XX": "CLB5XX",
-        "HTTPCode_ELB_4XX": "CLB4XX",
-        "HTTPCode_Backend_5XX": "CLBBackend5XX",
-        "HTTPCode_Backend_4XX": "CLBBackend4XX",
-        "SurgeQueueLength": "SurgeQueueLength",
-        "SpilloverCount": "SpilloverCount",
-        "ClusterStatus.red": "ClusterStatusRed",
-        "ClusterStatus.yellow": "ClusterStatusYellow",
-        "ClusterIndexWritesBlocked": "ClusterIndexWritesBlocked",
-        "MasterCPUUtilization": "MasterCPU",
-        "JVMMemoryPressure": "JVMMemoryPressure",
-        "MasterJVMMemoryPressure": "MasterJVMMemoryPressure",
-        "ApproximateNumberOfMessagesVisible": "SQSMessagesVisible",
-        "ApproximateAgeOfOldestMessage": "SQSOldestMessage",
-        "NumberOfMessagesSent": "SQSMessagesSent",
-        "MemoryUtilization": "EcsMemory",
-        "SumOffsetLag": "OffsetLag",
-        "BytesInPerSec": "BytesInPerSec",
-        "UnderReplicatedPartitions": "UnderReplicatedPartitions",
-        "ActiveControllerCount": "ActiveControllerCount",
-        "ConsumedReadCapacityUnits": "DDBReadCapacity",
-        "ConsumedWriteCapacityUnits": "DDBWriteCapacity",
-        "ThrottledRequests": "ThrottledRequests",
-        "SystemErrors": "DDBSystemErrors",
-        "5xxErrorRate": "CF5xxErrorRate",
-        "4xxErrorRate": "CF4xxErrorRate",
-        "Requests": "CFRequests",
-        "BytesDownloaded": "CFBytesDownloaded",
-        "BlockedRequests": "WAFBlockedRequests",
-        "AllowedRequests": "WAFAllowedRequests",
-        "CountedRequests": "WAFCountedRequests",
-        "HealthCheckStatus": "HealthCheckStatus",
-        "ConnectionState": "ConnectionState",
-        "BurstCreditBalance": "BurstCreditBalance",
-        "PercentIOLimit": "PercentIOLimit",
-        "ClientConnections": "EFSClientConnections",
-        "4xxErrors": "S34xxErrors",
-        "5xxErrors": "S35xxErrors",
-        "BucketSizeBytes": "S3BucketSizeBytes",
-        "NumberOfObjects": "S3NumberOfObjects",
-        "Invocations": "SMInvocations",
-        "InvocationErrors": "SMInvocationErrors",
-        "ModelLatency": "SMModelLatency",
-        "NumberOfNotificationsFailed": "SNSNotificationsFailed",
-        "NumberOfMessagesPublished": "SNSMessagesPublished",
-    }
-    return mapping.get(metric_name, "")
+    if cw_name in _METRIC_DISPLAY:
+        return cw_name
+    return _METRIC_NAME_TO_KEY.get(cw_name, cw_name)
 
 
 # ──────────────────────────────────────────────
@@ -1749,6 +1684,7 @@ _DEFAULT_SEVERITY: dict[str, str] = {
 
     # SEV-2: 에러 급증, 서비스 품질 심각 저하
     "ELB5XX":                "SEV-2",
+    "HTTPCode_ELB_5XX_Count": "SEV-2",
     "CLB5XX":                "SEV-2",
     "Errors":                "SEV-2",
     "UnHealthyHostCount":    "SEV-2",
@@ -1763,6 +1699,11 @@ _DEFAULT_SEVERITY: dict[str, str] = {
     "Disk":               "SEV-3",
     "FreeMemoryGB":       "SEV-3",
     "FreeStorageGB":      "SEV-3",
+    "CPUUtilization":     "SEV-3",
+    "mem_used_percent":   "SEV-3",
+    "disk_used_percent":  "SEV-3",
+    "FreeableMemory":     "SEV-3",
+    "FreeStorageSpace":   "SEV-3",
     "FreeLocalStorageGB": "SEV-3",
     "EngineCPU":          "SEV-3",
     "ACUUtilization":     "SEV-3",
@@ -1774,10 +1715,10 @@ _DEFAULT_SEVERITY: dict[str, str] = {
     "OSFreeStorageSpace": "SEV-3",
 
     # SEV-4: 성능 저하, 사용자 체감 가능하나 서비스 중단 아님
+    "TGResponseTime":       "SEV-4",
     "ReadLatency":          "SEV-4",
     "WriteLatency":         "SEV-4",
     "TargetResponseTime":   "SEV-4",
-    "TGResponseTime":       "SEV-4",
     "Duration":             "SEV-4",
     "ApiLatency":           "SEV-4",
     "ELB4XX":               "SEV-4",
@@ -1786,8 +1727,11 @@ _DEFAULT_SEVERITY: dict[str, str] = {
     "BurstCreditBalance":   "SEV-4",
 
     # SEV-5: 트래픽/용량 참고 지표, 추세 모니터링
-    "RequestCount":           "SEV-5",
     "Connections":            "SEV-5",
+    "TCPClientReset":         "SEV-5",
+    "TCPTargetReset":         "SEV-5",
+    "RequestCount":           "SEV-5",
+    "DatabaseConnections":    "SEV-5",
     "CurrConnections":        "SEV-5",
     "ProcessedBytes":         "SEV-5",
     "ActiveFlowCount":        "SEV-5",
@@ -1802,10 +1746,9 @@ _DEFAULT_SEVERITY: dict[str, str] = {
 def get_severity(metric_key: str) -> str:
     """메트릭 키에 대한 기본 Severity 등급 반환.
 
-    Disk_ prefix (Disk_root, Disk_data 등)는 모두 SEV-3 (포화도).
+    Disk_root 등 Disk_ prefix, disk_used_percent_ prefix 모두 SEV-3 (포화도).
     미정의 메트릭은 SEV-5 폴백.
     """
-    if metric_key.startswith("Disk_"):
+    if metric_key.startswith("Disk_") or metric_key.startswith("disk_used_percent_"):
         return "SEV-3"
     return _DEFAULT_SEVERITY.get(metric_key, "SEV-5")
-    return mapping.get(metric_name, metric_name)

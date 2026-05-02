@@ -165,7 +165,7 @@ _alb_names = st.from_regex(r"[a-z][a-z0-9\-]{0,30}[a-z0-9]", fullmatch=True)
 # ──────────────────────────────────────────────
 
 _EXPECTED_NON_TG_METRICS: dict[str, tuple[int, set[str]]] = {
-    "EC2": (4, {"CPU", "Memory", "Disk", "StatusCheckFailed"}),
+    "EC2": (4, {"CPU", "Memory", "disk_used_percent", "StatusCheckFailed"}),
     "RDS": (7, {"CPU", "FreeMemoryGB", "FreeStorageGB", "Connections", "ReadLatency", "WriteLatency", "ConnectionAttempts"}),
     "ALB": (5, {"RequestCount", "ELB5XX", "TargetResponseTime", "ELB4XX", "TargetConnectionError"}),
     "NLB": (5, {"ProcessedBytes", "ActiveFlowCount", "NewFlowCount", "TCPClientReset", "TCPTargetReset"}),
@@ -271,7 +271,7 @@ class TestPreservationNonTGResources:
         alarm_defs = _get_alarm_defs(resource_type)
         expected_count, expected_metrics = _EXPECTED_NON_TG_METRICS[resource_type]
 
-        actual_metrics = {d["metric"] for d in alarm_defs}
+        actual_metrics = {d.get("metric_key") or d["metric"] for d in alarm_defs}
 
         assert len(alarm_defs) == expected_count, (
             f"{resource_type}: expected {expected_count} alarm defs, "

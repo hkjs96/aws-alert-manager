@@ -15,12 +15,12 @@ logger = logging.getLogger(__name__)
 def _resolve_free_memory_threshold(
     resource_tags: dict,
 ) -> tuple[float, float]:
-    """FreeMemoryGB 임계치를 퍼센트 또는 GB 기반으로 해석.
+    """FreeableMemory 임계치를 퍼센트 또는 GB 기반으로 해석.
 
     우선순위:
     1. Threshold_FreeMemoryPct 태그 (명시적 퍼센트, 프로비저닝 인스턴스만)
     2. _total_memory_bytes 존재 + 비서버리스 시 HARDCODED_DEFAULTS["FreeMemoryPct"] 자동 적용
-    3. Threshold_FreeMemoryGB 태그 또는 HARDCODED_DEFAULTS["FreeMemoryGB"] (절대값 폴백)
+    3. Threshold_FreeableMemory 태그 또는 HARDCODED_DEFAULTS["FreeableMemory"] (절대값 폴백)
 
     Serverless v2는 ACU에 따라 메모리가 동적 변동하므로 퍼센트 기반 임계치를 적용하지 않는다.
     Serverless v2에서는 ACUUtilization 알람이 메모리 압박을 대신 감지한다.
@@ -143,15 +143,15 @@ def resolve_threshold(
     Returns:
         (display_threshold, cw_threshold) 튜플.
     """
-    metric = alarm_def["metric"]
+    metric_key = alarm_def.get("metric_key") or alarm_def["metric"]
 
-    if metric == "FreeMemoryGB":
+    if metric_key == "FreeMemoryGB":
         return _resolve_free_memory_threshold(resource_tags)
 
-    if metric == "FreeLocalStorageGB":
+    if metric_key == "FreeLocalStorageGB":
         return _resolve_free_local_storage_threshold(resource_tags)
 
-    display_thr = get_threshold(resource_tags, metric)
+    display_thr = get_threshold(resource_tags, metric_key)
     transform = alarm_def.get("transform_threshold")
     cw_thr = transform(display_thr) if transform else display_thr
     return (display_thr, cw_thr)
