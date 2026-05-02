@@ -31,6 +31,7 @@ dm_output.json
 output.json
 test_out.json
 test_payload.json
+pytest_out.txt
 
 # Frontend
 node_modules/
