@@ -3,10 +3,10 @@
 `common/`, `daily_monitor/`, `remediation_handler/`, `tests/` 등 Python(`**/*.py`) 작업 시 적용되는 규칙.
 루트의 [`../CLAUDE.md`](../CLAUDE.md)는 그대로 유효하고, 아래 백엔드 전용 규칙이 추가된다.
 
-## 적용 규칙 (import)
+## 상세 규칙 참조 (필요 시 직접 열람)
 
-- 알람 이름/디멘션/태그 규칙 (§6, §7, §8, §9, §12): @../.kiro/steering/alarm-rules.md
-- Collector 인터페이스 & 새 리소스 추가 체크리스트 (§5, §11): @../.kiro/steering/resource-checklist.md
+- 알람 이름/디멘션/태그 규칙 (§6, §7, §8, §9, §12): `.kiro/steering/alarm-rules.md`
+- Collector 인터페이스 & 새 리소스 추가 체크리스트 (§5, §11): `.kiro/steering/resource-checklist.md`
 
 ---
 

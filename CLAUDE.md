@@ -64,8 +64,8 @@ Python / 인프라 / 프론트엔드 전역에서 **모든 작업**에 적용된
   - 알려진 이슈 (AWS 제약): [docs/KNOWN-ISSUES.md](./docs/KNOWN-ISSUES.md)
   - Backend 작동 방식: [common/HOW_DOES_THIS_WORK.md](./common/HOW_DOES_THIS_WORK.md)
   - Frontend 작동 방식: [frontend/HOW_DOES_THIS_WORK.md](./frontend/HOW_DOES_THIS_WORK.md)
-- **AWS 리소스 Name 태그 네이밍 컨벤션**: @.kiro/steering/resource-naming.md
-- **Phase2 알람 등급(Severity) 및 UI 설계 규칙**: @.kiro/steering/phase2-severity-rules.md
+- **AWS 리소스 Name 태그 네이밍 컨벤션**: `.kiro/steering/resource-naming.md`
+- **Phase2 알람 등급(Severity) 및 UI 설계 규칙**: `.kiro/steering/phase2-severity-rules.md`
 
 ---
 
