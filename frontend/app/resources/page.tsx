@@ -1,4 +1,4 @@
-import { MOCK_RESOURCES, MOCK_ACCOUNTS, MOCK_CUSTOMERS } from "@/lib/mock-data";
+import { fetchResources, fetchCustomerOptions, fetchAccountOptions } from "@/lib/server/data";
 import { ResourcesContent } from "@/components/resources/ResourcesContent";
 import type { Metadata } from "next";
 
@@ -8,22 +8,17 @@ export const metadata: Metadata = {
 };
 
 export default async function ResourcesPage() {
-  const customerDtos = MOCK_CUSTOMERS.map((c) => ({
-    id: c.customer_id,
-    name: c.name,
-  }));
-
-  const accountDtos = MOCK_ACCOUNTS.map((a) => ({
-    id: a.account_id,
-    name: a.name,
-    customerId: a.customer_id,
-  }));
+  const [resources, customers, accounts] = await Promise.all([
+    fetchResources(),
+    fetchCustomerOptions(),
+    fetchAccountOptions(),
+  ]);
 
   return (
     <ResourcesContent
-      resources={MOCK_RESOURCES}
-      customers={customerDtos}
-      accounts={accountDtos}
+      resources={resources}
+      customers={customers}
+      accounts={accounts}
     />
   );
 }
