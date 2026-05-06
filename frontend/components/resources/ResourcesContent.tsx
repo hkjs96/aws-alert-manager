@@ -210,7 +210,7 @@ export function ResourcesContent({
     router.refresh();
   };
 
-  if (ownedCustomerIds.length === 0) {
+  if (ownedCustomerIds.length === 0 && resources.length === 0) {
     return <OwnedEmptyState />;
   }
 

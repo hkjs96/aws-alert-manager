@@ -112,7 +112,7 @@ export function AlarmsContent({ alarms, summary, customers, accounts }: AlarmsCo
     }
   };
 
-  if (ownedCustomerIds.length === 0) {
+  if (ownedCustomerIds.length === 0 && alarms.length === 0) {
     return <OwnedEmptyState />;
   }
 
