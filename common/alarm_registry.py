@@ -375,6 +375,7 @@ _TG_ALARMS = [
         "comparison": "LessThanThreshold",
         "period": 60,
         "evaluation_periods": 1,
+        "treat_missing_data": "breaching",
     },
     {
         "metric": "UnHealthyHostCount",
@@ -461,6 +462,7 @@ _AURORA_RDS_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
+        "treat_missing_data": "missing",
     },
 ]
 
@@ -473,6 +475,7 @@ _AURORA_READER_REPLICA_LAG = {
     "comparison": "GreaterThanThreshold",
     "period": 300,
     "evaluation_periods": 1,
+    "treat_missing_data": "missing",
 }
 
 _AURORA_ACU_UTILIZATION = {
@@ -803,6 +806,7 @@ _ACM_ALARMS = [
         "comparison": "LessThanThreshold",
         "period": 86400,
         "evaluation_periods": 1,
+        "treat_missing_data": "missing",
     },
 ]
 
@@ -956,6 +960,7 @@ _OPENSEARCH_ALARMS = [
         "period": 300,
         "evaluation_periods": 1,
         "needs_client_id": True,
+        "treat_missing_data": "breaching",
     },
     {
         "metric": "ClusterStatusYellow",
@@ -967,6 +972,7 @@ _OPENSEARCH_ALARMS = [
         "period": 300,
         "evaluation_periods": 1,
         "needs_client_id": True,
+        "treat_missing_data": "breaching",
     },
     {
         "metric": "OSFreeStorageSpace",
@@ -978,6 +984,7 @@ _OPENSEARCH_ALARMS = [
         "period": 300,
         "evaluation_periods": 1,
         "needs_client_id": True,
+        "treat_missing_data": "breaching",
     },
     {
         "metric": "ClusterIndexWritesBlocked",
@@ -989,6 +996,7 @@ _OPENSEARCH_ALARMS = [
         "period": 300,
         "evaluation_periods": 1,
         "needs_client_id": True,
+        "treat_missing_data": "breaching",
     },
     {
         "metric": "OsCPU",
@@ -1122,6 +1130,7 @@ _MSK_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
+        "treat_missing_data": "breaching",
     },
     {
         "metric": "ActiveControllerCount",
@@ -1298,6 +1307,7 @@ _EFS_ALARMS = [
         "comparison": "LessThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
+        "treat_missing_data": "missing",
     },
     {
         "metric": "PercentIOLimit",

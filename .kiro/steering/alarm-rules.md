@@ -210,3 +210,65 @@ remediation handler에서 이 ARN을 실제 리소스 식별자로 변환해야 
 
 - `_extract_id_from_arn(arn, resource_type)` 함수에서 변환 처리
 - 새 리소스 타입 추가 시 ARN 패턴 확인 후 변환 로직 추가 필수
+
+## §10. TreatMissingData 결정 규칙
+
+새 알람 정의(`_*_ALARMS`)에 메트릭을 추가할 때 반드시 아래 표를 참고하여 `treat_missing_data` 값을 명시한다.
+`alarm_builder.py`의 기본값은 `"notBreaching"`이며, 명시하지 않으면 이 값이 사용된다.
+
+### 10-1. 선택 기준
+
+| 메트릭 특성 | 적용 값 | 근거 |
+|------------|---------|------|
+| **연결/상태 메트릭** — `LessThan` + binary(0=down/1=up) | `"breaching"` | 데이터 없음 = 리소스 자체가 응답 안 함 = 이상 상태 |
+| **클러스터 가용성 메트릭** — 클러스터 다운 시 메트릭도 미발행 | `"breaching"` | 데이터 없음 = 클러스터 이상으로 간주 |
+| **이벤트/트래픽 기반** — 트래픽·요청 없으면 데이터 없음 | `"notBreaching"` | 데이터 없음 = 트래픽 없음 = 정상 |
+| **항상 발행 메트릭** — 리소스 실행 중이면 항상 발행 (CPU, Memory 등) | `"notBreaching"` | 데이터 없음 = 리소스 중지됨 → 중지 상태에 알람 불필요 |
+| **용량/잔량 메트릭** (`LessThan`, FreeMemory/FreeStorage 등) | `"notBreaching"` | 리소스 중지 시 데이터 없음 → 중지된 리소스에 알람 불필요 |
+| **의도적 미발행 가능** — 분리·전환·재구성 시 정상적으로 데이터 없을 수 있음 | `"missing"` | 상태 유지가 false alarm 방지에 유리 |
+
+### 10-2. 현재 `"breaching"` 적용 알람 (10개)
+
+| 리소스 | 메트릭 | 이유 |
+|--------|--------|------|
+| VPN | TunnelState | 데이터 없음 = 터널 다운 |
+| MSK | ActiveControllerCount | 데이터 없음 = 컨트롤러 없음 = 클러스터 이상 |
+| MSK | UnderReplicatedPartitions | 브로커 다운 시 복제 상태 확인 불가 |
+| Route53 | HealthCheckStatus | 데이터 없음 = 헬스체크 중단 |
+| DX | ConnectionState | 데이터 없음 = Direct Connect 회선 단절 |
+| TG | HealthyHostCount | 데이터 없음 = 타겟 0개 = 서비스 불가 |
+| OpenSearch | ClusterStatusRed | 클러스터 완전 다운 시 메트릭 미발행 |
+| OpenSearch | ClusterStatusYellow | 동일 |
+| OpenSearch | OSFreeStorageSpace | 클러스터 다운 = 스토리지 확인 불가 |
+| OpenSearch | ClusterIndexWritesBlocked | 클러스터 다운 = 쓰기 차단 확정 |
+
+### 10-3. `"missing"` 예외 케이스 (4개 — 명시 필수)
+
+| 리소스 | 메트릭 | 이유 |
+|--------|--------|------|
+| ACM | DaysToExpiry | 인증서를 리소스에서 의도적으로 분리했을 때 데이터 없음 |
+| EFS | BurstCreditBalance | Provisioned Throughput 모드 전환 시 메트릭 미발행 가능 |
+| AuroraRDS | ReplicaLag | Writer-only 구성 시 메트릭 없음 (의도적 구성) |
+| AuroraRDS | ReaderReplicaLag | Reader 없는 구성 시 메트릭 없음 (의도적 구성) |
+
+### 10-4. 동적 알람 (`Threshold_*` 태그) 기본값
+
+`_create_dynamic_alarm()`의 기본값도 `"notBreaching"`. 사용자 정의 메트릭은 대부분 이벤트/트래픽 기반이므로 데이터 없음 = 정상으로 처리한다.
+
+### 10-5. 새 메트릭 추가 체크리스트
+
+```
+□ 메트릭이 항상 발행되는가? (리소스 실행 중)
+  → YES: notBreaching (기본값, 명시 불필요)
+  → NO: 아래로 진행
+
+□ 데이터 없음이 곧 이상 상태를 의미하는가?
+  (연결 끊김, 클러스터 다운, 타겟 없음 등)
+  → YES: breaching (명시 필요)
+  → NO: 아래로 진행
+
+□ 의도적으로 데이터가 없을 수 있는가?
+  (인증서 분리, 모드 전환, 구성 변경 등)
+  → YES: missing (명시 필요)
+  → NO: notBreaching (기본값, 명시 불필요)
+```

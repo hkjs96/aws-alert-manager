@@ -1543,7 +1543,8 @@ class TestTreatMissingDataAndOpenSearchDimension:
         call = mock_cw.put_metric_alarm.call_args_list[0]
         assert call.kwargs["TreatMissingData"] == "breaching"
 
-    def test_non_vpn_alarm_treat_missing_data_missing(self):
+    def test_non_vpn_alarm_treat_missing_data_notBreaching(self):
+        """VPN 제외 일반 리소스(Lambda)는 기본 TreatMissingData=notBreaching."""
         mock_cw = self._mock_cw()
         tags = {"Monitoring": "on", "Name": "my-func"}
         with patch("common._clients._get_cw_client", return_value=mock_cw):
@@ -1551,7 +1552,7 @@ class TestTreatMissingDataAndOpenSearchDimension:
 
         assert len(created) == 2
         for call in mock_cw.put_metric_alarm.call_args_list:
-            assert call.kwargs["TreatMissingData"] == "missing"
+            assert call.kwargs["TreatMissingData"] == "notBreaching"
 
 
 # ──────────────────────────────────────────────
@@ -1600,23 +1601,17 @@ class TestTreatMissingDataExtended:
             created = create_alarms_for_resource("my-cluster", "MSK", tags)
 
         assert len(created) == 4
-        # ActiveControllerCount should be breaching
-        acc_call = [
-            c for c in mock_cw.put_metric_alarm.call_args_list
-            if c.kwargs["MetricName"] == "ActiveControllerCount"
-        ]
-        assert len(acc_call) == 1
-        assert acc_call[0].kwargs["TreatMissingData"] == "breaching"
-        # Other MSK alarms should be missing
-        other_calls = [
-            c for c in mock_cw.put_metric_alarm.call_args_list
-            if c.kwargs["MetricName"] != "ActiveControllerCount"
-        ]
-        for call in other_calls:
-            assert call.kwargs["TreatMissingData"] == "missing"
+        # ActiveControllerCount + UnderReplicatedPartitions: breaching
+        breaching_metrics = {"ActiveControllerCount", "UnderReplicatedPartitions"}
+        for call in mock_cw.put_metric_alarm.call_args_list:
+            metric = call.kwargs["MetricName"]
+            expected = "breaching" if metric in breaching_metrics else "notBreaching"
+            assert call.kwargs["TreatMissingData"] == expected, (
+                f"{metric}: expected {expected}, got {call.kwargs['TreatMissingData']}"
+            )
 
-    def test_other_resource_treat_missing_data_default_missing(self):
-        """SQS, ECS, DynamoDB 등 기본 리소스는 TreatMissingData=missing."""
+    def test_other_resource_treat_missing_data_default_notBreaching(self):
+        """SQS, ECS, DynamoDB 등 이벤트 기반 리소스는 TreatMissingData=notBreaching."""
         mock_cw = self._mock_cw()
         tags = {"Monitoring": "on", "Name": "my-queue"}
         with patch("common._clients._get_cw_client", return_value=mock_cw):
@@ -1624,7 +1619,7 @@ class TestTreatMissingDataExtended:
 
         assert len(created) == 3
         for call in mock_cw.put_metric_alarm.call_args_list:
-            assert call.kwargs["TreatMissingData"] == "missing"
+            assert call.kwargs["TreatMissingData"] == "notBreaching"
 
 
 # ──────────────────────────────────────────────

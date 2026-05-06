@@ -193,8 +193,8 @@ class Test_CreateStandardAlarm:
 
             _get_cw_client_for_region.cache_clear()
 
-    def test_TreatMissingData_기본값은_missing(self, moto_cw):
-        """alarm_def에 treat_missing_data 없으면 'missing'이어야 한다."""
+    def test_TreatMissingData_기본값은_notBreaching(self, moto_cw):
+        """alarm_def에 treat_missing_data 없으면 'notBreaching'이어야 한다."""
         from common.alarm_builder import _create_standard_alarm
         from common.alarm_registry import _get_alarm_defs
 
@@ -212,7 +212,7 @@ class Test_CreateStandardAlarm:
             )
 
         alarm = moto_cw.describe_alarms(AlarmNames=[alarm_name])["MetricAlarms"][0]
-        assert alarm["TreatMissingData"] == "missing"
+        assert alarm["TreatMissingData"] == "notBreaching"
 
     def test_TreatMissingData_breaching_설정(self, moto_cw):
         """alarm_def에 treat_missing_data=breaching이면 알람에 반영되어야 한다."""

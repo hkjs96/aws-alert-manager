@@ -371,11 +371,12 @@ def test_treat_missing_data_breaching():
             f"DX alarm {ad['metric']} missing treat_missing_data=breaching"
         )
 
-    # MSK: only ActiveControllerCount has breaching
+    # MSK: ActiveControllerCount and UnderReplicatedPartitions are breaching
+    msk_breaching = {"ActiveControllerCount", "UnderReplicatedPartitions"}
     for ad in _MSK_ALARMS:
-        if ad["metric"] == "ActiveControllerCount":
+        if ad["metric"] in msk_breaching:
             assert ad.get("treat_missing_data") == "breaching", (
-                "MSK ActiveControllerCount missing treat_missing_data=breaching"
+                f"MSK {ad['metric']} missing treat_missing_data=breaching"
             )
         else:
             tmd = ad.get("treat_missing_data")

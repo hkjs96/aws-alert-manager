@@ -882,10 +882,13 @@ class TestMSKAlarmDefs:
         assert acc["treat_missing_data"] == "breaching"
         assert acc["comparison"] == "LessThanThreshold"
 
-    def test_msk_other_metrics_no_breaching(self):
+    def test_msk_breaching_metrics(self):
+        breaching_metrics = {"ActiveControllerCount", "UnderReplicatedPartitions"}
         defs = _get_alarm_defs("MSK")
         for d in defs:
-            if d["metric"] != "ActiveControllerCount":
+            if d["metric"] in breaching_metrics:
+                assert d.get("treat_missing_data") == "breaching"
+            else:
                 assert d.get("treat_missing_data") is None
 
 

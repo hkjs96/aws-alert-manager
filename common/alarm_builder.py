@@ -148,7 +148,7 @@ def _create_disk_alarms(
                 ActionsEnabled=True,
                 AlarmActions=[sns_arn] if sns_arn else [],
                 OKActions=[sns_arn] if sns_arn else [],
-                TreatMissingData="missing",
+                TreatMissingData="notBreaching",
             )
             logger.info("Created disk alarm: %s (path=%s, threshold=%.2f)", name, path, disk_threshold)
             created.append(name)
@@ -211,7 +211,7 @@ def _create_standard_alarm(
             ActionsEnabled=True,
             AlarmActions=[sns_arn] if sns_arn else [],
             OKActions=[sns_arn] if sns_arn else [],
-            TreatMissingData=alarm_def.get("treat_missing_data", "missing"),
+            TreatMissingData=alarm_def.get("treat_missing_data", "notBreaching"),
         )
         logger.info("Created alarm: %s (threshold=%.2f)", name, threshold)
         _tag_alarm_with_severity(name, alarm_def.get("metric_key") or alarm_def["metric"], cw)
@@ -293,7 +293,7 @@ def _create_dynamic_alarm(
             ActionsEnabled=True,
             AlarmActions=[sns_arn] if sns_arn else [],
             OKActions=[sns_arn] if sns_arn else [],
-            TreatMissingData="missing",
+            TreatMissingData="notBreaching",
         )
         _tag_alarm_with_severity(name, metric_name, cw)
         logger.info(
@@ -402,7 +402,7 @@ def _create_single_alarm(
             ActionsEnabled=True,
             AlarmActions=[sns_arn] if sns_arn else [],
             OKActions=[sns_arn] if sns_arn else [],
-            TreatMissingData=alarm_def.get("treat_missing_data", "missing"),
+            TreatMissingData=alarm_def.get("treat_missing_data", "notBreaching"),
         )
         logger.info("Created single alarm: %s (threshold=%.2f)", name, threshold)
         _tag_alarm_with_severity(name, metric, cw)
@@ -511,7 +511,7 @@ def _recreate_disk_alarm(
             ActionsEnabled=True,
             AlarmActions=[sns_arn] if sns_arn else [],
             OKActions=[sns_arn] if sns_arn else [],
-            TreatMissingData="missing",
+            TreatMissingData="notBreaching",
         )
         logger.info("Recreated disk alarm: %s (path=%s, threshold=%.2f)", name, path, threshold)
     except ClientError as e:
@@ -564,7 +564,7 @@ def _recreate_standard_alarm(
             ActionsEnabled=True,
             AlarmActions=[sns_arn] if sns_arn else [],
             OKActions=[sns_arn] if sns_arn else [],
-            TreatMissingData=alarm_def.get("treat_missing_data", "missing"),
+            TreatMissingData=alarm_def.get("treat_missing_data", "notBreaching"),
         )
         logger.info("Recreated alarm: %s (threshold=%.2f)", name, threshold)
     except ClientError as e:
