@@ -75,14 +75,14 @@ def _sync_standard_alarms(
 ) -> bool:
     """표준 메트릭 알람 동기화. 변경 필요 시 True 반환."""
     metric = alarm_def["metric"]
-    metric_key = alarm_def.get("metric_key") or metric
+    metric_key = metric
 
     if is_threshold_off(resource_tags, metric_key):
         return False
 
-    if metric_key == "FreeMemoryGB":
+    if metric_key == "FreeableMemory":
         threshold, cw_threshold = _resolve_free_memory_threshold(resource_tags)
-    elif metric_key == "FreeLocalStorageGB":
+    elif metric_key == "FreeLocalStorage":
         threshold, cw_threshold = _resolve_free_local_storage_threshold(resource_tags)
     else:
         threshold = get_threshold(resource_tags, metric_key)
@@ -117,7 +117,7 @@ def _sync_off_hardcoded(
     cw = cw or _clients._get_cw_client()
     for alarm_def in alarm_defs:
         metric = alarm_def["metric"]
-        metric_key = alarm_def.get("metric_key") or metric
+        metric_key = metric
         if not is_threshold_off(resource_tags, metric_key):
             continue
         cw_name = alarm_def.get("metric_name") or metric
@@ -160,7 +160,7 @@ def _sync_dynamic_alarms(
     resource_name = resource_tags.get("Name", "")
     alarm_defs = _get_alarm_defs(resource_type, resource_tags)
     hardcoded_keys = (
-        {d.get("metric_key") or d["metric"] for d in alarm_defs}
+        {d["metric"] for d in alarm_defs}
         | {d.get("metric_name") or d["metric"] for d in alarm_defs}
     )
 

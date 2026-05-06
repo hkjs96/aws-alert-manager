@@ -133,10 +133,13 @@ def _parse_threshold_tags(
     Returns:
         {metric_name: (threshold_value, comparison_operator)} 딕셔너리 (동적 메트릭만)
     """
+    from common.tag_resolver import _LEGACY_TAG_MAP
     hardcoded = _get_hardcoded_metric_keys(resource_type, resource_tags)
     # KI-005: CW metric_name 별칭도 필터링 (중복 동적 알람 방지)
     _alarm_defs = _get_alarm_defs(resource_type, resource_tags)
     hardcoded_cw_names = {d.get("metric_name") or d["metric"] for d in _alarm_defs}
+    # 레거시 태그명(예: CPU, FreeMemoryGB)도 필터링 (하드코딩 알람과 매핑됨)
+    legacy_hardcoded = {v for k, v in _LEGACY_TAG_MAP.items() if k in hardcoded_cw_names}
     result: dict[str, tuple[float, str]] = {}
 
     for key, value in resource_tags.items():
@@ -158,7 +161,7 @@ def _parse_threshold_tags(
 
         if not metric_name:
             continue
-        if metric_name in hardcoded or metric_name in hardcoded_cw_names:
+        if metric_name in hardcoded or metric_name in hardcoded_cw_names or metric_name in legacy_hardcoded:
             continue
         if len(key) > 128:
             logger.warning("Skipping dynamic tag %s: key exceeds 128 chars", key)
@@ -214,7 +217,7 @@ def create_alarms_for_resource(
             )
             created.extend(disk_names)
         else:
-            metric_key = alarm_def.get("metric_key") or alarm_def["metric"]
+            metric_key = alarm_def["metric"]
             if is_threshold_off(resource_tags, metric_key):
                 logger.info(
                     "Skipping alarm for %s metric %s: threshold set to off",

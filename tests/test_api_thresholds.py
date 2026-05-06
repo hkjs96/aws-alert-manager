@@ -47,8 +47,8 @@ def test_get_thresholds_ec2_returns_system_defaults():
     items = json.loads(resp["body"])
     assert isinstance(items, list)
     assert len(items) > 0
-    # CPU는 EC2 기본 메트릭
-    cpu = next((t for t in items if t["metric_key"] == "CPU"), None)
+    # CPUUtilization은 EC2 기본 메트릭 (CW 메트릭 키)
+    cpu = next((t for t in items if t["metric_key"] == "CPUUtilization"), None)
     assert cpu is not None
     assert cpu["system_default"] == 80
     assert cpu["customer_override"] is None
@@ -63,7 +63,7 @@ def test_get_thresholds_with_customer_override_applied():
         "Items": [
             {
                 "scope_id": "customer_id:cust-01",
-                "metric_key": "CPU",
+                "metric_key": "CPUUtilization",
                 "threshold_value": Decimal("90"),
             }
         ]
@@ -77,7 +77,7 @@ def test_get_thresholds_with_customer_override_applied():
 
     assert resp["statusCode"] == 200
     items = json.loads(resp["body"])
-    cpu = next((t for t in items if t["metric_key"] == "CPU"), None)
+    cpu = next((t for t in items if t["metric_key"] == "CPUUtilization"), None)
     assert cpu is not None
     assert cpu["customer_override"] == 90  # Decimal → float
     assert cpu["system_default"] == 80     # 시스템 기본값은 유지

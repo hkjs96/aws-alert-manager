@@ -146,8 +146,8 @@ class TestNLBTGAlarmLBTypeSplit:
             f"This is an ALB-only metric that causes INSUFFICIENT_DATA on NLB. "
             f"Created alarms: {created}, metric_keys: {alarm_metrics}"
         )
-        assert "TGResponseTime" not in alarm_metrics, (
-            f"TGResponseTime alarm should NOT be created for NLB TG. "
+        assert "TargetResponseTime" not in alarm_metrics, (
+            f"TargetResponseTime alarm should NOT be created for NLB TG. "
             f"This is an ALB-only metric that causes INSUFFICIENT_DATA on NLB. "
             f"Created alarms: {created}, metric_keys: {alarm_metrics}"
         )
@@ -165,13 +165,13 @@ _alb_names = st.from_regex(r"[a-z][a-z0-9\-]{0,30}[a-z0-9]", fullmatch=True)
 # ──────────────────────────────────────────────
 
 _EXPECTED_NON_TG_METRICS: dict[str, tuple[int, set[str]]] = {
-    "EC2": (4, {"CPU", "Memory", "disk_used_percent", "StatusCheckFailed"}),
-    "RDS": (7, {"CPU", "FreeMemoryGB", "FreeStorageGB", "Connections", "ReadLatency", "WriteLatency", "ConnectionAttempts"}),
-    "ALB": (5, {"RequestCount", "ELB5XX", "TargetResponseTime", "ELB4XX", "TargetConnectionError"}),
-    "NLB": (5, {"ProcessedBytes", "ActiveFlowCount", "NewFlowCount", "TCPClientReset", "TCPTargetReset"}),
+    "EC2": (4, {"CPUUtilization", "mem_used_percent", "disk_used_percent", "StatusCheckFailed"}),
+    "RDS": (7, {"CPUUtilization", "FreeableMemory", "FreeStorageSpace", "DatabaseConnections", "ReadLatency", "WriteLatency", "ConnectionAttempts"}),
+    "ALB": (5, {"RequestCount", "HTTPCode_ELB_5XX_Count", "TargetResponseTime", "ELB4XX", "TargetConnectionError"}),
+    "NLB": (5, {"ProcessedBytes", "ActiveFlowCount", "NewFlowCount", "TCP_Client_Reset_Count", "TCP_Target_Reset_Count"}),
 }
 
-_ALB_TG_EXPECTED_METRICS = {"HealthyHostCount", "UnHealthyHostCount", "RequestCountPerTarget", "TGResponseTime"}
+_ALB_TG_EXPECTED_METRICS = {"HealthyHostCount", "UnHealthyHostCount", "RequestCountPerTarget", "TargetResponseTime"}
 
 
 # ──────────────────────────────────────────────
@@ -271,7 +271,7 @@ class TestPreservationNonTGResources:
         alarm_defs = _get_alarm_defs(resource_type)
         expected_count, expected_metrics = _EXPECTED_NON_TG_METRICS[resource_type]
 
-        actual_metrics = {d.get("metric_key") or d["metric"] for d in alarm_defs}
+        actual_metrics = {d["metric"] for d in alarm_defs}
 
         assert len(alarm_defs) == expected_count, (
             f"{resource_type}: expected {expected_count} alarm defs, "

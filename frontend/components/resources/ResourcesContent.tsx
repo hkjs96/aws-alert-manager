@@ -256,6 +256,7 @@ export function ResourcesContent({
         onTypeChange={(v) => { setTypeFilter(v); setPage(1); }}
         customers={customers}
         accounts={filteredAccounts}
+        onClearAll={handleClearFilters}
       />
 
       {/* Bulk action bar */}

@@ -178,8 +178,8 @@ class TestResolveThreshold:
     def test_FreeMemoryGB_metric_은_resolve_free_memory_호출(self):
         from common.threshold_resolver import resolve_threshold
 
-        alarm_def = {"metric": "FreeMemoryGB"}
-        resource_tags = {"Threshold_FreeMemoryGB": "3"}
+        alarm_def = {"metric": "FreeableMemory"}
+        resource_tags = {"Threshold_FreeMemoryGB": "3"}  # 레거시 태그 이름 호환
         display_thr, cw_thr = resolve_threshold(alarm_def, resource_tags)
 
         assert display_thr == 3.0
@@ -188,8 +188,8 @@ class TestResolveThreshold:
     def test_FreeLocalStorageGB_metric_은_resolve_free_local_storage_호출(self):
         from common.threshold_resolver import resolve_threshold
 
-        alarm_def = {"metric": "FreeLocalStorageGB"}
-        resource_tags = {"Threshold_FreeLocalStorageGB": "5"}
+        alarm_def = {"metric": "FreeLocalStorage"}
+        resource_tags = {"Threshold_FreeLocalStorageGB": "5"}  # 레거시 태그 이름 호환
         display_thr, cw_thr = resolve_threshold(alarm_def, resource_tags)
 
         assert display_thr == 5.0

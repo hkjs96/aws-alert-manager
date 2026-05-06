@@ -211,11 +211,11 @@ class TestHelpers:
     def test_hardcoded_metric_keys_alb_nlb_tg(self):
         from common.alarm_manager import _HARDCODED_METRIC_KEYS
         assert "ALB" in _HARDCODED_METRIC_KEYS
-        assert _HARDCODED_METRIC_KEYS["ALB"] == {"RequestCount", "ELB5XX", "TargetResponseTime", "ELB4XX", "TargetConnectionError"}
+        assert _HARDCODED_METRIC_KEYS["ALB"] == {"RequestCount", "HTTPCode_ELB_5XX_Count", "TargetResponseTime", "ELB4XX", "TargetConnectionError"}
         assert "NLB" in _HARDCODED_METRIC_KEYS
-        assert _HARDCODED_METRIC_KEYS["NLB"] == {"ProcessedBytes", "ActiveFlowCount", "NewFlowCount", "TCPClientReset", "TCPTargetReset"}
+        assert _HARDCODED_METRIC_KEYS["NLB"] == {"ProcessedBytes", "ActiveFlowCount", "NewFlowCount", "TCP_Client_Reset_Count", "TCP_Target_Reset_Count"}
         assert "TG" in _HARDCODED_METRIC_KEYS
-        assert _HARDCODED_METRIC_KEYS["TG"] == {"HealthyHostCount", "UnHealthyHostCount", "RequestCountPerTarget", "TGResponseTime"}
+        assert _HARDCODED_METRIC_KEYS["TG"] == {"HealthyHostCount", "UnHealthyHostCount", "RequestCountPerTarget", "TargetResponseTime"}
         assert "ELB" not in _HARDCODED_METRIC_KEYS
 
     def test_namespace_map_alb_nlb_tg(self):
@@ -313,7 +313,7 @@ class TestBuildDimensions:
         lb_arn = "arn:aws:elasticloadbalancing:us-east-1:123:loadbalancer/app/my-alb/def456"
         tags = {"_lb_arn": lb_arn}
         for alarm_def in _get_alarm_defs("TG"):
-            if alarm_def["metric"] in ("RequestCountPerTarget", "TGResponseTime"):
+            if alarm_def["metric"] in ("RequestCountPerTarget", "TargetResponseTime"):
                 dims = _build_dimensions(alarm_def, tg_arn, "TG", tags)
                 assert len(dims) == 2, f"{alarm_def['metric']} should have 2 dimensions"
                 assert dims[0] == {"Name": "TargetGroup", "Value": "targetgroup/my-tg/abc123"}
@@ -345,7 +345,7 @@ class TestResolveTgNamespace:
     def test_tg_new_alarms_network_lb_type_returns_network_elb(self):
         tags = {"_lb_type": "network"}
         for alarm_def in _get_alarm_defs("TG"):
-            if alarm_def["metric"] in ("RequestCountPerTarget", "TGResponseTime"):
+            if alarm_def["metric"] in ("RequestCountPerTarget", "TargetResponseTime"):
                 ns = _resolve_tg_namespace(alarm_def, tags)
                 assert ns == "AWS/NetworkELB", (
                     f"{alarm_def['metric']} with network LB should use AWS/NetworkELB"

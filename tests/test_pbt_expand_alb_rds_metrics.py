@@ -24,12 +24,12 @@ from common.tag_resolver import get_threshold
 
 _EXPECTED_METRIC_KEYS = {
     "ALB": {
-        "RequestCount", "ELB5XX", "TargetResponseTime",
+        "RequestCount", "HTTPCode_ELB_5XX_Count", "TargetResponseTime",
         "ELB4XX", "TargetConnectionError",
     },
     "RDS": {
-        "CPU", "FreeMemoryGB", "FreeStorageGB",
-        "Connections", "ReadLatency", "WriteLatency",
+        "CPUUtilization", "FreeableMemory", "FreeStorageSpace",
+        "DatabaseConnections", "ReadLatency", "WriteLatency",
         "ConnectionAttempts",
     },
 }
@@ -56,7 +56,7 @@ class TestAlarmDefinitionCompleteness:
         # Feature: expand-alb-rds-metrics, Property 1: 알람 정의 완전성
         # **Validates: Requirements 1.1, 2.1, 3.1, 6.1**
         alarm_defs = _get_alarm_defs(resource_type)
-        actual_keys = {d.get("metric_key") or d["metric"] for d in alarm_defs}
+        actual_keys = {d["metric"] for d in alarm_defs}
         expected_keys = _EXPECTED_METRIC_KEYS[resource_type]
 
         assert actual_keys >= expected_keys, (

@@ -46,7 +46,7 @@ export function AppShell({ children, alarms = [] }: AppShellProps) {
         onMenuToggle={toggle}
       />
       <Sidebar isOpen={sidebarOpen} onClose={close} />
-      <main className="pt-16 min-h-screen">
+      <main className="pt-16 min-h-screen lg:ml-52">
         <div className="p-8 max-w-7xl mx-auto">
           {children}
         </div>

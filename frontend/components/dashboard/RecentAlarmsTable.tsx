@@ -2,23 +2,38 @@
 
 import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { Search, ChevronUp, ChevronDown } from "lucide-react";
-import { Pagination } from "@/components/shared/Pagination";
+import { Search, ChevronDown, ChevronRight, BellOff } from "lucide-react";
 import type { Alarm } from "@/types";
 
-const DEFAULT_PAGE_SIZE = 10;
 type SortDir = "asc" | "desc";
 
-const COLUMNS: { key: string; label: string; sortable: boolean; align?: string }[] = [
-  { key: "time", label: "Time", sortable: true },
-  { key: "resource", label: "Resource", sortable: true },
-  { key: "type", label: "Type", sortable: true },
-  { key: "metric", label: "Metric", sortable: true },
-  { key: "state", label: "State", sortable: true },
-  { key: "value", label: "Value/Threshold", sortable: false, align: "text-right" },
+const COLUMNS: { key: string; label: string; align?: string }[] = [
+  { key: "time", label: "Time" },
+  { key: "resource", label: "Resource" },
+  { key: "type", label: "Type" },
+  { key: "metric", label: "Metric" },
+  { key: "state", label: "State" },
+  { key: "value", label: "Value/Threshold", align: "text-right" },
 ];
 
 const STATE_ORDER: Record<string, number> = { ALARM: 0, INSUFFICIENT: 1, OK: 2, OFF: 3 };
+
+type TimeBucket = "recent" | "today" | "older";
+
+const BUCKET_LABELS: Record<TimeBucket, string> = {
+  recent: "Last hour",
+  today: "Last 24 hours",
+  older: "Older",
+};
+
+function getTimeBucket(timeStr: string): TimeBucket {
+  const now = Date.now();
+  const ts = new Date(timeStr).getTime();
+  const diffMs = now - ts;
+  if (diffMs < 60 * 60 * 1000) return "recent";
+  if (diffMs < 24 * 60 * 60 * 1000) return "today";
+  return "older";
+}
 
 function stateRing(s: string) {
   const m: Record<string, string> = {
@@ -44,29 +59,93 @@ interface RecentAlarmsTableProps {
   alarms: Alarm[];
 }
 
+function AlarmRow({ alarm, onClick }: { alarm: Alarm; onClick: () => void }) {
+  return (
+    <tr
+      onClick={onClick}
+      className="hover:bg-slate-50 transition-colors cursor-pointer"
+    >
+      <td className="px-4 py-3 font-mono text-xs text-slate-500">{alarm.time}</td>
+      <td className="px-4 py-3" title={alarm.arn}>
+        <span className="font-bold text-slate-900">{alarm.resource}</span>
+      </td>
+      <td className="px-4 py-3">
+        <span className="bg-slate-100 px-2 py-0.5 rounded text-[10px] font-bold text-slate-600">
+          {alarm.type}
+        </span>
+      </td>
+      <td className="px-4 py-3 font-medium text-slate-700">{alarm.metric}</td>
+      <td className="px-4 py-3">
+        <span className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-bold ring-1 ${stateRing(alarm.state)}`}>
+          <span className={`w-1.5 h-1.5 rounded-full ${stateDot(alarm.state)}`} />
+          {alarm.state}
+        </span>
+      </td>
+      <td className={`px-4 py-3 text-right font-mono font-bold ${alarm.state === "ALARM" ? "text-error" : "text-slate-600"}`}>
+        {alarm.value}
+      </td>
+    </tr>
+  );
+}
+
+function BucketSection({
+  bucket,
+  alarms,
+  defaultOpen,
+  onRowClick,
+}: {
+  bucket: TimeBucket;
+  alarms: Alarm[];
+  defaultOpen: boolean;
+  onRowClick: (alarm: Alarm) => void;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+
+  const alarmCount = alarms.filter((a) => a.state === "ALARM").length;
+  const badgeLabel = alarmCount > 0 ? `${alarmCount} ALARM` : `${alarms.length} events`;
+  const badgeColor = alarmCount > 0 ? "bg-red-100 text-red-700" : "bg-slate-100 text-slate-600";
+
+  return (
+    <>
+      <tr
+        className="bg-slate-50/70 cursor-pointer select-none hover:bg-slate-100/70 transition-colors"
+        onClick={() => setOpen((v) => !v)}
+      >
+        <td colSpan={6} className="px-4 py-2">
+          <span className="inline-flex items-center gap-2 text-xs font-bold text-slate-600">
+            {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+            {BUCKET_LABELS[bucket]}
+            <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${badgeColor}`}>
+              {badgeLabel}
+            </span>
+          </span>
+        </td>
+      </tr>
+      {open &&
+        alarms.map((alarm) => (
+          <AlarmRow
+            key={alarm.id}
+            alarm={alarm}
+            onClick={() => onRowClick(alarm)}
+          />
+        ))}
+    </>
+  );
+}
+
 export function RecentAlarmsTable({ alarms }: RecentAlarmsTableProps) {
   const router = useRouter();
   const [search, setSearch] = useState("");
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
-  const [sortKey, setSortKey] = useState("time");
-  const [sortDir, setSortDir] = useState<SortDir>("desc");
-
-  const handleSort = (key: string) => {
-    if (sortKey === key) {
-      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
-    } else {
-      setSortKey(key);
-      setSortDir("asc");
-    }
-    setPage(1);
-  };
+  const [sortKey] = useState("time");
+  const [sortDir] = useState<SortDir>("desc");
 
   const filtered = useMemo(
-    () => alarms.filter((a) =>
-      a.resource.toLowerCase().includes(search.toLowerCase()) ||
-      a.metric.toLowerCase().includes(search.toLowerCase()),
-    ),
+    () =>
+      alarms.filter(
+        (a) =>
+          a.resource.toLowerCase().includes(search.toLowerCase()) ||
+          a.metric.toLowerCase().includes(search.toLowerCase()),
+      ),
     [alarms, search],
   );
 
@@ -84,28 +163,42 @@ export function RecentAlarmsTable({ alarms }: RecentAlarmsTableProps) {
     });
   }, [filtered, sortKey, sortDir]);
 
-  const paged = useMemo(() => {
-    const start = (page - 1) * pageSize;
-    return sorted.slice(start, start + pageSize);
-  }, [sorted, page, pageSize]);
+  const grouped = useMemo(() => {
+    const buckets: Record<TimeBucket, Alarm[]> = { recent: [], today: [], older: [] };
+    for (const alarm of sorted) {
+      buckets[getTimeBucket(alarm.time)].push(alarm);
+    }
+    return buckets;
+  }, [sorted]);
+
+  const activeBuckets = (["recent", "today", "older"] as TimeBucket[]).filter(
+    (b) => grouped[b].length > 0,
+  );
+
+  const header = (
+    <div className="px-8 py-6 flex justify-between items-center bg-slate-50/50">
+      <h3 className="font-headline font-bold text-lg text-slate-900">Recent Alarm Triggers</h3>
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search resources or metrics..."
+          className="pl-10 pr-4 py-1.5 bg-white border border-slate-200 rounded-lg text-sm w-64 focus:ring-2 focus:ring-primary/20 outline-none"
+        />
+      </div>
+    </div>
+  );
 
   if (alarms.length === 0) {
     return (
       <div className="bg-white rounded-xl shadow-sm overflow-hidden border border-slate-200 shadow-soft">
-        <div className="px-8 py-6 flex justify-between items-center bg-slate-50/50">
-          <h3 className="font-headline font-bold text-lg text-slate-900">Recent Alarm Triggers</h3>
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-            <input type="text" value={search}
-              onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-              placeholder="Search resources or metrics..."
-              className="pl-10 pr-4 py-1.5 bg-white border border-slate-200 rounded-lg text-sm w-64 focus:ring-2 focus:ring-primary/20 outline-none" />
-          </div>
-        </div>
+        {header}
         <div className="flex flex-col items-center justify-center py-12 text-center">
-          <span className="text-3xl mb-3">🔔</span>
-          <p className="text-sm font-semibold text-slate-600">최근 알람 이벤트가 없습니다</p>
-          <p className="text-xs text-slate-400 mt-1">모니터링 중인 리소스에서 상태 변경이 없었습니다</p>
+          <BellOff size={28} className="text-slate-300 mb-3" />
+          <p className="text-sm font-semibold text-slate-600">No recent alarm events</p>
+          <p className="text-xs text-slate-400 mt-1">No state changes from monitored resources</p>
         </div>
       </div>
     );
@@ -113,64 +206,42 @@ export function RecentAlarmsTable({ alarms }: RecentAlarmsTableProps) {
 
   return (
     <div className="bg-white rounded-xl shadow-sm overflow-hidden border border-slate-200 shadow-soft">
-      <div className="px-8 py-6 flex justify-between items-center bg-slate-50/50">
-        <h3 className="font-headline font-bold text-lg text-slate-900">Recent Alarm Triggers</h3>
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-          <input type="text" value={search}
-            onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-            placeholder="Search resources or metrics..."
-            className="pl-10 pr-4 py-1.5 bg-white border border-slate-200 rounded-lg text-sm w-64 focus:ring-2 focus:ring-primary/20 outline-none" />
-        </div>
-      </div>
+      {header}
       <table className="w-full text-sm">
         <thead className="bg-slate-50 border-b border-slate-200">
           <tr>
-            {COLUMNS.map((col) => {
-              const isActive = sortKey === col.key;
-              return (
-                <th key={col.key}
-                  className={`px-4 py-3 text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wider ${col.align ?? ""} ${col.sortable ? "cursor-pointer select-none hover:text-slate-800" : ""} ${isActive ? "text-slate-800" : ""}`}
-                  onClick={col.sortable ? () => handleSort(col.key) : undefined}>
-                  <span className="inline-flex items-center gap-1">
-                    {col.label}
-                    {col.sortable && (
-                      <span className="inline-flex flex-col">
-                        <ChevronUp size={9} className={isActive && sortDir === "asc" ? "text-slate-700" : "opacity-30"} />
-                        <ChevronDown size={9} className={isActive && sortDir === "desc" ? "text-slate-700" : "opacity-30"} />
-                      </span>
-                    )}
-                  </span>
-                </th>
-              );
-            })}
+            {COLUMNS.map((col) => (
+              <th
+                key={col.key}
+                className={`px-4 py-3 text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wider ${col.align ?? ""}`}
+              >
+                {col.label}
+              </th>
+            ))}
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-100">
-          {paged.map((alarm) => (
-            <tr key={alarm.id} onClick={() => router.push(`/resources/${encodeURIComponent(alarm.resource)}`)}
-              className="hover:bg-slate-50 transition-colors cursor-pointer">
-              <td className="px-4 py-3 font-mono text-xs text-slate-500">{alarm.time}</td>
-              <td className="px-4 py-3">
-                <span className="font-bold text-slate-900 block">{alarm.resource}</span>
-                <span className="text-[10px] font-mono text-slate-400">{alarm.arn}</span>
+          {activeBuckets.length === 0 ? (
+            <tr>
+              <td colSpan={6} className="px-4 py-8 text-center text-sm text-slate-400">
+                No results match your search
               </td>
-              <td className="px-4 py-3"><span className="bg-slate-100 px-2 py-0.5 rounded text-[10px] font-bold text-slate-600">{alarm.type}</span></td>
-              <td className="px-4 py-3 font-medium text-slate-700">{alarm.metric}</td>
-              <td className="px-4 py-3">
-                <span className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-bold ring-1 ${stateRing(alarm.state)}`}>
-                  <span className={`w-1.5 h-1.5 rounded-full ${stateDot(alarm.state)}`} />{alarm.state}
-                </span>
-              </td>
-              <td className={`px-4 py-3 text-right font-mono font-bold ${alarm.state === "ALARM" ? "text-error" : "text-slate-600"}`}>{alarm.value}</td>
             </tr>
-          ))}
+          ) : (
+            activeBuckets.map((bucket) => (
+              <BucketSection
+                key={bucket}
+                bucket={bucket}
+                alarms={grouped[bucket]}
+                defaultOpen={bucket !== "older"}
+                onRowClick={(alarm) =>
+                  router.push(`/resources/${encodeURIComponent(alarm.resource)}`)
+                }
+              />
+            ))
+          )}
         </tbody>
       </table>
-      <div className="px-8 py-4 bg-slate-50/30 border-t border-slate-100">
-        <Pagination page={page} pageSize={pageSize} total={sorted.length}
-          onPageChange={setPage} onPageSizeChange={(s) => { setPageSize(s); setPage(1); }} />
-      </div>
     </div>
   );
 }

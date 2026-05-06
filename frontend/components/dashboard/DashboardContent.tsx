@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { RefreshCw, Plus } from "lucide-react";
 import type { DashboardStats, Alarm } from "@/types";
@@ -9,14 +9,13 @@ import { StatCardGrid } from "./StatCardGrid";
 import { RecentAlarmsTable } from "./RecentAlarmsTable";
 import { CreateAlarmModal } from "./create-alarm/CreateAlarmModal";
 import { FilterBar } from "@/components/resources/FilterBar";
-import { SUPPORTED_RESOURCE_TYPES } from "@/lib/constants";
 import { useOwnedCustomers } from "@/hooks/useOwnedCustomers";
 import { OwnedEmptyState } from "@/components/shared/OwnedEmptyState";
 
+const PREV_STATS_KEY = "dashboard_prev_stats";
+
 interface CustomerDto { id: string; name: string }
 interface AccountDto { id: string; name: string; customerId: string }
-
-
 
 interface DashboardContentProps {
   stats: DashboardStats;
@@ -32,6 +31,15 @@ export function DashboardContent({ stats, alarms, customers, accounts }: Dashboa
   const [customerFilter, setCustomerFilter] = useState("");
   const [accountFilter, setAccountFilter] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
+  const [prevStats, setPrevStats] = useState<DashboardStats | undefined>(undefined);
+
+  useEffect(() => {
+    try {
+      const stored = sessionStorage.getItem(PREV_STATS_KEY);
+      if (stored) setPrevStats(JSON.parse(stored) as DashboardStats);
+      sessionStorage.setItem(PREV_STATS_KEY, JSON.stringify(stats));
+    } catch { /* sessionStorage unavailable */ }
+  }, [stats]);
 
   const filteredAccounts = useMemo(
     () => customerFilter ? accounts.filter((a) => a.customerId === customerFilter) : accounts,
@@ -43,6 +51,12 @@ export function DashboardContent({ stats, alarms, customers, accounts }: Dashboa
     setAccountFilter("");
   };
 
+  const handleClearAll = () => {
+    setCustomerFilter("");
+    setAccountFilter("");
+    setTypeFilter("");
+  };
+
   const ownedAccountIds = useMemo(
     () => accounts.filter((a) => ownedCustomerIds.includes(a.customerId)).map((a) => a.id),
     [accounts, ownedCustomerIds],
@@ -50,7 +64,6 @@ export function DashboardContent({ stats, alarms, customers, accounts }: Dashboa
 
   const filteredAlarms = useMemo(() => {
     return alarms.filter((a) => {
-      // 담당 고객사 범위 필터 (explicit customerFilter가 없을 때)
       if (!customerFilter && ownedAccountIds.length > 0) {
         if (!ownedAccountIds.some((id) => a.arn.includes(id))) return false;
       }
@@ -96,7 +109,7 @@ export function DashboardContent({ stats, alarms, customers, accounts }: Dashboa
         </div>
       </header>
 
-      <StatCardGrid stats={filteredStats} />
+      <StatCardGrid stats={filteredStats} prevStats={prevStats} />
 
       {/* Filter bar */}
       <FilterBar
@@ -111,6 +124,7 @@ export function DashboardContent({ stats, alarms, customers, accounts }: Dashboa
         customers={customers}
         accounts={filteredAccounts}
         hideSearch
+        onClearAll={handleClearAll}
       />
 
       <RecentAlarmsTable alarms={filteredAlarms} />

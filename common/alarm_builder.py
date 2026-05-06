@@ -324,6 +324,7 @@ _LEGACY_KEY_MAP: dict[str, str] = {
     "TCPClientReset": "TCP_Client_Reset_Count",
     "TCPTargetReset": "TCP_Target_Reset_Count",
     "TGResponseTime": "TargetResponseTime",
+    "FreeLocalStorageGB": "FreeLocalStorage",
 }
 
 
@@ -332,7 +333,8 @@ def _resolve_metric_key(alarm_info: dict) -> str:
     desc = alarm_info.get("AlarmDescription", "")
     metadata = _parse_alarm_metadata(desc)
     if metadata and "metric_key" in metadata:
-        return metadata["metric_key"]
+        raw_key = metadata["metric_key"]
+        return _LEGACY_KEY_MAP.get(raw_key, raw_key)
     metric_name = alarm_info.get("MetricName", "")
     # 레거시 디스크 알람: MetricName=disk_used_percent → Disk_{suffix} 변환
     if metric_name == "disk_used_percent":

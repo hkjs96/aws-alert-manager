@@ -16,12 +16,33 @@ from common import HARDCODED_DEFAULTS
 
 logger = logging.getLogger(__name__)
 
+# CW metric name → legacy friendly tag name (backwards compat for Threshold_ tags)
+_LEGACY_TAG_MAP: dict[str, str] = {
+    "CPUUtilization": "CPU",
+    "mem_used_percent": "Memory",
+    "disk_used_percent": "Disk",
+    "FreeableMemory": "FreeMemoryGB",
+    "FreeStorageSpace": "FreeStorageGB",
+    "DatabaseConnections": "Connections",
+    "HTTPCode_ELB_5XX_Count": "ELB5XX",
+    "TCP_Client_Reset_Count": "TCPClientReset",
+    "TCP_Target_Reset_Count": "TCPTargetReset",
+    "TargetResponseTime": "TGResponseTime",
+    "FreeLocalStorage": "FreeLocalStorageGB",
+}
+
 
 def is_threshold_off(resource_tags: dict, metric_name: str) -> bool:
+    """Threshold_{metric_name} 태그 값이 'off'(대소문자 무관)인지 판별.
+
+    레거시 태그 이름(예: Threshold_CPU)도 확인한다.
     """
-    Threshold_{metric_name} 태그 값이 'off'(대소문자 무관)인지 판별.
-    """
-    return resource_tags.get(f"Threshold_{metric_name}", "").strip().lower() == "off"
+    if resource_tags.get(f"Threshold_{metric_name}", "").strip().lower() == "off":
+        return True
+    legacy = _LEGACY_TAG_MAP.get(metric_name)
+    if legacy and resource_tags.get(f"Threshold_{legacy}", "").strip().lower() == "off":
+        return True
+    return False
 
 
 def get_threshold(resource_tags: dict, metric_name: str) -> float:
@@ -51,9 +72,13 @@ def get_threshold(resource_tags: dict, metric_name: str) -> float:
     else:
         base_metric = metric_name
 
-    # 1단계: 태그에서 조회 (Threshold_{metric_name})
+    # 1단계: 태그에서 조회 (CW metric name 먼저, 레거시 태그 이름 폴백)
     tag_key = f"Threshold_{metric_name}"
     tag_value = resource_tags.get(tag_key)
+    if tag_value is None:
+        legacy = _LEGACY_TAG_MAP.get(metric_name)
+        if legacy:
+            tag_value = resource_tags.get(f"Threshold_{legacy}")
     if tag_value is not None:
         try:
             val = float(tag_value)
@@ -70,9 +95,13 @@ def get_threshold(resource_tags: dict, metric_name: str) -> float:
                 tag_key, tag_value,
             )
 
-    # 2단계: 환경 변수에서 조회 (DEFAULT_{BASE_METRIC}_THRESHOLD)
+    # 2단계: 환경 변수에서 조회 (DEFAULT_{BASE_METRIC}_THRESHOLD, 레거시 이름 폴백)
     env_key = f"DEFAULT_{base_metric.upper()}_THRESHOLD"
     env_value = os.environ.get(env_key)
+    if env_value is None:
+        legacy_base = _LEGACY_TAG_MAP.get(base_metric)
+        if legacy_base:
+            env_value = os.environ.get(f"DEFAULT_{legacy_base.upper()}_THRESHOLD")
     if env_value is not None:
         try:
             val = float(env_value)

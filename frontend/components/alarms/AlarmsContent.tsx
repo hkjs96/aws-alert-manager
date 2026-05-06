@@ -145,6 +145,13 @@ export function AlarmsContent({ alarms, summary, customers, accounts }: AlarmsCo
         onTypeChange={(v) => { setTypeFilter(v); setPage(1); }}
         customers={customers}
         accounts={filteredAccounts}
+        onClearAll={() => {
+          setSearch("");
+          setCustomerFilter("");
+          setAccountFilter("");
+          setTypeFilter("");
+          setPage(1);
+        }}
       />
 
       {/* State filter tabs */}

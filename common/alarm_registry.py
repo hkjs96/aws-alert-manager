@@ -49,6 +49,7 @@ _METRIC_DISPLAY = {
     "TCP_Target_Reset_Count": ("TCP_Target_Reset_Count", ">", ""),
     "RequestCountPerTarget": ("RequestCountPerTarget", ">", ""),
     "FreeLocalStorageGB": ("FreeLocalStorage", "<", "GB"),
+    "FreeLocalStorage": ("FreeLocalStorage", "<", "GB"),
     "ReplicaLag": ("AuroraReplicaLagMaximum", ">", "μs"),
     "ReaderReplicaLag": ("AuroraReplicaLag", ">", "μs"),
     "ACUUtilization": ("ACUUtilization", ">", "%"),
@@ -141,7 +142,6 @@ _METRIC_DISPLAY = {
 _EC2_ALARMS = [
     {
         "metric": "CPUUtilization",
-        "metric_key": "CPU",
         "namespace": "AWS/EC2",
         "metric_name": "CPUUtilization",
         "dimension_key": "InstanceId",
@@ -152,7 +152,6 @@ _EC2_ALARMS = [
     },
     {
         "metric": "mem_used_percent",
-        "metric_key": "Memory",
         "namespace": "CWAgent",
         "metric_name": "mem_used_percent",
         "dimension_key": "InstanceId",
@@ -188,7 +187,6 @@ _EC2_ALARMS = [
 _RDS_ALARMS = [
     {
         "metric": "CPUUtilization",
-        "metric_key": "CPU",
         "namespace": "AWS/RDS",
         "metric_name": "CPUUtilization",
         "dimension_key": "DBInstanceIdentifier",
@@ -199,7 +197,6 @@ _RDS_ALARMS = [
     },
     {
         "metric": "FreeableMemory",
-        "metric_key": "FreeMemoryGB",
         "namespace": "AWS/RDS",
         "metric_name": "FreeableMemory",
         "dimension_key": "DBInstanceIdentifier",
@@ -211,7 +208,6 @@ _RDS_ALARMS = [
     },
     {
         "metric": "FreeStorageSpace",
-        "metric_key": "FreeStorageGB",
         "namespace": "AWS/RDS",
         "metric_name": "FreeStorageSpace",
         "dimension_key": "DBInstanceIdentifier",
@@ -223,7 +219,6 @@ _RDS_ALARMS = [
     },
     {
         "metric": "DatabaseConnections",
-        "metric_key": "Connections",
         "namespace": "AWS/RDS",
         "metric_name": "DatabaseConnections",
         "dimension_key": "DBInstanceIdentifier",
@@ -277,7 +272,6 @@ _ALB_ALARMS = [
     },
     {
         "metric": "HTTPCode_ELB_5XX_Count",
-        "metric_key": "ELB5XX",
         "namespace": "AWS/ApplicationELB",
         "metric_name": "HTTPCode_ELB_5XX_Count",
         "dimension_key": "LoadBalancer",
@@ -351,7 +345,6 @@ _NLB_ALARMS = [
     },
     {
         "metric": "TCP_Client_Reset_Count",
-        "metric_key": "TCPClientReset",
         "namespace": "AWS/NetworkELB",
         "metric_name": "TCP_Client_Reset_Count",
         "dimension_key": "LoadBalancer",
@@ -362,7 +355,6 @@ _NLB_ALARMS = [
     },
     {
         "metric": "TCP_Target_Reset_Count",
-        "metric_key": "TCPTargetReset",
         "namespace": "AWS/NetworkELB",
         "metric_name": "TCP_Target_Reset_Count",
         "dimension_key": "LoadBalancer",
@@ -406,7 +398,6 @@ _TG_ALARMS = [
     },
     {
         "metric": "TargetResponseTime",
-        "metric_key": "TGResponseTime",
         "namespace": "AWS/ApplicationELB",
         "metric_name": "TargetResponseTime",
         "dimension_key": "TargetGroup",
@@ -421,7 +412,6 @@ _TG_ALARMS = [
 _AURORA_RDS_ALARMS = [
     {
         "metric": "CPUUtilization",
-        "metric_key": "CPU",
         "namespace": "AWS/RDS",
         "metric_name": "CPUUtilization",
         "dimension_key": "DBInstanceIdentifier",
@@ -432,7 +422,6 @@ _AURORA_RDS_ALARMS = [
     },
     {
         "metric": "FreeableMemory",
-        "metric_key": "FreeMemoryGB",
         "namespace": "AWS/RDS",
         "metric_name": "FreeableMemory",
         "dimension_key": "DBInstanceIdentifier",
@@ -444,7 +433,6 @@ _AURORA_RDS_ALARMS = [
     },
     {
         "metric": "DatabaseConnections",
-        "metric_key": "Connections",
         "namespace": "AWS/RDS",
         "metric_name": "DatabaseConnections",
         "dimension_key": "DBInstanceIdentifier",
@@ -454,7 +442,7 @@ _AURORA_RDS_ALARMS = [
         "evaluation_periods": 1,
     },
     {
-        "metric": "FreeLocalStorageGB",
+        "metric": "FreeLocalStorage",
         "namespace": "AWS/RDS",
         "metric_name": "FreeLocalStorage",
         "dimension_key": "DBInstanceIdentifier",
@@ -540,7 +528,7 @@ def _get_aurora_alarm_defs(resource_tags: dict) -> list[dict]:
 
 _DOCDB_ALARMS = [
     {
-        "metric": "CPU",
+        "metric": "CPUUtilization",
         "namespace": "AWS/DocDB",
         "metric_name": "CPUUtilization",
         "dimension_key": "DBInstanceIdentifier",
@@ -550,7 +538,7 @@ _DOCDB_ALARMS = [
         "evaluation_periods": 1,
     },
     {
-        "metric": "FreeMemoryGB",
+        "metric": "FreeableMemory",
         "namespace": "AWS/DocDB",
         "metric_name": "FreeableMemory",
         "dimension_key": "DBInstanceIdentifier",
@@ -561,7 +549,7 @@ _DOCDB_ALARMS = [
         "transform_threshold": lambda gb: gb * 1073741824,
     },
     {
-        "metric": "Connections",
+        "metric": "DatabaseConnections",
         "namespace": "AWS/DocDB",
         "metric_name": "DatabaseConnections",
         "dimension_key": "DBInstanceIdentifier",
@@ -1517,13 +1505,13 @@ def _get_alarm_defs(resource_type: str, resource_tags: dict | None = None) -> li
 
 # resource_type별 하드코딩 메트릭 키 (metric_key 기준; tag_key = Threshold_{metric_key})
 _HARDCODED_METRIC_KEYS: dict[str, set[str]] = {
-    "EC2": {"CPU", "Memory", "disk_used_percent", "StatusCheckFailed"},
-    "RDS": {"CPU", "FreeMemoryGB", "FreeStorageGB", "Connections", "ReadLatency", "WriteLatency", "ConnectionAttempts"},
-    "ALB": {"RequestCount", "ELB5XX", "TargetResponseTime", "ELB4XX", "TargetConnectionError"},
-    "NLB": {"ProcessedBytes", "ActiveFlowCount", "NewFlowCount", "TCPClientReset", "TCPTargetReset"},
-    "TG": {"HealthyHostCount", "UnHealthyHostCount", "RequestCountPerTarget", "TGResponseTime"},
-    "AuroraRDS": {"CPU", "FreeMemoryGB", "Connections", "FreeLocalStorageGB", "ReplicaLag", "ReaderReplicaLag", "ACUUtilization", "ServerlessDatabaseCapacity"},
-    "DocDB": {"CPU", "FreeMemoryGB", "Connections"},
+    "EC2": {"CPUUtilization", "mem_used_percent", "disk_used_percent", "StatusCheckFailed"},
+    "RDS": {"CPUUtilization", "FreeableMemory", "FreeStorageSpace", "DatabaseConnections", "ReadLatency", "WriteLatency", "ConnectionAttempts"},
+    "ALB": {"RequestCount", "HTTPCode_ELB_5XX_Count", "TargetResponseTime", "ELB4XX", "TargetConnectionError"},
+    "NLB": {"ProcessedBytes", "ActiveFlowCount", "NewFlowCount", "TCP_Client_Reset_Count", "TCP_Target_Reset_Count"},
+    "TG": {"HealthyHostCount", "UnHealthyHostCount", "RequestCountPerTarget", "TargetResponseTime"},
+    "AuroraRDS": {"CPUUtilization", "FreeableMemory", "DatabaseConnections", "FreeLocalStorage", "ReplicaLag", "ReaderReplicaLag", "ACUUtilization", "ServerlessDatabaseCapacity"},
+    "DocDB": {"CPUUtilization", "FreeableMemory", "DatabaseConnections"},
     "ElastiCache": {"CPUUtilization", "EngineCPU", "SwapUsage", "Evictions", "CurrConnections"},
     "NAT": {"PacketsDropCount", "ErrorPortAllocation"},
     "Lambda": {"Duration", "Errors"},
@@ -1705,6 +1693,7 @@ _DEFAULT_SEVERITY: dict[str, str] = {
     "FreeableMemory":     "SEV-3",
     "FreeStorageSpace":   "SEV-3",
     "FreeLocalStorageGB": "SEV-3",
+    "FreeLocalStorage":  "SEV-3",
     "EngineCPU":          "SEV-3",
     "ACUUtilization":     "SEV-3",
     "DaysToExpiry":       "SEV-3",
@@ -1730,6 +1719,8 @@ _DEFAULT_SEVERITY: dict[str, str] = {
     "Connections":            "SEV-5",
     "TCPClientReset":         "SEV-5",
     "TCPTargetReset":         "SEV-5",
+    "TCP_Client_Reset_Count": "SEV-5",
+    "TCP_Target_Reset_Count": "SEV-5",
     "RequestCount":           "SEV-5",
     "DatabaseConnections":    "SEV-5",
     "CurrConnections":        "SEV-5",

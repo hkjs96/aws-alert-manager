@@ -1,6 +1,6 @@
 "use client";
 
-import { Search, Bell, HelpCircle, Menu } from "lucide-react";
+import { Search, Bell, HelpCircle, Menu, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { GlobalFilterBar } from "./GlobalFilterBar";
 
 interface TopBarProps {
@@ -17,7 +17,7 @@ export function TopBar({ alarmCount = 0, onMenuToggle }: TopBarProps) {
         {/* 햄버거 메뉴 버튼 */}
         <button
           onClick={onMenuToggle}
-          className="p-2 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors"
+          className="p-2 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors lg:hidden"
           aria-label="메뉴 열기/닫기"
         >
           <Menu size={20} />
@@ -31,13 +31,13 @@ export function TopBar({ alarmCount = 0, onMenuToggle }: TopBarProps) {
           }`}>
             {hasAlarms ? (
               <>
-                <span>🔴</span>
-                <span>ALARM {alarmCount}건</span>
+                <AlertTriangle size={11} />
+                <span>ALARM {alarmCount}</span>
               </>
             ) : (
               <>
-                <span>✅</span>
-                <span>정상</span>
+                <CheckCircle2 size={11} />
+                <span>All clear</span>
               </>
             )}
           </div>

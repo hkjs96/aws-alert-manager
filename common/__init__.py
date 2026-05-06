@@ -48,6 +48,7 @@ HARDCODED_DEFAULTS: dict[str, float] = {
     "TCP_Target_Reset_Count": 100.0,
     "RequestCountPerTarget": 1000.0,
     "FreeLocalStorageGB": 10.0,
+    "FreeLocalStorage": 10.0,
     "ReplicaLag": 2000000.0,
     "ReaderReplicaLag": 2000000.0,
     "ACUUtilization": 80.0,

@@ -22,6 +22,7 @@ from common.alarm_manager import (
     _parse_alarm_metadata,
     _resolve_metric_key,
 )
+from common.alarm_builder import _LEGACY_KEY_MAP
 
 
 # ──────────────────────────────────────────────
@@ -150,7 +151,8 @@ class TestAlarmMetadataRoundtrip:
         }
 
         resolved = _resolve_metric_key(alarm_info)
-        assert resolved == metric_key, (
-            f"_resolve_metric_key should return metadata metric_key={metric_key!r}, "
-            f"but got {resolved!r} (MetricName fallback should not be used)"
+        expected = _LEGACY_KEY_MAP.get(metric_key, metric_key)
+        assert resolved == expected, (
+            f"_resolve_metric_key should return canonical metric_key={expected!r} "
+            f"(from stored={metric_key!r}), but got {resolved!r}"
         )

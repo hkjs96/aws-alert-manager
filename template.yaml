@@ -183,7 +183,7 @@ Resources:
       ContentBasedDeduplication: false
       VisibilityTimeout: 900
       RedrivePolicy:
-        deadLetterTargetArn: !GetAtt BulkOperationDLQ.QueueArn
+        deadLetterTargetArn: !GetAtt BulkOperationDLQ.Arn
         maxReceiveCount: 3
 
   ApiHandlerFunction:

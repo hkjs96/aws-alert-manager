@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { ExternalLink, ChevronUp, ChevronDown } from "lucide-react";
+import { ChevronUp, ChevronDown } from "lucide-react";
 import type { Alarm } from "@/types";
 import { formatRelativeTime } from "@/lib/time-utils";
 
@@ -14,7 +14,6 @@ const COLUMNS: { key: string; label: string; sortable: boolean; align?: string }
   { key: "metric", label: "Metric", sortable: true },
   { key: "state", label: "State", sortable: true },
   { key: "value", label: "Value", sortable: false, align: "text-right" },
-  { key: "actions", label: "Actions", sortable: false, align: "text-center" },
 ];
 
 const STATE_ORDER: Record<string, number> = { ALARM: 0, INSUFFICIENT: 1, OK: 2, OFF: 3 };
@@ -69,9 +68,8 @@ export function AlarmTable({ alarms }: AlarmTableProps) {
     return (
       <div className="bg-white rounded-xl shadow-sm overflow-hidden border border-slate-200 shadow-soft">
         <div className="flex flex-col items-center justify-center py-12 text-center">
-          <span className="text-3xl mb-3">🔍</span>
-          <p className="text-sm font-semibold text-slate-600">조건에 맞는 알람이 없습니다</p>
-          <p className="text-xs text-slate-400 mt-1">필터 조건을 변경해보세요</p>
+          <p className="text-sm font-semibold text-slate-600">No alarms match the current filter</p>
+          <p className="text-xs text-slate-400 mt-1">Try adjusting your filter criteria</p>
         </div>
       </div>
     );
@@ -105,13 +103,19 @@ export function AlarmTable({ alarms }: AlarmTableProps) {
           </thead>
           <tbody className="divide-y divide-slate-100">
             {sorted.map((alarm) => (
-              <tr key={alarm.id} className={`transition-colors ${alarm.state === "ALARM" ? "bg-red-50 border-l-2 border-l-red-500" : ""} ${alarm.state === "ALARM" ? "" : "hover:bg-slate-50"}`}>
+              <tr
+                key={alarm.id}
+                onClick={() => router.push(`/resources/${encodeURIComponent(alarm.resource)}`)}
+                className={`cursor-pointer transition-colors ${alarm.state === "ALARM" ? "bg-red-50 border-l-2 border-l-red-500 hover:bg-red-100/60" : "hover:bg-slate-50"}`}
+              >
                 <td className="px-4 py-3 font-mono text-xs text-slate-500">
                   <span title={alarm.time}>{formatRelativeTime(alarm.time)}</span>
                 </td>
-                <td className="px-4 py-3">
-                  <span className="font-bold text-slate-900 block">{alarm.resource}</span>
-                  <span className="text-[10px] font-mono text-slate-400">{alarm.arn}</span>
+                <td className="px-4 py-3" title={alarm.arn}>
+                  <span className="font-bold text-slate-900">{alarm.resource}</span>
+                  <span className="ml-2 text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded font-semibold">
+                    {alarm.type}
+                  </span>
                 </td>
                 <td className="px-4 py-3 font-medium text-slate-700">{alarm.metric}</td>
                 <td className="px-4 py-3">
@@ -120,12 +124,6 @@ export function AlarmTable({ alarms }: AlarmTableProps) {
                   </span>
                 </td>
                 <td className={`px-4 py-3 text-right font-mono font-bold ${alarm.state === "ALARM" ? "text-red-600" : "text-slate-600"}`}>{alarm.value}</td>
-                <td className="px-4 py-3 text-center">
-                  <button onClick={() => router.push(`/resources/${encodeURIComponent(alarm.resource)}`)}
-                    className="p-1.5 hover:bg-slate-200 rounded-md text-slate-500 transition-colors">
-                    <ExternalLink size={16} />
-                  </button>
-                </td>
               </tr>
             ))}
           </tbody>

@@ -1,11 +1,11 @@
 import type { SeverityLevel } from '@/types';
 
-const SEVERITY_COLORS: Record<SeverityLevel, string> = {
-  'SEV-1': '#dc2626',
-  'SEV-2': '#ea580c',
-  'SEV-3': '#d97706',
-  'SEV-4': '#2563eb',
-  'SEV-5': '#6b7280',
+const SEVERITY_CLASSES: Record<SeverityLevel, string> = {
+  'SEV-1': 'bg-red-100 text-red-700 border-red-300',
+  'SEV-2': 'bg-orange-100 text-orange-700 border-orange-300',
+  'SEV-3': 'bg-amber-100 text-amber-700 border-amber-300',
+  'SEV-4': 'bg-blue-100 text-blue-700 border-blue-300',
+  'SEV-5': 'bg-slate-100 text-slate-600 border-slate-300',
 };
 
 interface SeverityBadgeProps {
@@ -13,13 +13,8 @@ interface SeverityBadgeProps {
 }
 
 export function SeverityBadge({ severity }: SeverityBadgeProps) {
-  const color = SEVERITY_COLORS[severity];
-
   return (
-    <span
-      className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-white border"
-      style={{ borderColor: color, color }}
-    >
+    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${SEVERITY_CLASSES[severity]}`}>
       {severity}
     </span>
   );

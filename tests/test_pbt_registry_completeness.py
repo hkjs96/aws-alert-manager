@@ -82,9 +82,9 @@ def test_aurora_rds_metrics_include_base():
     """AuroraRDS 기본 메트릭이 HARDCODED_METRIC_KEYS에 포함."""
     tags = {"_is_serverless_v2": "false", "_is_writer": "true"}
     defs = _get_alarm_defs("AuroraRDS", tags)
-    actual = {d.get("metric_key") or d["metric"] for d in defs}
-    # 최소한 CPU, FreeMemoryGB, Connections는 포함
-    assert {"CPU", "FreeMemoryGB", "Connections"}.issubset(actual)
+    actual = {d["metric"] for d in defs}
+    # 최소한 CPUUtilization, FreeableMemory, DatabaseConnections는 포함
+    assert {"CPUUtilization", "FreeableMemory", "DatabaseConnections"}.issubset(actual)
 
 
 def test_unknown_resource_type_returns_empty():

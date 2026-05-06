@@ -30,7 +30,7 @@ from common.alarm_registry import _get_alarm_defs
 # ──────────────────────────────────────────────
 
 _HARDCODED_METRICS = {
-    rt: [d.get("metric_key") or d["metric"] for d in _get_alarm_defs(rt)]
+    rt: [d["metric"] for d in _get_alarm_defs(rt)]
     for rt in ["EC2", "RDS", "ALB", "NLB", "TG"]
 }
 
@@ -41,23 +41,23 @@ def _expected_alarm_count(resource_type: str) -> int:
 # 메트릭별 네임스페이스 매핑
 _METRIC_NAMESPACE = {
     "EC2": {
-        "CPU": "AWS/EC2",
-        "Memory": "CWAgent",
-        "Disk": "CWAgent",
+        "CPUUtilization": "AWS/EC2",
+        "mem_used_percent": "CWAgent",
+        "disk_used_percent": "CWAgent",
         "StatusCheckFailed": "AWS/EC2",
     },
     "RDS": {
-        "CPU": "AWS/RDS",
-        "FreeMemoryGB": "AWS/RDS",
-        "FreeStorageGB": "AWS/RDS",
-        "Connections": "AWS/RDS",
+        "CPUUtilization": "AWS/RDS",
+        "FreeableMemory": "AWS/RDS",
+        "FreeStorageSpace": "AWS/RDS",
+        "DatabaseConnections": "AWS/RDS",
         "ReadLatency": "AWS/RDS",
         "WriteLatency": "AWS/RDS",
         "ConnectionAttempts": "AWS/RDS",
     },
     "ALB": {
         "RequestCount": "AWS/ApplicationELB",
-        "ELB5XX": "AWS/ApplicationELB",
+        "HTTPCode_ELB_5XX_Count": "AWS/ApplicationELB",
         "TargetResponseTime": "AWS/ApplicationELB",
         "ELB4XX": "AWS/ApplicationELB",
         "TargetConnectionError": "AWS/ApplicationELB",
@@ -66,26 +66,25 @@ _METRIC_NAMESPACE = {
         "ProcessedBytes": "AWS/NetworkELB",
         "ActiveFlowCount": "AWS/NetworkELB",
         "NewFlowCount": "AWS/NetworkELB",
-        "TCPClientReset": "AWS/NetworkELB",
-        "TCPTargetReset": "AWS/NetworkELB",
+        "TCP_Client_Reset_Count": "AWS/NetworkELB",
+        "TCP_Target_Reset_Count": "AWS/NetworkELB",
     },
     "TG": {
         "HealthyHostCount": "AWS/ApplicationELB",
         "UnHealthyHostCount": "AWS/ApplicationELB",
         "RequestCountPerTarget": "AWS/ApplicationELB",
-        "TGResponseTime": "AWS/ApplicationELB",
+        "TargetResponseTime": "AWS/ApplicationELB",
     },
 }
 
-# 메트릭별 display name 매핑
+# 메트릭별 display name 매핑 (metric key → CW display name)
 _METRIC_DISPLAY = {
-    "CPU": "CPUUtilization",
-    "Memory": "mem_used_percent",
-    "Disk": "disk_used_percent",
+    "CPUUtilization": "CPUUtilization",
+    "mem_used_percent": "mem_used_percent",
     "disk_used_percent": "disk_used_percent",
-    "FreeMemoryGB": "FreeableMemory",
-    "FreeStorageGB": "FreeStorageSpace",
-    "Connections": "DatabaseConnections",
+    "FreeableMemory": "FreeableMemory",
+    "FreeStorageSpace": "FreeStorageSpace",
+    "DatabaseConnections": "DatabaseConnections",
     "RequestCount": "RequestCount",
     "HealthyHostCount": "HealthyHostCount",
     "UnHealthyHostCount": "UnHealthyHostCount",
@@ -95,26 +94,24 @@ _METRIC_DISPLAY = {
     "StatusCheckFailed": "StatusCheckFailed",
     "ReadLatency": "ReadLatency",
     "WriteLatency": "WriteLatency",
-    "ELB5XX": "HTTPCode_ELB_5XX_Count",
+    "HTTPCode_ELB_5XX_Count": "HTTPCode_ELB_5XX_Count",
     "ELB4XX": "HTTPCode_ELB_4XX_Count",
     "TargetConnectionError": "TargetConnectionErrorCount",
     "TargetResponseTime": "TargetResponseTime",
-    "TCPClientReset": "TCP_Client_Reset_Count",
-    "TCPTargetReset": "TCP_Target_Reset_Count",
+    "TCP_Client_Reset_Count": "TCP_Client_Reset_Count",
+    "TCP_Target_Reset_Count": "TCP_Target_Reset_Count",
     "RequestCountPerTarget": "RequestCountPerTarget",
-    "TGResponseTime": "TargetResponseTime",
     "ConnectionAttempts": "ConnectionAttempts",
 }
 
-# 메트릭별 방향/단위
+# 메트릭별 방향/단위 (CW metric key 기준)
 _METRIC_DIRECTION_UNIT = {
-    "CPU": (">", "%"),
-    "Memory": (">", "%"),
-    "Disk": (">", "%"),
+    "CPUUtilization": (">", "%"),
+    "mem_used_percent": (">", "%"),
     "disk_used_percent": (">", "%"),
-    "FreeMemoryGB": ("<", "GB"),
-    "FreeStorageGB": ("<", "GB"),
-    "Connections": (">", ""),
+    "FreeableMemory": ("<", "GB"),
+    "FreeStorageSpace": ("<", "GB"),
+    "DatabaseConnections": (">", ""),
     "RequestCount": (">", ""),
     "HealthyHostCount": ("<", ""),
     "UnHealthyHostCount": (">", ""),
@@ -124,14 +121,13 @@ _METRIC_DIRECTION_UNIT = {
     "StatusCheckFailed": (">", ""),
     "ReadLatency": (">", "s"),
     "WriteLatency": (">", "s"),
-    "ELB5XX": (">", ""),
+    "HTTPCode_ELB_5XX_Count": (">", ""),
     "ELB4XX": (">", ""),
     "TargetConnectionError": (">", ""),
     "TargetResponseTime": (">", "s"),
-    "TCPClientReset": (">", ""),
-    "TCPTargetReset": (">", ""),
+    "TCP_Client_Reset_Count": (">", ""),
+    "TCP_Target_Reset_Count": (">", ""),
     "RequestCountPerTarget": (">", ""),
-    "TGResponseTime": (">", "s"),
     "ConnectionAttempts": (">", ""),
 }
 
@@ -163,8 +159,8 @@ _ENV = {
     "AWS_SESSION_TOKEN": "testing",
 }
 
-# GB → bytes 변환 대상 메트릭
-_GB_TO_BYTES_METRICS = {"FreeMemoryGB", "FreeStorageGB"}
+# GB → bytes 변환 대상 메트릭 (CW metric key 기준)
+_GB_TO_BYTES_METRICS = {"FreeableMemory", "FreeStorageSpace"}
 
 
 # ──────────────────────────────────────────────
@@ -457,7 +453,7 @@ class TestHardcodedAlarmPreservation:
         # describe_alarms로 실제 CloudWatch 임계치 확인
         cw = boto3.client("cloudwatch", region_name="us-east-1")
 
-        for metric in ("FreeMemoryGB", "FreeStorageGB"):
+        for metric in ("FreeableMemory", "FreeStorageSpace"):
             display = _METRIC_DISPLAY[metric]
             matching = [a for a in result if display in a]
             assert len(matching) == 1, (

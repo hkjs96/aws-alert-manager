@@ -73,7 +73,7 @@ def _resolve_free_memory_threshold(
         return (display_gb, cw_bytes)
 
     # 3단계: GB 절대값 폴백
-    gb = get_threshold(resource_tags, "FreeMemoryGB")
+    gb = get_threshold(resource_tags, "FreeableMemory")
     return (gb, gb * 1073741824)
 
 
@@ -130,7 +130,7 @@ def _resolve_free_local_storage_threshold(
         return (display_gb, cw_bytes)
 
     # 3단계: GB 절대값 폴백
-    gb = get_threshold(resource_tags, "FreeLocalStorageGB")
+    gb = get_threshold(resource_tags, "FreeLocalStorage")
     return (gb, gb * 1073741824)
 
 
@@ -143,12 +143,12 @@ def resolve_threshold(
     Returns:
         (display_threshold, cw_threshold) 튜플.
     """
-    metric_key = alarm_def.get("metric_key") or alarm_def["metric"]
+    metric_key = alarm_def["metric"]
 
-    if metric_key == "FreeMemoryGB":
+    if metric_key == "FreeableMemory":
         return _resolve_free_memory_threshold(resource_tags)
 
-    if metric_key == "FreeLocalStorageGB":
+    if metric_key == "FreeLocalStorage":
         return _resolve_free_local_storage_threshold(resource_tags)
 
     display_thr = get_threshold(resource_tags, metric_key)

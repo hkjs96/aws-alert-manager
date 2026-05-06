@@ -39,6 +39,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
       <aside
         className={`fixed left-0 top-0 h-full w-52 bg-white border-r border-slate-200 flex flex-col pt-16 pb-6 px-3 z-40
           transition-transform duration-300 ease-in-out
+          lg:translate-x-0
           ${isOpen ? "translate-x-0 shadow-xl shadow-slate-200/60" : "-translate-x-full"}`}
       >
         {/* Brand */}

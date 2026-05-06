@@ -269,7 +269,7 @@ function AlarmBadges({
 
   if (!hasCritical && !hasWarning) {
     return (
-      <span className="text-green-600 text-[10px] font-bold">✓</span>
+      <span className="text-slate-400 text-[10px] font-bold">—</span>
     );
   }
 
