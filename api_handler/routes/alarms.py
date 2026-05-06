@@ -62,7 +62,12 @@ def get_alarm_summary(event: dict) -> dict:
         if state in summary:
             summary[state] += 1
 
-    return _ok({"total": len(all_alarms), "by_state": summary})
+    return _ok({
+        "total": len(all_alarms),
+        "alarm_count": summary["ALARM"],
+        "ok_count": summary["OK"],
+        "insufficient_count": summary["INSUFFICIENT_DATA"],
+    })
 
 
 # ── 내부 헬퍼 ─────────────────────────────────────────────────────

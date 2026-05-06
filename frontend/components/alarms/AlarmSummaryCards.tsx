@@ -11,7 +11,10 @@ const SEGMENTS = [
 ] as const;
 
 export function AlarmSummaryCards({ summary }: AlarmSummaryCardsProps) {
-  const { total, alarm_count, ok_count, insufficient_count } = summary;
+  const total = summary.total ?? 0;
+  const alarm_count = summary.alarm_count ?? 0;
+  const ok_count = summary.ok_count ?? 0;
+  const insufficient_count = summary.insufficient_count ?? 0;
   const off_count = Math.max(0, total - alarm_count - ok_count - insufficient_count);
 
   const allSegments = [

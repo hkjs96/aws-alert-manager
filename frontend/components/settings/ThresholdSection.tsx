@@ -71,22 +71,27 @@ export function ThresholdSection() {
   }, [isCurrentTabDirty, activeType]);
 
   const handleOverrideChange = (metricKey: string, value: string) => {
+    const num = value === "" ? null : Number(value);
+    if (num !== null && num < 0) return; // UI 1단계: 음수 입력 차단
     setThresholds((prev) =>
       prev.map((t) =>
-        t.metric_key === metricKey
-          ? { ...t, customer_override: value === "" ? null : Number(value) }
-          : t,
+        t.metric_key === metricKey ? { ...t, customer_override: num } : t,
       ),
     );
   };
 
   const handleSave = async () => {
+    // 2단계: 제출 전 음수 검증
+    const invalid = thresholds.filter((t) => t.customer_override !== null && t.customer_override < 0);
+    if (invalid.length > 0) {
+      showToast("error", `Threshold must be 0 or greater: ${invalid.map((t) => t.metric_key).join(", ")}`);
+      return;
+    }
     setIsSaving(true);
     try {
       if (USE_REAL_API) {
         await saveThresholds(activeType, thresholds, customerId || undefined);
       } else {
-        // 로컬 mock: 지연 시뮬레이션
         await new Promise((resolve) => setTimeout(resolve, 400));
       }
       showToast("success", `${activeType} thresholds saved.`);
@@ -174,6 +179,7 @@ export function ThresholdSection() {
                       <div className="flex flex-col gap-1">
                         <input
                           type="number"
+                          min="0"
                           value={t.customer_override ?? ""}
                           onChange={(e) => handleOverrideChange(t.metric_key, e.target.value)}
                           placeholder="—"

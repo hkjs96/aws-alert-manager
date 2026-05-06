@@ -71,6 +71,11 @@ _ROUTES: list[tuple[str, re.Pattern, object]] = [
 
 def lambda_handler(event, context):
     method = event.get("requestContext", {}).get("http", {}).get("method", "GET").upper()
+
+    # CORS preflight — OPTIONS는 라우트 매칭 없이 즉시 응답
+    if method == "OPTIONS":
+        return _with_cors({"statusCode": 200, "body": ""})
+
     raw_path = event.get("rawPath", event.get("path", "/"))
 
     # API Gateway stage prefix 제거 (/prod/api/customers → /api/customers)

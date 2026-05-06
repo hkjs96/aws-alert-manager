@@ -38,15 +38,15 @@ export function AccountSection({ accounts, customers }: AccountSectionProps) {
   const [accountId, setAccountId] = useState("");
   const [roleArn, setRoleArn] = useState("");
   const [name, setName] = useState("");
-  const [customerId, setCustomerId] = useState(customers[0]?.customer_id ?? "");
+  const [customerId, setCustomerId] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [testingId, setTestingId] = useState<string | null>(null);
   const [statuses, setStatuses] = useState<Record<string, string>>({});
 
   const handleConnect = async () => {
-    if (!accountId.trim() || !roleArn.trim() || !name.trim()) {
-      setError("Please fill in all fields.");
+    if (!accountId.trim() || !roleArn.trim() || !name.trim() || !customerId) {
+      setError("Please fill in all fields and select a customer.");
       return;
     }
     setError("");
@@ -181,6 +181,7 @@ export function AccountSection({ accounts, customers }: AccountSectionProps) {
             </FormField>
             <FormField label="Assigned Customer">
               <select value={customerId} onChange={(e) => setCustomerId(e.target.value)} className={INPUT_CLS}>
+                <option value="" disabled>— Select Customer —</option>
                 {customers.map((c) => (
                   <option key={c.customer_id} value={c.customer_id}>{c.name}</option>
                 ))}

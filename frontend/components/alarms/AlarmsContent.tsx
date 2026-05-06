@@ -70,20 +70,23 @@ export function AlarmsContent({ alarms, summary, customers, accounts }: AlarmsCo
 
   const filtered = useMemo(() => {
     return alarms.filter((a) => {
+      const arn = a.arn ?? "";
       // 담당 고객사 범위 필터 (explicit customerFilter가 없을 때)
       if (!customerFilter && ownedAccountIds.length > 0) {
-        if (!ownedAccountIds.some((id) => a.arn.includes(id))) return false;
+        if (!ownedAccountIds.some((id) => arn.includes(id))) return false;
       }
       if (stateFilter !== "ALL" && a.state !== stateFilter) return false;
       if (typeFilter && a.type !== typeFilter) return false;
-      if (accountFilter && !a.arn.includes(accountFilter)) return false;
+      if (accountFilter && !arn.includes(accountFilter)) return false;
       if (customerFilter) {
         const ids = accounts.filter((acc) => acc.customerId === customerFilter).map((acc) => acc.id);
-        if (!ids.some((id) => a.arn.includes(id))) return false;
+        if (!ids.some((id) => arn.includes(id))) return false;
       }
       if (search) {
         const q = search.toLowerCase();
-        if (!a.resource.toLowerCase().includes(q) && !a.metric.toLowerCase().includes(q)) return false;
+        const resource = a.resource ?? "";
+        const metric = a.metric ?? "";
+        if (!resource.toLowerCase().includes(q) && !metric.toLowerCase().includes(q)) return false;
       }
       return true;
     });

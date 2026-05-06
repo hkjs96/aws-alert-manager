@@ -127,6 +127,8 @@ def put_thresholds(event: dict) -> dict:
             continue
 
         val = override.get("customer_override")
+        if val is not None and float(val) < 0:
+            return _err(400, "VALIDATION_ERROR", f"임계치는 0 이상이어야 합니다: {metric_key}")
         try:
             if val is None:
                 # None → 오버라이드 삭제

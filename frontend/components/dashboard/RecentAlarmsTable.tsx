@@ -141,11 +141,11 @@ export function RecentAlarmsTable({ alarms }: RecentAlarmsTableProps) {
 
   const filtered = useMemo(
     () =>
-      alarms.filter(
-        (a) =>
-          a.resource.toLowerCase().includes(search.toLowerCase()) ||
-          a.metric.toLowerCase().includes(search.toLowerCase()),
-      ),
+      alarms.filter((a) => {
+        const q = search.toLowerCase();
+        return (a.resource ?? "").toLowerCase().includes(q) ||
+          (a.metric ?? "").toLowerCase().includes(q);
+      }),
     [alarms, search],
   );
 

@@ -64,14 +64,15 @@ export function DashboardContent({ stats, alarms, customers, accounts }: Dashboa
 
   const filteredAlarms = useMemo(() => {
     return alarms.filter((a) => {
+      const arn = a.arn ?? "";
       if (!customerFilter && ownedAccountIds.length > 0) {
-        if (!ownedAccountIds.some((id) => a.arn.includes(id))) return false;
+        if (!ownedAccountIds.some((id) => arn.includes(id))) return false;
       }
-      if (accountFilter && !a.arn.includes(accountFilter)) return false;
+      if (accountFilter && !arn.includes(accountFilter)) return false;
       if (typeFilter && a.type !== typeFilter) return false;
       if (customerFilter) {
         const accountIds = accounts.filter((acc) => acc.customerId === customerFilter).map((acc) => acc.id);
-        if (!accountIds.some((id) => a.arn.includes(id))) return false;
+        if (!accountIds.some((id) => arn.includes(id))) return false;
       }
       return true;
     });

@@ -7,6 +7,7 @@ import type { UserCustomerStore } from "@/lib/ownedCustomers/store";
 // 모듈 수준 lazy 싱글턴 — 첫 렌더 시 초기화되어 전체 앱에서 공유
 let _store: UserCustomerStore | undefined;
 let _cachedIds: string[] = [];
+const _SSR_FALLBACK: string[] = [];
 
 function getStore(): UserCustomerStore {
   if (!_store) _store = createUserCustomerStore();
@@ -41,7 +42,7 @@ export function useOwnedCustomers(): OwnedCustomersState {
   const ownedCustomerIds = useSyncExternalStore(
     subscribeToStore,
     getSnapshot,
-    () => [], // SSR fallback
+    () => _SSR_FALLBACK, // SSR fallback — 고정 참조 필수
   );
 
   const [isLoading, setIsLoading] = useState(true);
