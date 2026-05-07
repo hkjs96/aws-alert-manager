@@ -515,6 +515,7 @@ _AURORA_ACU_UTILIZATION = {
     "comparison": "GreaterThanThreshold",
     "period": 300,
     "evaluation_periods": 1,
+    "treat_missing_data": "breaching",  # Serverless v2 실행 중이면 항상 발행
 }
 
 _AURORA_SERVERLESS_CAPACITY = {
@@ -1451,7 +1452,7 @@ _S3_ALARMS = [
         "period": 86400,
         "evaluation_periods": 1,
         "needs_storage_type": True,
-        "treat_missing_data": "notBreaching",  # 스토리지 메트릭 활성화 필요, 비활성화 시 없음
+        "treat_missing_data": "missing",  # 일간 메트릭, 중간 기간 missing은 정상 → 상태 유지
     },
     {
         "metric": "S3NumberOfObjects",
@@ -1463,7 +1464,7 @@ _S3_ALARMS = [
         "period": 86400,
         "evaluation_periods": 1,
         "needs_storage_type": True,
-        "treat_missing_data": "notBreaching",
+        "treat_missing_data": "missing",  # 일간 메트릭, 중간 기간 missing은 정상 → 상태 유지
     },
 ]
 
