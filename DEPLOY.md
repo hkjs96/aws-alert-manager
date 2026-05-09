@@ -248,14 +248,38 @@ NEXT_PUBLIC_API_BASE_URL=https://abc123xyz.execute-api.ap-northeast-2.amazonaws.
 > **주의**: 이 파일은 `.gitignore`에 포함되어 있으므로 커밋되지 않습니다.  
 > 설정하지 않으면 Next.js 내장 Mock API(로컬 개발용)를 사용합니다.
 
-### 프로덕션 배포
+### 프로덕션 배포 — AWS Amplify Hosting
 
-S3 정적 호스팅 또는 Vercel/Amplify 배포 시 환경변수로 설정합니다:
+#### 최초 1회: Amplify 콘솔 연동
+
+1. **AWS 콘솔 → Amplify → 새 앱 → GitHub 연결**
+2. 레포지토리 `hkjs96/aws-alert-manager`, 브랜치 `main` 선택
+3. 빌드 설정: "기존 amplify.yml 사용" 선택 (루트의 `frontend/amplify.yml` 자동 인식)
+4. **환경 변수** 탭에서 아래 두 값 입력:
+
+| 변수명 | 값 |
+|--------|-----|
+| `API_GATEWAY_URL` | CloudFormation Outputs `ApiEndpointUrl` 값 |
+| `NEXT_PUBLIC_API_BASE_URL` | 동일 값 |
+
+5. IAM 역할: "새 서비스 역할 생성" 선택
+6. **저장 및 배포** 클릭 → 빌드 로그에서 `Build successful` 확인
+7. Amplify가 발급한 URL(`https://main.xxxx.amplifyapp.com`)로 접속 확인
+
+#### 코드 업데이트 시
+
+`main` 브랜치에 push하면 Amplify가 자동으로 재빌드·배포합니다. 별도 작업 불필요.
+
+#### 커스텀 도메인 연결 (선택사항)
+
+Amplify 콘솔 → 도메인 관리 → 사용자 도메인 추가 → Route 53 또는 외부 DNS에 CNAME 등록
+
+#### Docker/ECS 배포 시 (Amplify 대신 컨테이너 사용)
+
+`output: "standalone"` 모드로 빌드하려면 환경변수를 추가:
 
 ```bash
-# 빌드 시
-NEXT_PUBLIC_API_BASE_URL=https://abc123xyz.execute-api.ap-northeast-2.amazonaws.com/prod \
-  npm run build
+STANDALONE=true npm run build
 ```
 
 ---
