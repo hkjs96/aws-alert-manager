@@ -1,13 +1,10 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "_comment": "Kiro hooks 중 포팅 가능한 것을 Claude Code 훅으로 재구성. stderr로 리마인더를 출력하면 Claude가 이어지는 턴에서 참고한다. Kiro 측 원본은 .kiro/hooks/ 아래 그대로 유지되어 있다. permissions/defaultMode는 이 저장소에서 자율 워크플로(테스트→커밋→푸시까지 단계별 수락 없이) 실행하도록 환경 독립적 항목만 등록. 본인 PC 절대 경로 같은 환경 특화는 .claude/settings.local.json(gitignored)으로.",
-
   "defaultMode": "acceptEdits",
-
   "permissions": {
     "allow": [
-      "Read(**)",
-
+      "Read(./**)",
       "Bash(ls:*)",
       "Bash(pwd)",
       "Bash(cat:*)",
@@ -27,7 +24,6 @@
       "Bash(sed -i:*)",
       "Bash(tee /tmp/*.log)",
       "Bash(pkill -f:*)",
-
       "Bash(git status)",
       "Bash(git status:*)",
       "Bash(git log:*)",
@@ -53,7 +49,6 @@
       "Bash(git merge --no-ff:*)",
       "Bash(git fetch:*)",
       "Bash(git restore:*)",
-
       "Bash(python -m pytest:*)",
       "Bash(pytest:*)",
       "Bash(python -m mypy:*)",
@@ -66,7 +61,6 @@
       "Bash(npm install:*)",
       "Bash(npm ls:*)",
       "Bash(node_modules/.bin/tsc:*)",
-
       "Bash(aws sts:*)",
       "Bash(aws s3 ls:*)",
       "Bash(aws s3 cp:*)",
@@ -97,11 +91,9 @@
       "Bash(aws ssm get-parameters:*)",
       "Bash(aws apigateway get-rest-apis:*)",
       "Bash(aws apigatewayv2 get-apis:*)",
-
       "Bash(curl http://localhost:*)",
       "Bash(curl https://*.amazonaws.com/*)",
       "Bash(curl https://main.*.amplifyapp.com/*)",
-
       "Bash(mkdir -p:*)",
       "Bash(cp:*)",
       "Bash(mv:*)",
@@ -110,10 +102,8 @@
       "Bash(zip:*)",
       "Bash(unzip -l:*)",
       "Bash(tar -tf:*)",
-
       "Read(//tmp/**)",
       "Read(//private/tmp/**)",
-
       "WebFetch(domain:docs.aws.amazon.com)",
       "WebFetch(domain:docs.anthropic.com)",
       "WebFetch(domain:nextjs.org)",
@@ -122,11 +112,9 @@
       "WebFetch(domain:raw.githubusercontent.com)"
     ]
   },
-
   "hooks": {
     "PreToolUse": [
       {
-        "_kiro_origin": "secret-leak-guard.kiro.hook",
         "matcher": "Write|Edit|MultiEdit",
         "hooks": [
           {
@@ -136,7 +124,6 @@
         ]
       },
       {
-        "_kiro_origin": "governance-check-on-write.json",
         "matcher": "Write|Edit|MultiEdit",
         "hooks": [
           {
@@ -146,10 +133,8 @@
         ]
       }
     ],
-
     "PostToolUse": [
       {
-        "_kiro_origin": "pylint-on-save.json",
         "matcher": "Write|Edit|MultiEdit",
         "hooks": [
           {
@@ -159,7 +144,6 @@
         ]
       },
       {
-        "_kiro_origin": "typecheck-on-save.kiro.hook",
         "matcher": "Write|Edit|MultiEdit",
         "hooks": [
           {
@@ -169,7 +153,6 @@
         ]
       },
       {
-        "_kiro_origin": "vitest-on-test-save.kiro.hook",
         "matcher": "Write|Edit|MultiEdit",
         "hooks": [
           {
@@ -179,7 +162,6 @@
         ]
       },
       {
-        "_kiro_origin": "dimension-check-reminder.kiro.hook",
         "matcher": "Write|Edit|MultiEdit",
         "hooks": [
           {
@@ -189,7 +171,6 @@
         ]
       },
       {
-        "_kiro_origin": "arn-conversion-reminder.kiro.hook",
         "matcher": "Write|Edit|MultiEdit",
         "hooks": [
           {
@@ -199,7 +180,6 @@
         ]
       },
       {
-        "_kiro_origin": "new-collector-checklist.kiro.hook",
         "matcher": "Write",
         "hooks": [
           {
@@ -209,11 +189,8 @@
         ]
       }
     ],
-
     "Stop": [
       {
-        "_kiro_origin": "deploy-after-tests.json",
-        "_note": "원본은 postTaskExecution. Claude Code에는 정확히 대응되는 훅이 없어, Stop 훅으로 배포 절차 리마인더만 제공한다. 실제 배포는 사용자 확인 후 수동 실행.",
         "matcher": "",
         "hooks": [
           {
@@ -223,11 +200,5 @@
         ]
       }
     ]
-  },
-
-  "_unported_kiro_hooks": {
-    "_note": "아래는 Kiro에 있었으나 Claude Code에 직접 대응 훅이 없어 Slash Command 또는 수동 실행으로 남겨둔 항목. 필요 시 .claude/commands/ 에 슬래시 커맨드로 추가 가능.",
-    "file_creation_event": "Kiro의 fileCreated 트리거는 Claude Code에 없다. new-collector-checklist는 Write 훅에서 근사 처리.",
-    "postTaskExecution": "Kiro의 태스크 종료 자동 실행은 Stop 훅으로 대체."
   }
 }
