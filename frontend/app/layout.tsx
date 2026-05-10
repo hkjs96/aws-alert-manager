@@ -4,6 +4,8 @@ import { AppShell } from "@/components/layout/AppShell";
 import { ToastProvider } from "@/components/shared/Toast";
 import { fetchAlarms } from "@/lib/server/data";
 
+export const dynamic = "force-dynamic";
+
 export const metadata: Metadata = {
   title: "Alarm Manager",
   description: "AWS CloudWatch Alarm Management Platform",
