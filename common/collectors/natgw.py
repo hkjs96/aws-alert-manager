@@ -13,7 +13,7 @@ import boto3
 from botocore.exceptions import ClientError
 
 from common import ResourceInfo
-from common.collectors.base import query_metric, CW_LOOKBACK_MINUTES, CW_STAT_SUM
+from common.collectors.base import query_metric, CW_LOOKBACK_MINUTES, CW_STAT_SUM, collect_metric
 
 logger = logging.getLogger(__name__)
 
@@ -91,10 +91,12 @@ def get_metrics(
     dim = [{"Name": "NatGatewayId", "Value": resource_id}]
     metrics: dict[str, float] = {}
 
-    _collect_metric("AWS/NATGateway", "PacketsDropCount", dim, start_time, end_time,
-                    "PacketsDropCount", metrics)
-    _collect_metric("AWS/NATGateway", "ErrorPortAllocation", dim, start_time, end_time,
-                    "ErrorPortAllocation", metrics)
+    collect_metric("AWS/NATGateway", "PacketsDropCount", dim, start_time, end_time,
+                   "PacketsDropCount", metrics,
+                   stat=CW_STAT_SUM, resource_label="NAT")
+    collect_metric("AWS/NATGateway", "ErrorPortAllocation", dim, start_time, end_time,
+                   "ErrorPortAllocation", metrics,
+                   stat=CW_STAT_SUM, resource_label="NAT")
 
     return metrics if metrics else None
 
@@ -115,11 +117,6 @@ def resolve_alive_ids(tag_names: set[str]) -> set[str]:
         except ClientError as e:
             logger.error("describe_nat_gateways failed: %s", e)
     return alive
-
-
-def _collect_metric(namespace, cw_metric_name, dimensions,
-                    start_time, end_time, result_key, metrics_dict):
-    """단일 메트릭 조회 후 metrics_dict에 추가. 데이터 없으면 skip + info 로그."""
     value = query_metric(namespace, cw_metric_name, dimensions,
                          start_time, end_time, CW_STAT_SUM)
     if value is not None:

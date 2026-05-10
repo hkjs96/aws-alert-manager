@@ -41,23 +41,23 @@ def _expected_alarm_count(resource_type: str) -> int:
 # 메트릭별 네임스페이스 매핑
 _METRIC_NAMESPACE = {
     "EC2": {
-        "CPU": "AWS/EC2",
-        "Memory": "CWAgent",
-        "Disk": "CWAgent",
+        "CPUUtilization": "AWS/EC2",
+        "mem_used_percent": "CWAgent",
+        "disk_used_percent": "CWAgent",
         "StatusCheckFailed": "AWS/EC2",
     },
     "RDS": {
-        "CPU": "AWS/RDS",
-        "FreeMemoryGB": "AWS/RDS",
-        "FreeStorageGB": "AWS/RDS",
-        "Connections": "AWS/RDS",
+        "CPUUtilization": "AWS/RDS",
+        "FreeableMemory": "AWS/RDS",
+        "FreeStorageSpace": "AWS/RDS",
+        "DatabaseConnections": "AWS/RDS",
         "ReadLatency": "AWS/RDS",
         "WriteLatency": "AWS/RDS",
         "ConnectionAttempts": "AWS/RDS",
     },
     "ALB": {
         "RequestCount": "AWS/ApplicationELB",
-        "ELB5XX": "AWS/ApplicationELB",
+        "HTTPCode_ELB_5XX_Count": "AWS/ApplicationELB",
         "TargetResponseTime": "AWS/ApplicationELB",
         "ELB4XX": "AWS/ApplicationELB",
         "TargetConnectionError": "AWS/ApplicationELB",
@@ -66,25 +66,25 @@ _METRIC_NAMESPACE = {
         "ProcessedBytes": "AWS/NetworkELB",
         "ActiveFlowCount": "AWS/NetworkELB",
         "NewFlowCount": "AWS/NetworkELB",
-        "TCPClientReset": "AWS/NetworkELB",
-        "TCPTargetReset": "AWS/NetworkELB",
+        "TCP_Client_Reset_Count": "AWS/NetworkELB",
+        "TCP_Target_Reset_Count": "AWS/NetworkELB",
     },
     "TG": {
         "HealthyHostCount": "AWS/ApplicationELB",
         "UnHealthyHostCount": "AWS/ApplicationELB",
         "RequestCountPerTarget": "AWS/ApplicationELB",
-        "TGResponseTime": "AWS/ApplicationELB",
+        "TargetResponseTime": "AWS/ApplicationELB",
     },
 }
 
-# 메트릭별 display name 매핑
+# 메트릭별 display name 매핑 (metric key → CW display name)
 _METRIC_DISPLAY = {
-    "CPU": "CPUUtilization",
-    "Memory": "mem_used_percent",
-    "Disk": "disk_used_percent",
-    "FreeMemoryGB": "FreeableMemory",
-    "FreeStorageGB": "FreeStorageSpace",
-    "Connections": "DatabaseConnections",
+    "CPUUtilization": "CPUUtilization",
+    "mem_used_percent": "mem_used_percent",
+    "disk_used_percent": "disk_used_percent",
+    "FreeableMemory": "FreeableMemory",
+    "FreeStorageSpace": "FreeStorageSpace",
+    "DatabaseConnections": "DatabaseConnections",
     "RequestCount": "RequestCount",
     "HealthyHostCount": "HealthyHostCount",
     "UnHealthyHostCount": "UnHealthyHostCount",
@@ -94,25 +94,24 @@ _METRIC_DISPLAY = {
     "StatusCheckFailed": "StatusCheckFailed",
     "ReadLatency": "ReadLatency",
     "WriteLatency": "WriteLatency",
-    "ELB5XX": "HTTPCode_ELB_5XX_Count",
+    "HTTPCode_ELB_5XX_Count": "HTTPCode_ELB_5XX_Count",
     "ELB4XX": "HTTPCode_ELB_4XX_Count",
     "TargetConnectionError": "TargetConnectionErrorCount",
     "TargetResponseTime": "TargetResponseTime",
-    "TCPClientReset": "TCP_Client_Reset_Count",
-    "TCPTargetReset": "TCP_Target_Reset_Count",
+    "TCP_Client_Reset_Count": "TCP_Client_Reset_Count",
+    "TCP_Target_Reset_Count": "TCP_Target_Reset_Count",
     "RequestCountPerTarget": "RequestCountPerTarget",
-    "TGResponseTime": "TargetResponseTime",
     "ConnectionAttempts": "ConnectionAttempts",
 }
 
-# 메트릭별 방향/단위
+# 메트릭별 방향/단위 (CW metric key 기준)
 _METRIC_DIRECTION_UNIT = {
-    "CPU": (">", "%"),
-    "Memory": (">", "%"),
-    "Disk": (">", "%"),
-    "FreeMemoryGB": ("<", "GB"),
-    "FreeStorageGB": ("<", "GB"),
-    "Connections": (">", ""),
+    "CPUUtilization": (">", "%"),
+    "mem_used_percent": (">", "%"),
+    "disk_used_percent": (">", "%"),
+    "FreeableMemory": ("<", "GB"),
+    "FreeStorageSpace": ("<", "GB"),
+    "DatabaseConnections": (">", ""),
     "RequestCount": (">", ""),
     "HealthyHostCount": ("<", ""),
     "UnHealthyHostCount": (">", ""),
@@ -122,14 +121,13 @@ _METRIC_DIRECTION_UNIT = {
     "StatusCheckFailed": (">", ""),
     "ReadLatency": (">", "s"),
     "WriteLatency": (">", "s"),
-    "ELB5XX": (">", ""),
+    "HTTPCode_ELB_5XX_Count": (">", ""),
     "ELB4XX": (">", ""),
     "TargetConnectionError": (">", ""),
     "TargetResponseTime": (">", "s"),
-    "TCPClientReset": (">", ""),
-    "TCPTargetReset": (">", ""),
+    "TCP_Client_Reset_Count": (">", ""),
+    "TCP_Target_Reset_Count": (">", ""),
     "RequestCountPerTarget": (">", ""),
-    "TGResponseTime": (">", "s"),
     "ConnectionAttempts": (">", ""),
 }
 
@@ -161,8 +159,8 @@ _ENV = {
     "AWS_SESSION_TOKEN": "testing",
 }
 
-# GB → bytes 변환 대상 메트릭
-_GB_TO_BYTES_METRICS = {"FreeMemoryGB", "FreeStorageGB"}
+# GB → bytes 변환 대상 메트릭 (CW metric key 기준)
+_GB_TO_BYTES_METRICS = {"FreeableMemory", "FreeStorageSpace"}
 
 
 # ──────────────────────────────────────────────
@@ -209,7 +207,7 @@ def hardcoded_only_tags(draw):
 
     # 각 하드코딩 메트릭에 대해 임계치 태그 생성 (Disk 제외)
     for metric in metrics:
-        if metric == "Disk":
+        if metric in ("Disk", "disk_used_percent"):
             # Disk는 Threshold_Disk_root 형태
             thr = draw(positive_thresholds)
             tags["Threshold_Disk_root"] = str(int(thr)) if thr == int(thr) else str(thr)
@@ -262,7 +260,7 @@ def _get_expected_alarm_name(
     """기대되는 알람 이름 생성."""
     direction, unit = _METRIC_DIRECTION_UNIT[metric]
 
-    if metric == "Disk":
+    if metric in ("Disk", "disk_used_percent"):
         display = "disk_used_percent(/)"
     else:
         display = _METRIC_DISPLAY[metric]
@@ -369,7 +367,7 @@ class TestHardcodedAlarmPreservation:
         for metric in metrics:
             display = _METRIC_DISPLAY[metric]
 
-            if metric == "Disk":
+            if metric in ("Disk", "disk_used_percent"):
                 # Disk 알람은 display_name(/) 형태
                 matching = [
                     a for a in result
@@ -395,7 +393,7 @@ class TestHardcodedAlarmPreservation:
             actual_thr_str = m.group("thr")
             actual_thr = float(actual_thr_str)
 
-            if metric == "Disk":
+            if metric in ("Disk", "disk_used_percent"):
                 tag_key = "Threshold_Disk_root"
             else:
                 tag_key = f"Threshold_{metric}"
@@ -455,7 +453,7 @@ class TestHardcodedAlarmPreservation:
         # describe_alarms로 실제 CloudWatch 임계치 확인
         cw = boto3.client("cloudwatch", region_name="us-east-1")
 
-        for metric in ("FreeMemoryGB", "FreeStorageGB"):
+        for metric in ("FreeableMemory", "FreeStorageSpace"):
             display = _METRIC_DISPLAY[metric]
             matching = [a for a in result if display in a]
             assert len(matching) == 1, (
@@ -519,7 +517,7 @@ class TestHardcodedAlarmPreservation:
         for metric in metrics:
             display = _METRIC_DISPLAY[metric]
 
-            if metric == "Disk":
+            if metric in ("Disk", "disk_used_percent"):
                 matching = [a for a in result if f"{display}(/)" in a]
                 tag_key = "Threshold_Disk_root"
             else:

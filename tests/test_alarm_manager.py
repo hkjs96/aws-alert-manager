@@ -20,7 +20,6 @@ from common.alarm_manager import (
     _get_hardcoded_metric_keys,
     _HARDCODED_METRIC_KEYS,
     _METRIC_DISPLAY,
-    _metric_name_to_key,
     _parse_alarm_metadata,
     _parse_threshold_tags,
     _pretty_alarm_name,
@@ -66,11 +65,11 @@ class TestHelpers:
         assert _alarm_name("db-001", "FreeMemoryGB") == "db-001-FreeMemoryGB-dev"
 
     def test_pretty_alarm_name_ec2_cpu(self):
-        name = _pretty_alarm_name("EC2", "i-001", "my-server", "CPU", 80)
+        name = _pretty_alarm_name("EC2", "i-001", "my-server", "CPUUtilization", 80)
         assert name == "[EC2] my-server CPUUtilization > 80% (TagName: i-001)"
 
     def test_pretty_alarm_name_no_name_tag(self):
-        name = _pretty_alarm_name("EC2", "i-001", "", "Memory", 90)
+        name = _pretty_alarm_name("EC2", "i-001", "", "mem_used_percent", 90)
         assert name == "[EC2] i-001 mem_used_percent > 90% (TagName: i-001)"
 
     def test_pretty_alarm_name_disk_root(self):
@@ -82,15 +81,15 @@ class TestHelpers:
         assert name == "[EC2] srv disk_used_percent(/data) > 90% (TagName: i-001)"
 
     def test_pretty_alarm_name_rds_free_memory(self):
-        name = _pretty_alarm_name("RDS", "db-001", "my-db", "FreeMemoryGB", 2)
+        name = _pretty_alarm_name("RDS", "db-001", "my-db", "FreeableMemory", 2)
         assert name == "[RDS] my-db FreeableMemory < 2GB (TagName: db-001)"
 
     def test_pretty_alarm_name_rds_connections(self):
-        name = _pretty_alarm_name("RDS", "db-001", "my-db", "Connections", 100)
+        name = _pretty_alarm_name("RDS", "db-001", "my-db", "DatabaseConnections", 100)
         assert name == "[RDS] my-db DatabaseConnections > 100 (TagName: db-001)"
 
     def test_pretty_alarm_name_float_threshold(self):
-        name = _pretty_alarm_name("EC2", "i-001", "srv", "CPU", 85.5)
+        name = _pretty_alarm_name("EC2", "i-001", "srv", "CPUUtilization", 85.5)
         assert name == "[EC2] srv CPUUtilization > 85.5% (TagName: i-001)"
 
     def test_pretty_alarm_name_always_within_255_chars(self):
@@ -102,7 +101,7 @@ class TestHelpers:
 
     def test_pretty_alarm_name_truncates_label_first(self):
         long_name = "my-very-long-server-name-" * 10
-        name = _pretty_alarm_name("EC2", "i-001", long_name, "CPU", 80)
+        name = _pretty_alarm_name("EC2", "i-001", long_name, "CPUUtilization", 80)
         assert len(name) <= 255
         assert "CPUUtilization" in name
         assert name.endswith("(TagName: i-001)")
@@ -122,7 +121,7 @@ class TestHelpers:
         assert name.endswith(f"(TagName: {long_id})")
 
     def test_pretty_alarm_name_short_inputs_unchanged(self):
-        name = _pretty_alarm_name("RDS", "db-001", "my-db", "CPU", 80)
+        name = _pretty_alarm_name("RDS", "db-001", "my-db", "CPUUtilization", 80)
         assert name == "[RDS] my-db CPUUtilization > 80% (TagName: db-001)"
         assert len(name) <= 255
 
@@ -164,13 +163,13 @@ class TestHelpers:
         defs = _get_alarm_defs("EC2")
         assert len(defs) == 4
         metrics = {d["metric"] for d in defs}
-        assert metrics == {"CPU", "Memory", "Disk", "StatusCheckFailed"}
+        assert metrics == {"CPUUtilization", "mem_used_percent", "disk_used_percent", "StatusCheckFailed"}
 
     def test_get_alarm_defs_rds(self):
         defs = _get_alarm_defs("RDS")
         assert len(defs) == 7
         metrics = {d["metric"] for d in defs}
-        assert metrics == {"CPU", "FreeMemoryGB", "FreeStorageGB", "Connections", "ReadLatency", "WriteLatency", "ConnectionAttempts"}
+        assert metrics == {"CPUUtilization", "FreeableMemory", "FreeStorageSpace", "DatabaseConnections", "ReadLatency", "WriteLatency", "ConnectionAttempts"}
 
     def test_get_alarm_defs_elb(self):
         defs = _get_alarm_defs("ELB")
@@ -183,7 +182,7 @@ class TestHelpers:
         defs = _get_alarm_defs("ALB")
         assert len(defs) == 5
         metrics = {d["metric"] for d in defs}
-        assert metrics == {"RequestCount", "ELB5XX", "TargetResponseTime", "ELB4XX", "TargetConnectionError"}
+        assert metrics == {"RequestCount", "HTTPCode_ELB_5XX_Count", "TargetResponseTime", "ELB4XX", "TargetConnectionError"}
         for d in defs:
             assert d["namespace"] == "AWS/ApplicationELB"
             assert d["dimension_key"] == "LoadBalancer"
@@ -192,7 +191,7 @@ class TestHelpers:
         defs = _get_alarm_defs("NLB")
         assert len(defs) == 5
         metrics = {d["metric"] for d in defs}
-        assert metrics == {"ProcessedBytes", "ActiveFlowCount", "NewFlowCount", "TCPClientReset", "TCPTargetReset"}
+        assert metrics == {"ProcessedBytes", "ActiveFlowCount", "NewFlowCount", "TCP_Client_Reset_Count", "TCP_Target_Reset_Count"}
         for d in defs:
             assert d["namespace"] == "AWS/NetworkELB"
             assert d["dimension_key"] == "LoadBalancer"
@@ -201,7 +200,7 @@ class TestHelpers:
         defs = _get_alarm_defs("TG")
         assert len(defs) == 4
         metrics = {d["metric"] for d in defs}
-        assert metrics == {"HealthyHostCount", "UnHealthyHostCount", "RequestCountPerTarget", "TGResponseTime"}
+        assert metrics == {"HealthyHostCount", "UnHealthyHostCount", "RequestCountPerTarget", "TargetResponseTime"}
         for d in defs:
             assert d["dimension_key"] == "TargetGroup"
 
@@ -212,11 +211,11 @@ class TestHelpers:
     def test_hardcoded_metric_keys_alb_nlb_tg(self):
         from common.alarm_manager import _HARDCODED_METRIC_KEYS
         assert "ALB" in _HARDCODED_METRIC_KEYS
-        assert _HARDCODED_METRIC_KEYS["ALB"] == {"RequestCount", "ELB5XX", "TargetResponseTime", "ELB4XX", "TargetConnectionError"}
+        assert _HARDCODED_METRIC_KEYS["ALB"] == {"RequestCount", "HTTPCode_ELB_5XX_Count", "TargetResponseTime", "ELB4XX", "TargetConnectionError"}
         assert "NLB" in _HARDCODED_METRIC_KEYS
-        assert _HARDCODED_METRIC_KEYS["NLB"] == {"ProcessedBytes", "ActiveFlowCount", "NewFlowCount", "TCPClientReset", "TCPTargetReset"}
+        assert _HARDCODED_METRIC_KEYS["NLB"] == {"ProcessedBytes", "ActiveFlowCount", "NewFlowCount", "TCP_Client_Reset_Count", "TCP_Target_Reset_Count"}
         assert "TG" in _HARDCODED_METRIC_KEYS
-        assert _HARDCODED_METRIC_KEYS["TG"] == {"HealthyHostCount", "UnHealthyHostCount", "RequestCountPerTarget", "TGResponseTime"}
+        assert _HARDCODED_METRIC_KEYS["TG"] == {"HealthyHostCount", "UnHealthyHostCount", "RequestCountPerTarget", "TargetResponseTime"}
         assert "ELB" not in _HARDCODED_METRIC_KEYS
 
     def test_namespace_map_alb_nlb_tg(self):
@@ -314,7 +313,7 @@ class TestBuildDimensions:
         lb_arn = "arn:aws:elasticloadbalancing:us-east-1:123:loadbalancer/app/my-alb/def456"
         tags = {"_lb_arn": lb_arn}
         for alarm_def in _get_alarm_defs("TG"):
-            if alarm_def["metric"] in ("RequestCountPerTarget", "TGResponseTime"):
+            if alarm_def["metric"] in ("RequestCountPerTarget", "TargetResponseTime"):
                 dims = _build_dimensions(alarm_def, tg_arn, "TG", tags)
                 assert len(dims) == 2, f"{alarm_def['metric']} should have 2 dimensions"
                 assert dims[0] == {"Name": "TargetGroup", "Value": "targetgroup/my-tg/abc123"}
@@ -346,7 +345,7 @@ class TestResolveTgNamespace:
     def test_tg_new_alarms_network_lb_type_returns_network_elb(self):
         tags = {"_lb_type": "network"}
         for alarm_def in _get_alarm_defs("TG"):
-            if alarm_def["metric"] in ("RequestCountPerTarget", "TGResponseTime"):
+            if alarm_def["metric"] in ("RequestCountPerTarget", "TargetResponseTime"):
                 ns = _resolve_tg_namespace(alarm_def, tags)
                 assert ns == "AWS/NetworkELB", (
                     f"{alarm_def['metric']} with network LB should use AWS/NetworkELB"
@@ -1544,7 +1543,8 @@ class TestTreatMissingDataAndOpenSearchDimension:
         call = mock_cw.put_metric_alarm.call_args_list[0]
         assert call.kwargs["TreatMissingData"] == "breaching"
 
-    def test_non_vpn_alarm_treat_missing_data_missing(self):
+    def test_non_vpn_alarm_treat_missing_data_notBreaching(self):
+        """VPN 제외 일반 리소스(Lambda)는 기본 TreatMissingData=notBreaching."""
         mock_cw = self._mock_cw()
         tags = {"Monitoring": "on", "Name": "my-func"}
         with patch("common._clients._get_cw_client", return_value=mock_cw):
@@ -1552,7 +1552,7 @@ class TestTreatMissingDataAndOpenSearchDimension:
 
         assert len(created) == 2
         for call in mock_cw.put_metric_alarm.call_args_list:
-            assert call.kwargs["TreatMissingData"] == "missing"
+            assert call.kwargs["TreatMissingData"] == "notBreaching"
 
 
 # ──────────────────────────────────────────────
@@ -1577,7 +1577,7 @@ class TestTreatMissingDataExtended:
         regional_cw = self._mock_cw()
         tags = {"Monitoring": "on", "Name": "my-hc"}
         with patch("common._clients._get_cw_client", return_value=mock_cw), \
-             patch("boto3.client", return_value=regional_cw):
+             patch("common._clients._get_cw_client_for_region", return_value=regional_cw):
             created = create_alarms_for_resource("hc-001", "Route53", tags)
 
         assert len(created) == 1
@@ -1601,23 +1601,17 @@ class TestTreatMissingDataExtended:
             created = create_alarms_for_resource("my-cluster", "MSK", tags)
 
         assert len(created) == 4
-        # ActiveControllerCount should be breaching
-        acc_call = [
-            c for c in mock_cw.put_metric_alarm.call_args_list
-            if c.kwargs["MetricName"] == "ActiveControllerCount"
-        ]
-        assert len(acc_call) == 1
-        assert acc_call[0].kwargs["TreatMissingData"] == "breaching"
-        # Other MSK alarms should be missing
-        other_calls = [
-            c for c in mock_cw.put_metric_alarm.call_args_list
-            if c.kwargs["MetricName"] != "ActiveControllerCount"
-        ]
-        for call in other_calls:
-            assert call.kwargs["TreatMissingData"] == "missing"
+        # ActiveControllerCount + UnderReplicatedPartitions: breaching
+        breaching_metrics = {"ActiveControllerCount", "UnderReplicatedPartitions"}
+        for call in mock_cw.put_metric_alarm.call_args_list:
+            metric = call.kwargs["MetricName"]
+            expected = "breaching" if metric in breaching_metrics else "notBreaching"
+            assert call.kwargs["TreatMissingData"] == expected, (
+                f"{metric}: expected {expected}, got {call.kwargs['TreatMissingData']}"
+            )
 
-    def test_other_resource_treat_missing_data_default_missing(self):
-        """SQS, ECS, DynamoDB 등 기본 리소스는 TreatMissingData=missing."""
+    def test_other_resource_treat_missing_data_default_notBreaching(self):
+        """SQS, ECS, DynamoDB 등 이벤트 기반 리소스는 TreatMissingData=notBreaching."""
         mock_cw = self._mock_cw()
         tags = {"Monitoring": "on", "Name": "my-queue"}
         with patch("common._clients._get_cw_client", return_value=mock_cw):
@@ -1625,7 +1619,7 @@ class TestTreatMissingDataExtended:
 
         assert len(created) == 3
         for call in mock_cw.put_metric_alarm.call_args_list:
-            assert call.kwargs["TreatMissingData"] == "missing"
+            assert call.kwargs["TreatMissingData"] == "notBreaching"
 
 
 # ──────────────────────────────────────────────
@@ -1647,17 +1641,18 @@ class TestCompoundDimensionsExtended:
 
     def test_waf_dimensions_webacl_and_rule(self):
         alarm_def = _get_alarm_defs("WAF")[0]
-        tags = {"_waf_rule": "my-rule"}
+        tags = {"_waf_rule": "my-rule", "_waf_region": "ap-northeast-2"}
         dims = _build_dimensions(alarm_def, "my-acl", "WAF", tags)
-        assert len(dims) == 2
+        assert len(dims) == 3
         assert dims[0] == {"Name": "WebACL", "Value": "my-acl"}
         assert dims[1] == {"Name": "Rule", "Value": "my-rule"}
+        assert dims[2] == {"Name": "Region", "Value": "ap-northeast-2"}
 
     def test_waf_dimensions_default_rule_all(self):
         alarm_def = _get_alarm_defs("WAF")[0]
         tags = {}
         dims = _build_dimensions(alarm_def, "my-acl", "WAF", tags)
-        assert len(dims) == 2
+        assert len(dims) == 3
         assert dims[1] == {"Name": "Rule", "Value": "ALL"}
 
     def test_s3_dimensions_with_storage_type(self):
@@ -1671,13 +1666,14 @@ class TestCompoundDimensionsExtended:
         assert dims[1] == {"Name": "StorageType", "Value": "StandardStorage"}
 
     def test_s3_dimensions_without_storage_type(self):
-        """S3 4xxErrors (needs_storage_type=False) → BucketName only."""
+        """S3 4xxErrors (needs_storage_type=False) → BucketName + FilterId."""
         s3_defs = _get_alarm_defs("S3")
         no_storage_def = next(d for d in s3_defs if not d.get("needs_storage_type"))
-        tags = {"_storage_type": "StandardStorage"}
+        tags = {"_storage_type": "StandardStorage", "_filter_id": "EntireBucket"}
         dims = _build_dimensions(no_storage_def, "my-bucket", "S3", tags)
-        assert len(dims) == 1
+        assert len(dims) == 2
         assert dims[0] == {"Name": "BucketName", "Value": "my-bucket"}
+        assert dims[1] == {"Name": "FilterId", "Value": "EntireBucket"}
 
     def test_sagemaker_dimensions_endpoint_and_variant(self):
         alarm_def = _get_alarm_defs("SageMaker")[0]
@@ -1737,13 +1733,11 @@ class TestRegionField:
         regional_cw = self._mock_cw()
         tags = {"Monitoring": "on", "Name": "my-cf"}
         with patch("common._clients._get_cw_client", return_value=default_cw), \
-             patch("boto3.client", return_value=regional_cw) as mock_boto3_client:
+             patch("common._clients._get_cw_client_for_region", return_value=regional_cw) as mock_regional:
             created = create_alarms_for_resource("E1234", "CloudFront", tags)
 
         assert len(created) == 4
-        # Should have used boto3.client("cloudwatch", region_name="us-east-1")
-        mock_boto3_client.assert_called_with("cloudwatch", region_name="us-east-1")
-        # All put_metric_alarm calls should be on the regional client
+        mock_regional.assert_called_with("us-east-1")
         assert regional_cw.put_metric_alarm.call_count == 4
         assert default_cw.put_metric_alarm.call_count == 0
 
@@ -1752,10 +1746,10 @@ class TestRegionField:
         regional_cw = self._mock_cw()
         tags = {"Monitoring": "on", "Name": "my-hc"}
         with patch("common._clients._get_cw_client", return_value=default_cw), \
-             patch("boto3.client", return_value=regional_cw) as mock_boto3_client:
+             patch("common._clients._get_cw_client_for_region", return_value=regional_cw) as mock_regional:
             created = create_alarms_for_resource("hc-001", "Route53", tags)
 
         assert len(created) == 1
-        mock_boto3_client.assert_called_with("cloudwatch", region_name="us-east-1")
+        mock_regional.assert_called_with("us-east-1")
         assert regional_cw.put_metric_alarm.call_count == 1
         assert default_cw.put_metric_alarm.call_count == 0

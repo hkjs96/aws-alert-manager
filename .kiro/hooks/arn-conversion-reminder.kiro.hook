@@ -1,0 +1,16 @@
+{
+  "enabled": true,
+  "name": "ARN Conversion Check on Remediation Edit",
+  "description": "remediation_handler.py 수정 시 TagResource/UntagResource ARN 변환 규칙을 리마인드합니다. MULTI 이벤트에서 ARN을 리소스 이름으로 변환하지 않으면 중복 알람이 생성됩니다.",
+  "version": "1",
+  "when": {
+    "type": "fileEdited",
+    "patterns": [
+      "remediation_handler/lambda_handler.py"
+    ]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "remediation_handler.py가 수정되었습니다. 다음을 확인하세요:\n1. 새 리소스 타입의 TagResource/UntagResource 이벤트에서 ARN → 리소스 이름 변환이 _extract_id_from_arn()에 추가되었는지 (§9-1 참조)\n2. _resolve_multi_tag_type()의 _ARN_SERVICE_MAP에 새 서비스 패턴이 추가되었는지\n3. CreateTable/DeleteTable 등 이벤트의 ID 추출 함수가 올바른 필드(requestParameters vs responseElements)를 참조하는지"
+  }
+}

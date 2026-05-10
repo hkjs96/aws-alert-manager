@@ -14,7 +14,7 @@ import boto3
 from botocore.exceptions import ClientError
 
 from common import ResourceInfo
-from common.collectors.base import query_metric, CW_LOOKBACK_MINUTES, CW_STAT_AVG
+from common.collectors.base import query_metric, CW_LOOKBACK_MINUTES, CW_STAT_AVG, collect_metric
 
 logger = logging.getLogger(__name__)
 
@@ -111,7 +111,6 @@ def get_metrics(
     수집 메트릭 (네임스페이스: AWS/ECS, Compound_Dimension: ClusterName + ServiceName):
     - CPUUtilization (Average) → 'EcsCPU'
     - MemoryUtilization (Average) → 'EcsMemory'
-    - RunningTaskCount (Average) → 'RunningTaskCount'
 
     데이터 없으면 해당 메트릭 skip. 모두 없으면 None 반환.
     """
@@ -128,12 +127,12 @@ def get_metrics(
     ]
     metrics: dict[str, float] = {}
 
-    _collect_metric("AWS/ECS", "CPUUtilization", dims,
-                    start_time, end_time, "EcsCPU", metrics, CW_STAT_AVG)
-    _collect_metric("AWS/ECS", "MemoryUtilization", dims,
-                    start_time, end_time, "EcsMemory", metrics, CW_STAT_AVG)
-    _collect_metric("AWS/ECS", "RunningTaskCount", dims,
-                    start_time, end_time, "RunningTaskCount", metrics, CW_STAT_AVG)
+    collect_metric("AWS/ECS", "CPUUtilization", dims,
+                   start_time, end_time, "EcsCPU", metrics,
+                   stat=CW_STAT_AVG, resource_label="ECS")
+    collect_metric("AWS/ECS", "MemoryUtilization", dims,
+                   start_time, end_time, "EcsMemory", metrics,
+                   stat=CW_STAT_AVG, resource_label="ECS")
 
     return metrics if metrics else None
 
@@ -171,18 +170,6 @@ def resolve_alive_ids(tag_names: set[str]) -> set[str]:
             logger.info("ECS service not found (orphan): %s", name)
 
     return alive
-
-
-def _collect_metric(namespace, cw_metric_name, dimensions,
-                    start_time, end_time, result_key, metrics_dict, stat):
-    """단일 메트릭 조회 후 metrics_dict에 추가. 데이터 없으면 skip + info 로그."""
-    value = query_metric(namespace, cw_metric_name, dimensions,
-                         start_time, end_time, stat)
-    if value is not None:
-        metrics_dict[result_key] = value
-    else:
-        logger.info("Skipping %s metric for ECS %s: no data", result_key,
-                    dimensions[1]["Value"] if len(dimensions) > 1 else "unknown")
 
 
 def _get_tags(ecs_client, resource_arn: str) -> dict:

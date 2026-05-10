@@ -9,15 +9,21 @@ from contextlib import ExitStack
 from unittest.mock import MagicMock, call, patch
 
 import pytest
+from botocore.exceptions import ClientError
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
+from patch_helpers import patch_all_collectors, patch_infra_stages
 from daily_monitor.lambda_handler import (
     _classify_alarm,
     _cleanup_orphan_alarms,
     _process_resource,
     lambda_handler as handler,
 )
+
+
+def _make_client_error(code: str = "AccessDenied") -> ClientError:
+    return ClientError({"Error": {"Code": code, "Message": "mock error"}}, "test_op")
 
 
 # ──────────────────────────────────────────────
@@ -31,57 +37,6 @@ def _make_resource(resource_id, resource_type="EC2", tags=None):
         "tags": tags or {"Monitoring": "on"},
         "region": "us-east-1",
     }
-
-
-def _patch_all_collectors(ec2_resources=None, rds_resources=None, elb_resources=None,
-                         docdb_resources=None, elasticache_resources=None,
-                         natgw_resources=None, lambda_resources=None,
-                         vpn_resources=None, apigw_resources=None,
-                         acm_resources=None, backup_resources=None,
-                         mq_resources=None, clb_resources=None,
-                         opensearch_resources=None,
-                         sqs_resources=None, ecs_resources=None,
-                         msk_resources=None, dynamodb_resources=None,
-                         cloudfront_resources=None, waf_resources=None,
-                         route53_resources=None, dx_resources=None,
-                         efs_resources=None, s3_resources=None,
-                         sagemaker_resources=None, sns_resources=None):
-    """모든 collector를 패치하는 ExitStack 컨텍스트 매니저 반환."""
-    stack = ExitStack()
-    collectors = [
-        ("ec2_collector", ec2_resources),
-        ("rds_collector", rds_resources),
-        ("elb_collector", elb_resources),
-        ("docdb_collector", docdb_resources),
-        ("elasticache_collector", elasticache_resources),
-        ("natgw_collector", natgw_resources),
-        ("lambda_collector", lambda_resources),
-        ("vpn_collector", vpn_resources),
-        ("apigw_collector", apigw_resources),
-        ("acm_collector", acm_resources),
-        ("backup_collector", backup_resources),
-        ("mq_collector", mq_resources),
-        ("clb_collector", clb_resources),
-        ("opensearch_collector", opensearch_resources),
-        ("sqs_collector", sqs_resources),
-        ("ecs_collector", ecs_resources),
-        ("msk_collector", msk_resources),
-        ("dynamodb_collector", dynamodb_resources),
-        ("cloudfront_collector", cloudfront_resources),
-        ("waf_collector", waf_resources),
-        ("route53_collector", route53_resources),
-        ("dx_collector", dx_resources),
-        ("efs_collector", efs_resources),
-        ("s3_collector", s3_resources),
-        ("sagemaker_collector", sagemaker_resources),
-        ("sns_collector", sns_resources),
-    ]
-    for name, resources in collectors:
-        stack.enter_context(
-            patch(f"daily_monitor.lambda_handler.{name}.collect_monitored_resources",
-                  return_value=resources or [])
-        )
-    return stack
 
 
 # ──────────────────────────────────────────────
@@ -102,9 +57,11 @@ def test_property_6_insufficient_data_no_alert(resource_ids):
     """Feature: aws-monitoring-engine, Property 6: InsufficientData 메트릭 알림 건너뛰기"""
     resources = [_make_resource(rid) for rid in resource_ids]
 
-    with _patch_all_collectors(ec2_resources=resources), \
+    with patch_all_collectors(ec2_resources=resources), \
          patch("common.collectors.ec2.get_metrics", return_value=None), \
-         patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
+         patch("daily_monitor.lambda_handler.send_alert") as mock_alert, \
+         patch("daily_monitor.lambda_handler._cleanup_orphan_alarms", return_value=[]), \
+         patch("daily_monitor.lambda_handler.sync_alarms_for_resource", return_value={}):
         result = handler({}, MagicMock())
 
     # 메트릭 데이터 없으면 알림 0건
@@ -131,7 +88,8 @@ def test_property_8_multiple_resources_individual_alerts(cpu_values):
     # 각 리소스마다 CPU 임계치 초과 메트릭 반환
     metrics_list = [{"CPU": v} for v in cpu_values]
 
-    with _patch_all_collectors(ec2_resources=resources), \
+    with patch_infra_stages(), \
+         patch_all_collectors(ec2_resources=resources), \
          patch("common.collectors.ec2.get_metrics", side_effect=metrics_list), \
          patch("daily_monitor.lambda_handler.send_alert") as mock_alert, \
          patch("daily_monitor.lambda_handler.get_threshold", return_value=80.0):
@@ -150,7 +108,8 @@ class TestDailyMonitorHandler:
 
     def test_no_resources_no_alert(self):
         """수집 대상 0개 시 알림 미발송 - Requirements 1.3"""
-        with _patch_all_collectors(), \
+        with patch_infra_stages(), \
+             patch_all_collectors(), \
              patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
             result = handler({}, MagicMock())
 
@@ -161,7 +120,8 @@ class TestDailyMonitorHandler:
     def test_threshold_exceeded_sends_alert(self):
         """임계치 초과 시 SNS 알림 발송 - Requirements 3.1"""
         resources = [_make_resource("i-001")]
-        with _patch_all_collectors(ec2_resources=resources), \
+        with patch_infra_stages(), \
+             patch_all_collectors(ec2_resources=resources), \
              patch("common.collectors.ec2.get_metrics",
                    return_value={"CPU": 95.0}), \
              patch("daily_monitor.lambda_handler.get_threshold", return_value=80.0), \
@@ -181,7 +141,8 @@ class TestDailyMonitorHandler:
     def test_threshold_not_exceeded_no_alert(self):
         """임계치 미초과 시 알림 미발송"""
         resources = [_make_resource("i-001")]
-        with _patch_all_collectors(ec2_resources=resources), \
+        with patch_infra_stages(), \
+             patch_all_collectors(ec2_resources=resources), \
              patch("common.collectors.ec2.get_metrics",
                    return_value={"CPU": 50.0}), \
              patch("daily_monitor.lambda_handler.get_threshold", return_value=80.0), \
@@ -196,10 +157,12 @@ class TestDailyMonitorHandler:
         rds_resources = [_make_resource("db-001", "RDS")]
 
         stack = ExitStack()
-        # EC2만 에러, 나머지 빈 리스트
+        stack.enter_context(patch("daily_monitor.lambda_handler._cleanup_orphan_alarms", return_value=[]))
+        stack.enter_context(patch("daily_monitor.lambda_handler.sync_alarms_for_resource", return_value={}))
+        # EC2만 ClientError, 나머지 빈 리스트
         stack.enter_context(
             patch("daily_monitor.lambda_handler.ec2_collector.collect_monitored_resources",
-                  side_effect=Exception("EC2 API error")))
+                  side_effect=_make_client_error("RequestExpired")))
         stack.enter_context(
             patch("daily_monitor.lambda_handler.rds_collector.collect_monitored_resources",
                   return_value=rds_resources))
@@ -245,10 +208,11 @@ class TestDailyMonitorHandler:
         def get_metrics_side_effect(resource_id, tags):
             call_count["n"] += 1
             if resource_id == "i-001":
-                raise Exception("metric error")
+                raise RuntimeError("metric error")  # must be caught by handler
             return {"CPU": 50.0}
 
-        with _patch_all_collectors(ec2_resources=resources), \
+        with patch_infra_stages(), \
+             patch_all_collectors(ec2_resources=resources), \
              patch("common.collectors.ec2.get_metrics",
                    side_effect=get_metrics_side_effect), \
              patch("daily_monitor.lambda_handler.get_threshold", return_value=80.0), \
@@ -264,7 +228,8 @@ class TestDailyMonitorHandler:
     def test_free_memory_below_threshold_sends_alert(self):
         """FreeMemoryGB가 임계치 미만일 때 알림 발송 (낮을수록 위험)"""
         resources = [_make_resource("db-001", "RDS")]
-        with _patch_all_collectors(rds_resources=resources), \
+        with patch_infra_stages(), \
+             patch_all_collectors(rds_resources=resources), \
              patch("common.collectors.rds.get_metrics",
                    return_value={"FreeMemoryGB": 1.0}), \
              patch("daily_monitor.lambda_handler.get_threshold", return_value=2.0), \
@@ -284,7 +249,8 @@ class TestDailyMonitorHandler:
     def test_free_memory_above_threshold_no_alert(self):
         """FreeMemoryGB가 임계치 이상이면 알림 미발송"""
         resources = [_make_resource("db-001", "RDS")]
-        with _patch_all_collectors(rds_resources=resources), \
+        with patch_infra_stages(), \
+             patch_all_collectors(rds_resources=resources), \
              patch("common.collectors.rds.get_metrics",
                    return_value={"FreeMemoryGB": 5.0}), \
              patch("daily_monitor.lambda_handler.get_threshold", return_value=2.0), \
@@ -295,7 +261,7 @@ class TestDailyMonitorHandler:
 
     def test_returns_ok_status(self):
         """핸들러가 항상 status=ok 반환"""
-        with _patch_all_collectors():
+        with patch_infra_stages(), patch_all_collectors():
             result = handler({}, MagicMock())
 
         assert result["status"] == "ok"
@@ -304,7 +270,8 @@ class TestDailyMonitorHandler:
         """ALB 리소스 임계치 초과 시 SNS 알림 발송"""
         alb_arn = "arn:aws:elasticloadbalancing:us-east-1:123:loadbalancer/app/my-alb/abc"
         resources = [_make_resource(alb_arn, resource_type="ALB")]
-        with _patch_all_collectors(elb_resources=resources), \
+        with patch_infra_stages(), \
+             patch_all_collectors(elb_resources=resources), \
              patch("common.collectors.elb.get_metrics",
                    return_value={"RequestCount": 6000.0}), \
              patch("daily_monitor.lambda_handler.get_threshold", return_value=5000.0), \
@@ -325,7 +292,8 @@ class TestDailyMonitorHandler:
         """NLB 리소스 메트릭 없으면 알림 미발송"""
         nlb_arn = "arn:aws:elasticloadbalancing:us-east-1:123:loadbalancer/net/my-nlb/def"
         resources = [_make_resource(nlb_arn, resource_type="NLB")]
-        with _patch_all_collectors(elb_resources=resources), \
+        with patch_infra_stages(), \
+             patch_all_collectors(elb_resources=resources), \
              patch("common.collectors.elb.get_metrics", return_value=None), \
              patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
             result = handler({}, MagicMock())
@@ -1364,41 +1332,6 @@ class TestExtendedResourceDailyMonitorIntegration:
         assert callable(getattr(_RESOURCE_TYPE_TO_COLLECTOR["SNS"], "resolve_alive_ids", None))
 
     # ── "낮을수록 위험" 메트릭 세트 검증 (5개 신규 메트릭) ──
-
-    def test_running_task_count_lower_is_dangerous(self):
-        """RunningTaskCount < threshold → 알림 발송 (낮을수록 위험) — Req 2-B.7"""
-        collector_mod = MagicMock()
-        collector_mod.get_metrics.return_value = {"RunningTaskCount": 0.0}
-
-        with patch("daily_monitor.lambda_handler.get_threshold", return_value=1.0), \
-             patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
-            alerts = _process_resource(
-                "my-service", "ECS", {"Monitoring": "on"}, collector_mod,
-            )
-
-        assert alerts == 1
-        mock_alert.assert_called_once_with(
-            resource_id="my-service",
-            resource_type="ECS",
-            metric_name="RunningTaskCount",
-            current_value=0.0,
-            threshold=1.0,
-            tag_name="",
-        )
-
-    def test_running_task_count_above_threshold_no_alert(self):
-        """RunningTaskCount >= threshold → 알림 미발송."""
-        collector_mod = MagicMock()
-        collector_mod.get_metrics.return_value = {"RunningTaskCount": 2.0}
-
-        with patch("daily_monitor.lambda_handler.get_threshold", return_value=1.0), \
-             patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
-            alerts = _process_resource(
-                "my-service", "ECS", {"Monitoring": "on"}, collector_mod,
-            )
-
-        assert alerts == 0
-        mock_alert.assert_not_called()
 
     def test_active_controller_count_lower_is_dangerous(self):
         """ActiveControllerCount < threshold → 알림 발송 (낮을수록 위험) — Req 3.3"""

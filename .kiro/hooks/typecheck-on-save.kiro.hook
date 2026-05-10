@@ -1,0 +1,17 @@
+{
+  "enabled": true,
+  "name": "TypeScript Type Check on Save",
+  "description": "프론트엔드 TypeScript 파일 저장 시 타입 에러 자동 검사",
+  "version": "1",
+  "when": {
+    "type": "fileEdited",
+    "patterns": [
+      "frontend/**/*.ts",
+      "frontend/**/*.tsx"
+    ]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "프론트엔드 TypeScript 파일이 저장되었습니다. getDiagnostics 도구로 해당 파일의 타입 에러를 확인하고, 에러가 있으면 수정 방안을 제안하세요."
+  }
+}

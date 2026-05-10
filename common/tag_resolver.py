@@ -16,12 +16,33 @@ from common import HARDCODED_DEFAULTS
 
 logger = logging.getLogger(__name__)
 
+# CW metric name → legacy friendly tag name (backwards compat for Threshold_ tags)
+_LEGACY_TAG_MAP: dict[str, str] = {
+    "CPUUtilization": "CPU",
+    "mem_used_percent": "Memory",
+    "disk_used_percent": "Disk",
+    "FreeableMemory": "FreeMemoryGB",
+    "FreeStorageSpace": "FreeStorageGB",
+    "DatabaseConnections": "Connections",
+    "HTTPCode_ELB_5XX_Count": "ELB5XX",
+    "TCP_Client_Reset_Count": "TCPClientReset",
+    "TCP_Target_Reset_Count": "TCPTargetReset",
+    "TargetResponseTime": "TGResponseTime",
+    "FreeLocalStorage": "FreeLocalStorageGB",
+}
+
 
 def is_threshold_off(resource_tags: dict, metric_name: str) -> bool:
+    """Threshold_{metric_name} 태그 값이 'off'(대소문자 무관)인지 판별.
+
+    레거시 태그 이름(예: Threshold_CPU)도 확인한다.
     """
-    Threshold_{metric_name} 태그 값이 'off'(대소문자 무관)인지 판별.
-    """
-    return resource_tags.get(f"Threshold_{metric_name}", "").strip().lower() == "off"
+    if resource_tags.get(f"Threshold_{metric_name}", "").strip().lower() == "off":
+        return True
+    legacy = _LEGACY_TAG_MAP.get(metric_name)
+    if legacy and resource_tags.get(f"Threshold_{legacy}", "").strip().lower() == "off":
+        return True
+    return False
 
 
 def get_threshold(resource_tags: dict, metric_name: str) -> float:
@@ -35,19 +56,29 @@ def get_threshold(resource_tags: dict, metric_name: str) -> float:
     Args:
         resource_tags: 리소스에 부착된 태그 딕셔너리
         metric_name: 메트릭 이름
-            'CPU' | 'Memory' | 'Connections' | 'FreeMemoryGB' | 'FreeStorageGB'
-            | 'RequestCount' | 'HealthyHostCount'
-            | 'Disk_root' | 'Disk_data' | 'Disk_{path_key}' (Disk 계열)
+            'CPUUtilization' | 'mem_used_percent' | 'DatabaseConnections'
+            | 'FreeableMemory' | 'FreeStorageSpace' | 'RequestCount'
+            | 'disk_used_percent_root' | 'disk_used_percent_data' | 'disk_used_percent_{path_key}'
 
     Returns:
         유효한 양의 숫자 임계치 값
     """
-    # Disk 계열은 환경변수/하드코딩 폴백 시 'Disk' 기본 키 사용
-    base_metric = "Disk" if metric_name.startswith("Disk_") else metric_name
+    # Disk_root 등 Disk_ 계열: 폴백 키 = "Disk"
+    # disk_used_percent_root 등 구형 형식: 폴백 키 = "disk_used_percent"
+    if metric_name.startswith("Disk_"):
+        base_metric = "Disk"
+    elif metric_name.startswith("disk_used_percent_"):
+        base_metric = "disk_used_percent"
+    else:
+        base_metric = metric_name
 
-    # 1단계: 태그에서 조회 (Threshold_{metric_name})
+    # 1단계: 태그에서 조회 (CW metric name 먼저, 레거시 태그 이름 폴백)
     tag_key = f"Threshold_{metric_name}"
     tag_value = resource_tags.get(tag_key)
+    if tag_value is None:
+        legacy = _LEGACY_TAG_MAP.get(metric_name)
+        if legacy:
+            tag_value = resource_tags.get(f"Threshold_{legacy}")
     if tag_value is not None:
         try:
             val = float(tag_value)
@@ -64,9 +95,13 @@ def get_threshold(resource_tags: dict, metric_name: str) -> float:
                 tag_key, tag_value,
             )
 
-    # 2단계: 환경 변수에서 조회 (DEFAULT_{BASE_METRIC}_THRESHOLD)
+    # 2단계: 환경 변수에서 조회 (DEFAULT_{BASE_METRIC}_THRESHOLD, 레거시 이름 폴백)
     env_key = f"DEFAULT_{base_metric.upper()}_THRESHOLD"
     env_value = os.environ.get(env_key)
+    if env_value is None:
+        legacy_base = _LEGACY_TAG_MAP.get(base_metric)
+        if legacy_base:
+            env_value = os.environ.get(f"DEFAULT_{legacy_base.upper()}_THRESHOLD")
     if env_value is not None:
         try:
             val = float(env_value)
@@ -97,7 +132,7 @@ def get_threshold(resource_tags: dict, metric_name: str) -> float:
 
 def get_disk_thresholds(resource_tags: dict) -> dict[str, float]:
     """
-    태그에서 Threshold_Disk_* 패턴을 모두 스캔하여 {path: threshold} 딕셔너리 반환.
+    태그에서 Threshold_Disk_* 패턴을 스캔하여 {path: threshold} 딕셔너리 반환.
 
     예: {"Threshold_Disk_root": "85", "Threshold_Disk_data": "90"}
         → {"/": 85.0, "/data": 90.0}

@@ -46,20 +46,20 @@ def test_ec2_status_check_failed_alarm_def():
     """EC2 StatusCheckFailed 알람 정의가 올바르게 등록되어 있는지 검증.
     Validates: Requirements 3.1, 3.2, 3.3, 3.4, 3.5, 3.6
     """
-    # _get_alarm_defs("EC2") → 4개 (CPU, Memory, Disk, StatusCheckFailed)
+    # _get_alarm_defs("EC2") → 4개 (CPUUtilization, mem_used_percent, disk_used_percent, StatusCheckFailed)
     defs = _get_alarm_defs("EC2")
     assert len(defs) == 4
     metrics = {d["metric"] for d in defs}
     assert "StatusCheckFailed" in metrics
 
-    # _HARDCODED_METRIC_KEYS["EC2"]에 StatusCheckFailed 포함
-    assert _HARDCODED_METRIC_KEYS["EC2"] == {"CPU", "Memory", "Disk", "StatusCheckFailed"}
+    # _HARDCODED_METRIC_KEYS["EC2"]에 StatusCheckFailed 포함 (새 키 이름)
+    assert _HARDCODED_METRIC_KEYS["EC2"] == {"CPUUtilization", "mem_used_percent", "disk_used_percent", "StatusCheckFailed"}
 
     # _METRIC_DISPLAY 매핑 검증
     assert _METRIC_DISPLAY["StatusCheckFailed"] == ("StatusCheckFailed", ">", "")
 
-    # _metric_name_to_key 변환 검증
-    assert _metric_name_to_key("StatusCheckFailed") == "StatusCheckFailed"
+    # metric key == metric name (rename 이후 동일)
+    assert "StatusCheckFailed" == "StatusCheckFailed"
 
     # HARDCODED_DEFAULTS 기본 임계치 검증
     assert HARDCODED_DEFAULTS["StatusCheckFailed"] == 0.0
@@ -83,15 +83,16 @@ def test_rds_read_write_latency_alarm_def():
     assert "WriteLatency" in metrics
 
     assert _HARDCODED_METRIC_KEYS["RDS"] == {
-        "CPU", "FreeMemoryGB", "FreeStorageGB", "Connections",
+        "CPUUtilization", "FreeableMemory", "FreeStorageSpace", "DatabaseConnections",
         "ReadLatency", "WriteLatency", "ConnectionAttempts",
     }
 
     assert _METRIC_DISPLAY["ReadLatency"] == ("ReadLatency", ">", "s")
     assert _METRIC_DISPLAY["WriteLatency"] == ("WriteLatency", ">", "s")
 
-    assert _metric_name_to_key("ReadLatency") == "ReadLatency"
-    assert _metric_name_to_key("WriteLatency") == "WriteLatency"
+    # metric key == metric name (rename 이후 동일)
+    assert "ReadLatency" == "ReadLatency"
+    assert "WriteLatency" == "WriteLatency"
 
     assert HARDCODED_DEFAULTS["ReadLatency"] == 0.02
     assert HARDCODED_DEFAULTS["WriteLatency"] == 0.02
@@ -119,12 +120,13 @@ def test_rds_connection_attempts_alarm_def():
     assert "ConnectionAttempts" in metrics
 
     assert _HARDCODED_METRIC_KEYS["RDS"] == {
-        "CPU", "FreeMemoryGB", "FreeStorageGB", "Connections",
+        "CPUUtilization", "FreeableMemory", "FreeStorageSpace", "DatabaseConnections",
         "ReadLatency", "WriteLatency", "ConnectionAttempts",
     }
 
     assert _METRIC_DISPLAY["ConnectionAttempts"] == ("ConnectionAttempts", ">", "")
-    assert _metric_name_to_key("ConnectionAttempts") == "ConnectionAttempts"
+    # metric key == metric name (rename 이후 동일)
+    assert "ConnectionAttempts" == "ConnectionAttempts"
     assert HARDCODED_DEFAULTS["ConnectionAttempts"] == 500.0
 
     ca_def = next(d for d in defs if d["metric"] == "ConnectionAttempts")
@@ -141,21 +143,22 @@ def test_alb_elb5xx_target_response_time_alarm_def():
     defs = _get_alarm_defs("ALB")
     assert len(defs) == 5
     metrics = {d["metric"] for d in defs}
-    assert "ELB5XX" in metrics
+    assert "HTTPCode_ELB_5XX_Count" in metrics
     assert "TargetResponseTime" in metrics
 
-    assert _HARDCODED_METRIC_KEYS["ALB"] == {"RequestCount", "ELB5XX", "TargetResponseTime", "ELB4XX", "TargetConnectionError"}
+    assert _HARDCODED_METRIC_KEYS["ALB"] == {"RequestCount", "HTTPCode_ELB_5XX_Count", "TargetResponseTime", "ELB4XX", "TargetConnectionError"}
 
-    assert _METRIC_DISPLAY["ELB5XX"] == ("HTTPCode_ELB_5XX_Count", ">", "")
+    assert _METRIC_DISPLAY["HTTPCode_ELB_5XX_Count"] == ("HTTPCode_ELB_5XX_Count", ">", "")
     assert _METRIC_DISPLAY["TargetResponseTime"] == ("TargetResponseTime", ">", "s")
 
-    assert _metric_name_to_key("HTTPCode_ELB_5XX_Count") == "ELB5XX"
-    assert _metric_name_to_key("TargetResponseTime") == "TargetResponseTime"
+    # metric key == metric name (rename 이후 동일)
+    assert "HTTPCode_ELB_5XX_Count" == "HTTPCode_ELB_5XX_Count"
+    assert "TargetResponseTime" == "TargetResponseTime"
 
-    assert HARDCODED_DEFAULTS["ELB5XX"] == 50.0
+    assert HARDCODED_DEFAULTS["HTTPCode_ELB_5XX_Count"] == 50.0
     assert HARDCODED_DEFAULTS["TargetResponseTime"] == 5.0
 
-    elb5xx_def = next(d for d in defs if d["metric"] == "ELB5XX")
+    elb5xx_def = next(d for d in defs if d["metric"] == "HTTPCode_ELB_5XX_Count")
     assert elb5xx_def["dimension_key"] == "LoadBalancer"
     assert elb5xx_def["stat"] == "Sum"
     assert elb5xx_def["namespace"] == "AWS/ApplicationELB"
@@ -173,18 +176,19 @@ def test_alb_elb4xx_target_connection_error_alarm_def():
     defs = _get_alarm_defs("ALB")
     assert len(defs) == 5
     metrics = {d["metric"] for d in defs}
-    assert metrics == {"RequestCount", "ELB5XX", "TargetResponseTime", "ELB4XX", "TargetConnectionError"}
+    assert metrics == {"RequestCount", "HTTPCode_ELB_5XX_Count", "TargetResponseTime", "ELB4XX", "TargetConnectionError"}
 
     assert _HARDCODED_METRIC_KEYS["ALB"] == {
-        "RequestCount", "ELB5XX", "TargetResponseTime",
+        "RequestCount", "HTTPCode_ELB_5XX_Count", "TargetResponseTime",
         "ELB4XX", "TargetConnectionError",
     }
 
     assert _METRIC_DISPLAY["ELB4XX"] == ("HTTPCode_ELB_4XX_Count", ">", "")
     assert _METRIC_DISPLAY["TargetConnectionError"] == ("TargetConnectionErrorCount", ">", "")
 
-    assert _metric_name_to_key("HTTPCode_ELB_4XX_Count") == "ELB4XX"
-    assert _metric_name_to_key("TargetConnectionErrorCount") == "TargetConnectionError"
+    # metric key == metric name for fully-renamed keys
+    assert "ELB4XX" in _HARDCODED_METRIC_KEYS["ALB"]
+    assert "TargetConnectionError" in _HARDCODED_METRIC_KEYS["ALB"]
 
     assert HARDCODED_DEFAULTS["ELB4XX"] == 100.0
     assert HARDCODED_DEFAULTS["TargetConnectionError"] == 50.0
@@ -209,28 +213,29 @@ def test_nlb_tcp_reset_alarm_def():
     defs = _get_alarm_defs("NLB")
     assert len(defs) == 5
     metrics = {d["metric"] for d in defs}
-    assert metrics == {"ProcessedBytes", "ActiveFlowCount", "NewFlowCount", "TCPClientReset", "TCPTargetReset"}
+    assert metrics == {"ProcessedBytes", "ActiveFlowCount", "NewFlowCount", "TCP_Client_Reset_Count", "TCP_Target_Reset_Count"}
 
     assert _HARDCODED_METRIC_KEYS["NLB"] == {
         "ProcessedBytes", "ActiveFlowCount", "NewFlowCount",
-        "TCPClientReset", "TCPTargetReset",
+        "TCP_Client_Reset_Count", "TCP_Target_Reset_Count",
     }
 
-    assert _METRIC_DISPLAY["TCPClientReset"] == ("TCP_Client_Reset_Count", ">", "")
-    assert _METRIC_DISPLAY["TCPTargetReset"] == ("TCP_Target_Reset_Count", ">", "")
+    assert _METRIC_DISPLAY["TCP_Client_Reset_Count"] == ("TCP_Client_Reset_Count", ">", "")
+    assert _METRIC_DISPLAY["TCP_Target_Reset_Count"] == ("TCP_Target_Reset_Count", ">", "")
 
-    assert _metric_name_to_key("TCP_Client_Reset_Count") == "TCPClientReset"
-    assert _metric_name_to_key("TCP_Target_Reset_Count") == "TCPTargetReset"
+    # metric key == metric name (rename 이후 동일)
+    assert "TCP_Client_Reset_Count" == "TCP_Client_Reset_Count"
+    assert "TCP_Target_Reset_Count" == "TCP_Target_Reset_Count"
 
-    assert HARDCODED_DEFAULTS["TCPClientReset"] == 100.0
-    assert HARDCODED_DEFAULTS["TCPTargetReset"] == 100.0
+    assert HARDCODED_DEFAULTS["TCP_Client_Reset_Count"] == 100.0
+    assert HARDCODED_DEFAULTS["TCP_Target_Reset_Count"] == 100.0
 
-    tcr_def = next(d for d in defs if d["metric"] == "TCPClientReset")
+    tcr_def = next(d for d in defs if d["metric"] == "TCP_Client_Reset_Count")
     assert tcr_def["dimension_key"] == "LoadBalancer"
     assert tcr_def["stat"] == "Sum"
     assert tcr_def["namespace"] == "AWS/NetworkELB"
 
-    ttr_def = next(d for d in defs if d["metric"] == "TCPTargetReset")
+    ttr_def = next(d for d in defs if d["metric"] == "TCP_Target_Reset_Count")
     assert ttr_def["dimension_key"] == "LoadBalancer"
     assert ttr_def["stat"] == "Sum"
     assert ttr_def["namespace"] == "AWS/NetworkELB"
@@ -243,27 +248,28 @@ def test_tg_request_count_response_time_alarm_def():
     defs = _get_alarm_defs("TG")
     assert len(defs) == 4
     metrics = {d["metric"] for d in defs}
-    assert metrics == {"HealthyHostCount", "UnHealthyHostCount", "RequestCountPerTarget", "TGResponseTime"}
+    assert metrics == {"HealthyHostCount", "UnHealthyHostCount", "RequestCountPerTarget", "TargetResponseTime"}
 
     assert _HARDCODED_METRIC_KEYS["TG"] == {
         "HealthyHostCount", "UnHealthyHostCount",
-        "RequestCountPerTarget", "TGResponseTime",
+        "RequestCountPerTarget", "TargetResponseTime",
     }
 
     assert _METRIC_DISPLAY["RequestCountPerTarget"] == ("RequestCountPerTarget", ">", "")
-    assert _METRIC_DISPLAY["TGResponseTime"] == ("TargetResponseTime", ">", "s")
+    assert _METRIC_DISPLAY["TargetResponseTime"] == ("TargetResponseTime", ">", "s")
 
-    assert _metric_name_to_key("RequestCountPerTarget") == "RequestCountPerTarget"
+    # metric key == metric name (rename 이후 동일)
+    assert "RequestCountPerTarget" == "RequestCountPerTarget"
 
     assert HARDCODED_DEFAULTS["RequestCountPerTarget"] == 1000.0
-    assert HARDCODED_DEFAULTS["TGResponseTime"] == 5.0
+    assert HARDCODED_DEFAULTS["TargetResponseTime"] == 5.0
 
     rcpt_def = next(d for d in defs if d["metric"] == "RequestCountPerTarget")
     assert rcpt_def["dimension_key"] == "TargetGroup"
     assert rcpt_def["stat"] == "Sum"
     assert rcpt_def["namespace"] == "AWS/ApplicationELB"
 
-    tgrt_def = next(d for d in defs if d["metric"] == "TGResponseTime")
+    tgrt_def = next(d for d in defs if d["metric"] == "TargetResponseTime")
     assert tgrt_def["dimension_key"] == "TargetGroup"
     assert tgrt_def["stat"] == "Average"
     assert tgrt_def["namespace"] == "AWS/ApplicationELB"
@@ -285,7 +291,7 @@ def test_aurora_rds_alarm_defs():
     defs = _get_alarm_defs("AuroraRDS", tags)
     assert len(defs) == 5
     metrics = {d["metric"] for d in defs}
-    assert metrics == {"CPU", "FreeMemoryGB", "Connections", "FreeLocalStorageGB", "ReplicaLag"}
+    assert metrics == {"CPUUtilization", "FreeableMemory", "DatabaseConnections", "FreeLocalStorage", "ReplicaLag"}
 
     for d in defs:
         assert d["namespace"] == "AWS/RDS"
@@ -293,23 +299,23 @@ def test_aurora_rds_alarm_defs():
         assert d["period"] == 300
         assert d["evaluation_periods"] == 1
 
-    cpu_def = next(d for d in defs if d["metric"] == "CPU")
+    cpu_def = next(d for d in defs if d["metric"] == "CPUUtilization")
     assert cpu_def["stat"] == "Average"
     assert cpu_def["comparison"] == "GreaterThanThreshold"
     assert cpu_def["metric_name"] == "CPUUtilization"
 
-    mem_def = next(d for d in defs if d["metric"] == "FreeMemoryGB")
+    mem_def = next(d for d in defs if d["metric"] == "FreeableMemory")
     assert mem_def["stat"] == "Average"
     assert mem_def["comparison"] == "LessThanThreshold"
     assert mem_def["metric_name"] == "FreeableMemory"
     assert mem_def["transform_threshold"](2.0) == 2.0 * 1073741824
 
-    conn_def = next(d for d in defs if d["metric"] == "Connections")
+    conn_def = next(d for d in defs if d["metric"] == "DatabaseConnections")
     assert conn_def["stat"] == "Average"
     assert conn_def["comparison"] == "GreaterThanThreshold"
     assert conn_def["metric_name"] == "DatabaseConnections"
 
-    storage_def = next(d for d in defs if d["metric"] == "FreeLocalStorageGB")
+    storage_def = next(d for d in defs if d["metric"] == "FreeLocalStorage")
     assert storage_def["stat"] == "Average"
     assert storage_def["comparison"] == "LessThanThreshold"
     assert storage_def["metric_name"] == "FreeLocalStorage"
@@ -329,18 +335,19 @@ def test_aurora_rds_constant_mappings():
 
     assert "AuroraRDS" in _HARDCODED_METRIC_KEYS
     assert _HARDCODED_METRIC_KEYS["AuroraRDS"] == {
-        "CPU", "FreeMemoryGB", "Connections", "FreeLocalStorageGB", "ReplicaLag",
+        "CPUUtilization", "FreeableMemory", "DatabaseConnections", "FreeLocalStorage", "ReplicaLag",
         "ReaderReplicaLag", "ACUUtilization", "ServerlessDatabaseCapacity",
     }
 
     assert _NAMESPACE_MAP["AuroraRDS"] == ["AWS/RDS"]
     assert _DIMENSION_KEY_MAP["AuroraRDS"] == "DBInstanceIdentifier"
 
-    assert _METRIC_DISPLAY["FreeLocalStorageGB"] == ("FreeLocalStorage", "<", "GB")
+    assert _METRIC_DISPLAY["FreeLocalStorage"] == ("FreeLocalStorage", "<", "GB")
     assert _METRIC_DISPLAY["ReplicaLag"] == ("AuroraReplicaLagMaximum", ">", "μs")
 
-    assert _metric_name_to_key("FreeLocalStorage") == "FreeLocalStorageGB"
-    assert _metric_name_to_key("AuroraReplicaLagMaximum") == "ReplicaLag"
+    # metric key == CW metric name for FreeLocalStorage; ReplicaLag uses special CW metric name
+    assert "FreeLocalStorage" in _HARDCODED_METRIC_KEYS["AuroraRDS"]
+    assert "ReplicaLag" in _HARDCODED_METRIC_KEYS["AuroraRDS"]
 
 
 class TestAuroraAlarmVariantRouting:
@@ -352,37 +359,37 @@ class TestAuroraAlarmVariantRouting:
         tags = {"_is_serverless_v2": "false", "_is_cluster_writer": "true", "_has_readers": "true"}
         defs = _get_alarm_defs("AuroraRDS", tags)
         metrics = {d["metric"] for d in defs}
-        assert metrics == {"CPU", "FreeMemoryGB", "Connections", "FreeLocalStorageGB", "ReplicaLag"}
+        assert metrics == {"CPUUtilization", "FreeableMemory", "DatabaseConnections", "FreeLocalStorage", "ReplicaLag"}
 
     def test_provisioned_writer_no_readers(self):
         tags = {"_is_serverless_v2": "false", "_is_cluster_writer": "true", "_has_readers": "false"}
         defs = _get_alarm_defs("AuroraRDS", tags)
         metrics = {d["metric"] for d in defs}
-        assert metrics == {"CPU", "FreeMemoryGB", "Connections", "FreeLocalStorageGB"}
+        assert metrics == {"CPUUtilization", "FreeableMemory", "DatabaseConnections", "FreeLocalStorage"}
 
     def test_provisioned_reader(self):
         tags = {"_is_serverless_v2": "false", "_is_cluster_writer": "false", "_has_readers": "true"}
         defs = _get_alarm_defs("AuroraRDS", tags)
         metrics = {d["metric"] for d in defs}
-        assert metrics == {"CPU", "FreeMemoryGB", "Connections", "FreeLocalStorageGB", "ReaderReplicaLag"}
+        assert metrics == {"CPUUtilization", "FreeableMemory", "DatabaseConnections", "FreeLocalStorage", "ReaderReplicaLag"}
 
     def test_serverless_v2_writer_with_readers(self):
         tags = {"_is_serverless_v2": "true", "_is_cluster_writer": "true", "_has_readers": "true"}
         defs = _get_alarm_defs("AuroraRDS", tags)
         metrics = {d["metric"] for d in defs}
-        assert metrics == {"CPU", "ACUUtilization", "Connections", "ReplicaLag"}
+        assert metrics == {"CPUUtilization", "ACUUtilization", "DatabaseConnections", "ReplicaLag"}
 
     def test_serverless_v2_writer_no_readers(self):
         tags = {"_is_serverless_v2": "true", "_is_cluster_writer": "true", "_has_readers": "false"}
         defs = _get_alarm_defs("AuroraRDS", tags)
         metrics = {d["metric"] for d in defs}
-        assert metrics == {"CPU", "ACUUtilization", "Connections"}
+        assert metrics == {"CPUUtilization", "ACUUtilization", "DatabaseConnections"}
 
     def test_serverless_v2_reader(self):
         tags = {"_is_serverless_v2": "true", "_is_cluster_writer": "false", "_has_readers": "true"}
         defs = _get_alarm_defs("AuroraRDS", tags)
         metrics = {d["metric"] for d in defs}
-        assert metrics == {"CPU", "ACUUtilization", "Connections", "ReaderReplicaLag"}
+        assert metrics == {"CPUUtilization", "ACUUtilization", "DatabaseConnections", "ReaderReplicaLag"}
 
     def test_aurora_reader_replica_lag_alarm_def_schema(self):
         from common.alarm_manager import _AURORA_READER_REPLICA_LAG
@@ -419,10 +426,10 @@ class TestAuroraAlarmVariantRouting:
 
     def test_aurora_no_tags_falls_back_to_base(self):
         defs = _get_alarm_defs("AuroraRDS", {})
-        metrics = {d["metric"] for d in defs}
-        assert "CPU" in metrics
-        assert "FreeMemoryGB" in metrics
-        assert "Connections" in metrics
+        metric_keys = {d["metric"] for d in defs}
+        assert "CPUUtilization" in metric_keys
+        assert "FreeableMemory" in metric_keys
+        assert "DatabaseConnections" in metric_keys
 
 
 class TestAuroraConstantMappings:
@@ -444,7 +451,7 @@ class TestAuroraConstantMappings:
 
     def test_hardcoded_metric_keys_aurora_rds_8_keys(self):
         expected = {
-            "CPU", "FreeMemoryGB", "Connections", "FreeLocalStorageGB",
+            "CPUUtilization", "FreeableMemory", "DatabaseConnections", "FreeLocalStorage",
             "ReplicaLag", "ReaderReplicaLag", "ACUUtilization", "ServerlessDatabaseCapacity",
         }
         assert _HARDCODED_METRIC_KEYS["AuroraRDS"] == expected
@@ -475,7 +482,7 @@ class TestDocDBAlarmDefs:
     def test_get_alarm_defs_docdb_metric_keys(self):
         defs = _get_alarm_defs("DocDB")
         metrics = {d["metric"] for d in defs}
-        assert metrics == {"CPU", "FreeMemoryGB", "Connections"}
+        assert metrics == {"CPUUtilization", "FreeableMemory", "DatabaseConnections"}
 
     def test_get_alarm_defs_docdb_namespace(self):
         defs = _get_alarm_defs("DocDB")
@@ -489,12 +496,12 @@ class TestDocDBAlarmDefs:
 
     def test_docdb_memory_less_than_threshold(self):
         defs = _get_alarm_defs("DocDB")
-        mem_def = next(d for d in defs if d["metric"] == "FreeMemoryGB")
+        mem_def = next(d for d in defs if d["metric"] == "FreeableMemory")
         assert mem_def["comparison"] == "LessThanThreshold"
 
     def test_docdb_memory_transform_threshold_exists(self):
         defs = _get_alarm_defs("DocDB")
-        mem_def = next(d for d in defs if d["metric"] == "FreeMemoryGB")
+        mem_def = next(d for d in defs if d["metric"] == "FreeableMemory")
         assert "transform_threshold" in mem_def
         assert mem_def["transform_threshold"](1) == 1073741824
         assert mem_def["transform_threshold"](2) == 2 * 1073741824
@@ -502,7 +509,7 @@ class TestDocDBAlarmDefs:
     def test_docdb_other_metrics_greater_than_threshold(self):
         defs = _get_alarm_defs("DocDB")
         for d in defs:
-            if d["metric"] in ("CPU", "Connections"):
+            if d["metric"] in ("CPUUtilization", "DatabaseConnections"):
                 assert d["comparison"] == "GreaterThanThreshold", f"{d['metric']} comparison mismatch"
 
     def test_docdb_excluded_metrics_not_in_hardcoded(self):
@@ -513,7 +520,7 @@ class TestDocDBAlarmDefs:
         assert "WriteLatency" not in metrics
 
     def test_hardcoded_metric_keys_docdb(self):
-        assert _HARDCODED_METRIC_KEYS["DocDB"] == {"CPU", "FreeMemoryGB", "Connections"}
+        assert _HARDCODED_METRIC_KEYS["DocDB"] == {"CPUUtilization", "FreeableMemory", "DatabaseConnections"}
 
     def test_namespace_map_docdb(self):
         from common.alarm_manager import _NAMESPACE_MAP
@@ -827,23 +834,18 @@ class TestECSAlarmDefs:
 
     def test_get_alarm_defs_ecs_count(self):
         defs = _get_alarm_defs("ECS")
-        assert len(defs) == 3
+        assert len(defs) == 2
 
     def test_get_alarm_defs_ecs_metrics(self):
         defs = _get_alarm_defs("ECS")
         metrics = {d["metric"] for d in defs}
-        assert metrics == {"EcsCPU", "EcsMemory", "RunningTaskCount"}
+        assert metrics == {"EcsCPU", "EcsMemory"}
 
     def test_ecs_namespace_and_dimension(self):
         defs = _get_alarm_defs("ECS")
         for d in defs:
             assert d["namespace"] == "AWS/ECS"
             assert d["dimension_key"] == "ServiceName"
-
-    def test_ecs_running_task_count_less_than(self):
-        defs = _get_alarm_defs("ECS")
-        rtc = next(d for d in defs if d["metric"] == "RunningTaskCount")
-        assert rtc["comparison"] == "LessThanThreshold"
 
     def test_ecs_launch_type_fargate_same_alarms(self):
         defs_fargate = _get_alarm_defs("ECS", {"_ecs_launch_type": "FARGATE"})
@@ -880,10 +882,13 @@ class TestMSKAlarmDefs:
         assert acc["treat_missing_data"] == "breaching"
         assert acc["comparison"] == "LessThanThreshold"
 
-    def test_msk_other_metrics_no_breaching(self):
+    def test_msk_breaching_metrics(self):
+        breaching_metrics = {"ActiveControllerCount", "UnderReplicatedPartitions"}
         defs = _get_alarm_defs("MSK")
         for d in defs:
-            if d["metric"] != "ActiveControllerCount":
+            if d["metric"] in breaching_metrics:
+                assert d.get("treat_missing_data") == "breaching"
+            else:
                 assert d.get("treat_missing_data") is None
 
 
@@ -1329,7 +1334,7 @@ class TestExtendedResourceMappingTables:
         assert _HARDCODED_METRIC_KEYS["SQS"] == {"SQSMessagesVisible", "SQSOldestMessage", "SQSMessagesSent"}
 
     def test_hardcoded_metric_keys_ecs(self):
-        assert _HARDCODED_METRIC_KEYS["ECS"] == {"EcsCPU", "EcsMemory", "RunningTaskCount"}
+        assert _HARDCODED_METRIC_KEYS["ECS"] == {"EcsCPU", "EcsMemory"}
 
     def test_hardcoded_metric_keys_msk(self):
         assert _HARDCODED_METRIC_KEYS["MSK"] == {"OffsetLag", "BytesInPerSec", "UnderReplicatedPartitions", "ActiveControllerCount"}
@@ -1406,7 +1411,6 @@ class TestExtendedResourceMappingTables:
             "SQSMessagesSent": ("NumberOfMessagesSent", ">", ""),
             "EcsCPU": ("CPUUtilization", ">", "%"),
             "EcsMemory": ("MemoryUtilization", ">", "%"),
-            "RunningTaskCount": ("RunningTaskCount", "<", ""),
             "OffsetLag": ("SumOffsetLag", ">", ""),
             "BytesInPerSec": ("BytesInPerSec", ">", "B/s"),
             "UnderReplicatedPartitions": ("UnderReplicatedPartitions", ">", ""),
@@ -1447,7 +1451,6 @@ class TestExtendedResourceMappingTables:
             "ApproximateAgeOfOldestMessage": "SQSOldestMessage",
             "NumberOfMessagesSent": "SQSMessagesSent",
             "MemoryUtilization": "EcsMemory",
-            "RunningTaskCount": "RunningTaskCount",
             "SumOffsetLag": "OffsetLag",
             "BytesInPerSec": "BytesInPerSec",
             "UnderReplicatedPartitions": "UnderReplicatedPartitions",

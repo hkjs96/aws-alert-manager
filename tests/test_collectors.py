@@ -5009,12 +5009,11 @@ class TestECSCollector:
     # ── get_metrics() 테스트 ──
 
     def test_get_metrics_returns_expected_keys(self):
-        """EcsCPU, EcsMemory, RunningTaskCount 키 반환 — Req 2-C.11"""
+        """EcsCPU, EcsMemory 키 반환 — Req 2-C.11"""
         mock_cw = MagicMock()
         data = {
             "CPUUtilization": ("Average", 65.0),
             "MemoryUtilization": ("Average", 72.0),
-            "RunningTaskCount": ("Average", 3.0),
         }
 
         def get_metric_stats(**kwargs):
@@ -5034,7 +5033,7 @@ class TestECSCollector:
                 "svc-on", {"_cluster_name": "my-cluster"})
 
         assert result is not None
-        expected_keys = {"EcsCPU", "EcsMemory", "RunningTaskCount"}
+        expected_keys = {"EcsCPU", "EcsMemory"}
         assert set(result.keys()) == expected_keys
 
     def test_get_metrics_returns_none_when_all_empty(self):

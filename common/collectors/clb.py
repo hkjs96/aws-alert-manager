@@ -18,6 +18,7 @@ from common.collectors.base import (
     CW_LOOKBACK_MINUTES,
     CW_STAT_AVG,
     CW_STAT_SUM,
+    collect_metric,
 )
 
 logger = logging.getLogger(__name__)
@@ -99,20 +100,27 @@ def get_metrics(
     dim = [{"Name": "LoadBalancerName", "Value": resource_id}]
     metrics: dict[str, float] = {}
 
-    _collect_metric("AWS/ELB", "UnHealthyHostCount", dim,
-                    start_time, end_time, "CLBUnHealthyHost", metrics, CW_STAT_AVG)
-    _collect_metric("AWS/ELB", "HTTPCode_ELB_5XX", dim,
-                    start_time, end_time, "CLB5XX", metrics, CW_STAT_SUM)
-    _collect_metric("AWS/ELB", "HTTPCode_ELB_4XX", dim,
-                    start_time, end_time, "CLB4XX", metrics, CW_STAT_SUM)
-    _collect_metric("AWS/ELB", "HTTPCode_Backend_5XX", dim,
-                    start_time, end_time, "CLBBackend5XX", metrics, CW_STAT_SUM)
-    _collect_metric("AWS/ELB", "HTTPCode_Backend_4XX", dim,
-                    start_time, end_time, "CLBBackend4XX", metrics, CW_STAT_SUM)
-    _collect_metric("AWS/ELB", "SurgeQueueLength", dim,
-                    start_time, end_time, "SurgeQueueLength", metrics, CW_STAT_MAX)
-    _collect_metric("AWS/ELB", "SpilloverCount", dim,
-                    start_time, end_time, "SpilloverCount", metrics, CW_STAT_SUM)
+    collect_metric("AWS/ELB", "UnHealthyHostCount", dim,
+                   start_time, end_time, "CLBUnHealthyHost", metrics,
+                   stat=CW_STAT_AVG, resource_label="CLB")
+    collect_metric("AWS/ELB", "HTTPCode_ELB_5XX", dim,
+                   start_time, end_time, "CLB5XX", metrics,
+                   stat=CW_STAT_SUM, resource_label="CLB")
+    collect_metric("AWS/ELB", "HTTPCode_ELB_4XX", dim,
+                   start_time, end_time, "CLB4XX", metrics,
+                   stat=CW_STAT_SUM, resource_label="CLB")
+    collect_metric("AWS/ELB", "HTTPCode_Backend_5XX", dim,
+                   start_time, end_time, "CLBBackend5XX", metrics,
+                   stat=CW_STAT_SUM, resource_label="CLB")
+    collect_metric("AWS/ELB", "HTTPCode_Backend_4XX", dim,
+                   start_time, end_time, "CLBBackend4XX", metrics,
+                   stat=CW_STAT_SUM, resource_label="CLB")
+    collect_metric("AWS/ELB", "SurgeQueueLength", dim,
+                   start_time, end_time, "SurgeQueueLength", metrics,
+                   stat=CW_STAT_MAX, resource_label="CLB")
+    collect_metric("AWS/ELB", "SpilloverCount", dim,
+                   start_time, end_time, "SpilloverCount", metrics,
+                   stat=CW_STAT_SUM, resource_label="CLB")
 
     return metrics if metrics else None
 
@@ -132,18 +140,6 @@ def resolve_alive_ids(tag_names: set[str]) -> set[str]:
             else:
                 logger.error("describe_load_balancers failed for %s: %s", name, e)
     return alive
-
-
-def _collect_metric(namespace, cw_metric_name, dimensions,
-                    start_time, end_time, result_key, metrics_dict, stat):
-    """단일 메트릭 조회 후 metrics_dict에 추가. 데이터 없으면 skip + info 로그."""
-    value = query_metric(namespace, cw_metric_name, dimensions,
-                         start_time, end_time, stat)
-    if value is not None:
-        metrics_dict[result_key] = value
-    else:
-        logger.info("Skipping %s metric for CLB %s: no data", result_key,
-                    dimensions[0]["Value"] if dimensions else "unknown")
 
 
 def _get_tags(elb_client, lb_name: str) -> dict:

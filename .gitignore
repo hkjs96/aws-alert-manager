@@ -1,17 +1,54 @@
+# Python
 __pycache__/
 *.pyc
 *.pyo
+*.egg-info/
 .env
 .venv
 venv/
-*.egg-info/
-dist/
-build/
 .pytest_cache/
 .coverage
-*.log
-.DS_Store
 .hypothesis/
 
+# Build artifacts
+dist/
+build/
+*.zip
+*.tar.gz
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project-specific
 .orbitron/
 .orbitron.json
+deploy_tmp/
+dm_output.json
+output.json
+test_out.json
+test_payload.json
+pytest_out.txt
+
+# Frontend
+node_modules/
+frontend/.next/
+frontend/out/
+frontend/tsconfig.tsbuildinfo
+frontend/.env*.local
+frontend/playwright-report/
+frontend/test-results/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Temp / lock files
+.~lock.*
+*.xlsx
+.claude/settings.local.json

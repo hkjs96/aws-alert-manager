@@ -200,7 +200,7 @@ def test_ecs_launch_type_alarm_invariance(launch_type: str, extra_tags: dict):
     tags = {"_ecs_launch_type": launch_type, **extra_tags}
     alarm_defs = _get_alarm_defs("ECS", tags)
 
-    expected_metrics = {"EcsCPU", "EcsMemory", "RunningTaskCount"}
+    expected_metrics = {"EcsCPU", "EcsMemory"}
     actual_metrics = {ad["metric"] for ad in alarm_defs}
 
     assert actual_metrics == expected_metrics, (
@@ -258,21 +258,24 @@ def test_ecs_compound_dimension(resource_id: str, cluster_name: str):
     deadline=None,
 )
 def test_waf_compound_dimension(resource_id: str, waf_rule: str):
-    """_build_dimensions for WAF returns WebACL + Rule."""
+    """_build_dimensions for WAF returns WebACL + Rule + Region."""
     alarm_def = _WAF_ALARMS[0]
-    tags = {"_waf_rule": waf_rule}
+    tags = {"_waf_rule": waf_rule, "_waf_region": "ap-northeast-2"}
 
     dims = _build_dimensions(alarm_def, resource_id, "WAF", tags)
 
-    assert len(dims) == 2
+    assert len(dims) == 3
     dim_names = {d["Name"] for d in dims}
     assert "WebACL" in dim_names
     assert "Rule" in dim_names
+    assert "Region" in dim_names
 
     acl_dim = next(d for d in dims if d["Name"] == "WebACL")
     rule_dim = next(d for d in dims if d["Name"] == "Rule")
+    region_dim = next(d for d in dims if d["Name"] == "Region")
     assert acl_dim["Value"] == resource_id
     assert rule_dim["Value"] == waf_rule
+    assert region_dim["Value"] == "ap-northeast-2"
 
 
 @given(resource_id=_safe_text, storage_type=_safe_text)
@@ -368,11 +371,12 @@ def test_treat_missing_data_breaching():
             f"DX alarm {ad['metric']} missing treat_missing_data=breaching"
         )
 
-    # MSK: only ActiveControllerCount has breaching
+    # MSK: ActiveControllerCount and UnderReplicatedPartitions are breaching
+    msk_breaching = {"ActiveControllerCount", "UnderReplicatedPartitions"}
     for ad in _MSK_ALARMS:
-        if ad["metric"] == "ActiveControllerCount":
+        if ad["metric"] in msk_breaching:
             assert ad.get("treat_missing_data") == "breaching", (
-                "MSK ActiveControllerCount missing treat_missing_data=breaching"
+                f"MSK {ad['metric']} missing treat_missing_data=breaching"
             )
         else:
             tmd = ad.get("treat_missing_data")
@@ -493,10 +497,6 @@ def test_cloudfront_route53_us_east_1_region():
 # ──────────────────────────────────────────────
 
 _LESS_THAN_METRICS = {
-    "RunningTaskCount": {
-        "comparison": "LessThanThreshold",
-        "default": HARDCODED_DEFAULTS["RunningTaskCount"],
-    },
     "ActiveControllerCount": {
         "comparison": "LessThanThreshold",
         "default": HARDCODED_DEFAULTS["ActiveControllerCount"],

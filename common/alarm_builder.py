@@ -5,11 +5,12 @@ CloudWatch put_metric_alarm 호출을 담당하는 알람 생성 전담 모듈.
 표준/Disk/동적 알람 생성 및 재생성 로직을 포함한다.
 """
 
+import functools
 import logging
 import os
 
 import boto3
-from botocore.exceptions import ClientError
+from botocore.exceptions import BotoCoreError, ClientError
 
 import common._clients as _clients
 from common.alarm_naming import (
@@ -20,7 +21,7 @@ from common.alarm_naming import (
 )
 from common.alarm_registry import (
     _get_alarm_defs,
-    _metric_name_to_key,
+    get_severity,
 )
 from common.dimension_builder import (
     _build_dimensions,
@@ -47,6 +48,44 @@ def _get_sns_alert_arn() -> str:
     return os.environ.get("SNS_TOPIC_ARN_ALERT", "")
 
 
+def _get_global_sns_arn() -> str:
+    """us-east-1 글로벌 서비스 알람용 SNS ARN. 미설정 시 빈 문자열(AlarmActions 비움)."""
+    return os.environ.get("SNS_TOPIC_ARN_GLOBAL_ALERT", "")
+
+
+# ──────────────────────────────────────────────
+# Severity 태그 부여 (Phase2 §13-4)
+# ──────────────────────────────────────────────
+
+
+@functools.lru_cache(maxsize=None)
+def _get_aws_account_id() -> str:
+    """현재 AWS 계정 ID (lru_cache — Lambda 컨테이너 생애주기 동안 1회만 STS 호출)."""
+    return boto3.client("sts").get_caller_identity()["Account"]
+
+
+def _tag_alarm_with_severity(alarm_name: str, metric_key: str, cw) -> None:
+    """알람 생성 직후 Severity + ManagedBy 태그를 부여한다.
+
+    tag_resource 실패는 알람 생성 성공에 영향을 주지 않도록 예외를 흡수한다.
+    BotoCoreError: NoCredentialsError 등 자격증명 문제 포함.
+    """
+    severity = get_severity(metric_key)
+    try:
+        region = cw.meta.region_name
+        account_id = _get_aws_account_id()
+        alarm_arn = f"arn:aws:cloudwatch:{region}:{account_id}:alarm:{alarm_name}"
+        cw.tag_resource(
+            ResourceARN=alarm_arn,
+            Tags=[
+                {"Key": "Severity", "Value": severity},
+                {"Key": "ManagedBy", "Value": "AlarmManager"},
+            ],
+        )
+    except (ClientError, BotoCoreError) as e:
+        logger.warning("Failed to tag alarm %s with severity: %s", alarm_name, e)
+
+
 def _create_disk_alarms(
     resource_id: str,
     resource_type: str,
@@ -66,7 +105,7 @@ def _create_disk_alarms(
     disk_dim_sets = _get_disk_dimensions(resource_id, extra_paths or None)
     if not disk_dim_sets:
         logger.warning(
-            "Skipping Disk alarm for %s: no CWAgent metrics found. "
+            "Skipping disk_used_percent alarm for %s: no CWAgent metrics found. "
             "Install CWAgent and wait for first metric report.",
             resource_id,
         )
@@ -109,10 +148,11 @@ def _create_disk_alarms(
                 ActionsEnabled=True,
                 AlarmActions=[sns_arn] if sns_arn else [],
                 OKActions=[sns_arn] if sns_arn else [],
-                TreatMissingData="missing",
+                TreatMissingData="notBreaching",
             )
             logger.info("Created disk alarm: %s (path=%s, threshold=%.2f)", name, path, disk_threshold)
             created.append(name)
+            _tag_alarm_with_severity(name, alarm_metric, cw)
         except ClientError as e:
             logger.error("Failed to create disk alarm %s: %s", name, e)
     return created
@@ -129,11 +169,14 @@ def _create_standard_alarm(
     sns_arn = _get_sns_alert_arn()
     resource_name = resource_tags.get("Name", "")
     metric = alarm_def["metric"]
+    metric_key = alarm_def.get("metric_key") or metric
 
     # region 필드가 있으면 해당 리전의 CloudWatch 클라이언트 사용
     region = alarm_def.get("region")
     if region:
-        cw = boto3.client("cloudwatch", region_name=region)
+        cw = _clients._get_cw_client_for_region(region)
+        # 글로벌 서비스 알람: us-east-1 전용 SNS ARN 사용 (미설정 시 AlarmActions 비움)
+        sns_arn = _get_global_sns_arn()
 
     threshold, cw_threshold = resolve_threshold(alarm_def, resource_tags)
 
@@ -147,10 +190,10 @@ def _create_standard_alarm(
 
     name = _pretty_alarm_name(
         resource_type, resource_id, resource_name,
-        metric, threshold, resource_tags,
+        metric_key, threshold, resource_tags,
     )
     desc = _build_alarm_description(
-        resource_type, resource_id, metric,
+        resource_type, resource_id, metric_key,
         f"Auto-created by AWS Monitoring Engine for {resource_type} {resource_id}",
     )
     try:
@@ -168,9 +211,10 @@ def _create_standard_alarm(
             ActionsEnabled=True,
             AlarmActions=[sns_arn] if sns_arn else [],
             OKActions=[sns_arn] if sns_arn else [],
-            TreatMissingData=alarm_def.get("treat_missing_data", "missing"),
+            TreatMissingData=alarm_def.get("treat_missing_data", "notBreaching"),
         )
         logger.info("Created alarm: %s (threshold=%.2f)", name, threshold)
+        _tag_alarm_with_severity(name, alarm_def.get("metric_key") or alarm_def["metric"], cw)
         return name
     except ClientError as e:
         logger.error("Failed to create alarm %s: %s", name, e)
@@ -249,8 +293,9 @@ def _create_dynamic_alarm(
             ActionsEnabled=True,
             AlarmActions=[sns_arn] if sns_arn else [],
             OKActions=[sns_arn] if sns_arn else [],
-            TreatMissingData="missing",
+            TreatMissingData="notBreaching",
         )
+        _tag_alarm_with_severity(name, metric_name, cw)
         logger.info(
             "Created dynamic alarm: %s (metric=%s, threshold=%.2f, comparison=%s)",
             name, metric_name, threshold, comparison,
@@ -267,14 +312,39 @@ def _create_dynamic_alarm(
 # ──────────────────────────────────────────────
 
 
+# 이전 내부 메트릭 키 → 새 CloudWatch 기반 메트릭 키 변환 (기배포 알람 AlarmDescription 호환)
+_LEGACY_KEY_MAP: dict[str, str] = {
+    "CPU": "CPUUtilization",
+    "Memory": "mem_used_percent",
+    "Disk": "disk_used_percent",
+    "FreeMemoryGB": "FreeableMemory",
+    "FreeStorageGB": "FreeStorageSpace",
+    "Connections": "DatabaseConnections",
+    "ELB5XX": "HTTPCode_ELB_5XX_Count",
+    "TCPClientReset": "TCP_Client_Reset_Count",
+    "TCPTargetReset": "TCP_Target_Reset_Count",
+    "TGResponseTime": "TargetResponseTime",
+    "FreeLocalStorageGB": "FreeLocalStorage",
+}
+
+
 def _resolve_metric_key(alarm_info: dict) -> str:
     """알람 정보에서 메트릭 키를 해석 (메타데이터 우선, 폴백으로 MetricName)."""
     desc = alarm_info.get("AlarmDescription", "")
     metadata = _parse_alarm_metadata(desc)
     if metadata and "metric_key" in metadata:
-        return metadata["metric_key"]
-    # 레거시 폴백: MetricName → 내부 키
-    return _metric_name_to_key(alarm_info.get("MetricName", ""))
+        raw_key = metadata["metric_key"]
+        return _LEGACY_KEY_MAP.get(raw_key, raw_key)
+    metric_name = alarm_info.get("MetricName", "")
+    # 레거시 디스크 알람: MetricName=disk_used_percent → Disk_{suffix} 변환
+    if metric_name == "disk_used_percent":
+        path = next(
+            (d["Value"] for d in alarm_info.get("Dimensions", []) if d["Name"] == "path"),
+            "",
+        )
+        suffix = disk_path_to_tag_suffix(path) if path else "root"
+        return f"Disk_{suffix}"
+    return metric_name
 
 
 def _create_single_alarm(
@@ -295,6 +365,12 @@ def _create_single_alarm(
     if alarm_def is None:
         logger.warning("No alarm definition found for metric %s", metric)
         return
+
+    # region 필드가 있으면 해당 리전의 CloudWatch 클라이언트 사용
+    region = alarm_def.get("region")
+    if region:
+        cw = _clients._get_cw_client_for_region(region)
+        sns_arn = _get_global_sns_arn()
 
     threshold, cw_threshold = resolve_threshold(alarm_def, resource_tags)
 
@@ -326,9 +402,10 @@ def _create_single_alarm(
             ActionsEnabled=True,
             AlarmActions=[sns_arn] if sns_arn else [],
             OKActions=[sns_arn] if sns_arn else [],
-            TreatMissingData=alarm_def.get("treat_missing_data", "missing"),
+            TreatMissingData=alarm_def.get("treat_missing_data", "notBreaching"),
         )
         logger.info("Created single alarm: %s (threshold=%.2f)", name, threshold)
+        _tag_alarm_with_severity(name, metric, cw)
     except ClientError as e:
         logger.error("Failed to create single alarm %s: %s", name, e)
 
@@ -374,7 +451,10 @@ def _recreate_alarm_by_name(
 
     # 3. put_metric_alarm으로 재생성
     alarm_defs = _get_alarm_defs(resource_type, resource_tags)
-    alarm_def = next((d for d in alarm_defs if d["metric"] == metric_key), None)
+    alarm_def = next(
+        (d for d in alarm_defs if (d.get("metric_key") or d["metric"]) == metric_key),
+        None,
+    )
     if alarm_def is None:
         logger.warning(
             "No alarm definition found for metric key %s (alarm: %s)",
@@ -382,7 +462,7 @@ def _recreate_alarm_by_name(
         )
         return
 
-    if metric_key == "Disk":
+    if metric_key.startswith("Disk_"):
         _recreate_disk_alarm(
             alarm_def, existing_dims, resource_id, resource_type,
             resource_name, resource_tags, cw, sns_arn,
@@ -408,7 +488,7 @@ def _recreate_disk_alarm(
     path = next((d["Value"] for d in existing_dims if d["Name"] == "path"), "/")
     suffix = disk_path_to_tag_suffix(path)
     threshold = get_threshold(resource_tags, f"Disk_{suffix}")
-    disk_metric_label = f"Disk-{path.lstrip('/') or 'root'}"
+    disk_metric_label = f"disk_used_percent-{path.lstrip('/') or 'root'}"
     name = _pretty_alarm_name(resource_type, resource_id, resource_name, disk_metric_label, threshold)
     _DISK_DIM_KEYS = {"InstanceId", "device", "fstype", "path"}
     clean_dims = [d for d in existing_dims if d["Name"] in _DISK_DIM_KEYS]
@@ -431,7 +511,7 @@ def _recreate_disk_alarm(
             ActionsEnabled=True,
             AlarmActions=[sns_arn] if sns_arn else [],
             OKActions=[sns_arn] if sns_arn else [],
-            TreatMissingData="missing",
+            TreatMissingData="notBreaching",
         )
         logger.info("Recreated disk alarm: %s (path=%s, threshold=%.2f)", name, path, threshold)
     except ClientError as e:
@@ -449,6 +529,11 @@ def _recreate_standard_alarm(
     sns_arn: str,
 ) -> None:
     """표준(하드코딩) 알람 재생성."""
+    # region 필드가 있으면 해당 리전의 CloudWatch 클라이언트 사용
+    region = alarm_def.get("region")
+    if region:
+        cw = _clients._get_cw_client_for_region(region)
+
     threshold, cw_threshold = resolve_threshold(alarm_def, resource_tags)
 
     dimensions = _build_dimensions(alarm_def, resource_id, resource_type, resource_tags)
@@ -479,7 +564,7 @@ def _recreate_standard_alarm(
             ActionsEnabled=True,
             AlarmActions=[sns_arn] if sns_arn else [],
             OKActions=[sns_arn] if sns_arn else [],
-            TreatMissingData=alarm_def.get("treat_missing_data", "missing"),
+            TreatMissingData=alarm_def.get("treat_missing_data", "notBreaching"),
         )
         logger.info("Recreated alarm: %s (threshold=%.2f)", name, threshold)
     except ClientError as e:

@@ -25,7 +25,7 @@ from common.alarm_registry import (
 # 표준 메트릭 정의 (ground truth)
 # ──────────────────────────────────────────────
 
-DOCDB_STANDARD_METRICS = {"CPU", "FreeMemoryGB", "Connections"}
+DOCDB_STANDARD_METRICS = {"CPUUtilization", "FreeableMemory", "DatabaseConnections"}
 DOCDB_REMOVED_METRICS = {"FreeLocalStorageGB", "ReadLatency", "WriteLatency"}
 
 

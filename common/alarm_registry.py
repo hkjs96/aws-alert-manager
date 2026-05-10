@@ -15,12 +15,23 @@ logger = logging.getLogger(__name__)
 # ──────────────────────────────────────────────
 
 _METRIC_DISPLAY = {
+    # Friendly keys (canonical — used in alarm descriptions and tag lookups)
     "CPU": ("CPUUtilization", ">", "%"),
     "Memory": ("mem_used_percent", ">", "%"),
-    "Disk": ("disk_used_percent", ">", "%"),
     "FreeMemoryGB": ("FreeableMemory", "<", "GB"),
     "FreeStorageGB": ("FreeStorageSpace", "<", "GB"),
     "Connections": ("DatabaseConnections", ">", ""),
+    "ELB5XX": ("HTTPCode_ELB_5XX_Count", ">", ""),
+    "TCPClientReset": ("TCP_Client_Reset_Count", ">", ""),
+    "TCPTargetReset": ("TCP_Target_Reset_Count", ">", ""),
+    "TGResponseTime": ("TargetResponseTime", ">", "s"),
+    # CW-name keyed entries (kept for backward compat with pre-existing alarms)
+    "CPUUtilization": ("CPUUtilization", ">", "%"),
+    "mem_used_percent": ("mem_used_percent", ">", "%"),
+    "disk_used_percent": ("disk_used_percent", ">", "%"),
+    "FreeableMemory": ("FreeableMemory", "<", "GB"),
+    "FreeStorageSpace": ("FreeStorageSpace", "<", "GB"),
+    "DatabaseConnections": ("DatabaseConnections", ">", ""),
     "RequestCount": ("RequestCount", ">", ""),
     "HealthyHostCount": ("HealthyHostCount", "<", ""),
     "UnHealthyHostCount": ("UnHealthyHostCount", ">", ""),
@@ -30,15 +41,15 @@ _METRIC_DISPLAY = {
     "StatusCheckFailed": ("StatusCheckFailed", ">", ""),
     "ReadLatency": ("ReadLatency", ">", "s"),
     "WriteLatency": ("WriteLatency", ">", "s"),
-    "ELB5XX": ("HTTPCode_ELB_5XX_Count", ">", ""),
+    "HTTPCode_ELB_5XX_Count": ("HTTPCode_ELB_5XX_Count", ">", ""),
     "ELB4XX": ("HTTPCode_ELB_4XX_Count", ">", ""),
     "TargetConnectionError": ("TargetConnectionErrorCount", ">", ""),
     "TargetResponseTime": ("TargetResponseTime", ">", "s"),
-    "TCPClientReset": ("TCP_Client_Reset_Count", ">", ""),
-    "TCPTargetReset": ("TCP_Target_Reset_Count", ">", ""),
+    "TCP_Client_Reset_Count": ("TCP_Client_Reset_Count", ">", ""),
+    "TCP_Target_Reset_Count": ("TCP_Target_Reset_Count", ">", ""),
     "RequestCountPerTarget": ("RequestCountPerTarget", ">", ""),
-    "TGResponseTime": ("TargetResponseTime", ">", "s"),
     "FreeLocalStorageGB": ("FreeLocalStorage", "<", "GB"),
+    "FreeLocalStorage": ("FreeLocalStorage", "<", "GB"),
     "ReplicaLag": ("AuroraReplicaLagMaximum", ">", "μs"),
     "ReaderReplicaLag": ("AuroraReplicaLag", ">", "μs"),
     "ACUUtilization": ("ACUUtilization", ">", "%"),
@@ -89,7 +100,6 @@ _METRIC_DISPLAY = {
     "SQSMessagesSent": ("NumberOfMessagesSent", ">", ""),
     "EcsCPU": ("CPUUtilization", ">", "%"),
     "EcsMemory": ("MemoryUtilization", ">", "%"),
-    "RunningTaskCount": ("RunningTaskCount", "<", ""),
     "OffsetLag": ("SumOffsetLag", ">", ""),
     "BytesInPerSec": ("BytesInPerSec", ">", "B/s"),
     "UnderReplicatedPartitions": ("UnderReplicatedPartitions", ">", ""),
@@ -131,7 +141,7 @@ _METRIC_DISPLAY = {
 # CWAgent 미설치 시 Memory/Disk 알람은 INSUFFICIENT_DATA 상태로 대기
 _EC2_ALARMS = [
     {
-        "metric": "CPU",
+        "metric": "CPUUtilization",
         "namespace": "AWS/EC2",
         "metric_name": "CPUUtilization",
         "dimension_key": "InstanceId",
@@ -139,9 +149,10 @@ _EC2_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
+        "treat_missing_data": "breaching",
     },
     {
-        "metric": "Memory",
+        "metric": "mem_used_percent",
         "namespace": "CWAgent",
         "metric_name": "mem_used_percent",
         "dimension_key": "InstanceId",
@@ -149,9 +160,10 @@ _EC2_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
+        "treat_missing_data": "notBreaching",  # CWAgent 미설치 시 데이터 없음 = 정상
     },
     {
-        "metric": "Disk",
+        "metric": "disk_used_percent",
         "namespace": "CWAgent",
         "metric_name": "disk_used_percent",
         "dimension_key": "InstanceId",
@@ -161,6 +173,7 @@ _EC2_ALARMS = [
         "evaluation_periods": 1,
         # extra_dimensions는 동적으로 조회 (device/fstype/path는 인스턴스마다 다름)
         "dynamic_dimensions": True,
+        "treat_missing_data": "notBreaching",  # CWAgent 미설치 시 데이터 없음 = 정상
     },
     {
         "metric": "StatusCheckFailed",
@@ -171,12 +184,13 @@ _EC2_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
+        "treat_missing_data": "breaching",
     },
 ]
 
 _RDS_ALARMS = [
     {
-        "metric": "CPU",
+        "metric": "CPUUtilization",
         "namespace": "AWS/RDS",
         "metric_name": "CPUUtilization",
         "dimension_key": "DBInstanceIdentifier",
@@ -184,9 +198,10 @@ _RDS_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
+        "treat_missing_data": "breaching",
     },
     {
-        "metric": "FreeMemoryGB",
+        "metric": "FreeableMemory",
         "namespace": "AWS/RDS",
         "metric_name": "FreeableMemory",
         "dimension_key": "DBInstanceIdentifier",
@@ -195,9 +210,10 @@ _RDS_ALARMS = [
         "period": 300,
         "evaluation_periods": 1,
         "transform_threshold": lambda gb: gb * 1024 * 1024 * 1024,  # GB → bytes
+        "treat_missing_data": "breaching",
     },
     {
-        "metric": "FreeStorageGB",
+        "metric": "FreeStorageSpace",
         "namespace": "AWS/RDS",
         "metric_name": "FreeStorageSpace",
         "dimension_key": "DBInstanceIdentifier",
@@ -206,9 +222,10 @@ _RDS_ALARMS = [
         "period": 300,
         "evaluation_periods": 1,
         "transform_threshold": lambda gb: gb * 1024 * 1024 * 1024,
+        "treat_missing_data": "breaching",
     },
     {
-        "metric": "Connections",
+        "metric": "DatabaseConnections",
         "namespace": "AWS/RDS",
         "metric_name": "DatabaseConnections",
         "dimension_key": "DBInstanceIdentifier",
@@ -216,6 +233,7 @@ _RDS_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
+        "treat_missing_data": "breaching",
     },
     {
         "metric": "ReadLatency",
@@ -226,6 +244,7 @@ _RDS_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
+        "treat_missing_data": "notBreaching",  # 쿼리 없으면 데이터 없음
     },
     {
         "metric": "WriteLatency",
@@ -236,6 +255,7 @@ _RDS_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
+        "treat_missing_data": "notBreaching",  # 쿼리 없으면 데이터 없음
     },
     {
         "metric": "ConnectionAttempts",
@@ -246,6 +266,7 @@ _RDS_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
+        "treat_missing_data": "notBreaching",  # 연결 시도 없으면 데이터 없음
     },
 ]
 
@@ -259,9 +280,10 @@ _ALB_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 60,
         "evaluation_periods": 1,
+        "treat_missing_data": "notBreaching",  # 트래픽 없으면 데이터 없음
     },
     {
-        "metric": "ELB5XX",
+        "metric": "HTTPCode_ELB_5XX_Count",
         "namespace": "AWS/ApplicationELB",
         "metric_name": "HTTPCode_ELB_5XX_Count",
         "dimension_key": "LoadBalancer",
@@ -269,6 +291,7 @@ _ALB_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 60,
         "evaluation_periods": 1,
+        "treat_missing_data": "notBreaching",  # 요청 없으면 에러도 없음
     },
     {
         "metric": "TargetResponseTime",
@@ -279,6 +302,7 @@ _ALB_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 60,
         "evaluation_periods": 1,
+        "treat_missing_data": "notBreaching",  # 요청 없으면 응답 시간 없음
     },
     {
         "metric": "ELB4XX",
@@ -289,6 +313,7 @@ _ALB_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 60,
         "evaluation_periods": 1,
+        "treat_missing_data": "notBreaching",
     },
     {
         "metric": "TargetConnectionError",
@@ -299,6 +324,7 @@ _ALB_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 60,
         "evaluation_periods": 1,
+        "treat_missing_data": "notBreaching",
     },
 ]
 
@@ -312,6 +338,7 @@ _NLB_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 60,
         "evaluation_periods": 1,
+        "treat_missing_data": "notBreaching",  # 트래픽 없으면 데이터 없음
     },
     {
         "metric": "ActiveFlowCount",
@@ -322,6 +349,7 @@ _NLB_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 60,
         "evaluation_periods": 1,
+        "treat_missing_data": "notBreaching",  # 활성 연결 없으면 데이터 없음
     },
     {
         "metric": "NewFlowCount",
@@ -332,9 +360,10 @@ _NLB_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 60,
         "evaluation_periods": 1,
+        "treat_missing_data": "notBreaching",
     },
     {
-        "metric": "TCPClientReset",
+        "metric": "TCP_Client_Reset_Count",
         "namespace": "AWS/NetworkELB",
         "metric_name": "TCP_Client_Reset_Count",
         "dimension_key": "LoadBalancer",
@@ -342,9 +371,10 @@ _NLB_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 60,
         "evaluation_periods": 1,
+        "treat_missing_data": "notBreaching",
     },
     {
-        "metric": "TCPTargetReset",
+        "metric": "TCP_Target_Reset_Count",
         "namespace": "AWS/NetworkELB",
         "metric_name": "TCP_Target_Reset_Count",
         "dimension_key": "LoadBalancer",
@@ -352,6 +382,7 @@ _NLB_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 60,
         "evaluation_periods": 1,
+        "treat_missing_data": "notBreaching",
     },
 ]
 
@@ -365,6 +396,7 @@ _TG_ALARMS = [
         "comparison": "LessThanThreshold",
         "period": 60,
         "evaluation_periods": 1,
+        "treat_missing_data": "breaching",
     },
     {
         "metric": "UnHealthyHostCount",
@@ -375,6 +407,7 @@ _TG_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 60,
         "evaluation_periods": 1,
+        "treat_missing_data": "notBreaching",  # 건강한 상태에서 0으로 발행, 실제 missing은 드묾
     },
     {
         "metric": "RequestCountPerTarget",
@@ -385,9 +418,10 @@ _TG_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 60,
         "evaluation_periods": 1,
+        "treat_missing_data": "notBreaching",  # 요청 없으면 데이터 없음
     },
     {
-        "metric": "TGResponseTime",
+        "metric": "TargetResponseTime",
         "namespace": "AWS/ApplicationELB",
         "metric_name": "TargetResponseTime",
         "dimension_key": "TargetGroup",
@@ -395,13 +429,14 @@ _TG_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 60,
         "evaluation_periods": 1,
+        "treat_missing_data": "notBreaching",  # 요청 없으면 데이터 없음
     },
 ]
 
 
 _AURORA_RDS_ALARMS = [
     {
-        "metric": "CPU",
+        "metric": "CPUUtilization",
         "namespace": "AWS/RDS",
         "metric_name": "CPUUtilization",
         "dimension_key": "DBInstanceIdentifier",
@@ -409,9 +444,10 @@ _AURORA_RDS_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
+        "treat_missing_data": "breaching",
     },
     {
-        "metric": "FreeMemoryGB",
+        "metric": "FreeableMemory",
         "namespace": "AWS/RDS",
         "metric_name": "FreeableMemory",
         "dimension_key": "DBInstanceIdentifier",
@@ -420,9 +456,10 @@ _AURORA_RDS_ALARMS = [
         "period": 300,
         "evaluation_periods": 1,
         "transform_threshold": lambda gb: gb * 1073741824,
+        "treat_missing_data": "breaching",
     },
     {
-        "metric": "Connections",
+        "metric": "DatabaseConnections",
         "namespace": "AWS/RDS",
         "metric_name": "DatabaseConnections",
         "dimension_key": "DBInstanceIdentifier",
@@ -430,9 +467,10 @@ _AURORA_RDS_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
+        "treat_missing_data": "breaching",
     },
     {
-        "metric": "FreeLocalStorageGB",
+        "metric": "FreeLocalStorage",
         "namespace": "AWS/RDS",
         "metric_name": "FreeLocalStorage",
         "dimension_key": "DBInstanceIdentifier",
@@ -441,6 +479,7 @@ _AURORA_RDS_ALARMS = [
         "period": 300,
         "evaluation_periods": 1,
         "transform_threshold": lambda gb: gb * 1073741824,
+        "treat_missing_data": "breaching",
     },
     {
         "metric": "ReplicaLag",
@@ -451,6 +490,7 @@ _AURORA_RDS_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
+        "treat_missing_data": "missing",
     },
 ]
 
@@ -463,6 +503,7 @@ _AURORA_READER_REPLICA_LAG = {
     "comparison": "GreaterThanThreshold",
     "period": 300,
     "evaluation_periods": 1,
+    "treat_missing_data": "missing",
 }
 
 _AURORA_ACU_UTILIZATION = {
@@ -474,6 +515,7 @@ _AURORA_ACU_UTILIZATION = {
     "comparison": "GreaterThanThreshold",
     "period": 300,
     "evaluation_periods": 1,
+    "treat_missing_data": "breaching",  # Serverless v2 실행 중이면 항상 발행
 }
 
 _AURORA_SERVERLESS_CAPACITY = {
@@ -518,7 +560,7 @@ def _get_aurora_alarm_defs(resource_tags: dict) -> list[dict]:
 
 _DOCDB_ALARMS = [
     {
-        "metric": "CPU",
+        "metric": "CPUUtilization",
         "namespace": "AWS/DocDB",
         "metric_name": "CPUUtilization",
         "dimension_key": "DBInstanceIdentifier",
@@ -526,9 +568,10 @@ _DOCDB_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
+        "treat_missing_data": "breaching",
     },
     {
-        "metric": "FreeMemoryGB",
+        "metric": "FreeableMemory",
         "namespace": "AWS/DocDB",
         "metric_name": "FreeableMemory",
         "dimension_key": "DBInstanceIdentifier",
@@ -537,9 +580,10 @@ _DOCDB_ALARMS = [
         "period": 300,
         "evaluation_periods": 1,
         "transform_threshold": lambda gb: gb * 1073741824,
+        "treat_missing_data": "breaching",
     },
     {
-        "metric": "Connections",
+        "metric": "DatabaseConnections",
         "namespace": "AWS/DocDB",
         "metric_name": "DatabaseConnections",
         "dimension_key": "DBInstanceIdentifier",
@@ -547,12 +591,13 @@ _DOCDB_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
+        "treat_missing_data": "breaching",
     },
 ]
 
 _ELASTICACHE_ALARMS = [
     {
-        "metric": "CPU",
+        "metric": "CPUUtilization",
         "namespace": "AWS/ElastiCache",
         "metric_name": "CPUUtilization",
         "dimension_key": "CacheClusterId",
@@ -560,6 +605,7 @@ _ELASTICACHE_ALARMS = [
         "comparison": "GreaterThanOrEqualToThreshold",
         "period": 300,
         "evaluation_periods": 1,
+        "treat_missing_data": "breaching",
     },
     {
         "metric": "EngineCPU",
@@ -570,6 +616,7 @@ _ELASTICACHE_ALARMS = [
         "comparison": "GreaterThanOrEqualToThreshold",
         "period": 300,
         "evaluation_periods": 1,
+        "treat_missing_data": "breaching",
     },
     {
         "metric": "SwapUsage",
@@ -580,6 +627,7 @@ _ELASTICACHE_ALARMS = [
         "comparison": "GreaterThanOrEqualToThreshold",
         "period": 300,
         "evaluation_periods": 1,
+        "treat_missing_data": "breaching",
     },
     {
         "metric": "Evictions",
@@ -590,6 +638,7 @@ _ELASTICACHE_ALARMS = [
         "comparison": "GreaterThanOrEqualToThreshold",
         "period": 300,
         "evaluation_periods": 1,
+        "treat_missing_data": "breaching",
     },
     {
         "metric": "CurrConnections",
@@ -600,6 +649,7 @@ _ELASTICACHE_ALARMS = [
         "comparison": "GreaterThanOrEqualToThreshold",
         "period": 300,
         "evaluation_periods": 1,
+        "treat_missing_data": "breaching",
     },
 ]
 
@@ -613,6 +663,7 @@ _NATGW_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
+        "treat_missing_data": "notBreaching",  # 패킷 드롭 없으면 0으로 발행
     },
     {
         "metric": "ErrorPortAllocation",
@@ -623,6 +674,7 @@ _NATGW_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
+        "treat_missing_data": "notBreaching",  # 포트 할당 오류 없으면 0으로 발행
     },
 ]
 
@@ -636,6 +688,7 @@ _LAMBDA_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
+        "treat_missing_data": "notBreaching",  # 호출 없으면 데이터 없음
     },
     {
         "metric": "Errors",
@@ -646,6 +699,7 @@ _LAMBDA_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
+        "treat_missing_data": "notBreaching",  # 호출 없으면 에러도 없음
     },
 ]
 
@@ -673,6 +727,7 @@ _APIGW_REST_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
+        "treat_missing_data": "notBreaching",  # 요청 없으면 데이터 없음
     },
     {
         "metric": "Api4XXError",
@@ -683,6 +738,7 @@ _APIGW_REST_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
+        "treat_missing_data": "notBreaching",
     },
     {
         "metric": "Api5XXError",
@@ -693,6 +749,7 @@ _APIGW_REST_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
+        "treat_missing_data": "notBreaching",
     },
 ]
 
@@ -706,6 +763,7 @@ _APIGW_HTTP_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
+        "treat_missing_data": "notBreaching",
     },
     {
         "metric": "Api4xx",
@@ -716,6 +774,7 @@ _APIGW_HTTP_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
+        "treat_missing_data": "notBreaching",
     },
     {
         "metric": "Api5xx",
@@ -726,6 +785,7 @@ _APIGW_HTTP_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
+        "treat_missing_data": "notBreaching",
     },
 ]
 
@@ -739,6 +799,7 @@ _APIGW_WEBSOCKET_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
+        "treat_missing_data": "notBreaching",  # 연결 없으면 데이터 없음
     },
     {
         "metric": "WsMessageCount",
@@ -749,6 +810,7 @@ _APIGW_WEBSOCKET_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
+        "treat_missing_data": "notBreaching",
     },
     {
         "metric": "WsIntegrationError",
@@ -759,6 +821,7 @@ _APIGW_WEBSOCKET_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
+        "treat_missing_data": "notBreaching",
     },
     {
         "metric": "WsExecutionError",
@@ -769,6 +832,7 @@ _APIGW_WEBSOCKET_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
+        "treat_missing_data": "notBreaching",
     },
 ]
 
@@ -793,6 +857,7 @@ _ACM_ALARMS = [
         "comparison": "LessThanThreshold",
         "period": 86400,
         "evaluation_periods": 1,
+        "treat_missing_data": "missing",
     },
 ]
 
@@ -806,6 +871,7 @@ _BACKUP_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
+        "treat_missing_data": "notBreaching",  # 백업 작업 없는 기간에는 데이터 없음
     },
     {
         "metric": "BackupJobsAborted",
@@ -816,6 +882,7 @@ _BACKUP_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
+        "treat_missing_data": "notBreaching",
     },
 ]
 
@@ -829,6 +896,7 @@ _MQ_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
+        "treat_missing_data": "breaching",
     },
     {
         "metric": "HeapUsage",
@@ -839,6 +907,7 @@ _MQ_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
+        "treat_missing_data": "breaching",
     },
     {
         "metric": "JobSchedulerStoreUsage",
@@ -849,6 +918,7 @@ _MQ_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
+        "treat_missing_data": "breaching",
     },
     {
         "metric": "StoreUsage",
@@ -859,6 +929,7 @@ _MQ_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
+        "treat_missing_data": "breaching",
     },
 ]
 
@@ -872,6 +943,7 @@ _CLB_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 60,
         "evaluation_periods": 1,
+        "treat_missing_data": "breaching",  # 헬스 체크 데이터 없으면 장애 간주
     },
     {
         "metric": "CLB5XX",
@@ -882,6 +954,7 @@ _CLB_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 60,
         "evaluation_periods": 1,
+        "treat_missing_data": "notBreaching",  # 요청 없으면 에러 없음
     },
     {
         "metric": "CLB4XX",
@@ -892,6 +965,7 @@ _CLB_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 60,
         "evaluation_periods": 1,
+        "treat_missing_data": "notBreaching",
     },
     {
         "metric": "CLBBackend5XX",
@@ -902,6 +976,7 @@ _CLB_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 60,
         "evaluation_periods": 1,
+        "treat_missing_data": "notBreaching",
     },
     {
         "metric": "CLBBackend4XX",
@@ -912,6 +987,7 @@ _CLB_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 60,
         "evaluation_periods": 1,
+        "treat_missing_data": "notBreaching",
     },
     {
         "metric": "SurgeQueueLength",
@@ -922,6 +998,7 @@ _CLB_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 60,
         "evaluation_periods": 1,
+        "treat_missing_data": "notBreaching",  # 트래픽 없으면 큐 없음
     },
     {
         "metric": "SpilloverCount",
@@ -932,6 +1009,7 @@ _CLB_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 60,
         "evaluation_periods": 1,
+        "treat_missing_data": "notBreaching",
     },
 ]
 
@@ -946,6 +1024,7 @@ _OPENSEARCH_ALARMS = [
         "period": 300,
         "evaluation_periods": 1,
         "needs_client_id": True,
+        "treat_missing_data": "breaching",
     },
     {
         "metric": "ClusterStatusYellow",
@@ -957,6 +1036,7 @@ _OPENSEARCH_ALARMS = [
         "period": 300,
         "evaluation_periods": 1,
         "needs_client_id": True,
+        "treat_missing_data": "breaching",
     },
     {
         "metric": "OSFreeStorageSpace",
@@ -968,6 +1048,7 @@ _OPENSEARCH_ALARMS = [
         "period": 300,
         "evaluation_periods": 1,
         "needs_client_id": True,
+        "treat_missing_data": "breaching",
     },
     {
         "metric": "ClusterIndexWritesBlocked",
@@ -979,6 +1060,7 @@ _OPENSEARCH_ALARMS = [
         "period": 300,
         "evaluation_periods": 1,
         "needs_client_id": True,
+        "treat_missing_data": "breaching",
     },
     {
         "metric": "OsCPU",
@@ -990,6 +1072,7 @@ _OPENSEARCH_ALARMS = [
         "period": 300,
         "evaluation_periods": 1,
         "needs_client_id": True,
+        "treat_missing_data": "breaching",
     },
     {
         "metric": "JVMMemoryPressure",
@@ -1001,6 +1084,7 @@ _OPENSEARCH_ALARMS = [
         "period": 300,
         "evaluation_periods": 1,
         "needs_client_id": True,
+        "treat_missing_data": "breaching",
     },
     {
         "metric": "MasterCPU",
@@ -1012,6 +1096,7 @@ _OPENSEARCH_ALARMS = [
         "period": 300,
         "evaluation_periods": 1,
         "needs_client_id": True,
+        "treat_missing_data": "breaching",
     },
     {
         "metric": "MasterJVMMemoryPressure",
@@ -1023,6 +1108,7 @@ _OPENSEARCH_ALARMS = [
         "period": 300,
         "evaluation_periods": 1,
         "needs_client_id": True,
+        "treat_missing_data": "breaching",
     },
 ]
 
@@ -1036,6 +1122,7 @@ _SQS_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
+        "treat_missing_data": "notBreaching",  # 빈 큐는 데이터 없음
     },
     {
         "metric": "SQSOldestMessage",
@@ -1046,6 +1133,7 @@ _SQS_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
+        "treat_missing_data": "notBreaching",  # 빈 큐는 데이터 없음
     },
     {
         "metric": "SQSMessagesSent",
@@ -1056,6 +1144,7 @@ _SQS_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
+        "treat_missing_data": "notBreaching",  # 메시지 없으면 데이터 없음
     },
 ]
 
@@ -1069,6 +1158,7 @@ _ECS_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
+        "treat_missing_data": "notBreaching",  # Container Insights 미활성화 시 데이터 없음
     },
     {
         "metric": "EcsMemory",
@@ -1079,16 +1169,7 @@ _ECS_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
-    },
-    {
-        "metric": "RunningTaskCount",
-        "namespace": "AWS/ECS",
-        "metric_name": "RunningTaskCount",
-        "dimension_key": "ServiceName",
-        "stat": "Average",
-        "comparison": "LessThanThreshold",
-        "period": 300,
-        "evaluation_periods": 1,
+        "treat_missing_data": "notBreaching",  # Container Insights 미활성화 시 데이터 없음
     },
 ]
 
@@ -1102,6 +1183,7 @@ _MSK_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
+        "treat_missing_data": "notBreaching",  # 컨슈머 그룹 없으면 데이터 없음
     },
     {
         "metric": "BytesInPerSec",
@@ -1112,6 +1194,7 @@ _MSK_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
+        "treat_missing_data": "notBreaching",  # 프로듀서 없으면 데이터 없음
     },
     {
         "metric": "UnderReplicatedPartitions",
@@ -1122,6 +1205,7 @@ _MSK_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
+        "treat_missing_data": "breaching",
     },
     {
         "metric": "ActiveControllerCount",
@@ -1146,6 +1230,7 @@ _DYNAMODB_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
+        "treat_missing_data": "notBreaching",  # 읽기 없으면 데이터 없음
     },
     {
         "metric": "DDBWriteCapacity",
@@ -1156,6 +1241,7 @@ _DYNAMODB_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
+        "treat_missing_data": "notBreaching",  # 쓰기 없으면 데이터 없음
     },
     {
         "metric": "ThrottledRequests",
@@ -1166,6 +1252,7 @@ _DYNAMODB_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
+        "treat_missing_data": "notBreaching",  # 요청 없으면 데이터 없음
     },
     {
         "metric": "DDBSystemErrors",
@@ -1176,6 +1263,7 @@ _DYNAMODB_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
+        "treat_missing_data": "notBreaching",  # 요청 없으면 에러 없음
     },
 ]
 
@@ -1190,6 +1278,7 @@ _CLOUDFRONT_ALARMS = [
         "period": 300,
         "evaluation_periods": 1,
         "region": "us-east-1",
+        "treat_missing_data": "notBreaching",  # 트래픽 없으면 데이터 없음
     },
     {
         "metric": "CF4xxErrorRate",
@@ -1201,6 +1290,7 @@ _CLOUDFRONT_ALARMS = [
         "period": 300,
         "evaluation_periods": 1,
         "region": "us-east-1",
+        "treat_missing_data": "notBreaching",
     },
     {
         "metric": "CFRequests",
@@ -1212,6 +1302,7 @@ _CLOUDFRONT_ALARMS = [
         "period": 300,
         "evaluation_periods": 1,
         "region": "us-east-1",
+        "treat_missing_data": "notBreaching",
     },
     {
         "metric": "CFBytesDownloaded",
@@ -1223,6 +1314,7 @@ _CLOUDFRONT_ALARMS = [
         "period": 300,
         "evaluation_periods": 1,
         "region": "us-east-1",
+        "treat_missing_data": "notBreaching",
     },
 ]
 
@@ -1236,6 +1328,7 @@ _WAF_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
+        "treat_missing_data": "notBreaching",  # 트래픽 없으면 데이터 없음
     },
     {
         "metric": "WAFAllowedRequests",
@@ -1246,6 +1339,7 @@ _WAF_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
+        "treat_missing_data": "notBreaching",
     },
     {
         "metric": "WAFCountedRequests",
@@ -1256,6 +1350,7 @@ _WAF_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
+        "treat_missing_data": "notBreaching",
     },
 ]
 
@@ -1298,6 +1393,7 @@ _EFS_ALARMS = [
         "comparison": "LessThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
+        "treat_missing_data": "breaching",  # 파일 시스템 실행 중이면 항상 발행
     },
     {
         "metric": "PercentIOLimit",
@@ -1308,6 +1404,7 @@ _EFS_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
+        "treat_missing_data": "notBreaching",  # IO 없으면 데이터 없음
     },
     {
         "metric": "EFSClientConnections",
@@ -1318,6 +1415,7 @@ _EFS_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
+        "treat_missing_data": "notBreaching",  # 클라이언트 없으면 0 또는 데이터 없음
     },
 ]
 
@@ -1331,6 +1429,7 @@ _S3_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
+        "treat_missing_data": "notBreaching",  # 요청 없으면 에러 없음
     },
     {
         "metric": "S35xxErrors",
@@ -1341,6 +1440,7 @@ _S3_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
+        "treat_missing_data": "notBreaching",
     },
     {
         "metric": "S3BucketSizeBytes",
@@ -1352,6 +1452,7 @@ _S3_ALARMS = [
         "period": 86400,
         "evaluation_periods": 1,
         "needs_storage_type": True,
+        "treat_missing_data": "missing",  # 일간 메트릭, 중간 기간 missing은 정상 → 상태 유지
     },
     {
         "metric": "S3NumberOfObjects",
@@ -1363,6 +1464,7 @@ _S3_ALARMS = [
         "period": 86400,
         "evaluation_periods": 1,
         "needs_storage_type": True,
+        "treat_missing_data": "missing",  # 일간 메트릭, 중간 기간 missing은 정상 → 상태 유지
     },
 ]
 
@@ -1376,6 +1478,7 @@ _SAGEMAKER_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
+        "treat_missing_data": "notBreaching",  # 호출 없으면 데이터 없음
     },
     {
         "metric": "SMInvocationErrors",
@@ -1386,6 +1489,7 @@ _SAGEMAKER_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
+        "treat_missing_data": "notBreaching",
     },
     {
         "metric": "SMModelLatency",
@@ -1396,6 +1500,7 @@ _SAGEMAKER_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
+        "treat_missing_data": "notBreaching",  # 호출 없으면 지연 데이터 없음
     },
     {
         "metric": "SMCPU",
@@ -1406,6 +1511,7 @@ _SAGEMAKER_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
+        "treat_missing_data": "breaching",  # 엔드포인트 인스턴스는 항상 실행 중
     },
 ]
 
@@ -1419,6 +1525,7 @@ _SNS_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
+        "treat_missing_data": "notBreaching",  # 발행 없으면 데이터 없음
     },
     {
         "metric": "SNSMessagesPublished",
@@ -1429,10 +1536,11 @@ _SNS_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
+        "treat_missing_data": "notBreaching",
     },
 ]
 
-_NLB_TG_EXCLUDED_METRICS = {"RequestCountPerTarget", "TGResponseTime"}
+_NLB_TG_EXCLUDED_METRICS = {"RequestCountPerTarget", "TargetResponseTime"}
 
 
 def _get_alarm_defs(resource_type: str, resource_tags: dict | None = None) -> list[dict]:
@@ -1503,16 +1611,16 @@ def _get_alarm_defs(resource_type: str, resource_tags: dict | None = None) -> li
     return []
 
 
-# resource_type별 하드코딩 메트릭 키
+# resource_type별 하드코딩 메트릭 키 (metric_key 기준; tag_key = Threshold_{metric_key})
 _HARDCODED_METRIC_KEYS: dict[str, set[str]] = {
-    "EC2": {"CPU", "Memory", "Disk", "StatusCheckFailed"},
-    "RDS": {"CPU", "FreeMemoryGB", "FreeStorageGB", "Connections", "ReadLatency", "WriteLatency", "ConnectionAttempts"},
-    "ALB": {"RequestCount", "ELB5XX", "TargetResponseTime", "ELB4XX", "TargetConnectionError"},
-    "NLB": {"ProcessedBytes", "ActiveFlowCount", "NewFlowCount", "TCPClientReset", "TCPTargetReset"},
-    "TG": {"HealthyHostCount", "UnHealthyHostCount", "RequestCountPerTarget", "TGResponseTime"},
-    "AuroraRDS": {"CPU", "FreeMemoryGB", "Connections", "FreeLocalStorageGB", "ReplicaLag", "ReaderReplicaLag", "ACUUtilization", "ServerlessDatabaseCapacity"},
-    "DocDB": {"CPU", "FreeMemoryGB", "Connections"},
-    "ElastiCache": {"CPU", "EngineCPU", "SwapUsage", "Evictions", "CurrConnections"},
+    "EC2": {"CPUUtilization", "mem_used_percent", "disk_used_percent", "StatusCheckFailed"},
+    "RDS": {"CPUUtilization", "FreeableMemory", "FreeStorageSpace", "DatabaseConnections", "ReadLatency", "WriteLatency", "ConnectionAttempts"},
+    "ALB": {"RequestCount", "HTTPCode_ELB_5XX_Count", "TargetResponseTime", "ELB4XX", "TargetConnectionError"},
+    "NLB": {"ProcessedBytes", "ActiveFlowCount", "NewFlowCount", "TCP_Client_Reset_Count", "TCP_Target_Reset_Count"},
+    "TG": {"HealthyHostCount", "UnHealthyHostCount", "RequestCountPerTarget", "TargetResponseTime"},
+    "AuroraRDS": {"CPUUtilization", "FreeableMemory", "DatabaseConnections", "FreeLocalStorage", "ReplicaLag", "ReaderReplicaLag", "ACUUtilization", "ServerlessDatabaseCapacity"},
+    "DocDB": {"CPUUtilization", "FreeableMemory", "DatabaseConnections"},
+    "ElastiCache": {"CPUUtilization", "EngineCPU", "SwapUsage", "Evictions", "CurrConnections"},
     "NAT": {"PacketsDropCount", "ErrorPortAllocation"},
     "Lambda": {"Duration", "Errors"},
     "VPN": {"TunnelState"},
@@ -1537,7 +1645,7 @@ _HARDCODED_METRIC_KEYS: dict[str, set[str]] = {
         "MasterCPU", "MasterJVMMemoryPressure",
     },
     "SQS": {"SQSMessagesVisible", "SQSOldestMessage", "SQSMessagesSent"},
-    "ECS": {"EcsCPU", "EcsMemory", "RunningTaskCount"},
+    "ECS": {"EcsCPU", "EcsMemory"},
     "MSK": {"OffsetLag", "BytesInPerSec", "UnderReplicatedPartitions", "ActiveControllerCount"},
     "DynamoDB": {"DDBReadCapacity", "DDBWriteCapacity", "ThrottledRequests", "DDBSystemErrors"},
     "CloudFront": {"CF5xxErrorRate", "CF4xxErrorRate", "CFRequests", "CFBytesDownloaded"},
@@ -1616,120 +1724,130 @@ _DIMENSION_KEY_MAP: dict[str, str] = {
     "SNS": "TopicName",
 }
 
+# 글로벌 서비스 리전 매핑: 메트릭이 us-east-1에서만 발행되는 리소스 타입
+# 알람 생성/검색/삭제 시 해당 리전의 CloudWatch 클라이언트를 사용해야 한다.
+_GLOBAL_SERVICE_REGION: dict[str, str] = {
+    "CloudFront": "us-east-1",
+    "Route53": "us-east-1",
+}
+
 
 def _get_hardcoded_metric_keys(resource_type: str, resource_tags: dict | None = None) -> set[str]:
     """resource_type과 resource_tags 기반으로 하드코딩 메트릭 키 집합을 반환.
 
-    _get_alarm_defs() 결과에서 동적으로 추출하여 NLB TG 등 LB 타입별 차이를 반영한다.
+    metric_key 우선, 없으면 metric 사용. NLB TG 등 LB 타입별 차이를 반영한다.
+    반환값은 Threshold_{key} 태그 suffix와 일치한다.
     """
     alarm_defs = _get_alarm_defs(resource_type, resource_tags)
-    return {d["metric"] for d in alarm_defs}
+    return {d.get("metric_key") or d["metric"] for d in alarm_defs}
 
 
-def _metric_name_to_key(metric_name: str) -> str:
-    """CloudWatch 메트릭 이름을 내부 메트릭 키로 변환.
+# _METRIC_DISPLAY의 display_name → metric_key 역방향 조회 캐시
+_METRIC_NAME_TO_KEY: dict[str, str] = {
+    display_name: key
+    for key, (display_name, _, _) in _METRIC_DISPLAY.items()
+    if display_name != key  # 동일한 경우 직접 키 조회로 처리
+}
 
-    CPUUtilization → CPU, mem_used_percent → Memory, disk_used_percent → Disk
+
+def _metric_name_to_key(cw_name: str) -> str:
+    """CloudWatch 메트릭 이름 → 내부 메트릭 키 변환.
+
+    1. 직접 키 매칭 (cw_name이 이미 metric_key인 경우)
+    2. display_name 역방향 조회 (_METRIC_DISPLAY[key][0] == cw_name)
+    3. 매칭 실패 시 cw_name 그대로 반환
     """
-    mapping = {
-        "CPUUtilization": "CPU",
-        "mem_used_percent": "Memory",
-        "disk_used_percent": "Disk",
-        "FreeableMemory": "FreeMemoryGB",
-        "FreeStorageSpace": "FreeStorageGB",
-        "DatabaseConnections": "Connections",
-        "RequestCount": "RequestCount",
-        "HealthyHostCount": "HealthyHostCount",
-        "UnHealthyHostCount": "UnHealthyHostCount",
-        "ProcessedBytes": "ProcessedBytes",
-        "ActiveFlowCount": "ActiveFlowCount",
-        "NewFlowCount": "NewFlowCount",
-        "StatusCheckFailed": "StatusCheckFailed",
-        "ReadLatency": "ReadLatency",
-        "WriteLatency": "WriteLatency",
-        "HTTPCode_ELB_5XX_Count": "ELB5XX",
-        "HTTPCode_ELB_4XX_Count": "ELB4XX",
-        "TargetConnectionErrorCount": "TargetConnectionError",
-        "TargetResponseTime": "TargetResponseTime",
-        "TCP_Client_Reset_Count": "TCPClientReset",
-        "TCP_Target_Reset_Count": "TCPTargetReset",
-        "RequestCountPerTarget": "RequestCountPerTarget",
-        "FreeLocalStorage": "FreeLocalStorageGB",
-        "AuroraReplicaLagMaximum": "ReplicaLag",
-        "AuroraReplicaLag": "ReaderReplicaLag",
-        "ACUUtilization": "ACUUtilization",
-        "ServerlessDatabaseCapacity": "ServerlessDatabaseCapacity",
-        "ConnectionAttempts": "ConnectionAttempts",
-        "EngineCPUUtilization": "EngineCPU",
-        "SwapUsage": "SwapUsage",
-        "Evictions": "Evictions",
-        "CurrConnections": "CurrConnections",
-        "PacketsDropCount": "PacketsDropCount",
-        "ErrorPortAllocation": "ErrorPortAllocation",
-        "Duration": "Duration",
-        "Errors": "Errors",
-        "TunnelState": "TunnelState",
-        "Latency": "ApiLatency",
-        "4XXError": "Api4XXError",
-        "5XXError": "Api5XXError",
-        "4xx": "Api4xx",
-        "5xx": "Api5xx",
-        "ConnectCount": "WsConnectCount",
-        "MessageCount": "WsMessageCount",
-        "IntegrationError": "WsIntegrationError",
-        "ExecutionError": "WsExecutionError",
-        "DaysToExpiry": "DaysToExpiry",
-        "NumberOfBackupJobsFailed": "BackupJobsFailed",
-        "NumberOfBackupJobsAborted": "BackupJobsAborted",
-        "CpuUtilization": "MqCPU",
-        "HeapUsage": "HeapUsage",
-        "JobSchedulerStorePercentUsage": "JobSchedulerStoreUsage",
-        "StorePercentUsage": "StoreUsage",
-        "UnHealthyHostCount": "CLBUnHealthyHost",
-        "HTTPCode_ELB_5XX": "CLB5XX",
-        "HTTPCode_ELB_4XX": "CLB4XX",
-        "HTTPCode_Backend_5XX": "CLBBackend5XX",
-        "HTTPCode_Backend_4XX": "CLBBackend4XX",
-        "SurgeQueueLength": "SurgeQueueLength",
-        "SpilloverCount": "SpilloverCount",
-        "ClusterStatus.red": "ClusterStatusRed",
-        "ClusterStatus.yellow": "ClusterStatusYellow",
-        "ClusterIndexWritesBlocked": "ClusterIndexWritesBlocked",
-        "MasterCPUUtilization": "MasterCPU",
-        "MasterJVMMemoryPressure": "MasterJVMMemoryPressure",
-        "ApproximateNumberOfMessagesVisible": "SQSMessagesVisible",
-        "ApproximateAgeOfOldestMessage": "SQSOldestMessage",
-        "NumberOfMessagesSent": "SQSMessagesSent",
-        "MemoryUtilization": "EcsMemory",
-        "RunningTaskCount": "RunningTaskCount",
-        "SumOffsetLag": "OffsetLag",
-        "BytesInPerSec": "BytesInPerSec",
-        "UnderReplicatedPartitions": "UnderReplicatedPartitions",
-        "ActiveControllerCount": "ActiveControllerCount",
-        "ConsumedReadCapacityUnits": "DDBReadCapacity",
-        "ConsumedWriteCapacityUnits": "DDBWriteCapacity",
-        "ThrottledRequests": "ThrottledRequests",
-        "SystemErrors": "DDBSystemErrors",
-        "5xxErrorRate": "CF5xxErrorRate",
-        "4xxErrorRate": "CF4xxErrorRate",
-        "Requests": "CFRequests",
-        "BytesDownloaded": "CFBytesDownloaded",
-        "BlockedRequests": "WAFBlockedRequests",
-        "AllowedRequests": "WAFAllowedRequests",
-        "CountedRequests": "WAFCountedRequests",
-        "HealthCheckStatus": "HealthCheckStatus",
-        "ConnectionState": "ConnectionState",
-        "BurstCreditBalance": "BurstCreditBalance",
-        "PercentIOLimit": "PercentIOLimit",
-        "ClientConnections": "EFSClientConnections",
-        "4xxErrors": "S34xxErrors",
-        "5xxErrors": "S35xxErrors",
-        "BucketSizeBytes": "S3BucketSizeBytes",
-        "NumberOfObjects": "S3NumberOfObjects",
-        "Invocations": "SMInvocations",
-        "InvocationErrors": "SMInvocationErrors",
-        "ModelLatency": "SMModelLatency",
-        "NumberOfNotificationsFailed": "SNSNotificationsFailed",
-        "NumberOfMessagesPublished": "SNSMessagesPublished",
-    }
-    return mapping.get(metric_name, metric_name)
+    if cw_name in _METRIC_DISPLAY:
+        return cw_name
+    return _METRIC_NAME_TO_KEY.get(cw_name, cw_name)
+
+
+# ──────────────────────────────────────────────
+# Severity 등급 체계 (Phase2 §13, PagerDuty SEV 기준)
+# ──────────────────────────────────────────────
+
+# 메트릭 키 → 기본 Severity 매핑.
+# 기준: 해당 메트릭이 ALARM 상태일 때의 비즈니스 영향도.
+# 미정의 메트릭은 get_severity()에서 "SEV-5"로 폴백.
+_DEFAULT_SEVERITY: dict[str, str] = {
+    # SEV-1: 서비스 완전 중단 또는 접근 불가
+    "StatusCheckFailed":  "SEV-1",
+    "HealthyHostCount":   "SEV-1",
+    "TunnelState":        "SEV-1",
+    "ConnectionState":    "SEV-1",
+    "HealthCheckStatus":  "SEV-1",
+    "ActiveControllerCount": "SEV-1",
+
+    # SEV-2: 에러 급증, 서비스 품질 심각 저하
+    "ELB5XX":                "SEV-2",
+    "HTTPCode_ELB_5XX_Count": "SEV-2",
+    "CLB5XX":                "SEV-2",
+    "Errors":                "SEV-2",
+    "UnHealthyHostCount":    "SEV-2",
+    "Api5XXError":           "SEV-2",
+    "Api5xx":                "SEV-2",
+    "ErrorPortAllocation":   "SEV-2",
+    "TargetConnectionError": "SEV-2",
+
+    # SEV-3: 리소스 포화 근접, 조치 안 하면 장애 가능
+    "CPU":                "SEV-3",
+    "Memory":             "SEV-3",
+    "Disk":               "SEV-3",
+    "FreeMemoryGB":       "SEV-3",
+    "FreeStorageGB":      "SEV-3",
+    "CPUUtilization":     "SEV-3",
+    "mem_used_percent":   "SEV-3",
+    "disk_used_percent":  "SEV-3",
+    "FreeableMemory":     "SEV-3",
+    "FreeStorageSpace":   "SEV-3",
+    "FreeLocalStorageGB": "SEV-3",
+    "FreeLocalStorage":  "SEV-3",
+    "EngineCPU":          "SEV-3",
+    "ACUUtilization":     "SEV-3",
+    "DaysToExpiry":       "SEV-3",
+    "ReplicaLag":         "SEV-3",
+    "ReaderReplicaLag":   "SEV-3",
+    "PacketsDropCount":   "SEV-3",
+    "Evictions":          "SEV-3",
+    "OSFreeStorageSpace": "SEV-3",
+
+    # SEV-4: 성능 저하, 사용자 체감 가능하나 서비스 중단 아님
+    "TGResponseTime":       "SEV-4",
+    "ReadLatency":          "SEV-4",
+    "WriteLatency":         "SEV-4",
+    "TargetResponseTime":   "SEV-4",
+    "Duration":             "SEV-4",
+    "ApiLatency":           "SEV-4",
+    "ELB4XX":               "SEV-4",
+    "Api4XXError":          "SEV-4",
+    "Api4xx":               "SEV-4",
+    "BurstCreditBalance":   "SEV-4",
+
+    # SEV-5: 트래픽/용량 참고 지표, 추세 모니터링
+    "Connections":            "SEV-5",
+    "TCPClientReset":         "SEV-5",
+    "TCPTargetReset":         "SEV-5",
+    "TCP_Client_Reset_Count": "SEV-5",
+    "TCP_Target_Reset_Count": "SEV-5",
+    "RequestCount":           "SEV-5",
+    "DatabaseConnections":    "SEV-5",
+    "CurrConnections":        "SEV-5",
+    "ProcessedBytes":         "SEV-5",
+    "ActiveFlowCount":        "SEV-5",
+    "NewFlowCount":           "SEV-5",
+    "ConnectionAttempts":     "SEV-5",
+    "RequestCountPerTarget":  "SEV-5",
+    "ServerlessDatabaseCapacity": "SEV-5",
+    "SwapUsage":              "SEV-5",
+}
+
+
+def get_severity(metric_key: str) -> str:
+    """메트릭 키에 대한 기본 Severity 등급 반환.
+
+    Disk_root 등 Disk_ prefix, disk_used_percent_ prefix 모두 SEV-3 (포화도).
+    미정의 메트릭은 SEV-5 폴백.
+    """
+    if metric_key.startswith("Disk_") or metric_key.startswith("disk_used_percent_"):
+        return "SEV-3"
+    return _DEFAULT_SEVERITY.get(metric_key, "SEV-5")

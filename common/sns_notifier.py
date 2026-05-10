@@ -5,6 +5,7 @@ Amazon SNS를 통해 알림 메시지를 발송하는 모듈.
 모든 함수는 SNS 발송 실패 시 CloudWatch Logs에 기록하고 예외를 삼킨다.
 """
 
+import functools
 import json
 import logging
 import os
@@ -15,6 +16,7 @@ import boto3
 logger = logging.getLogger(__name__)
 
 
+@functools.lru_cache(maxsize=None)
 def _get_sns_client():
     return boto3.client("sns")
 

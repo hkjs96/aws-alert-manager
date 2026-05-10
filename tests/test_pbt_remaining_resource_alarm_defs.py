@@ -295,7 +295,10 @@ def test_opensearch_compound_dimension(domain_name: str, account_id: str):
 # **Validates: Requirements 2.3**
 # ──────────────────────────────────────────────
 
-NON_VPN_TYPES = ["Lambda", "APIGW", "ACM", "Backup", "MQ", "CLB", "OpenSearch"]
+NON_VPN_TYPES = ["Lambda", "APIGW", "ACM", "Backup", "MQ", "CLB"]
+OPENSEARCH_BREACHING_METRICS = {
+    "ClusterStatusRed", "ClusterStatusYellow", "OSFreeStorageSpace", "ClusterIndexWritesBlocked"
+}
 
 
 def test_vpn_treat_missing_data_breaching():
@@ -306,7 +309,20 @@ def test_vpn_treat_missing_data_breaching():
             f"VPN alarm {ad['metric']} missing treat_missing_data=breaching"
         )
 
-    # Other 7 new types: treat_missing_data absent or "missing"
+    # OpenSearch: cluster health/storage metrics must be breaching; others absent or missing
+    tags = _tags_for_type("OpenSearch")
+    for ad in _get_alarm_defs("OpenSearch", tags):
+        if ad["metric"] in OPENSEARCH_BREACHING_METRICS:
+            assert ad.get("treat_missing_data") == "breaching", (
+                f"OpenSearch {ad['metric']} missing treat_missing_data=breaching"
+            )
+        else:
+            tmd = ad.get("treat_missing_data")
+            assert tmd is None or tmd == "missing", (
+                f"OpenSearch alarm {ad['metric']} has unexpected treat_missing_data={tmd}"
+            )
+
+    # Other 6 types: treat_missing_data absent or "missing"
     for rtype in NON_VPN_TYPES:
         tags = _tags_for_type(rtype)
         alarm_defs = _get_alarm_defs(rtype, tags)

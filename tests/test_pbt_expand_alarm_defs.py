@@ -57,7 +57,7 @@ def test_alarm_defs_metrics_match_hardcoded_keys(rt):
     **Validates: Requirements 1.2, 2.2, 3.2, 4.2, 5.2**
     """
     defs = _get_alarm_defs(rt)
-    actual = {d["metric"] for d in defs}
+    actual = {d.get("metric_key") or d["metric"] for d in defs}
     expected = _HARDCODED_METRIC_KEYS[rt]
     assert actual == expected, f"{rt}: expected {expected}, got {actual}"
 

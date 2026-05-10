@@ -5,10 +5,18 @@ boto3 모킹, 환경 변수, 샘플 리소스 데이터 픽스처 제공
 """
 
 import os
-import pytest
+import sys
 from unittest.mock import patch, MagicMock
 
+# tests/ 디렉터리를 sys.path에 추가 — patch_helpers 등 로컬 헬퍼 import 지원
+sys.path.insert(0, os.path.dirname(__file__))
+
+import pytest
+
 from common import ResourceInfo
+
+# 재사용 가능한 패치 헬퍼는 patch_helpers.py에 정의 — 직접 import해서 사용 가능
+from patch_helpers import patch_infra_stages, patch_all_collectors  # noqa: F401
 
 
 # ──────────────────────────────────────────────
@@ -16,12 +24,22 @@ from common import ResourceInfo
 # ──────────────────────────────────────────────
 
 @pytest.fixture(autouse=True)
+def _aws_default_region():
+    """모든 테스트에 AWS_DEFAULT_REGION을 설정해 NoRegionError 방지."""
+    with patch.dict(os.environ, {"AWS_DEFAULT_REGION": "us-east-1"}, clear=False):
+        yield
+
+
+@pytest.fixture(autouse=True)
 def _reset_all_cw_clients():
-    """모든 모듈의 캐시된 CloudWatch 클라이언트 초기화."""
+    """모든 모듈의 캐시된 boto3 클라이언트 초기화 (CW + SNS)."""
     from common._clients import _get_cw_client
+    from common.sns_notifier import _get_sns_client
     _get_cw_client.cache_clear()
+    _get_sns_client.cache_clear()
     yield
     _get_cw_client.cache_clear()
+    _get_sns_client.cache_clear()
 
 
 @pytest.fixture
@@ -80,7 +98,7 @@ def sample_ec2_resource() -> ResourceInfo:
         type="EC2",
         tags={
             "Monitoring": "on",
-            "Threshold_CPU": "90",
+            "Threshold_CPUUtilization": "90",
             "Name": "test-ec2-instance",
         },
         region="us-east-1",
@@ -95,7 +113,7 @@ def sample_rds_resource() -> ResourceInfo:
         type="RDS",
         tags={
             "Monitoring": "on",
-            "Threshold_Connections": "200",
+            "Threshold_DatabaseConnections": "200",
             "Name": "test-rds-instance",
         },
         region="us-east-1",

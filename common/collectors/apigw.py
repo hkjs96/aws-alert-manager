@@ -14,7 +14,7 @@ import boto3
 from botocore.exceptions import ClientError
 
 from common import ResourceInfo
-from common.collectors.base import query_metric, CW_LOOKBACK_MINUTES, CW_STAT_AVG, CW_STAT_SUM
+from common.collectors.base import query_metric, CW_LOOKBACK_MINUTES, CW_STAT_AVG, CW_STAT_SUM, collect_metric
 
 logger = logging.getLogger(__name__)
 
@@ -212,48 +212,46 @@ def get_metrics(
 def _collect_rest_metrics(api_name, start_time, end_time, metrics):
     """REST API 메트릭 조회. 디멘션: ApiName."""
     dim = [{"Name": "ApiName", "Value": api_name}]
-    _collect_metric("AWS/ApiGateway", "Latency", dim,
-                    start_time, end_time, "ApiLatency", metrics, CW_STAT_AVG)
-    _collect_metric("AWS/ApiGateway", "4XXError", dim,
-                    start_time, end_time, "Api4XXError", metrics, CW_STAT_SUM)
-    _collect_metric("AWS/ApiGateway", "5XXError", dim,
-                    start_time, end_time, "Api5XXError", metrics, CW_STAT_SUM)
+    collect_metric("AWS/ApiGateway", "Latency", dim,
+                   start_time, end_time, "ApiLatency", metrics,
+                   stat=CW_STAT_AVG, resource_label="APIGW")
+    collect_metric("AWS/ApiGateway", "4XXError", dim,
+                   start_time, end_time, "Api4XXError", metrics,
+                   stat=CW_STAT_SUM, resource_label="APIGW")
+    collect_metric("AWS/ApiGateway", "5XXError", dim,
+                   start_time, end_time, "Api5XXError", metrics,
+                   stat=CW_STAT_SUM, resource_label="APIGW")
 
 
 def _collect_http_metrics(api_id, start_time, end_time, metrics):
     """HTTP API 메트릭 조회. 디멘션: ApiId."""
     dim = [{"Name": "ApiId", "Value": api_id}]
-    _collect_metric("AWS/ApiGateway", "Latency", dim,
-                    start_time, end_time, "ApiLatency", metrics, CW_STAT_AVG)
-    _collect_metric("AWS/ApiGateway", "4xx", dim,
-                    start_time, end_time, "Api4xx", metrics, CW_STAT_SUM)
-    _collect_metric("AWS/ApiGateway", "5xx", dim,
-                    start_time, end_time, "Api5xx", metrics, CW_STAT_SUM)
+    collect_metric("AWS/ApiGateway", "Latency", dim,
+                   start_time, end_time, "ApiLatency", metrics,
+                   stat=CW_STAT_AVG, resource_label="APIGW")
+    collect_metric("AWS/ApiGateway", "4xx", dim,
+                   start_time, end_time, "Api4xx", metrics,
+                   stat=CW_STAT_SUM, resource_label="APIGW")
+    collect_metric("AWS/ApiGateway", "5xx", dim,
+                   start_time, end_time, "Api5xx", metrics,
+                   stat=CW_STAT_SUM, resource_label="APIGW")
 
 
 def _collect_ws_metrics(api_id, start_time, end_time, metrics):
     """WebSocket API 메트릭 조회. 디멘션: ApiId."""
     dim = [{"Name": "ApiId", "Value": api_id}]
-    _collect_metric("AWS/ApiGateway", "ConnectCount", dim,
-                    start_time, end_time, "WsConnectCount", metrics, CW_STAT_SUM)
-    _collect_metric("AWS/ApiGateway", "MessageCount", dim,
-                    start_time, end_time, "WsMessageCount", metrics, CW_STAT_SUM)
-    _collect_metric("AWS/ApiGateway", "IntegrationError", dim,
-                    start_time, end_time, "WsIntegrationError", metrics, CW_STAT_SUM)
-    _collect_metric("AWS/ApiGateway", "ExecutionError", dim,
-                    start_time, end_time, "WsExecutionError", metrics, CW_STAT_SUM)
-
-
-def _collect_metric(namespace, cw_metric_name, dimensions,
-                    start_time, end_time, result_key, metrics_dict, stat):
-    """단일 메트릭 조회 후 metrics_dict에 추가. 데이터 없으면 skip + info 로그."""
-    value = query_metric(namespace, cw_metric_name, dimensions,
-                         start_time, end_time, stat)
-    if value is not None:
-        metrics_dict[result_key] = value
-    else:
-        logger.info("Skipping %s metric for APIGW %s: no data", result_key,
-                    dimensions[0]["Value"] if dimensions else "unknown")
+    collect_metric("AWS/ApiGateway", "ConnectCount", dim,
+                   start_time, end_time, "WsConnectCount", metrics,
+                   stat=CW_STAT_SUM, resource_label="APIGW")
+    collect_metric("AWS/ApiGateway", "MessageCount", dim,
+                   start_time, end_time, "WsMessageCount", metrics,
+                   stat=CW_STAT_SUM, resource_label="APIGW")
+    collect_metric("AWS/ApiGateway", "IntegrationError", dim,
+                   start_time, end_time, "WsIntegrationError", metrics,
+                   stat=CW_STAT_SUM, resource_label="APIGW")
+    collect_metric("AWS/ApiGateway", "ExecutionError", dim,
+                   start_time, end_time, "WsExecutionError", metrics,
+                   stat=CW_STAT_SUM, resource_label="APIGW")
 
 
 def _get_rest_api_tags(apigw_client, api_id: str, region: str) -> dict:

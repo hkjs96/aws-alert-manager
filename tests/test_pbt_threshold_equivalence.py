@@ -91,8 +91,8 @@ def test_transform_threshold_applied(tag_val):
 @given(gb_val=positive_float)
 @settings(max_examples=30)
 def test_free_memory_gb_fallback(gb_val):
-    """FreeMemoryGB GB 절대값 폴백 경로."""
-    alarm_def = {"metric": "FreeMemoryGB", "stat": "Average",
+    """FreeableMemory GB 절대값 폴백 경로 (레거시 Threshold_FreeMemoryGB 태그 호환)."""
+    alarm_def = {"metric": "FreeableMemory", "stat": "Average",
                  "comparison": "LessThanThreshold", "period": 300}
     tags = {"Threshold_FreeMemoryGB": str(gb_val)}
 
@@ -107,7 +107,7 @@ def test_free_memory_gb_fallback(gb_val):
 @settings(max_examples=30)
 def test_free_memory_serverless_uses_gb(gb_val):
     """Serverless v2는 항상 GB 절대값을 사용."""
-    alarm_def = {"metric": "FreeMemoryGB", "stat": "Average",
+    alarm_def = {"metric": "FreeableMemory", "stat": "Average",
                  "comparison": "LessThanThreshold", "period": 300}
     tags = {
         "Threshold_FreeMemoryGB": str(gb_val),
@@ -124,7 +124,7 @@ def test_free_memory_serverless_uses_gb(gb_val):
 @settings(max_examples=30)
 def test_free_memory_pct_explicit(pct, total):
     """명시적 Threshold_FreeMemoryPct 태그 경로."""
-    alarm_def = {"metric": "FreeMemoryGB", "stat": "Average",
+    alarm_def = {"metric": "FreeableMemory", "stat": "Average",
                  "comparison": "LessThanThreshold", "period": 300}
     tags = {
         "Threshold_FreeMemoryPct": str(pct),
@@ -146,8 +146,8 @@ def test_free_memory_pct_explicit(pct, total):
 @given(gb_val=positive_float)
 @settings(max_examples=30)
 def test_free_local_storage_gb_fallback(gb_val):
-    """FreeLocalStorageGB GB 절대값 폴백 경로."""
-    alarm_def = {"metric": "FreeLocalStorageGB", "stat": "Average",
+    """FreeLocalStorage GB 절대값 폴백 경로 (레거시 Threshold_FreeLocalStorageGB 태그 호환)."""
+    alarm_def = {"metric": "FreeLocalStorage", "stat": "Average",
                  "comparison": "LessThanThreshold", "period": 300}
     tags = {"Threshold_FreeLocalStorageGB": str(gb_val)}
 
@@ -162,7 +162,7 @@ def test_free_local_storage_gb_fallback(gb_val):
 @settings(max_examples=30)
 def test_free_local_storage_pct_explicit(pct, total):
     """명시적 Threshold_FreeLocalStoragePct 태그 경로."""
-    alarm_def = {"metric": "FreeLocalStorageGB", "stat": "Average",
+    alarm_def = {"metric": "FreeLocalStorage", "stat": "Average",
                  "comparison": "LessThanThreshold", "period": 300}
     tags = {
         "Threshold_FreeLocalStoragePct": str(pct),

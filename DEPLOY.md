@@ -14,7 +14,7 @@
 
 ## 1단계: 코드 패키징 (로컬)
 
-로컬에서 zip 파일 3개를 만듭니다.
+로컬에서 zip 파일 **5개**를 만듭니다.
 
 ### 1-1. common_layer.zip
 
@@ -62,6 +62,30 @@ cd /tmp/remediation_handler
 zip -r remediation_handler.zip .
 ```
 
+### 1-4. daily_monitor.zip (Orchestrator 포함)
+
+Orchestrator와 Worker(lambda_handler)를 하나의 zip에 패키징합니다.
+
+```bash
+mkdir -p /tmp/daily_monitor_full
+cp daily_monitor/lambda_handler.py /tmp/daily_monitor_full/
+cp daily_monitor/orchestrator.py   /tmp/daily_monitor_full/
+cd /tmp/daily_monitor_full
+zip -r daily_monitor.zip .
+```
+
+> **참고**: Orchestrator(`orchestrator.lambda_handler`)와 Worker(`lambda_handler.lambda_handler`)가  
+> 동일한 zip에서 서로 다른 Handler로 등록됩니다.
+
+### 1-5. api_handler.zip
+
+```bash
+mkdir -p /tmp/api_handler_pkg
+cp -r api_handler/ /tmp/api_handler_pkg/
+cd /tmp/api_handler_pkg
+zip -r api_handler.zip . -x "**/__pycache__/*" "**/*.pyc"
+```
+
 ---
 
 ## 2단계: S3 업로드 (콘솔)
@@ -70,14 +94,16 @@ zip -r remediation_handler.zip .
 2. 폴더 생성: 버전 식별용 prefix (예: `v20260306` 또는 `latest`)
 3. 해당 폴더에 3개 파일 업로드:
    - `common_layer.zip`
-   - `daily_monitor.zip`
+   - `daily_monitor.zip` (Orchestrator + Worker 포함)
    - `remediation_handler.zip`
+   - `api_handler.zip`
 
 최종 S3 경로 예시:
 ```
 s3://my-deploy-bucket/v20260306/common_layer.zip
 s3://my-deploy-bucket/v20260306/daily_monitor.zip
 s3://my-deploy-bucket/v20260306/remediation_handler.zip
+s3://my-deploy-bucket/v20260306/api_handler.zip
 ```
 
 ---
@@ -155,8 +181,14 @@ def make_zip(zip_path, source_dir):
                 zf.write(full, os.path.relpath(full, source_dir))
 
 os.makedirs('dist', exist_ok=True)
-make_zip('dist/daily_monitor.zip', 'daily_monitor')
+
+# daily_monitor.zip: Orchestrator + Worker 함께 패키징
+with zipfile.ZipFile('dist/daily_monitor.zip', 'w', zipfile.ZIP_DEFLATED) as zf:
+    for fname in ['lambda_handler.py', 'orchestrator.py']:
+        zf.write(os.path.join('daily_monitor', fname), fname)
+
 make_zip('dist/remediation_handler.zip', 'remediation_handler')
+make_zip('dist/api_handler.zip', 'api_handler')
 
 with zipfile.ZipFile('dist/common_layer.zip', 'w', zipfile.ZIP_DEFLATED) as zf:
     for root, dirs, files in os.walk('common'):
@@ -174,9 +206,10 @@ with zipfile.ZipFile('dist/common_layer.zip', 'w', zipfile.ZIP_DEFLATED) as zf:
 ```bash
 VERSION=v20260311   # 오늘 날짜로 변경
 
-aws s3 cp dist/common_layer.zip       s3://bjs-deploy-bucket/${VERSION}/common_layer.zip
-aws s3 cp dist/daily_monitor.zip      s3://bjs-deploy-bucket/${VERSION}/daily_monitor.zip
+aws s3 cp dist/common_layer.zip        s3://bjs-deploy-bucket/${VERSION}/common_layer.zip
+aws s3 cp dist/daily_monitor.zip       s3://bjs-deploy-bucket/${VERSION}/daily_monitor.zip
 aws s3 cp dist/remediation_handler.zip s3://bjs-deploy-bucket/${VERSION}/remediation_handler.zip
+aws s3 cp dist/api_handler.zip         s3://bjs-deploy-bucket/${VERSION}/api_handler.zip
 ```
 
 > 같은 키(`latest/...`)로 덮어쓰기 업로드해도 CloudFormation은 변경을 감지하지 못합니다.
@@ -192,6 +225,62 @@ aws s3 cp dist/remediation_handler.zip s3://bjs-deploy-bucket/${VERSION}/remedia
 6. 스택 상태가 `UPDATE_COMPLETE`가 되면 완료
 
 > `CodeVersion` 파라미터 변경이 핵심입니다. 이 값이 바뀌어야 CFN이 새 S3 경로에서 코드를 가져옵니다.
+
+---
+
+## 프론트엔드 API 연동
+
+CloudFormation 스택 배포 후 **Outputs** 탭에서 `ApiEndpointUrl` 값을 확인합니다.
+
+```
+예시: https://abc123xyz.execute-api.ap-northeast-2.amazonaws.com/prod
+```
+
+### 로컬 개발에서 실제 API 사용
+
+`frontend/.env.local` 파일을 생성합니다:
+
+```bash
+# frontend/.env.local
+NEXT_PUBLIC_API_BASE_URL=https://abc123xyz.execute-api.ap-northeast-2.amazonaws.com/prod
+```
+
+> **주의**: 이 파일은 `.gitignore`에 포함되어 있으므로 커밋되지 않습니다.  
+> 설정하지 않으면 Next.js 내장 Mock API(로컬 개발용)를 사용합니다.
+
+### 프로덕션 배포 — AWS Amplify Hosting
+
+#### 최초 1회: Amplify 콘솔 연동
+
+1. **AWS 콘솔 → Amplify → 새 앱 → GitHub 연결**
+2. 레포지토리 `hkjs96/aws-alert-manager`, 브랜치 `main` 선택
+3. 빌드 설정: "기존 amplify.yml 사용" 선택 (루트의 `frontend/amplify.yml` 자동 인식)
+4. **환경 변수** 탭에서 아래 두 값 입력:
+
+| 변수명 | 값 |
+|--------|-----|
+| `API_GATEWAY_URL` | CloudFormation Outputs `ApiEndpointUrl` 값 |
+| `NEXT_PUBLIC_API_BASE_URL` | 동일 값 |
+
+5. IAM 역할: "새 서비스 역할 생성" 선택
+6. **저장 및 배포** 클릭 → 빌드 로그에서 `Build successful` 확인
+7. Amplify가 발급한 URL(`https://main.xxxx.amplifyapp.com`)로 접속 확인
+
+#### 코드 업데이트 시
+
+`main` 브랜치에 push하면 Amplify가 자동으로 재빌드·배포합니다. 별도 작업 불필요.
+
+#### 커스텀 도메인 연결 (선택사항)
+
+Amplify 콘솔 → 도메인 관리 → 사용자 도메인 추가 → Route 53 또는 외부 DNS에 CNAME 등록
+
+#### Docker/ECS 배포 시 (Amplify 대신 컨테이너 사용)
+
+`output: "standalone"` 모드로 빌드하려면 환경변수를 추가:
+
+```bash
+STANDALONE=true npm run build
+```
 
 ---
 

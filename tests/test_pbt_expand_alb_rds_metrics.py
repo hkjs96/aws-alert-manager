@@ -13,7 +13,6 @@ from common.alarm_manager import (
     _build_dimensions,
     _get_alarm_defs,
     _HARDCODED_METRIC_KEYS,
-    _metric_name_to_key,
     _parse_threshold_tags,
 )
 from common.tag_resolver import get_threshold
@@ -25,12 +24,12 @@ from common.tag_resolver import get_threshold
 
 _EXPECTED_METRIC_KEYS = {
     "ALB": {
-        "RequestCount", "ELB5XX", "TargetResponseTime",
+        "RequestCount", "HTTPCode_ELB_5XX_Count", "TargetResponseTime",
         "ELB4XX", "TargetConnectionError",
     },
     "RDS": {
-        "CPU", "FreeMemoryGB", "FreeStorageGB",
-        "Connections", "ReadLatency", "WriteLatency",
+        "CPUUtilization", "FreeableMemory", "FreeStorageSpace",
+        "DatabaseConnections", "ReadLatency", "WriteLatency",
         "ConnectionAttempts",
     },
 }

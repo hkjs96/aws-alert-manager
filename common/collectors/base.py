@@ -3,6 +3,7 @@ Collector 공통 인터페이스 및 유틸리티 — Requirements 1.10, 1.11, 2
 
 CollectorProtocol: 모든 Collector가 구현해야 하는 인터페이스 (코딩 거버넌스 §5)
 query_metric(): CloudWatch get_metric_statistics 공통 래퍼 (코딩 거버넌스 §10)
+collect_metric(): 메트릭 조회 + metrics_dict 저장 + 로그 공통 헬퍼 (코딩 거버넌스 §10)
 _get_cw_client(): lru_cache 기반 CloudWatch 클라이언트 싱글턴 (코딩 거버넌스 §1)
 """
 
@@ -22,6 +23,7 @@ logger = logging.getLogger(__name__)
 CW_PERIOD = 300
 CW_STAT_AVG = "Average"
 CW_STAT_SUM = "Sum"
+CW_STAT_MIN = "Minimum"
 CW_LOOKBACK_MINUTES = 10
 
 
@@ -105,3 +107,45 @@ def query_metric(
     except ClientError as e:
         logger.error("CloudWatch query failed for %s/%s: %s", namespace, metric_name, e)
         return None
+
+
+def collect_metric(
+    namespace: str,
+    cw_metric_name: str,
+    dimensions: list[dict],
+    start_time: datetime,
+    end_time: datetime,
+    result_key: str,
+    metrics_dict: dict,
+    *,
+    stat: str = CW_STAT_AVG,
+    transform=None,
+    resource_label: str = "resource",
+) -> None:
+    """
+    단일 메트릭 조회 후 metrics_dict에 저장하는 공통 헬퍼 (코딩 거버넌스 §10).
+
+    25개 Collector의 로컬 _collect_metric() 함수를 단일 구현으로 통합한다.
+    CloudFront처럼 별도 CW 클라이언트가 필요한 경우에는 이 함수를 사용하지 않는다.
+
+    Args:
+        namespace: CloudWatch 네임스페이스 (예: "AWS/EC2", "CWAgent")
+        cw_metric_name: CloudWatch 메트릭 이름 (예: "CPUUtilization")
+        dimensions: CloudWatch 디멘션 리스트
+        start_time: 조회 시작 시간 (UTC)
+        end_time: 조회 종료 시간 (UTC)
+        result_key: metrics_dict에 저장할 키 이름 (예: "CPU", "FreeMemoryGB")
+        metrics_dict: 결과를 저장할 딕셔너리 (in-place 수정)
+        stat: CloudWatch 통계 유형. 기본값 "Average".
+        transform: 값 변환 함수 (예: bytes → GB 변환). None이면 변환 없음.
+        resource_label: 로그 메시지에 표시할 리소스 유형 이름 (예: "EC2", "RDS").
+    """
+    resource_id = dimensions[0]["Value"] if dimensions else "unknown"
+    value = query_metric(namespace, cw_metric_name, dimensions, start_time, end_time, stat)
+    if value is not None:
+        metrics_dict[result_key] = transform(value) if transform else value
+    else:
+        logger.info(
+            "Skipping %s metric for %s %s: no data",
+            result_key, resource_label, resource_id,
+        )

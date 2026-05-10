@@ -93,40 +93,17 @@ Memory/Disk 메트릭은 CWAgent가 수집하여 `CWAgent` 네임스페이스로
 
 ---
 
-## KI-005: Threshold_* 태그에 CloudWatch metric_name 사용 시 동적 알람 중복 생성 방지
+## ~~KI-005: Threshold_* 태그에 CloudWatch metric_name 사용 시 동적 알람 중복 생성 방지~~ (해결됨)
 
-### 현상
-`Threshold_CPUUtilization=10` 태그를 달면, 하드코딩 CPU 알람(80%)은 그대로 유지되면서
-동적 알람 `CPUUtilization >10`이 추가로 생성되어 **알람이 중복**된다.
+> **해결 완료 (Phase 4 Task 16)**: 모든 하드코딩 알람의 `metric` 키를 CW metric_name과 일치시키는 대규모 리네이밍으로 근본 원인 제거.
+> `Threshold_CPUUtilization=90` 태그는 이제 직접 하드코딩 필터에 매칭되어 동적 알람이 생성되지 않는다.
+> 기존 태그(`Threshold_CPU=90`)는 `_LEGACY_TAG_MAP`으로 계속 지원된다.
 
-### 원인
-하드코딩 알람의 내부 metric key(`CPU`)와 CloudWatch metric_name(`CPUUtilization`)이 다르기 때문.
-`_parse_threshold_tags()`가 `CPUUtilization`을 하드코딩 목록에서 찾지 못해 동적 알람으로 처리.
-
-### 영향 범위
-내부 키와 CW metric_name이 다른 모든 메트릭:
-
-| 내부 키 (태그용) | CW metric_name | 리소스 |
-|-----------------|----------------|--------|
-| CPU | CPUUtilization | EC2, RDS |
-| Memory | mem_used_percent | EC2 |
-| Disk | disk_used_percent | EC2 |
-| FreeMemoryGB | FreeableMemory | RDS |
-| FreeStorageGB | FreeStorageSpace | RDS |
-| Connections | DatabaseConnections | RDS |
-| ELB5XX | HTTPCode_ELB_5XX_Count | ALB |
-| TCPClientReset | TCP_Client_Reset_Count | NLB |
-| TCPTargetReset | TCP_Target_Reset_Count | NLB |
-| TGResponseTime | TargetResponseTime | TG |
-
-### 엔진 대응 (v20260325)
-- `_parse_threshold_tags()`에서 `_metric_name_to_key()` 매핑으로 CW metric_name도 하드코딩 필터링
-- `Threshold_CPUUtilization=10` → `_metric_name_to_key("CPUUtilization")` = `"CPU"` → hardcoded에 있으므로 skip
-- 하드코딩 임계치 오버라이드는 내부 키 사용: `Threshold_CPU=90`
-
-### 향후 계획
-- UI 구현 시 태그를 자동 생성하므로 사용자가 키 이름을 직접 입력할 필요 없음
-- 전체 metric key 리네이밍은 UI 구현과 함께 진행 예정 (스펙: `.kiro/specs/metric-key-rename/`)
+### 해결 내용
+- `alarm_registry.py`: 모든 alarm def의 `metric_key` 필드 제거, `metric` 필드를 CW metric_name과 동일하게 통일
+- `_HARDCODED_METRIC_KEYS`: 내부 키 → CW metric_name으로 전환 (예: `"CPU"` → `"CPUUtilization"`)
+- `tag_resolver.py`: `_LEGACY_TAG_MAP` 추가로 기존 `Threshold_CPU` 등 레거시 태그 하위 호환 지원
+- `alarm_builder.py`: `_LEGACY_KEY_MAP` + `_resolve_metric_key`에서 기배포 알람 설명의 레거시 키 자동 변환
 
 ---
 
@@ -216,31 +193,21 @@ Aurora 인스턴스가 삭제된 후 CloudTrail `DeleteDBInstance` 이벤트를 
 
 ---
 
-## KI-009: Dynamic Alarm Direction Limitation (GreaterThanThreshold Only)
+## KI-009: ~~Dynamic Alarm Direction Limitation~~ — **해결됨**
 
-### Phenomenon
-Dynamic alarms created via `Threshold_*` tags always use `GreaterThanThreshold` comparison.
-For "higher is better" metrics like `BufferCacheHitRatio` or `HealthyHostCount`, this creates
-inverted alarms that trigger when the value is healthy (e.g., BufferCacheHitRatio 100% > 95 threshold → ALARM).
+**해결 버전:** phase2 브랜치 (alarm_manager.py `_parse_threshold_tags`)
 
-### Cause
-The `_create_dynamic_alarm()` function hardcodes `ComparisonOperator="GreaterThanThreshold"` for all
-dynamic alarms. There is no mechanism in the tag key to specify the comparison direction.
+### 해결 방법
 
-Hardcoded alarms handle this correctly because each alarm definition explicitly specifies the comparison
-operator (e.g., `HealthyHostCount` uses `LessThanThreshold`, `FreeMemoryGB` uses `LessThanThreshold`).
+`Threshold_LT_{MetricName}={Value}` 태그 prefix로 `LessThanThreshold` 비교 연산자를 사용할 수 있다.
 
-### Affected Metrics
-"Higher is better" metrics where `LessThanThreshold` would be correct:
-- `BufferCacheHitRatio` (Aurora) — high = good, alert when low
-- `HealthyHostCount` (TG) — already hardcoded, but if used dynamically would be inverted
-- Any custom metric where lower values indicate problems
+```
+# "낮을수록 위험" 메트릭에 사용
+Threshold_LT_BufferCacheHitRatio=90   → BufferCacheHitRatio < 90 시 ALARM
+Threshold_LT_FreeConnections=10       → FreeConnections < 10 시 ALARM
 
-### Current Workaround
-- Use hardcoded alarm definitions for "higher is better" metrics instead of dynamic tags
-- Or accept the inverted alarm and interpret ALARM state as "metric is healthy" (not recommended)
+# 기존 방식 (높을수록 위험, 기본값)
+Threshold_CPU=90                      → CPU > 90 시 ALARM
+```
 
-### Future Fix Options
-1. Tag-based direction: `Threshold_LT_BufferCacheHitRatio=95` (LT prefix = LessThanThreshold)
-2. Separate tag for direction: `ThresholdDirection_BufferCacheHitRatio=LT`
-3. Add commonly needed "higher is better" metrics to hardcoded alarm definitions
+**구현 위치:** `common/alarm_manager.py` `_parse_threshold_tags()` — `LT_` prefix 감지 후 `LessThanThreshold` 반환.

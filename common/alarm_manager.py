@@ -19,6 +19,8 @@ import math
 import os
 import re
 
+import boto3
+
 from botocore.exceptions import ClientError
 
 import common._clients as _clients
@@ -62,6 +64,7 @@ from common.alarm_registry import (  # noqa: E402, F401
     _HARDCODED_METRIC_KEYS,
     _NAMESPACE_MAP,
     _DIMENSION_KEY_MAP,
+    _GLOBAL_SERVICE_REGION,
     _get_hardcoded_metric_keys,
     _metric_name_to_key,
 )
@@ -130,7 +133,13 @@ def _parse_threshold_tags(
     Returns:
         {metric_name: (threshold_value, comparison_operator)} 딕셔너리 (동적 메트릭만)
     """
+    from common.tag_resolver import _LEGACY_TAG_MAP
     hardcoded = _get_hardcoded_metric_keys(resource_type, resource_tags)
+    # KI-005: CW metric_name 별칭도 필터링 (중복 동적 알람 방지)
+    _alarm_defs = _get_alarm_defs(resource_type, resource_tags)
+    hardcoded_cw_names = {d.get("metric_name") or d["metric"] for d in _alarm_defs}
+    # 레거시 태그명(예: CPU, FreeMemoryGB)도 필터링 (하드코딩 알람과 매핑됨)
+    legacy_hardcoded = {v for k, v in _LEGACY_TAG_MAP.items() if k in hardcoded_cw_names}
     result: dict[str, tuple[float, str]] = {}
 
     for key, value in resource_tags.items():
@@ -152,7 +161,7 @@ def _parse_threshold_tags(
 
         if not metric_name:
             continue
-        if metric_name in hardcoded or _metric_name_to_key(metric_name) in hardcoded:
+        if metric_name in hardcoded or metric_name in hardcoded_cw_names or metric_name in legacy_hardcoded:
             continue
         if len(key) > 128:
             logger.warning("Skipping dynamic tag %s: key exceeds 128 chars", key)
@@ -187,6 +196,10 @@ def create_alarms_for_resource(
     cw=None,
 ) -> list[str]:
     """리소스에 대한 CloudWatch Alarm을 생성한다."""
+    # 글로벌 서비스(CloudFront/Route53)는 us-east-1 CloudWatch 클라이언트 사용
+    global_region = _GLOBAL_SERVICE_REGION.get(resource_type)
+    if global_region and cw is None:
+        cw = _clients._get_cw_client_for_region(global_region)
     _fwd: dict = {"cw": cw} if cw is not None else {}
     cw = cw or _clients._get_cw_client()
     sns_arn = _get_sns_alert_arn()
@@ -197,17 +210,18 @@ def create_alarms_for_resource(
     _delete_all_alarms_for_resource(resource_id, resource_type, **_fwd)
 
     for alarm_def in alarm_defs:
-        if alarm_def.get("dynamic_dimensions") and alarm_def["metric"] == "Disk":
+        if alarm_def.get("dynamic_dimensions") and alarm_def["metric"] == "disk_used_percent":
             disk_names = _create_disk_alarms(
                 resource_id, resource_type, resource_name,
                 resource_tags, alarm_def, cw, sns_arn,
             )
             created.extend(disk_names)
         else:
-            if is_threshold_off(resource_tags, alarm_def["metric"]):
+            metric_key = alarm_def["metric"]
+            if is_threshold_off(resource_tags, metric_key):
                 logger.info(
                     "Skipping alarm for %s metric %s: threshold set to off",
-                    resource_id, alarm_def["metric"],
+                    resource_id, metric_key,
                 )
                 continue
             name = _create_standard_alarm(
@@ -246,6 +260,10 @@ def sync_alarms_for_resource(
     cw=None,
 ) -> dict:
     """리소스의 알람이 현재 태그 임계치와 일치하는지 확인하고 불일치 시 업데이트."""
+    # 글로벌 서비스(CloudFront/Route53)는 us-east-1 CloudWatch 클라이언트 사용
+    global_region = _GLOBAL_SERVICE_REGION.get(resource_type)
+    if global_region and cw is None:
+        cw = _clients._get_cw_client_for_region(global_region)
     _fwd: dict = {"cw": cw} if cw is not None else {}
     cw = cw or _clients._get_cw_client()
     result: dict[str, list] = {
@@ -275,7 +293,7 @@ def sync_alarms_for_resource(
     needs_recreate = False
     for alarm_def in alarm_defs:
         metric = alarm_def["metric"]
-        if alarm_def.get("dynamic_dimensions") and metric == "Disk":
+        if alarm_def.get("dynamic_dimensions") and metric == "disk_used_percent":
             changed = _sync_disk_alarms(key_to_alarm, resource_tags, result)
             if changed:
                 needs_recreate = True

@@ -9,3 +9,5 @@ description: 프로젝트 아키텍처 및 알려진 이슈 참조
 
 - 아키텍처: #[[file:docs/ARCHITECTURE.md]]
 - 알려진 이슈 (AWS 제약사항): #[[file:docs/KNOWN-ISSUES.md]]
+- Backend 작동 방식: #[[file:common/HOW_DOES_THIS_WORK.md]]
+- Frontend 작동 방식: #[[file:frontend/HOW_DOES_THIS_WORK.md]]

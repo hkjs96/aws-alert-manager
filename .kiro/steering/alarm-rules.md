@@ -159,3 +159,116 @@ fileMatchPattern: '**/*.py'
 
 하드코딩 목록에 없는 `Threshold_{MetricName}={Value}` 태그는 동적 알람으로 처리된다.
 단, CW metric_name이 하드코딩 내부 키의 별칭인 경우 동적 알람 생성을 방지한다 (KI-005 참조).
+
+## §8. 글로벌 서비스 알람 규칙
+
+CloudFront, Route53 등 글로벌 서비스의 메트릭은 us-east-1에서만 발행된다.
+이 서비스들의 알람 생성/검색/삭제는 us-east-1 CloudWatch 클라이언트를 사용해야 한다.
+
+### 8-1. 글로벌 서비스 리전 매핑
+
+| 리소스 타입 | 메트릭 리전 | 알람 생성 리전 | 비고 |
+|------------|-----------|-------------|------|
+| CloudFront | us-east-1 | us-east-1 | `_GLOBAL_SERVICE_REGION` 매핑 |
+| Route53 | us-east-1 | us-east-1 | `_GLOBAL_SERVICE_REGION` 매핑 |
+
+- `alarm_registry.py`의 `_GLOBAL_SERVICE_REGION` dict에 글로벌 서비스 리전을 정의한다
+- `alarm_manager.py`의 `sync_alarms_for_resource`/`create_alarms_for_resource`에서 글로벌 서비스면 `_get_cw_client_for_region(region)` 사용
+- `alarm_builder.py`의 `_create_standard_alarm`/`_create_single_alarm`/`_recreate_standard_alarm`에서 `alarm_def.get("region")` 확인
+
+### 8-2. 크로스 리전 SNS 제약
+
+- CloudWatch 알람의 AlarmActions에는 **같은 리전의 SNS 토픽**만 사용 가능
+- us-east-1 알람에 ap-northeast-2 SNS ARN을 넣으면 `Invalid region` 에러 발생
+- 현재 글로벌 서비스 알람은 AlarmActions를 비워두는 임시 처리 적용
+- 향후 us-east-1 SNS 토픽 + AWS Chatbot Slack 연동으로 개선 예정 (`.kiro/specs/global-service-alarm-notification/`)
+
+### 8-3. 글로벌 서비스 디멘션 규칙
+
+| 리소스 타입 | 필수 디멘션 | 비고 |
+|------------|-----------|------|
+| CloudFront | `DistributionId` + `Region: Global` | Region 디멘션 누락 시 메트릭 매칭 안 됨 |
+| Route53 | `HealthCheckId` | Region 디멘션 불필요 |
+| WAF | `WebACL` + `Rule` + `Region: {region}` | Region 디멘션 누락 시 메트릭 매칭 안 됨 |
+| S3 (Request Metrics) | `BucketName` + `FilterId: EntireBucket` | FilterId 누락 시 4xx/5xx 메트릭 매칭 안 됨 |
+
+## §9. TagResource/UntagResource ARN 변환 규칙
+
+CloudTrail `TagResource`/`UntagResource` 이벤트는 `resourceArn`을 반환한다.
+remediation handler에서 이 ARN을 실제 리소스 식별자로 변환해야 한다.
+
+### 9-1. ARN → 리소스 ID 변환 매핑
+
+| 리소스 타입 | ARN 패턴 | 추출 방법 | 예시 |
+|------------|---------|----------|------|
+| DynamoDB | `arn:aws:dynamodb:...:table/{name}` | 마지막 `/` 이후 | `table/my-table` → `my-table` |
+| ECS | `arn:aws:ecs:...:service/{cluster}/{name}` | 마지막 `/` 이후 | `service/cluster/svc` → `svc` |
+| EFS | `arn:aws:elasticfilesystem:...:file-system/{id}` | 마지막 `/` 이후 | `file-system/fs-xxx` → `fs-xxx` |
+| SNS | `arn:aws:sns:{region}:{account}:{name}` | 마지막 `:` 이후 | `...:my-topic` → `my-topic` |
+| MSK | `arn:aws:kafka:...:cluster/{name}/{uuid}` | 두 번째 `/` 부분 | `cluster/name/uuid` → `name` |
+| Lambda, ACM, S3, SageMaker 등 | ARN 그대로 | 변환 불필요 | ARN이 resource_id |
+
+- `_extract_id_from_arn(arn, resource_type)` 함수에서 변환 처리
+- 새 리소스 타입 추가 시 ARN 패턴 확인 후 변환 로직 추가 필수
+
+## §10. TreatMissingData 결정 규칙
+
+새 알람 정의(`_*_ALARMS`)에 메트릭을 추가할 때 반드시 아래 표를 참고하여 `treat_missing_data` 값을 명시한다.
+`alarm_builder.py`의 기본값은 `"notBreaching"`이며, 명시하지 않으면 이 값이 사용된다.
+
+### 10-1. 선택 기준
+
+| 메트릭 특성 | 적용 값 | 근거 |
+|------------|---------|------|
+| **연결/상태 메트릭** — `LessThan` + binary(0=down/1=up) | `"breaching"` | 데이터 없음 = 리소스 자체가 응답 안 함 = 이상 상태 |
+| **클러스터 가용성 메트릭** — 클러스터 다운 시 메트릭도 미발행 | `"breaching"` | 데이터 없음 = 클러스터 이상으로 간주 |
+| **이벤트/트래픽 기반** — 트래픽·요청 없으면 데이터 없음 | `"notBreaching"` | 데이터 없음 = 트래픽 없음 = 정상 |
+| **항상 발행 메트릭** — 리소스 실행 중이면 항상 발행 (CPU, Memory 등) | `"notBreaching"` | 데이터 없음 = 리소스 중지됨 → 중지 상태에 알람 불필요 |
+| **용량/잔량 메트릭** (`LessThan`, FreeMemory/FreeStorage 등) | `"notBreaching"` | 리소스 중지 시 데이터 없음 → 중지된 리소스에 알람 불필요 |
+| **의도적 미발행 가능** — 분리·전환·재구성 시 정상적으로 데이터 없을 수 있음 | `"missing"` | 상태 유지가 false alarm 방지에 유리 |
+
+### 10-2. 현재 `"breaching"` 적용 알람 (10개)
+
+| 리소스 | 메트릭 | 이유 |
+|--------|--------|------|
+| VPN | TunnelState | 데이터 없음 = 터널 다운 |
+| MSK | ActiveControllerCount | 데이터 없음 = 컨트롤러 없음 = 클러스터 이상 |
+| MSK | UnderReplicatedPartitions | 브로커 다운 시 복제 상태 확인 불가 |
+| Route53 | HealthCheckStatus | 데이터 없음 = 헬스체크 중단 |
+| DX | ConnectionState | 데이터 없음 = Direct Connect 회선 단절 |
+| TG | HealthyHostCount | 데이터 없음 = 타겟 0개 = 서비스 불가 |
+| OpenSearch | ClusterStatusRed | 클러스터 완전 다운 시 메트릭 미발행 |
+| OpenSearch | ClusterStatusYellow | 동일 |
+| OpenSearch | OSFreeStorageSpace | 클러스터 다운 = 스토리지 확인 불가 |
+| OpenSearch | ClusterIndexWritesBlocked | 클러스터 다운 = 쓰기 차단 확정 |
+
+### 10-3. `"missing"` 예외 케이스 (4개 — 명시 필수)
+
+| 리소스 | 메트릭 | 이유 |
+|--------|--------|------|
+| ACM | DaysToExpiry | 인증서를 리소스에서 의도적으로 분리했을 때 데이터 없음 |
+| EFS | BurstCreditBalance | Provisioned Throughput 모드 전환 시 메트릭 미발행 가능 |
+| AuroraRDS | ReplicaLag | Writer-only 구성 시 메트릭 없음 (의도적 구성) |
+| AuroraRDS | ReaderReplicaLag | Reader 없는 구성 시 메트릭 없음 (의도적 구성) |
+
+### 10-4. 동적 알람 (`Threshold_*` 태그) 기본값
+
+`_create_dynamic_alarm()`의 기본값도 `"notBreaching"`. 사용자 정의 메트릭은 대부분 이벤트/트래픽 기반이므로 데이터 없음 = 정상으로 처리한다.
+
+### 10-5. 새 메트릭 추가 체크리스트
+
+```
+□ 메트릭이 항상 발행되는가? (리소스 실행 중)
+  → YES: notBreaching (기본값, 명시 불필요)
+  → NO: 아래로 진행
+
+□ 데이터 없음이 곧 이상 상태를 의미하는가?
+  (연결 끊김, 클러스터 다운, 타겟 없음 등)
+  → YES: breaching (명시 필요)
+  → NO: 아래로 진행
+
+□ 의도적으로 데이터가 없을 수 있는가?
+  (인증서 분리, 모드 전환, 구성 변경 등)
+  → YES: missing (명시 필요)
+  → NO: notBreaching (기본값, 명시 불필요)
+```

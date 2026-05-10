@@ -5,6 +5,7 @@ CloudWatch 디멘션 구성과 네임스페이스 해석을 전담한다.
 """
 
 import logging
+import os
 
 from botocore.exceptions import ClientError
 
@@ -66,11 +67,17 @@ def _build_dimensions(
         dimensions = [{"Name": "WebACL", "Value": resource_id}]
         waf_rule = resource_tags.get("_waf_rule", "ALL")
         dimensions.append({"Name": "Rule", "Value": waf_rule})
+        waf_region = resource_tags.get("_waf_region", os.environ.get("AWS_REGION", "ap-northeast-2"))
+        dimensions.append({"Name": "Region", "Value": waf_region})
     elif resource_type == "S3":
         dimensions = [{"Name": "BucketName", "Value": resource_id}]
         if alarm_def.get("needs_storage_type"):
             storage_type = resource_tags.get("_storage_type", "StandardStorage")
             dimensions.append({"Name": "StorageType", "Value": storage_type})
+        else:
+            # Request Metrics (4xxErrors, 5xxErrors) need FilterId dimension
+            filter_id = resource_tags.get("_filter_id", "EntireBucket")
+            dimensions.append({"Name": "FilterId", "Value": filter_id})
     elif resource_type == "SageMaker":
         dimensions = [{"Name": "EndpointName", "Value": resource_id}]
         variant_name = resource_tags.get("_variant_name", "")
@@ -78,6 +85,11 @@ def _build_dimensions(
             dimensions.append({"Name": "VariantName", "Value": variant_name})
         else:
             logger.warning("SageMaker _variant_name missing for %s", resource_id)
+    elif resource_type == "CloudFront":
+        dimensions = [
+            {"Name": dim_key, "Value": resource_id},
+            {"Name": "Region", "Value": "Global"},
+        ]
     else:
         dimensions = [{"Name": dim_key, "Value": resource_id}]
 

@@ -20,6 +20,7 @@ from common.collectors.base import (
     CW_LOOKBACK_MINUTES,
     CW_STAT_AVG,
     CW_STAT_SUM,
+    collect_metric,
 )
 
 logger = logging.getLogger(__name__)
@@ -155,12 +156,12 @@ def _collect_tg_metrics(tg_arn, lb_arn, resource_tags,
         {"Name": "TargetGroup", "Value": tg_suffix},
         {"Name": "LoadBalancer", "Value": lb_suffix},
     ]
-    _collect_metric(namespace, "RequestCount", dim_tg,
-                    start_time, end_time, "RequestCount",
-                    metrics, CW_STAT_SUM)
-    _collect_metric(namespace, "HealthyHostCount", dim_tg,
-                    start_time, end_time, "HealthyHostCount",
-                    metrics, CW_STAT_AVG)
+    collect_metric(namespace, "RequestCount", dim_tg,
+                   start_time, end_time, "RequestCount",
+                   metrics, stat=CW_STAT_SUM, resource_label="TG")
+    collect_metric(namespace, "HealthyHostCount", dim_tg,
+                   start_time, end_time, "HealthyHostCount",
+                   metrics, stat=CW_STAT_AVG, resource_label="TG")
 
 
 def _collect_lb_metrics(resource_id, resource_tags,
@@ -172,19 +173,19 @@ def _collect_lb_metrics(resource_id, resource_tags,
     dim_lb = [{"Name": "LoadBalancer", "Value": lb_suffix}]
 
     if lb_type == "network":
-        _collect_metric(namespace, "ProcessedBytes", dim_lb,
-                        start_time, end_time, "ProcessedBytes",
-                        metrics, CW_STAT_SUM)
-        _collect_metric(namespace, "ActiveFlowCount", dim_lb,
-                        start_time, end_time, "ActiveFlowCount",
-                        metrics, CW_STAT_AVG)
-        _collect_metric(namespace, "NewFlowCount", dim_lb,
-                        start_time, end_time, "NewFlowCount",
-                        metrics, CW_STAT_SUM)
+        collect_metric(namespace, "ProcessedBytes", dim_lb,
+                       start_time, end_time, "ProcessedBytes",
+                       metrics, stat=CW_STAT_SUM, resource_label="ELB")
+        collect_metric(namespace, "ActiveFlowCount", dim_lb,
+                       start_time, end_time, "ActiveFlowCount",
+                       metrics, stat=CW_STAT_AVG, resource_label="ELB")
+        collect_metric(namespace, "NewFlowCount", dim_lb,
+                       start_time, end_time, "NewFlowCount",
+                       metrics, stat=CW_STAT_SUM, resource_label="ELB")
     else:
-        _collect_metric(namespace, "RequestCount", dim_lb,
-                        start_time, end_time, "RequestCount",
-                        metrics, CW_STAT_SUM)
+        collect_metric(namespace, "RequestCount", dim_lb,
+                       start_time, end_time, "RequestCount",
+                       metrics, stat=CW_STAT_SUM, resource_label="ELB")
 
 
 def _namespace_for_lb_type(lb_type: str) -> str:
@@ -228,15 +229,6 @@ def _collect_target_groups(elbv2, lb_arn: str,
     return tg_resources
 
 
-def _collect_metric(namespace, cw_metric_name, dimensions,
-                    start_time, end_time, result_key, metrics_dict, stat):
-    """단일 메트릭 조회 후 metrics_dict에 추가. 데이터 없으면 skip."""
-    value = query_metric(namespace, cw_metric_name, dimensions,
-                         start_time, end_time, stat)
-    if value is not None:
-        metrics_dict[result_key] = value
-    else:
-        logger.info("Skipping %s metric: no data (dimensions=%s)", result_key, dimensions)
 
 
 def resolve_alive_ids(tag_names: set[str]) -> set[str]:

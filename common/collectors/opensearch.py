@@ -17,12 +17,13 @@ from common.collectors.base import (
     query_metric,
     CW_LOOKBACK_MINUTES,
     CW_STAT_AVG,
+    CW_STAT_MIN,
+    collect_metric,
 )
 
 logger = logging.getLogger(__name__)
 
 CW_STAT_MAX = "Maximum"
-CW_STAT_MIN = "Minimum"
 
 
 # ──────────────────────────────────────────────
@@ -149,22 +150,30 @@ def get_metrics(
 
     metrics: dict[str, float] = {}
 
-    _collect_metric("AWS/ES", "ClusterStatus.red", dim,
-                    start_time, end_time, "ClusterStatusRed", metrics, CW_STAT_MAX)
-    _collect_metric("AWS/ES", "ClusterStatus.yellow", dim,
-                    start_time, end_time, "ClusterStatusYellow", metrics, CW_STAT_MAX)
-    _collect_metric("AWS/ES", "FreeStorageSpace", dim,
-                    start_time, end_time, "OSFreeStorageSpace", metrics, CW_STAT_MIN)
-    _collect_metric("AWS/ES", "ClusterIndexWritesBlocked", dim,
-                    start_time, end_time, "ClusterIndexWritesBlocked", metrics, CW_STAT_MAX)
-    _collect_metric("AWS/ES", "CPUUtilization", dim,
-                    start_time, end_time, "OsCPU", metrics, CW_STAT_AVG)
-    _collect_metric("AWS/ES", "JVMMemoryPressure", dim,
-                    start_time, end_time, "JVMMemoryPressure", metrics, CW_STAT_MAX)
-    _collect_metric("AWS/ES", "MasterCPUUtilization", dim,
-                    start_time, end_time, "MasterCPU", metrics, CW_STAT_AVG)
-    _collect_metric("AWS/ES", "MasterJVMMemoryPressure", dim,
-                    start_time, end_time, "MasterJVMMemoryPressure", metrics, CW_STAT_MAX)
+    collect_metric("AWS/ES", "ClusterStatus.red", dim,
+                   start_time, end_time, "ClusterStatusRed", metrics,
+                   stat=CW_STAT_MAX, resource_label="OpenSearch")
+    collect_metric("AWS/ES", "ClusterStatus.yellow", dim,
+                   start_time, end_time, "ClusterStatusYellow", metrics,
+                   stat=CW_STAT_MAX, resource_label="OpenSearch")
+    collect_metric("AWS/ES", "FreeStorageSpace", dim,
+                   start_time, end_time, "OSFreeStorageSpace", metrics,
+                   stat=CW_STAT_MIN, resource_label="OpenSearch")
+    collect_metric("AWS/ES", "ClusterIndexWritesBlocked", dim,
+                   start_time, end_time, "ClusterIndexWritesBlocked", metrics,
+                   stat=CW_STAT_MAX, resource_label="OpenSearch")
+    collect_metric("AWS/ES", "CPUUtilization", dim,
+                   start_time, end_time, "OsCPU", metrics,
+                   stat=CW_STAT_AVG, resource_label="OpenSearch")
+    collect_metric("AWS/ES", "JVMMemoryPressure", dim,
+                   start_time, end_time, "JVMMemoryPressure", metrics,
+                   stat=CW_STAT_MAX, resource_label="OpenSearch")
+    collect_metric("AWS/ES", "MasterCPUUtilization", dim,
+                   start_time, end_time, "MasterCPU", metrics,
+                   stat=CW_STAT_AVG, resource_label="OpenSearch")
+    collect_metric("AWS/ES", "MasterJVMMemoryPressure", dim,
+                   start_time, end_time, "MasterJVMMemoryPressure", metrics,
+                   stat=CW_STAT_MAX, resource_label="OpenSearch")
 
     return metrics if metrics else None
 
@@ -184,18 +193,6 @@ def resolve_alive_ids(tag_names: set[str]) -> set[str]:
         except ClientError as e:
             logger.error("describe_domains failed: %s", e)
     return alive
-
-
-def _collect_metric(namespace, cw_metric_name, dimensions,
-                    start_time, end_time, result_key, metrics_dict, stat):
-    """단일 메트릭 조회 후 metrics_dict에 추가. 데이터 없으면 skip + info 로그."""
-    value = query_metric(namespace, cw_metric_name, dimensions,
-                         start_time, end_time, stat)
-    if value is not None:
-        metrics_dict[result_key] = value
-    else:
-        logger.info("Skipping %s metric for OpenSearch %s: no data", result_key,
-                    dimensions[0]["Value"] if dimensions else "unknown")
 
 
 def _get_tags(opensearch_client, domain_arn: str) -> dict:

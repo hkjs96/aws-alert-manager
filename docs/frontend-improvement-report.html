@@ -1,0 +1,927 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Frontend 개선 리포트 — AWS Alert Manager</title>
+<style>
+  :root {
+    --primary: #004ac6;
+    --primary-light: #2563eb;
+    --error: #ba1a1a;
+    --surface: #f9f9ff;
+    --text: #1e293b;
+    --muted: #64748b;
+    --border: #e2e8f0;
+    --green: #16a34a;
+    --amber: #d97706;
+    --red: #dc2626;
+    --purple: #7c3aed;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', system-ui, sans-serif; background: #f1f5f9; color: var(--text); }
+
+  /* Header */
+  .report-header {
+    background: linear-gradient(135deg, #004ac6 0%, #1e40af 50%, #6a1edb 100%);
+    color: white; padding: 48px 40px 40px; text-align: center;
+  }
+  .report-header h1 { font-size: 32px; font-weight: 800; letter-spacing: -0.5px; }
+  .report-header p { margin-top: 10px; font-size: 16px; opacity: 0.85; }
+  .report-header .meta { display: flex; gap: 24px; justify-content: center; margin-top: 20px; flex-wrap: wrap; }
+  .meta-chip { background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.25);
+    padding: 6px 16px; border-radius: 20px; font-size: 13px; font-weight: 500; }
+
+  /* Layout */
+  .container { max-width: 1200px; margin: 0 auto; padding: 40px 24px; }
+
+  /* Summary cards */
+  .summary-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 40px; }
+  .sum-card { background: white; border-radius: 12px; padding: 20px; border: 1px solid var(--border);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.04); text-align: center; }
+  .sum-card .num { font-size: 36px; font-weight: 800; }
+  .sum-card .label { font-size: 12px; color: var(--muted); margin-top: 4px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px; }
+  .sum-card.critical .num { color: var(--red); }
+  .sum-card.major .num { color: var(--amber); }
+  .sum-card.quick .num { color: var(--green); }
+  .sum-card.total .num { color: var(--primary); }
+
+  /* Section */
+  .section { margin-bottom: 48px; }
+  .section-title { font-size: 22px; font-weight: 700; margin-bottom: 20px; display: flex; align-items: center; gap: 10px; }
+  .section-title .icon { width: 36px; height: 36px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 18px; }
+
+  /* Issue cards */
+  .issue-card { background: white; border-radius: 12px; border: 1px solid var(--border);
+    overflow: hidden; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); }
+  .issue-header { padding: 16px 20px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid var(--border); }
+  .issue-tag { font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 12px; letter-spacing: 0.5px; text-transform: uppercase; }
+  .tag-critical { background: #fef2f2; color: var(--red); }
+  .tag-major { background: #fffbeb; color: #92400e; }
+  .tag-minor { background: #f0fdf4; color: #166534; }
+  .tag-page { background: #eff6ff; color: var(--primary); }
+  .issue-title { font-weight: 600; font-size: 15px; flex: 1; }
+  .issue-body { display: grid; grid-template-columns: 1fr 1fr; gap: 0; }
+  .issue-col { padding: 20px; }
+  .issue-col:first-child { border-right: 1px solid var(--border); background: #fff8f8; }
+  .issue-col:last-child { background: #f8fff8; }
+  .col-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 12px; }
+  .col-label.before { color: var(--red); }
+  .col-label.after { color: var(--green); }
+  .issue-col ul { padding-left: 0; list-style: none; }
+  .issue-col ul li { font-size: 13px; color: var(--muted); margin-bottom: 8px; padding-left: 20px; position: relative; line-height: 1.5; }
+  .issue-col ul li::before { content: ''; position: absolute; left: 0; top: 7px;
+    width: 8px; height: 8px; border-radius: 50%; }
+  .issue-col:first-child ul li::before { background: #fca5a5; }
+  .issue-col:last-child ul li::before { background: #86efac; }
+
+  /* Visual mockup diagrams */
+  .diagram-wrap { padding: 20px; border-top: 1px solid var(--border); background: var(--surface); }
+  .diagram-label { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 12px; }
+  .diagram { position: relative; }
+
+  /* Mini UI mockups */
+  .mock-window { background: white; border-radius: 8px; border: 1px solid var(--border);
+    overflow: hidden; font-size: 11px; box-shadow: 0 4px 16px rgba(0,0,0,0.08); }
+  .mock-topbar { background: #1e293b; height: 28px; display: flex; align-items: center; padding: 0 12px; gap: 6px; }
+  .mock-dot { width: 8px; height: 8px; border-radius: 50%; }
+  .mock-layout { display: flex; min-height: 180px; }
+  .mock-sidebar { width: 44px; background: #0f172a; flex-shrink: 0; padding: 8px 4px;
+    display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  .mock-sidebar-icon { width: 28px; height: 28px; border-radius: 6px; background: rgba(255,255,255,0.08);
+    display: flex; align-items: center; justify-content: center; font-size: 13px; }
+  .mock-sidebar-icon.active { background: var(--primary); }
+  .mock-content { flex: 1; padding: 12px; overflow: hidden; }
+  .mock-title { font-size: 13px; font-weight: 700; color: var(--text); margin-bottom: 8px; }
+
+  /* Before/After grid */
+  .ba-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .ba-item { }
+  .ba-label { font-size: 11px; font-weight: 700; text-transform: uppercase; padding: 6px 12px;
+    border-radius: 6px 6px 0 0; }
+  .ba-label.before { background: #fef2f2; color: var(--red); border: 1px solid #fecaca; border-bottom: none; }
+  .ba-label.after { background: #f0fdf4; color: var(--green); border: 1px solid #bbf7d0; border-bottom: none; }
+  .ba-box { border-radius: 0 0 8px 8px; padding: 14px; min-height: 120px; }
+  .ba-box.before { background: #fff8f8; border: 1px solid #fecaca; }
+  .ba-box.after { background: #f8fff8; border: 1px solid #bbf7d0; }
+
+  /* Sidebar comparison */
+  .sidebar-compare { display: flex; gap: 20px; align-items: flex-start; }
+  .sidebar-box { text-align: center; }
+  .sidebar-box .caption { font-size: 11px; font-weight: 600; margin-bottom: 8px; }
+  .sidebar-box .caption.before { color: var(--red); }
+  .sidebar-box .caption.after { color: var(--green); }
+  .sidebar-ui { background: #0f172a; border-radius: 8px; padding: 10px 6px;
+    display: flex; flex-direction: column; align-items: center; gap: 5px; width: 52px; }
+  .sidebar-ui.wide { width: 140px; align-items: flex-start; padding: 10px 10px; }
+  .s-icon { width: 32px; height: 32px; border-radius: 6px; background: rgba(255,255,255,0.08);
+    display: flex; align-items: center; justify-content: center; font-size: 14px; flex-shrink: 0; }
+  .s-icon.active { background: var(--primary); }
+  .s-row { display: flex; align-items: center; gap: 8px; width: 100%; padding: 4px 2px; border-radius: 4px; }
+  .s-row.active { background: rgba(37, 99, 235, 0.25); }
+  .s-row.active .s-text { color: white; font-weight: 600; }
+  .s-text { font-size: 11px; color: rgba(255,255,255,0.6); white-space: nowrap; }
+
+  /* Stat card comparison */
+  .stat-compare { display: flex; flex-direction: column; gap: 16px; }
+  .stat-row { display: flex; gap: 8px; }
+  .stat-chip { background: white; border: 1px solid var(--border); border-radius: 8px;
+    padding: 10px 14px; flex: 1; text-align: center; box-shadow: 0 1px 4px rgba(0,0,0,0.04); }
+  .stat-chip .s-num { font-size: 20px; font-weight: 800; color: var(--primary); }
+  .stat-chip .s-label { font-size: 10px; color: var(--muted); }
+  .stat-chip-new { background: white; border: 1px solid var(--border); border-radius: 8px;
+    padding: 10px 14px; flex: 1; position: relative; overflow: hidden; }
+  .stat-chip-new .s-num { font-size: 20px; font-weight: 800; }
+  .stat-chip-new .s-label { font-size: 10px; color: var(--muted); }
+  .stat-chip-new .s-trend { font-size: 9px; font-weight: 700; display: flex; align-items: center; gap: 2px; margin-top: 2px; }
+  .trend-up { color: var(--red); }
+  .trend-down { color: var(--green); }
+  .spark { width: 60px; height: 24px; position: absolute; right: 10px; bottom: 10px; opacity: 0.5; }
+
+  /* Table comparison */
+  .mini-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+  .mini-table th { background: #f8fafc; padding: 6px 8px; text-align: left; font-weight: 600;
+    color: var(--muted); border-bottom: 1px solid var(--border); }
+  .mini-table td { padding: 6px 8px; border-bottom: 1px solid #f1f5f9; }
+  .mini-table tr:last-child td { border-bottom: none; }
+  .badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px;
+    border-radius: 10px; font-size: 10px; font-weight: 700; }
+  .badge-red { background: #fef2f2; color: var(--red); }
+  .badge-green { background: #f0fdf4; color: var(--green); }
+  .badge-amber { background: #fffbeb; color: #92400e; }
+  .badge-blue { background: #eff6ff; color: var(--primary); }
+  .badge-sev1 { background: #7f1d1d; color: white; }
+  .badge-sev3 { background: #92400e; color: white; }
+  .badge-sev5 { background: #1e3a5f; color: white; }
+  .dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
+  .dot-red { background: var(--red); }
+  .dot-green { background: var(--green); }
+  .dot-amber { background: var(--amber); }
+
+  /* Priority matrix */
+  .matrix { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .matrix-cell { border-radius: 8px; padding: 14px; text-align: center; }
+  .matrix-cell .m-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
+  .matrix-cell .m-items { font-size: 12px; line-height: 1.7; }
+  .cell-high { background: #fef2f2; border: 1px solid #fecaca; color: #7f1d1d; }
+  .cell-med { background: #fffbeb; border: 1px solid #fde68a; color: #78350f; }
+  .cell-low { background: #f0fdf4; border: 1px solid #bbf7d0; color: #14532d; }
+
+  /* Timeline */
+  .timeline { position: relative; padding-left: 28px; }
+  .timeline::before { content: ''; position: absolute; left: 8px; top: 0; bottom: 0; width: 2px; background: var(--border); }
+  .tl-item { position: relative; margin-bottom: 20px; }
+  .tl-dot { width: 16px; height: 16px; border-radius: 50%; position: absolute; left: -24px; top: 2px;
+    border: 2px solid white; }
+  .tl-dot.p1 { background: var(--red); }
+  .tl-dot.p2 { background: var(--amber); }
+  .tl-dot.p3 { background: var(--green); }
+  .tl-item h4 { font-size: 13px; font-weight: 700; }
+  .tl-item p { font-size: 12px; color: var(--muted); margin-top: 4px; line-height: 1.5; }
+  .tl-phase { font-size: 10px; font-weight: 700; text-transform: uppercase; padding: 2px 8px;
+    border-radius: 10px; margin-left: 8px; vertical-align: middle; }
+  .phase-1 { background: #fef2f2; color: var(--red); }
+  .phase-2 { background: #fffbeb; color: #92400e; }
+  .phase-3 { background: #f0fdf4; color: var(--green); }
+
+  /* Alarm page improvement */
+  .alarm-tabs-before { display: flex; gap: 8px; }
+  .alarm-tabs-before .tab { padding: 5px 14px; border-radius: 20px; font-size: 11px; font-weight: 600;
+    cursor: pointer; border: 1px solid var(--border); background: white; color: var(--muted); }
+  .alarm-tabs-before .tab.active { background: var(--primary); color: white; border-color: var(--primary); }
+
+  .alarm-tabs-after { display: flex; gap: 0; border-bottom: 2px solid var(--border); }
+  .alarm-tabs-after .tab { padding: 8px 14px; font-size: 11px; font-weight: 600;
+    cursor: pointer; color: var(--muted); border-bottom: 2px solid transparent; margin-bottom: -2px; }
+  .alarm-tabs-after .tab.active { color: var(--primary); border-bottom-color: var(--primary); }
+  .alarm-tabs-after .tab .count { display: inline-flex; align-items: center; justify-content: center;
+    width: 18px; height: 18px; border-radius: 9px; font-size: 9px; background: var(--primary);
+    color: white; margin-left: 4px; }
+  .alarm-tabs-after .tab .count.red { background: var(--red); }
+
+  /* Settings improvement */
+  .thresh-before { }
+  .thresh-after { }
+  .resource-tabs { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 12px; }
+  .rt { padding: 4px 10px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; border: 1px solid var(--border); }
+  .rt.active { background: var(--primary); color: white; border-color: var(--primary); }
+  .thresh-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid #f1f5f9; font-size: 11px; }
+  .thresh-metric { font-weight: 600; flex: 1.5; }
+  .thresh-default { color: var(--muted); flex: 1; }
+  .thresh-input { border: 1px solid var(--border); border-radius: 4px; padding: 2px 6px; width: 56px; font-size: 11px; }
+  .thresh-bar-wrap { flex: 2; background: #e2e8f0; border-radius: 4px; height: 6px; position: relative; overflow: visible; }
+  .thresh-bar { height: 100%; border-radius: 4px; }
+
+  /* Empty state */
+  .empty-before { background: #f8fafc; border: 1px dashed var(--border); border-radius: 8px;
+    padding: 20px; text-align: center; color: var(--muted); font-size: 12px; min-height: 80px;
+    display: flex; align-items: center; justify-content: center; }
+  .empty-after { background: white; border: 1px solid var(--border); border-radius: 8px;
+    padding: 24px 20px; text-align: center; min-height: 120px; display: flex;
+    flex-direction: column; align-items: center; justify-content: center; gap: 8px; }
+  .empty-icon { font-size: 32px; }
+  .empty-title { font-size: 13px; font-weight: 700; color: var(--text); }
+  .empty-desc { font-size: 11px; color: var(--muted); }
+  .empty-btn { background: var(--primary); color: white; border: none; border-radius: 6px;
+    padding: 6px 16px; font-size: 11px; font-weight: 600; cursor: pointer; margin-top: 4px; }
+
+  /* Top bar notification */
+  .topbar-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px;
+    border-radius: 6px; font-size: 11px; font-weight: 500; }
+  .topbar-chip.error { background: #fef2f2; color: var(--red); border: 1px solid #fecaca; }
+  .topbar-chip.ok { background: #f0fdf4; color: var(--green); border: 1px solid #bbf7d0; }
+  .noti-bell { position: relative; display: inline-block; }
+  .noti-badge { position: absolute; top: -4px; right: -4px; width: 14px; height: 14px;
+    background: var(--red); color: white; border-radius: 7px; font-size: 9px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center; border: 2px solid white; }
+
+  /* Health map */
+  .health-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .health-cell { border-radius: 8px; padding: 10px; text-align: center; font-size: 10px; font-weight: 600; }
+  .health-ok { background: #f0fdf4; border: 1px solid #86efac; color: var(--green); }
+  .health-warn { background: #fffbeb; border: 1px solid #fde68a; color: var(--amber); }
+  .health-crit { background: #fef2f2; border: 1px solid #fca5a5; color: var(--red); }
+  .health-cell .h-icon { font-size: 20px; margin-bottom: 4px; }
+  .health-cell .h-label { font-size: 9px; }
+
+  .divider { border: none; border-top: 1px solid var(--border); margin: 32px 0; }
+  .tag { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; }
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="report-header">
+  <h1>🔍 Frontend 개선 리포트</h1>
+  <p>AWS Alert Manager — Phase 2 UI 분석 및 개선 제안</p>
+  <div class="meta">
+    <span class="meta-chip">📋 6개 페이지 분석</span>
+    <span class="meta-chip">🔴 Critical 3건</span>
+    <span class="meta-chip">🟡 Major 6건</span>
+    <span class="meta-chip">🟢 Minor 4건</span>
+  </div>
+</div>
+
+<div class="container">
+
+  <!-- SUMMARY -->
+  <div class="summary-grid">
+    <div class="sum-card critical"><div class="num">3</div><div class="label">Critical 이슈</div></div>
+    <div class="sum-card major"><div class="num">6</div><div class="label">Major 이슈</div></div>
+    <div class="sum-card quick"><div class="num">4</div><div class="label">Minor 이슈</div></div>
+    <div class="sum-card total"><div class="num">6</div><div class="label">분석 페이지</div></div>
+  </div>
+
+  <!-- ===== ISSUE 1: SIDEBAR ===== -->
+  <div class="section">
+    <div class="section-title">
+      <div class="icon" style="background:#fef2f2">🧭</div>
+      글로벌 레이아웃 이슈
+    </div>
+
+    <div class="issue-card">
+      <div class="issue-header">
+        <span class="issue-tag tag-critical">Critical</span>
+        <span class="issue-title">Sidebar: 아이콘만 표시되어 컨텍스트 손실</span>
+        <span class="issue-tag tag-page">전체 페이지</span>
+      </div>
+      <div class="issue-body">
+        <div class="issue-col">
+          <div class="col-label before">🔴 현재 (64px 고정)</div>
+          <ul>
+            <li>아이콘만 있고 라벨 없음 — 처음 보는 사람은 어느 메뉴인지 모름</li>
+            <li>모바일/태블릿에서 사이드바가 접히지 않음</li>
+            <li>"Precision Arch" 브랜딩이 사이드바에만 있어 TopBar가 맥락 없음</li>
+            <li>활성 메뉴가 파란 배경으로만 구분 — 저시력 접근성 이슈</li>
+          </ul>
+        </div>
+        <div class="issue-col">
+          <div class="col-label after">🟢 개선안</div>
+          <ul>
+            <li>기본 160px, 접기 버튼으로 64px 토글 가능한 Collapsible Sidebar</li>
+            <li>펼쳐진 상태엔 아이콘 + 텍스트 라벨 함께 표시</li>
+            <li>모바일: 오버레이 드로어 패턴 적용</li>
+            <li>활성 메뉴에 좌측 border accent 추가 (색맹 대응)</li>
+          </ul>
+        </div>
+      </div>
+      <div class="diagram-wrap">
+        <div class="diagram-label">📐 시각적 비교</div>
+        <div class="sidebar-compare">
+          <div class="sidebar-box">
+            <div class="caption before">현재 (64px)</div>
+            <div class="sidebar-ui">
+              <div class="s-icon">📊</div>
+              <div class="s-icon active">🖥</div>
+              <div class="s-icon">🔔</div>
+              <div class="s-icon">👥</div>
+              <div class="s-icon">⚙️</div>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;font-size:24px;color:#94a3b8;">→</div>
+          <div class="sidebar-box">
+            <div class="caption after">개선 (160px, 접기 가능)</div>
+            <div class="sidebar-ui wide">
+              <div class="s-row"><div class="s-icon">📊</div><span class="s-text">Dashboard</span></div>
+              <div class="s-row active"><div class="s-icon active">🖥</div><span class="s-text" style="color:white">Resources</span></div>
+              <div class="s-row"><div class="s-icon">🔔</div><span class="s-text">Alarms</span></div>
+              <div class="s-row"><div class="s-icon">👥</div><span class="s-text">Customers</span></div>
+              <div class="s-row"><div class="s-icon">⚙️</div><span class="s-text">Settings</span></div>
+            </div>
+          </div>
+          <div style="margin-left:24px;font-size:12px;color:var(--muted);line-height:1.8;">
+            <strong style="color:var(--text);display:block;margin-bottom:6px;">활성 메뉴 개선 포인트</strong>
+            현재: 파란 배경만<br>
+            개선: 좌측 3px accent bar + 파란 배경 + 흰 텍스트<br><br>
+            <strong style="color:var(--text);display:block;margin-bottom:6px;">반응형 동작</strong>
+            1280px+: 160px 고정<br>
+            768–1280px: 64px 아이콘만<br>
+            768px 미만: 숨김 + 햄버거 버튼
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TopBar notification -->
+    <div class="issue-card">
+      <div class="issue-header">
+        <span class="issue-tag tag-major">Major</span>
+        <span class="issue-title">TopBar: 알람 상태가 실시간으로 보이지 않음</span>
+        <span class="issue-tag tag-page">전체 페이지</span>
+      </div>
+      <div class="issue-body">
+        <div class="issue-col">
+          <div class="col-label before">🔴 현재</div>
+          <ul>
+            <li>알림 벨 아이콘만 있고 count badge 없음</li>
+            <li>현재 ALARM 상태인 리소스 수가 TopBar에서 안 보임</li>
+            <li>GlobalFilterBar의 용도가 불명확 (선택해도 변화 파악 어려움)</li>
+          </ul>
+        </div>
+        <div class="issue-col">
+          <div class="col-label after">🟢 개선안</div>
+          <ul>
+            <li>알림 벨에 빨간 count badge 추가 (ALARM 건수)</li>
+            <li>TopBar에 현재 ALARM 상태 요약 chip 표시</li>
+            <li>GlobalFilterBar: 선택 시 하단 content에 어떤 필터가 적용됐는지 breadcrumb 표시</li>
+          </ul>
+        </div>
+      </div>
+      <div class="diagram-wrap">
+        <div class="diagram-label">📐 TopBar 개선 비교</div>
+        <div class="ba-grid">
+          <div class="ba-item">
+            <div class="ba-label before">🔴 현재 TopBar</div>
+            <div class="ba-box before" style="display:flex;align-items:center;gap:12px;padding:14px;">
+              <span style="font-size:11px;font-weight:700;color:var(--text)">⚡ AlarmMgr</span>
+              <div style="flex:1;background:#f1f5f9;border-radius:6px;height:26px;display:flex;align-items:center;padding:0 10px;">
+                <span style="font-size:10px;color:var(--muted)">🔍 Search...</span>
+              </div>
+              <span style="font-size:16px">🔔</span>
+              <span style="font-size:16px">👤</span>
+            </div>
+          </div>
+          <div class="ba-item">
+            <div class="ba-label after">🟢 개선 TopBar</div>
+            <div class="ba-box after" style="display:flex;align-items:center;gap:10px;padding:14px;flex-wrap:wrap;">
+              <span style="font-size:11px;font-weight:700;color:var(--text)">⚡ AlarmMgr</span>
+              <div class="topbar-chip error">🔴 ALARM 4건</div>
+              <div style="flex:1;background:#f1f5f9;border-radius:6px;height:26px;display:flex;align-items:center;padding:0 10px;">
+                <span style="font-size:10px;color:var(--muted)">🔍 Search...</span>
+              </div>
+              <div class="noti-bell">
+                <span style="font-size:16px">🔔</span>
+                <div class="noti-badge">4</div>
+              </div>
+              <span style="font-size:16px">👤</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== ISSUE 2: DASHBOARD ===== -->
+  <div class="section">
+    <div class="section-title">
+      <div class="icon" style="background:#eff6ff">📊</div>
+      Dashboard 개선
+    </div>
+
+    <div class="issue-card">
+      <div class="issue-header">
+        <span class="issue-tag tag-critical">Critical</span>
+        <span class="issue-title">Stat Cards: 트렌드/변화량이 없어 맥락 파악 불가</span>
+        <span class="issue-tag tag-page">Dashboard</span>
+      </div>
+      <div class="issue-body">
+        <div class="issue-col">
+          <div class="col-label before">🔴 현재</div>
+          <ul>
+            <li>숫자만 표시 — "Active Alarms 4"가 좋은 건지 나쁜 건지 모름</li>
+            <li>어제 대비 증감 정보 없음</li>
+            <li>4개 카드가 동일한 파란색 숫자 — 위험도 구분 불가</li>
+            <li>스파크라인(미니 차트) 없음</li>
+          </ul>
+        </div>
+        <div class="issue-col">
+          <div class="col-label after">🟢 개선안</div>
+          <ul>
+            <li>카드마다 어제 대비 증감 ▲▼ 표시</li>
+            <li>Active Alarms는 빨간색, 정상 지표는 녹색으로 색상 의미 부여</li>
+            <li>오른쪽 하단에 7일 스파크라인 미니 차트 삽입</li>
+            <li>Unmonitored가 많으면 경고 강조 (amber/red)</li>
+          </ul>
+        </div>
+      </div>
+      <div class="diagram-wrap">
+        <div class="diagram-label">📐 Stat Card 비교</div>
+        <div class="stat-compare">
+          <div>
+            <div style="font-size:11px;font-weight:700;color:var(--red);margin-bottom:6px;">🔴 현재</div>
+            <div class="stat-row">
+              <div class="stat-chip"><div class="s-num">12</div><div class="s-label">Monitored Resources</div></div>
+              <div class="stat-chip"><div class="s-num" style="color:var(--red)">4</div><div class="s-label">Active Alarms</div></div>
+              <div class="stat-chip"><div class="s-num">2</div><div class="s-label">Unmonitored</div></div>
+              <div class="stat-chip"><div class="s-num">4</div><div class="s-label">Accounts</div></div>
+            </div>
+          </div>
+          <div>
+            <div style="font-size:11px;font-weight:700;color:var(--green);margin-bottom:6px;">🟢 개선</div>
+            <div class="stat-row">
+              <div class="stat-chip-new" style="border-color:#bfdbfe;">
+                <div class="s-num" style="color:var(--primary)">12</div>
+                <div class="s-label">Monitored Resources</div>
+                <div class="s-trend trend-up">▲ 2 <span style="font-weight:400;color:var(--muted)">vs 어제</span></div>
+                <svg class="spark" viewBox="0 0 60 24"><polyline points="0,20 10,16 20,18 30,10 40,12 50,6 60,8" fill="none" stroke="#2563eb" stroke-width="1.5"/></svg>
+              </div>
+              <div class="stat-chip-new" style="border-color:#fecaca;background:#fff8f8;">
+                <div class="s-num" style="color:var(--red)">4</div>
+                <div class="s-label">Active Alarms</div>
+                <div class="s-trend trend-up">▲ 1 <span style="font-weight:400;color:var(--muted)">vs 어제</span></div>
+                <svg class="spark" viewBox="0 0 60 24"><polyline points="0,18 10,14 20,16 30,18 40,10 50,14 60,8" fill="none" stroke="#dc2626" stroke-width="1.5"/></svg>
+              </div>
+              <div class="stat-chip-new" style="border-color:#fde68a;background:#fffbf0;">
+                <div class="s-num" style="color:var(--amber)">2</div>
+                <div class="s-label">Unmonitored</div>
+                <div class="s-trend" style="color:var(--amber)">⚠ 조치 필요</div>
+              </div>
+              <div class="stat-chip-new">
+                <div class="s-num" style="color:var(--purple)">4</div>
+                <div class="s-label">Accounts</div>
+                <div class="s-trend trend-down">✓ <span style="font-weight:400;color:var(--muted)">모두 연결됨</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== ISSUE 3: RESOURCES ===== -->
+  <div class="section">
+    <div class="section-title">
+      <div class="icon" style="background:#f0fdf4">🖥</div>
+      Resources 페이지 개선
+    </div>
+
+    <div class="issue-card">
+      <div class="issue-header">
+        <span class="issue-tag tag-major">Major</span>
+        <span class="issue-title">빈 상태(Empty State) UI 없음</span>
+        <span class="issue-tag tag-page">Resources</span>
+      </div>
+      <div class="issue-body">
+        <div class="issue-col">
+          <div class="col-label before">🔴 현재</div>
+          <ul>
+            <li>필터 결과 없을 때 텅 빈 테이블만 표시</li>
+            <li>검색했을 때 "결과 없음"이라는 피드백 없음</li>
+            <li>처음 사용자(리소스 0개)가 어떻게 시작할지 안내 없음</li>
+          </ul>
+        </div>
+        <div class="issue-col">
+          <div class="col-label after">🟢 개선안</div>
+          <ul>
+            <li>검색 결과 없음: 🔍 아이콘 + "검색 결과가 없습니다" + 필터 초기화 버튼</li>
+            <li>데이터 없음: 🌐 아이콘 + "리소스를 동기화해보세요" + Sync 버튼</li>
+            <li>각 상황별 맞춤 메시지와 행동 유도(CTA) 제공</li>
+          </ul>
+        </div>
+      </div>
+      <div class="diagram-wrap">
+        <div class="diagram-label">📐 Empty State 비교</div>
+        <div class="ba-grid">
+          <div class="ba-item">
+            <div class="ba-label before">🔴 현재</div>
+            <div class="ba-box before">
+              <table class="mini-table" style="margin-bottom:0">
+                <thead><tr><th>Name</th><th>Type</th><th>Alarms</th></tr></thead>
+                <tbody>
+                  <tr><td colspan="3" style="text-align:center;color:#cbd5e1;font-size:11px;padding:20px 0">(비어있음)</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div class="ba-item">
+            <div class="ba-label after">🟢 개선 (검색 결과 없음)</div>
+            <div class="ba-box after">
+              <div class="empty-after" style="min-height:100px;">
+                <div class="empty-icon">🔍</div>
+                <div class="empty-title">"prod-ec2"에 대한 결과 없음</div>
+                <div class="empty-desc">검색어나 필터 조건을 변경해보세요</div>
+                <button class="empty-btn">필터 초기화</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="issue-card">
+      <div class="issue-header">
+        <span class="issue-tag tag-major">Major</span>
+        <span class="issue-title">Resource Table: 정보 밀도 과부하 — 한눈에 파악 어려움</span>
+        <span class="issue-tag tag-page">Resources</span>
+      </div>
+      <div class="issue-body">
+        <div class="issue-col">
+          <div class="col-label before">🔴 현재</div>
+          <ul>
+            <li>이름/타입/계정/리전/알람수/모니터링 토글 — 6개 컬럼이 좁은 화면에서 압축</li>
+            <li>Monitoring 토글 위치가 맨 마지막 — 주요 액션 접근성 낮음</li>
+            <li>알람 배지가 숫자만 — CRITICAL/WARNING 비율 파악 불가</li>
+            <li>리소스 헬스 상태를 한눈에 볼 수 없음</li>
+          </ul>
+        </div>
+        <div class="issue-col">
+          <div class="col-label after">🟢 개선안</div>
+          <ul>
+            <li>Status 컬럼 추가: 🔴/🟡/🟢 아이콘으로 즉각 인지</li>
+            <li>알람 배지: 빨강(CRITICAL) + 노랑(WARNING) 분리 표시</li>
+            <li>Monitoring 토글을 Name 옆으로 이동 — 최우선 액션</li>
+            <li>SEV 최고 등급만 배지로 표시해 노이즈 감소</li>
+          </ul>
+        </div>
+      </div>
+      <div class="diagram-wrap">
+        <div class="diagram-label">📐 테이블 개선 비교</div>
+        <div class="ba-grid">
+          <div class="ba-item">
+            <div class="ba-label before">🔴 현재 테이블</div>
+            <div class="ba-box before">
+              <table class="mini-table">
+                <thead><tr><th>☐</th><th>Name</th><th>Type</th><th>Account</th><th>Alarms</th><th>Monitoring</th></tr></thead>
+                <tbody>
+                  <tr>
+                    <td>☐</td><td style="font-weight:600">prod-ec2-web</td>
+                    <td>EC2</td><td style="color:var(--muted)">prod-acct</td>
+                    <td><span class="badge badge-red">3</span></td>
+                    <td><span style="font-size:11px;color:var(--green)">ON</span></td>
+                  </tr>
+                  <tr>
+                    <td>☐</td><td style="font-weight:600">dev-rds-order</td>
+                    <td>RDS</td><td style="color:var(--muted)">dev-acct</td>
+                    <td><span class="badge badge-amber">1</span></td>
+                    <td><span style="font-size:11px;color:var(--muted)">OFF</span></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div class="ba-item">
+            <div class="ba-label after">🟢 개선 테이블</div>
+            <div class="ba-box after">
+              <table class="mini-table">
+                <thead><tr><th>☐</th><th>Status</th><th>Name / Type</th><th>Alarms</th><th>Worst SEV</th></tr></thead>
+                <tbody>
+                  <tr>
+                    <td>☐</td>
+                    <td><span class="dot dot-red" style="width:8px;height:8px;display:inline-block;box-shadow:0 0 0 3px #fee2e2;border-radius:50%"></span></td>
+                    <td>
+                      <div style="font-weight:600;font-size:11px">prod-ec2-web</div>
+                      <div style="font-size:9px;color:var(--muted)">EC2 · prod-acct</div>
+                    </td>
+                    <td>
+                      <span class="badge badge-red">●3</span>&nbsp;
+                      <span class="badge badge-amber">▲1</span>
+                    </td>
+                    <td><span class="badge badge-sev1">SEV-1</span></td>
+                  </tr>
+                  <tr>
+                    <td>☐</td>
+                    <td><span class="dot dot-amber" style="width:8px;height:8px;display:inline-block;box-shadow:0 0 0 3px #fef9c3;border-radius:50%"></span></td>
+                    <td>
+                      <div style="font-weight:600;font-size:11px">dev-rds-order</div>
+                      <div style="font-size:9px;color:var(--muted)">RDS · dev-acct</div>
+                    </td>
+                    <td>
+                      <span class="badge badge-amber">▲1</span>
+                    </td>
+                    <td><span class="badge badge-sev3">SEV-3</span></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== ISSUE 4: ALARMS PAGE ===== -->
+  <div class="section">
+    <div class="section-title">
+      <div class="icon" style="background:#fef9c3">🔔</div>
+      Alarms 페이지 개선
+    </div>
+
+    <div class="issue-card">
+      <div class="issue-header">
+        <span class="issue-tag tag-major">Major</span>
+        <span class="issue-title">State 탭 필터: count 배지 없고 구조적으로 파악 어려움</span>
+        <span class="issue-tag tag-page">Alarms</span>
+      </div>
+      <div class="issue-body">
+        <div class="issue-col">
+          <div class="col-label before">🔴 현재</div>
+          <ul>
+            <li>ALL / ALARM / INSUFFICIENT / OK / OFF 탭 — 각 탭에 건수 없음</li>
+            <li>탭 클릭 전에 각 상태에 몇 건인지 전혀 모름</li>
+            <li>시간이 ISO 형식(2024-01-15T09:30:00Z) 그대로 — 가독성 낮음</li>
+            <li>알람 Value가 단순 숫자 — 임계치 대비 얼마나 초과했는지 모름</li>
+          </ul>
+        </div>
+        <div class="issue-col">
+          <div class="col-label after">🟢 개선안</div>
+          <ul>
+            <li>탭마다 건수 badge 추가: ALARM (4) 빨간 배지, OK (8) 녹색 배지</li>
+            <li>시간: "3분 전", "2시간 전" 등 relative time 표시</li>
+            <li>Value 컬럼: 임계치 대비 % 표시 (예: 87% / 80% threshold)</li>
+            <li>ALARM 상태 행은 배경 옅은 빨강으로 강조</li>
+          </ul>
+        </div>
+      </div>
+      <div class="diagram-wrap">
+        <div class="diagram-label">📐 탭 구조 비교</div>
+        <div class="ba-grid">
+          <div class="ba-item">
+            <div class="ba-label before">🔴 현재 탭</div>
+            <div class="ba-box before">
+              <div class="alarm-tabs-before" style="margin-bottom:12px;">
+                <div class="tab active">ALL</div>
+                <div class="tab">ALARM</div>
+                <div class="tab">INSUFFICIENT</div>
+                <div class="tab">OK</div>
+                <div class="tab">OFF</div>
+              </div>
+              <table class="mini-table">
+                <thead><tr><th>Time</th><th>Resource</th><th>State</th><th>Value</th></tr></thead>
+                <tbody>
+                  <tr><td style="color:var(--muted);font-size:10px">2024-01-15T09:30:00Z</td><td style="font-weight:600">prod-ec2-web</td><td><span class="badge badge-red">ALARM</span></td><td style="color:var(--red)">87</td></tr>
+                  <tr><td style="color:var(--muted);font-size:10px">2024-01-15T08:10:00Z</td><td style="font-weight:600">dev-rds</td><td><span class="badge badge-green">OK</span></td><td>45</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div class="ba-item">
+            <div class="ba-label after">🟢 개선 탭</div>
+            <div class="ba-box after">
+              <div class="alarm-tabs-after" style="margin-bottom:12px;">
+                <div class="tab active">ALL <span class="count">13</span></div>
+                <div class="tab">ALARM <span class="count red">4</span></div>
+                <div class="tab">INSUF</div>
+                <div class="tab">OK <span class="count" style="background:var(--green)">8</span></div>
+                <div class="tab">OFF</div>
+              </div>
+              <table class="mini-table">
+                <thead><tr><th>Time</th><th>Resource</th><th>State</th><th>Value / 임계치</th></tr></thead>
+                <tbody>
+                  <tr style="background:#fff8f8;">
+                    <td style="color:var(--muted);font-size:10px">3분 전</td>
+                    <td>
+                      <div style="font-weight:600;font-size:11px">prod-ec2-web</div>
+                      <div style="font-size:9px;color:var(--muted)">CPUUtilization</div>
+                    </td>
+                    <td><span class="badge badge-red"><span class="dot dot-red" style="animation:none;width:5px;height:5px"></span> ALARM</span></td>
+                    <td style="color:var(--red);font-size:10px"><strong>87%</strong> / 80%<br><div style="background:#fee2e2;border-radius:3px;height:4px;width:50px;margin-top:2px;"><div style="background:var(--red);width:100%;height:4px;border-radius:3px"></div></div></td>
+                  </tr>
+                  <tr>
+                    <td style="color:var(--muted);font-size:10px">2시간 전</td>
+                    <td>
+                      <div style="font-weight:600;font-size:11px">dev-rds</div>
+                      <div style="font-size:9px;color:var(--muted)">FreeStorageGB</div>
+                    </td>
+                    <td><span class="badge badge-green">OK</span></td>
+                    <td style="font-size:10px">45% / 20%</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== ISSUE 5: RESOURCE DETAIL ===== -->
+  <div class="section">
+    <div class="section-title">
+      <div class="icon" style="background:#faf5ff">🔧</div>
+      Resource Detail 개선
+    </div>
+
+    <div class="issue-card">
+      <div class="issue-header">
+        <span class="issue-tag tag-critical">Critical</span>
+        <span class="issue-title">Health Map: 플레이스홀더 상태 — 실제 데이터 없이 애니메이션만</span>
+        <span class="issue-tag tag-page">Resource Detail</span>
+      </div>
+      <div class="issue-body">
+        <div class="issue-col">
+          <div class="col-label before">🔴 현재</div>
+          <ul>
+            <li>6개 의존성 바가 랜덤 애니메이션만 — 실제 상태 반영 안 됨</li>
+            <li>어떤 의존성인지 라벨이 "Database", "API" 등 의미 없는 generic 텍스트</li>
+            <li>클릭해도 아무 동작 없음</li>
+          </ul>
+        </div>
+        <div class="issue-col">
+          <div class="col-label after">🟢 개선안 (Phase 1 현실적 접근)</div>
+          <ul>
+            <li>해당 리소스의 실제 메트릭별 최신 상태로 채우기 (alarm_registry 연동)</li>
+            <li>각 셀 = 메트릭명 + 현재 상태(OK/ALARM/INSUFFICIENT)</li>
+            <li>셀 클릭 시 해당 알람 설정으로 스크롤</li>
+            <li>데이터 없으면 Health Map 섹션 전체 숨김 (빈 플레이스홀더 제거)</li>
+          </ul>
+        </div>
+      </div>
+      <div class="diagram-wrap">
+        <div class="diagram-label">📐 Health Map 개선</div>
+        <div class="ba-grid">
+          <div class="ba-item">
+            <div class="ba-label before">🔴 현재 (의미없는 bars)</div>
+            <div class="ba-box before">
+              <div style="display:flex;gap:8px;align-items:flex-end;height:60px;padding:8px 0;">
+                <div style="flex:1;background:linear-gradient(to top,#3b82f6,#93c5fd);border-radius:4px 4px 0 0;height:70%"></div>
+                <div style="flex:1;background:linear-gradient(to top,#3b82f6,#93c5fd);border-radius:4px 4px 0 0;height:45%"></div>
+                <div style="flex:1;background:linear-gradient(to top,#3b82f6,#93c5fd);border-radius:4px 4px 0 0;height:90%"></div>
+                <div style="flex:1;background:linear-gradient(to top,#3b82f6,#93c5fd);border-radius:4px 4px 0 0;height:30%"></div>
+                <div style="flex:1;background:linear-gradient(to top,#3b82f6,#93c5fd);border-radius:4px 4px 0 0;height:60%"></div>
+                <div style="flex:1;background:linear-gradient(to top,#3b82f6,#93c5fd);border-radius:4px 4px 0 0;height:80%"></div>
+              </div>
+              <div style="display:flex;gap:8px;text-align:center;">
+                <div style="flex:1;font-size:9px;color:var(--muted)">DB</div>
+                <div style="flex:1;font-size:9px;color:var(--muted)">API</div>
+                <div style="flex:1;font-size:9px;color:var(--muted)">Cache</div>
+                <div style="flex:1;font-size:9px;color:var(--muted)">LB</div>
+                <div style="flex:1;font-size:9px;color:var(--muted)">Net</div>
+                <div style="flex:1;font-size:9px;color:var(--muted)">Disk</div>
+              </div>
+            </div>
+          </div>
+          <div class="ba-item">
+            <div class="ba-label after">🟢 개선 (실제 메트릭 기반 Grid)</div>
+            <div class="ba-box after">
+              <div class="health-grid">
+                <div class="health-cell health-crit">
+                  <div class="h-icon">🔴</div>
+                  <div style="font-size:10px;font-weight:700">CPUUtilization</div>
+                  <div class="h-label">ALARM · 87%</div>
+                </div>
+                <div class="health-cell health-ok">
+                  <div class="h-icon">🟢</div>
+                  <div style="font-size:10px;font-weight:700">MemoryUsage</div>
+                  <div class="h-label">OK · 43%</div>
+                </div>
+                <div class="health-cell health-ok">
+                  <div class="h-icon">🟢</div>
+                  <div style="font-size:10px;font-weight:700">DiskUsage</div>
+                  <div class="h-label">OK · 32%</div>
+                </div>
+                <div class="health-cell health-warn">
+                  <div class="h-icon">🟡</div>
+                  <div style="font-size:10px;font-weight:700">NetworkIn</div>
+                  <div class="h-label">경고 · 72%</div>
+                </div>
+                <div class="health-cell health-ok">
+                  <div class="h-icon">🟢</div>
+                  <div style="font-size:10px;font-weight:700">StatusCheck</div>
+                  <div class="h-label">OK</div>
+                </div>
+                <div class="health-cell health-ok">
+                  <div class="h-icon">🟢</div>
+                  <div style="font-size:10px;font-weight:700">EBSReadOps</div>
+                  <div class="h-label">OK</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== ISSUE 6: SETTINGS ===== -->
+  <div class="section">
+    <div class="section-title">
+      <div class="icon" style="background:#f0fdf4">⚙️</div>
+      Settings 페이지 개선
+    </div>
+
+    <div class="issue-card">
+      <div class="issue-header">
+        <span class="issue-tag tag-minor">Minor</span>
+        <span class="issue-title">Threshold 테이블: 컬럼이 너무 많고 Customer Override 입력 UX 불편</span>
+        <span class="issue-tag tag-page">Settings</span>
+      </div>
+      <div class="issue-body">
+        <div class="issue-col">
+          <div class="col-label before">🔴 현재</div>
+          <ul>
+            <li>Metric Key / Direction / Unit / System Default / Customer Override / Active Level — 6컬럼</li>
+            <li>Customer Override를 바꿔도 System Default 대비 어떤 효과인지 시각적으로 안 보임</li>
+            <li>Resource type 탭이 EC2, RDS, S3, LAMBDA, ALB ... 많아서 어느 탭인지 파악 힘듦</li>
+          </ul>
+        </div>
+        <div class="issue-col">
+          <div class="col-label after">🟢 개선안</div>
+          <ul>
+            <li>Direction + Unit 컬럼 합치기 (≥ 80%) — 컬럼 수 감소</li>
+            <li>Override 입력 옆에 미니 progress bar로 시스템 기본 대비 위치 시각화</li>
+            <li>변경사항이 있는 탭에 • 표시</li>
+            <li>저장 버튼을 테이블 하단 고정 → 스크롤해도 보임</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <hr class="divider">
+
+  <!-- ===== PRIORITY MATRIX ===== -->
+  <div class="section">
+    <div class="section-title">
+      <div class="icon" style="background:#eff6ff">🗺️</div>
+      우선순위 매트릭스 (Impact × Effort)
+    </div>
+    <div class="matrix">
+      <div class="matrix-cell cell-high">
+        <div class="m-label">🔴 즉시 처리 (High Impact / Low Effort)</div>
+        <div class="m-items">
+          Stat Cards 트렌드 추가<br>
+          알람 탭 count badge<br>
+          TopBar 알람 count<br>
+          Empty State UI<br>
+          시간 relative 표기
+        </div>
+      </div>
+      <div class="matrix-cell cell-med">
+        <div class="m-label">🟡 다음 스프린트 (High Impact / High Effort)</div>
+        <div class="m-items">
+          Sidebar Collapsible<br>
+          Health Map 실데이터 연동<br>
+          Resource Table Status 컬럼<br>
+          모바일 반응형
+        </div>
+      </div>
+      <div class="matrix-cell cell-low">
+        <div class="m-label">🟢 나중에 (Low Impact)</div>
+        <div class="m-items">
+          Settings 테이블 UX<br>
+          다크모드<br>
+          ARIA 접근성<br>
+          애니메이션 전환효과
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== ROADMAP ===== -->
+  <div class="section">
+    <div class="section-title">
+      <div class="icon" style="background:#faf5ff">📅</div>
+      구현 로드맵
+    </div>
+    <div class="timeline">
+      <div class="tl-item">
+        <div class="tl-dot p1"></div>
+        <h4>Phase 1 — 즉시 시작 가능 <span class="tl-phase phase-1">1–2일</span></h4>
+        <p>TopBar 알람 count badge · Stat Cards 트렌드 표시 · Alarm 탭 count · 시간 relative 표기 · 각 페이지 Empty State UI</p>
+      </div>
+      <div class="tl-item">
+        <div class="tl-dot p2"></div>
+        <h4>Phase 2 — 구조 개선 <span class="tl-phase phase-2">3–5일</span></h4>
+        <p>Sidebar Collapsible (160px ↔ 64px) · Resource Table Status 컬럼 + 알람 배지 분리 · Health Map 실제 메트릭 Grid로 교체</p>
+      </div>
+      <div class="tl-item">
+        <div class="tl-dot p3"></div>
+        <h4>Phase 3 — 완성도 <span class="tl-phase phase-3">1주+</span></h4>
+        <p>모바일 반응형 (오버레이 드로어) · Settings Threshold UX 개선 · 접근성(ARIA) · 애니메이션 폴리싱</p>
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>
