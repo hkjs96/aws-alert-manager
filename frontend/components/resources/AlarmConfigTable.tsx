@@ -12,8 +12,7 @@ interface AlarmConfigTableProps {
   resourceId: string;
   initialConfigs: AlarmConfig[];
   monitoringEnabled?: boolean;
-  onAddCustomMetric: () => void;
-  onAddDiskAlarm?: () => void;
+  onAddAlarm: () => void;
   onRegisterAdd?: (fn: (config: AlarmConfig) => void) => void;
   onRegisterSetAllMonitoring?: (fn: (enabled: boolean) => void) => void;
 }
@@ -26,8 +25,7 @@ export function AlarmConfigTable({
   resourceId,
   initialConfigs,
   monitoringEnabled,
-  onAddCustomMetric,
-  onAddDiskAlarm,
+  onAddAlarm,
   onRegisterAdd,
   onRegisterSetAllMonitoring,
 }: AlarmConfigTableProps) {
@@ -100,19 +98,11 @@ export function AlarmConfigTable({
           )}
         </div>
         <div className="flex gap-2">
-          {onAddDiskAlarm && (
-            <button
-              onClick={onAddDiskAlarm}
-              className="text-slate-600 text-sm font-semibold flex items-center gap-2 hover:bg-slate-100 px-4 py-2 rounded-lg transition-all"
-            >
-              + Add Disk Alarm
-            </button>
-          )}
           <button
-            onClick={onAddCustomMetric}
+            onClick={onAddAlarm}
             className="text-primary text-sm font-semibold flex items-center gap-2 hover:bg-primary/5 px-4 py-2 rounded-lg transition-all"
           >
-            + Add Custom Metric
+            + Add Alarm
           </button>
         </div>
       </div>

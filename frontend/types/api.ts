@@ -187,4 +187,7 @@ export interface SyncResult {
 export interface AvailableMetric {
   metric_name: string;
   namespace: string;
+  unit: string | null;
+  direction: ">" | ">=" | "<" | "<=";
+  needs_mount_path: boolean;
 }

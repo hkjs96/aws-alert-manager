@@ -9,7 +9,6 @@ import type {
 } from "@/types";
 import type {
   AlarmSummary,
-  AvailableMetric,
   ThresholdOverride,
 } from "@/types/api";
 
@@ -115,13 +114,6 @@ export function getMockEvents(resourceId: string): RecentAlarm[] {
   return MOCK_RECENT_ALARMS.filter((a) => a.resource_id === resourceId);
 }
 
-// --- Available Metrics (per resource type) ---
-export function getMockAvailableMetrics(resourceId: string): AvailableMetric[] {
-  const resource = MOCK_RESOURCES.find((r) => r.id === resourceId);
-  if (!resource) return [];
-  return MOCK_AVAILABLE_METRICS[resource.type] ?? [];
-}
-
 // --- Threshold Overrides (per resource type) ---
 export function getMockThresholdOverrides(resourceType: string): ThresholdOverride[] {
   const metrics = TYPE_DEFAULT_METRICS[resourceType] ?? [];
@@ -178,36 +170,3 @@ export const TYPE_DEFAULT_METRICS: Record<string, { key: string; name: string; t
   ],
 };
 
-// Mock: available CloudWatch metrics per resource type
-export const MOCK_AVAILABLE_METRICS: Record<string, AvailableMetric[]> = {
-  EC2: [
-    { metric_name: "CPUCreditBalance", namespace: "AWS/EC2" },
-    { metric_name: "NetworkIn", namespace: "AWS/EC2" },
-    { metric_name: "NetworkOut", namespace: "AWS/EC2" },
-    { metric_name: "DiskReadOps", namespace: "AWS/EC2" },
-    { metric_name: "DiskWriteOps", namespace: "AWS/EC2" },
-    { metric_name: "NetworkPacketsIn", namespace: "AWS/EC2" },
-    { metric_name: "swap_used_percent", namespace: "CWAgent" },
-  ],
-  RDS: [
-    { metric_name: "CommitLatency", namespace: "AWS/RDS" },
-    { metric_name: "ReplicaLag", namespace: "AWS/RDS" },
-    { metric_name: "SwapUsage", namespace: "AWS/RDS" },
-    { metric_name: "BinLogDiskUsage", namespace: "AWS/RDS" },
-  ],
-  S3: [
-    { metric_name: "4xxErrors", namespace: "AWS/S3" },
-    { metric_name: "5xxErrors", namespace: "AWS/S3" },
-    { metric_name: "FirstByteLatency", namespace: "AWS/S3" },
-  ],
-  LAMBDA: [
-    { metric_name: "ConcurrentExecutions", namespace: "AWS/Lambda" },
-    { metric_name: "IteratorAge", namespace: "AWS/Lambda" },
-    { metric_name: "DeadLetterErrors", namespace: "AWS/Lambda" },
-  ],
-  ALB: [
-    { metric_name: "RequestCount", namespace: "AWS/ApplicationELB" },
-    { metric_name: "ActiveConnectionCount", namespace: "AWS/ApplicationELB" },
-    { metric_name: "ProcessedBytes", namespace: "AWS/ApplicationELB" },
-  ],
-};

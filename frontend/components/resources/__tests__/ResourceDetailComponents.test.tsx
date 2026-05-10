@@ -104,7 +104,7 @@ describe("AlarmConfigTable", () => {
       <AlarmConfigTable
         resourceId="i-0a2b4c6d8e0f12"
         initialConfigs={MOCK_CONFIGS}
-        onAddCustomMetric={vi.fn()}
+        onAddAlarm={vi.fn()}
       />,
       { wrapper: Wrapper },
     );
@@ -117,7 +117,7 @@ describe("AlarmConfigTable", () => {
       <AlarmConfigTable
         resourceId="i-0a2b4c6d8e0f12"
         initialConfigs={MOCK_CONFIGS}
-        onAddCustomMetric={vi.fn()}
+        onAddAlarm={vi.fn()}
       />,
       { wrapper: Wrapper },
     );
@@ -137,7 +137,7 @@ describe("AlarmConfigTable", () => {
       <AlarmConfigTable
         resourceId="i-0a2b4c6d8e0f12"
         initialConfigs={MOCK_CONFIGS}
-        onAddCustomMetric={vi.fn()}
+        onAddAlarm={vi.fn()}
       />,
       { wrapper: Wrapper },
     );
@@ -150,7 +150,7 @@ describe("AlarmConfigTable", () => {
       <AlarmConfigTable
         resourceId="i-0a2b4c6d8e0f12"
         initialConfigs={MOCK_CONFIGS}
-        onAddCustomMetric={vi.fn()}
+        onAddAlarm={vi.fn()}
       />,
       { wrapper: Wrapper },
     );
@@ -172,7 +172,7 @@ describe("AlarmConfigTable", () => {
       <AlarmConfigTable
         resourceId="i-0a2b4c6d8e0f12"
         initialConfigs={MOCK_CONFIGS}
-        onAddCustomMetric={vi.fn()}
+        onAddAlarm={vi.fn()}
       />,
       { wrapper: Wrapper },
     );
@@ -193,7 +193,7 @@ describe("AlarmConfigTable", () => {
       <AlarmConfigTable
         resourceId="i-0a2b4c6d8e0f12"
         initialConfigs={MOCK_CONFIGS}
-        onAddCustomMetric={vi.fn()}
+        onAddAlarm={vi.fn()}
       />,
       { wrapper: Wrapper },
     );

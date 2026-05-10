@@ -33,7 +33,7 @@ function renderTable(configs: AlarmConfig[] = [MOCK_CONFIG]) {
       createElement(AlarmConfigTable, {
         resourceId: "i-test",
         initialConfigs: configs,
-        onAddCustomMetric: vi.fn(),
+        onAddAlarm: vi.fn(),
       }),
     ),
   );

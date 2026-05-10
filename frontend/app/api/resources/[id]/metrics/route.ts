@@ -1,12 +1,29 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { getMockAvailableMetrics } from "@/lib/mock-data";
-import { mockDelay } from "@/lib/mock-delay";
+
+const API_BASE_URL =
+  process.env.API_GATEWAY_URL ??
+  process.env.NEXT_PUBLIC_API_BASE_URL ??
+  process.env.API_BASE_URL ??
+  "";
 
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  await mockDelay();
   const { id } = await params;
-  return NextResponse.json(getMockAvailableMetrics(id));
+
+  if (!API_BASE_URL) {
+    return NextResponse.json([]);
+  }
+
+  try {
+    const res = await fetch(
+      `${API_BASE_URL}/api/resources/${encodeURIComponent(id)}/metrics`,
+      { cache: "no-store" },
+    );
+    if (!res.ok) return NextResponse.json([]);
+    return NextResponse.json(await res.json());
+  } catch {
+    return NextResponse.json([]);
+  }
 }
