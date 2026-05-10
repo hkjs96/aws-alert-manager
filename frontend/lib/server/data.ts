@@ -11,6 +11,7 @@
  *       클라이언트 컴포넌트에서는 NEXT_PUBLIC_API_BASE_URL 사용.
  */
 
+import type { AlarmConfig, DirectionSimple } from "@/types";
 import {
   getAlarms as _getAlarms,
   getResources as _getResources,
@@ -122,4 +123,60 @@ export async function fetchResource(idOrName: string): Promise<Resource | null> 
   }
   const all = _getResources();
   return all.find((r) => r.id === idOrName || r.name === idOrName) ?? null;
+}
+
+interface ApiAlarm {
+  alarm_name: string;
+  metric_name: string;
+  namespace: string;
+  threshold: number;
+  comparison: string;
+  state: string;
+  severity: string;
+  monitoring: boolean;
+  mount_path?: string;
+  period?: number;
+  evaluation_periods?: number;
+  datapoints_to_alarm?: number;
+  treat_missing_data?: string;
+  statistic?: string;
+}
+
+function comparisonToDirection(comparison: string): DirectionSimple {
+  if (comparison.includes("LessThanOrEqual")) return "<=";
+  if (comparison.includes("LessThan")) return "<";
+  if (comparison.includes("GreaterThanOrEqual")) return ">=";
+  return ">";
+}
+
+/** 리소스 알람 설정 조회 */
+export async function fetchResourceAlarms(resourceId: string): Promise<AlarmConfig[]> {
+  if (useRealApi()) {
+    try {
+      const items = await apiFetch<ApiAlarm[]>(`/api/resources/${encodeURIComponent(resourceId)}/alarms`);
+      return items.map((a) => ({
+        metric_key: a.metric_name,
+        metric_name: a.metric_name,
+        namespace: a.namespace,
+        threshold: a.threshold,
+        unit: "",
+        direction: comparisonToDirection(a.comparison),
+        severity: (a.severity as AlarmConfig["severity"]) ?? "SEV-5",
+        source: "System" as const,
+        state: (a.state as AlarmConfig["state"]) ?? "OK",
+        current_value: null,
+        monitoring: a.monitoring,
+        mount_path: a.mount_path,
+        period: a.period,
+        evaluation_periods: a.evaluation_periods,
+        datapoints_to_alarm: a.datapoints_to_alarm,
+        treat_missing_data: a.treat_missing_data as AlarmConfig["treat_missing_data"],
+        statistic: a.statistic as AlarmConfig["statistic"],
+      }));
+    } catch {
+      return [];
+    }
+  }
+  const { getMockAlarmConfigs } = await import("@/lib/mock-data");
+  return getMockAlarmConfigs(resourceId);
 }

@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
-import { fetchResource } from "@/lib/server/data";
-import { getMockAlarmConfigs, getMockEvents } from "@/lib/mock-data";
+import { fetchResource, fetchResourceAlarms } from "@/lib/server/data";
+import { getMockEvents } from "@/lib/mock-data";
 import { ResourceDetailClient } from "@/components/resources/ResourceDetailClient";
 import { ResourceEvents } from "@/components/resources/ResourceEvents";
 import type { Metadata } from "next";
@@ -28,9 +28,10 @@ export default async function ResourceDetailPage({ params }: ResourceDetailPageP
   const resource = await fetchResource(decodedId);
   if (!resource) notFound();
 
-  // TODO: AWS SDK 연동 시 fetchAlarmConfigs(resource.id), fetchEvents(resource.id) 로 교체
-  const alarmConfigs = getMockAlarmConfigs(resource.id);
-  const events = getMockEvents(resource.id);
+  const [alarmConfigs, events] = await Promise.all([
+    fetchResourceAlarms(resource.id),
+    Promise.resolve(getMockEvents(resource.id)),
+  ]);
 
   return (
     <div className="space-y-8">
