@@ -26,7 +26,11 @@ import type { AlarmSummary, DashboardStats } from "@/types/api";
 
 // ── 실제 API 클라이언트 (서버 전용) ───────────────────────────────
 
-const API_BASE_URL = process.env.API_GATEWAY_URL ?? process.env.API_BASE_URL ?? "";
+const API_BASE_URL =
+  process.env.API_GATEWAY_URL ??
+  process.env.NEXT_PUBLIC_API_BASE_URL ??
+  process.env.API_BASE_URL ??
+  "";
 
 async function apiFetch<T>(path: string): Promise<T> {
   const res = await fetch(`${API_BASE_URL}${path}`, {
