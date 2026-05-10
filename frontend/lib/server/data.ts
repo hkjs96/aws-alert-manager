@@ -149,15 +149,24 @@ function comparisonToDirection(comparison: string): DirectionSimple {
   return ">";
 }
 
+// "disk_used_percent(/data)" → { metricName: "disk_used_percent", mountPath: "/data" }
+function parseMountPath(metricName: string): { metricName: string; mountPath?: string } {
+  const match = metricName.match(/^(.+?)\((.+)\)$/);
+  if (match) return { metricName: match[1], mountPath: match[2] };
+  return { metricName };
+}
+
 /** 리소스 알람 설정 조회 */
 export async function fetchResourceAlarms(resourceId: string): Promise<AlarmConfig[]> {
   if (useRealApi()) {
     try {
       const items = await apiFetch<ApiAlarm[]>(`/api/resources/${encodeURIComponent(resourceId)}/alarms`);
-      return items.map((a) => ({
-        metric_key: a.metric_name,
-        metric_name: a.metric_name,
-        namespace: a.namespace,
+      return items.map((a) => {
+        const { metricName, mountPath } = parseMountPath(a.metric_name);
+        return {
+          metric_key: mountPath ? `${metricName}:${mountPath}` : metricName,
+          metric_name: metricName,
+          namespace: a.namespace,
         threshold: a.threshold,
         unit: "",
         direction: comparisonToDirection(a.comparison),
@@ -166,13 +175,14 @@ export async function fetchResourceAlarms(resourceId: string): Promise<AlarmConf
         state: (a.state as AlarmConfig["state"]) ?? "OK",
         current_value: null,
         monitoring: a.monitoring,
-        mount_path: a.mount_path,
+        mount_path: mountPath ?? a.mount_path,
         period: a.period,
         evaluation_periods: a.evaluation_periods,
         datapoints_to_alarm: a.datapoints_to_alarm,
-        treat_missing_data: a.treat_missing_data as AlarmConfig["treat_missing_data"],
-        statistic: a.statistic as AlarmConfig["statistic"],
-      }));
+          treat_missing_data: a.treat_missing_data as AlarmConfig["treat_missing_data"],
+          statistic: a.statistic as AlarmConfig["statistic"],
+        };
+      });
     } catch {
       return [];
     }

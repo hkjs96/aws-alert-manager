@@ -62,7 +62,14 @@ export function AlarmRow({ row, index, onUpdate }: AlarmRowProps) {
             onChange={(e) => onUpdate(index, { monitoring: e.target.checked })}
             className="rounded border-slate-300 text-primary focus:ring-primary h-4 w-4" />
         </td>
-        <td className="px-4 py-5 font-semibold text-sm">{row.metric_name}</td>
+        <td className="px-4 py-5 font-semibold text-sm">
+          {row.metric_name}
+          {row.mount_path && (
+            <span className="ml-1.5 text-xs font-mono text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
+              {row.mount_path}
+            </span>
+          )}
+        </td>
         <td className="px-4 py-5">
           <input type="number" value={row.threshold}
             onChange={(e) => onUpdate(index, { threshold: Number(e.target.value) })}
