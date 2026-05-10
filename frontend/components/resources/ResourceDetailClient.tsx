@@ -4,6 +4,7 @@ import { useState, useCallback, useRef } from "react";
 import { ResourceHeader } from "./ResourceHeader";
 import { AlarmConfigTable } from "./AlarmConfigTable";
 import { CustomMetricForm } from "./CustomMetricForm";
+import { DiskAlarmForm } from "./DiskAlarmForm";
 import type { Resource, AlarmConfig } from "@/types";
 
 interface ResourceDetailClientProps {
@@ -13,6 +14,7 @@ interface ResourceDetailClientProps {
 
 export function ResourceDetailClient({ resource, alarmConfigs }: ResourceDetailClientProps) {
   const [showCustomForm, setShowCustomForm] = useState(false);
+  const [showDiskForm, setShowDiskForm] = useState(false);
   const [monitoring, setMonitoring] = useState(resource.monitoring);
   const addConfigRef = useRef<((config: AlarmConfig) => void) | null>(null);
   const setAllMonitoringRef = useRef<((enabled: boolean) => void) | null>(null);
@@ -86,9 +88,19 @@ export function ResourceDetailClient({ resource, alarmConfigs }: ResourceDetailC
         initialConfigs={alarmConfigs}
         monitoringEnabled={monitoring}
         onAddCustomMetric={() => setShowCustomForm(true)}
+        onAddDiskAlarm={resource.type === "EC2" ? () => setShowDiskForm(true) : undefined}
         onRegisterAdd={(fn) => { addConfigRef.current = fn; }}
         onRegisterSetAllMonitoring={(fn) => { setAllMonitoringRef.current = fn; }}
       />
+
+      {showDiskForm && (
+        <DiskAlarmForm
+          resourceId={resource.id}
+          open={showDiskForm}
+          onClose={() => setShowDiskForm(false)}
+          onAdd={handleAddCustomMetric}
+        />
+      )}
 
       {showCustomForm && (
         <CustomMetricForm

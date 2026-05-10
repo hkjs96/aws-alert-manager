@@ -3,6 +3,40 @@ import { getMockAlarmConfigs, MOCK_RESOURCES } from "@/lib/mock-data";
 import type { SaveAlarmConfigRequest } from "@/types/api";
 import { mockDelay } from "@/lib/mock-delay";
 
+const API_BASE_URL =
+  process.env.API_GATEWAY_URL ??
+  process.env.NEXT_PUBLIC_API_BASE_URL ??
+  process.env.API_BASE_URL ??
+  "";
+
+export async function POST(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  const { id } = await params;
+
+  if (!API_BASE_URL) {
+    return NextResponse.json({ code: "NO_API", message: "API not configured" }, { status: 503 });
+  }
+
+  try {
+    const body = await request.json();
+    const res = await fetch(
+      `${API_BASE_URL}/api/resources/${encodeURIComponent(id)}/alarms`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        cache: "no-store",
+      },
+    );
+    const data = await res.json();
+    return NextResponse.json(data, { status: res.status });
+  } catch {
+    return NextResponse.json({ code: "PROXY_ERROR", message: "Proxy error" }, { status: 500 });
+  }
+}
+
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
