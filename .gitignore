@@ -52,3 +52,14 @@ frontend/test-results/
 .~lock.*
 *.xlsx
 .claude/settings.local.json
+
+# Tool caches / temp
+.lazyweb/
+codex-git-objects/
+codex-temp-index
+codex-temp-index2
+codex_write_probe.tmp
+design/*_b64.txt
+
+# Test coverage output
+frontend/coverage/
