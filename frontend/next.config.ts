@@ -1,6 +1,9 @@
 import type { NextConfig } from "next";
 
-const API_GATEWAY_URL = process.env.API_GATEWAY_URL;
+const API_GATEWAY_URL =
+  process.env.API_GATEWAY_URL ??
+  process.env.NEXT_PUBLIC_API_BASE_URL ??
+  process.env.API_BASE_URL;
 
 const nextConfig: NextConfig = {
   // standalone: Docker/ECS 배포 시 STANDALONE=true 로 빌드
