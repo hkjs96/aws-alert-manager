@@ -144,20 +144,34 @@
         ]
       },
       {
+        "_note": "구현 파일 수정 시 대응 테스트 자동 실행. 테스트 실패 = B.테스트버그 또는 A.구현버그 즉시 수정.",
         "matcher": "Write|Edit|MultiEdit",
         "hooks": [
           {
             "type": "command",
-            "command": "FILE=$(jq -r '.tool_input.file_path // \"\"'); case \"$FILE\" in */frontend/*.ts|*/frontend/*.tsx|*/frontend/**/*.ts|*/frontend/**/*.tsx) echo '[typecheck-on-save] frontend/ 에서 `npx tsc --noEmit`로 타입 에러를 확인하라.' >&2 ;; esac; exit 0"
+            "command": "FILE=$(jq -r '.tool_input.file_path // \"\"'); case \"$FILE\" in *.py) case \"$FILE\" in *test_*|*conftest*) exit 0 ;; esac; MOD=$(basename \"$FILE\" .py); TEST=\"tests/test_${MOD}.py\"; if [ -f \"$TEST\" ]; then echo \"[pytest-on-save] ${TEST} 실행 중...\" >&2; pytest \"$TEST\" -x -q --tb=short 2>&1 | head -60 >&2; fi ;; esac; exit 0"
           }
         ]
       },
       {
+        "_kiro_origin": "typecheck-on-save.kiro.hook",
+        "_note": "frontend TS 파일 저장 시 타입 체크 실제 실행",
         "matcher": "Write|Edit|MultiEdit",
         "hooks": [
           {
             "type": "command",
-            "command": "FILE=$(jq -r '.tool_input.file_path // \"\"'); case \"$FILE\" in *.test.ts|*.test.tsx|*.spec.ts|*.spec.tsx) case \"$FILE\" in */frontend/*) echo '[vitest-on-test-save] cd frontend && npx vitest --run --reporter=verbose 로 테스트 결과를 확인하라.' >&2 ;; esac ;; esac; exit 0"
+            "command": "FILE=$(jq -r '.tool_input.file_path // \"\"'); case \"$FILE\" in */frontend/*.ts|*/frontend/*.tsx) cd frontend && npx tsc --noEmit 2>&1 | head -40 >&2 ;; esac; exit 0"
+          }
+        ]
+      },
+      {
+        "_kiro_origin": "vitest-on-test-save.kiro.hook",
+        "_note": "frontend 테스트 파일 저장 시 vitest 실제 실행",
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "FILE=$(jq -r '.tool_input.file_path // \"\"'); case \"$FILE\" in *.test.ts|*.test.tsx|*.spec.ts|*.spec.tsx) case \"$FILE\" in */frontend/*) cd frontend && npx vitest run --reporter=verbose 2>&1 | head -60 >&2 ;; esac ;; esac; exit 0"
           }
         ]
       },
@@ -187,6 +201,17 @@
             "command": "FILE=$(jq -r '.tool_input.file_path // \"\"'); case \"$FILE\" in *common/collectors/*.py) if [ ! -f \"$FILE.existed\" ] && [ -f \"$FILE\" ]; then echo '[new-collector-checklist] §11 체크리스트: (1) AWS 문서 메트릭/네임스페이스/디멘션, (2) CloudTrail 이벤트 3레이어 등록, (3) _*_ALARMS 하드코딩, (4) HARDCODED_DEFAULTS, (5) SUPPORTED_RESOURCE_TYPES, (6) _NAMESPACE_SEARCH_MAP, (7) SRE 골든 시그널 커버리지, (8) 인스턴스 변형별 메트릭 가용성, (9) _COLLECTOR_MODULES/_RESOURCE_TYPE_TO_COLLECTOR(alias 포함), (10) resolve_alive_ids() 구현(§5-1)' >&2; fi ;; esac; exit 0"
           }
         ]
+      },
+      {
+        "_kiro_origin": "deploy-api-handler.py",
+        "_note": "api_handler/*.py 수정 시 CFN 스택 자동 배포. 스크립트 내부에서 경로를 확인하므로 matcher는 넓게 설정.",
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "ROOT=$(git rev-parse --show-toplevel 2>/dev/null); [ -n \"$ROOT\" ] && python \"$ROOT/.claude/deploy-api-handler.py\"; exit 0"
+          }
+        ]
       }
     ],
     "Stop": [
@@ -195,10 +220,15 @@
         "hooks": [
           {
             "type": "command",
-            "command": "echo '[deploy-after-tests] 배포 전 절차: (1) pytest tests/ -x -q --tb=short (2) frontend/ 변경 시 npx vitest --run && npx tsc --noEmit (3) 통과 시 zip 패키징 → aws s3 cp dist/*.zip s3://... (4) aws cloudformation update-stack. 실패 시 배포 중단하고 원인 보고.' >&2; exit 0"
+            "command": "ROOT=$(git rev-parse --show-toplevel 2>/dev/null); [ -n \"$ROOT\" ] && python \"$ROOT/.claude/deploy-api-handler.py\"; exit 0"
           }
         ]
       }
     ]
+  },
+
+  "_unported_kiro_hooks": {
+    "_note": "아래는 Kiro에 있었으나 Claude Code에 직접 대응 훅이 없어 Slash Command 또는 수동 실행으로 남겨둔 항목.",
+    "file_creation_event": "Kiro의 fileCreated 트리거는 Claude Code에 없다. new-collector-checklist는 Write 훅에서 근사 처리."
   }
 }
