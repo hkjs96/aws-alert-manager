@@ -53,7 +53,7 @@ export function ResourcesContent({
   const router = useRouter();
   const { showToast } = useToast();
   const { loadingIds, toggle } = useMonitoringToggle();
-  const { ownedCustomerIds } = useOwnedCustomers();
+  const { ownedCustomerIds, isLoading: isOwnedLoading } = useOwnedCustomers();
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [modal, setModal] = useState<"enable" | "disable" | null>(null);
@@ -124,7 +124,7 @@ export function ResourcesContent({
       }
       return true;
     });
-  }, [resources, customerFilter, accountFilter, typeFilter, search, accounts]);
+  }, [resources, customerFilter, accountFilter, typeFilter, search, accounts, ownedAccountIds, ownedCustomerIds]);
 
   // 정렬
   const sorted = useMemo(() => {
@@ -210,8 +210,12 @@ export function ResourcesContent({
     router.refresh();
   };
 
-  if (ownedCustomerIds.length === 0) {
+  if (!isOwnedLoading && ownedCustomerIds.length === 0) {
     return <OwnedEmptyState />;
+  }
+
+  if (isOwnedLoading) {
+    return <div className="py-20 text-center text-sm text-slate-400">로딩 중...</div>;
   }
 
   return (

@@ -26,7 +26,7 @@ interface DashboardContentProps {
 
 export function DashboardContent({ stats, alarms, customers, accounts }: DashboardContentProps) {
   const router = useRouter();
-  const { ownedCustomerIds } = useOwnedCustomers();
+  const { ownedCustomerIds, isLoading: isOwnedLoading } = useOwnedCustomers();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [customerFilter, setCustomerFilter] = useState("");
   const [accountFilter, setAccountFilter] = useState("");
@@ -88,8 +88,12 @@ export function DashboardContent({ stats, alarms, customers, accounts }: Dashboa
     };
   }, [stats, filteredAlarms, customerFilter, accountFilter, typeFilter, filteredAccounts]);
 
-  if (ownedCustomerIds.length === 0) {
+  if (!isOwnedLoading && ownedCustomerIds.length === 0) {
     return <OwnedEmptyState />;
+  }
+
+  if (isOwnedLoading) {
+    return <div className="py-20 text-center text-sm text-slate-400">로딩 중...</div>;
   }
 
   return (

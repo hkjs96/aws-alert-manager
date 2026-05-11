@@ -33,7 +33,7 @@ interface AlarmsContentProps {
 export function AlarmsContent({ alarms, summary, customers, accounts }: AlarmsContentProps) {
   const router = useRouter();
   const { showToast } = useToast();
-  const { ownedCustomerIds } = useOwnedCustomers();
+  const { ownedCustomerIds, isLoading: isOwnedLoading } = useOwnedCustomers();
   const [search, setSearch] = useState("");
   const [stateFilter, setStateFilter] = useState<AlarmStateFilter>("ALL");
   const [customerFilter, setCustomerFilter] = useState("");
@@ -112,8 +112,12 @@ export function AlarmsContent({ alarms, summary, customers, accounts }: AlarmsCo
     }
   };
 
-  if (ownedCustomerIds.length === 0) {
+  if (!isOwnedLoading && ownedCustomerIds.length === 0) {
     return <OwnedEmptyState />;
+  }
+
+  if (isOwnedLoading) {
+    return <div className="py-20 text-center text-sm text-slate-400">로딩 중...</div>;
   }
 
   return (
