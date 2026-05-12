@@ -19,7 +19,12 @@ import re
 import boto3
 from botocore.exceptions import ClientError
 
-from api_handler.cw_helper import get_resources_from_alarms, list_alarms, extract_resource_from_alarm
+from api_handler.cw_helper import (
+    _parse_alarm_arn,
+    get_resources_from_alarms,
+    list_alarms,
+    extract_resource_from_alarm,
+)
 from common import dimension_builder
 from common.alarm_naming import _build_alarm_description, _pretty_alarm_name
 from common.alarm_registry import (
@@ -103,14 +108,15 @@ def get_resource(event: dict) -> dict:
         return _err(404, "NOT_FOUND", f"리소스 '{resource_id}'의 알람을 찾을 수 없습니다")
 
     resource_type = _get_resource_type(resource_alarms[0]["AlarmName"])
+    region, account_id = _parse_alarm_arn(resource_alarms[0].get("AlarmArn", ""))
     active = sum(1 for a in resource_alarms if a.get("StateValue") == "ALARM")
 
     return _ok({
         "id": resource_id,
         "name": resource_id,
         "type": resource_type,
-        "account": "current",
-        "region": "ap-northeast-2",
+        "account": account_id,
+        "region": region,
         "monitoring": True,
         "alarms": {"critical": active, "warning": 0},
         "alarm_count": len(resource_alarms),

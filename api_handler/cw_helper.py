@@ -44,6 +44,14 @@ def list_alarms(alarm_name_prefix: str = "[", state_value: str | None = None) ->
     return alarms
 
 
+def _parse_alarm_arn(alarm_arn: str) -> tuple[str, str]:
+    """AlarmArn에서 (region, account_id) 추출. 파싱 실패 시 ("unknown", "unknown")."""
+    parts = alarm_arn.split(":")
+    region = parts[3] if len(parts) > 3 and parts[3] else "unknown"
+    account_id = parts[4] if len(parts) > 4 and parts[4] else "unknown"
+    return region, account_id
+
+
 def extract_resource_from_alarm(alarm_name: str) -> tuple[str, str] | None:
     """알람 이름에서 (resource_type, tag_name) 추출. 매칭 실패 시 None."""
     m = _ALARM_NAME_RE.match(alarm_name)
@@ -98,12 +106,13 @@ def get_resources_from_alarms(
         rtype, tag_name = result
         key = (rtype, tag_name)
         if key not in resource_map:
+            region, account_id = _parse_alarm_arn(alarm.get("AlarmArn", ""))
             resource_map[key] = {
                 "id": tag_name,
                 "name": tag_name,
                 "type": rtype,
-                "account": "current",
-                "region": "ap-northeast-2",
+                "account": account_id,
+                "region": region,
                 "monitoring": True,
                 "alarms": {"critical": 0, "warning": 0},
             }

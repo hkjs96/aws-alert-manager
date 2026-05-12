@@ -28,9 +28,14 @@ def list_alarms_handler(event: dict) -> dict:
     for alarm in alarms:
         tags = {t["Key"]: t["Value"] for t in alarm.get("Tags", [])} if alarm.get("Tags") else {}
         ts = alarm.get("StateUpdatedTimestamp")
+        arn = alarm.get("AlarmArn", "")
+        arn_parts = arn.split(":")
+        account = arn_parts[4] if len(arn_parts) > 4 and arn_parts[4] else "unknown"
         items.append({
             "id": alarm["AlarmName"],
             "alarm_name": alarm["AlarmName"],
+            "arn": arn,
+            "account": account,
             "resource": _extract_resource_id(alarm["AlarmName"]),
             "type": _extract_resource_type(alarm["AlarmName"]),
             "metric": alarm.get("MetricName", ""),
@@ -38,6 +43,7 @@ def list_alarms_handler(event: dict) -> dict:
             "threshold": alarm.get("Threshold"),
             "severity": tags.get("Severity", "SEV-5"),
             "time": ts.isoformat() if hasattr(ts, "isoformat") else str(ts or ""),
+            "value": None,
         })
 
     total = len(items)
@@ -64,6 +70,7 @@ def get_alarm_summary(event: dict) -> dict:
 
     return _ok({
         "total": len(all_alarms),
+        "by_state": summary,
         "alarm_count": summary["ALARM"],
         "ok_count": summary["OK"],
         "insufficient_count": summary["INSUFFICIENT_DATA"],
