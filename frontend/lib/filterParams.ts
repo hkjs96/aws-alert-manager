@@ -44,7 +44,7 @@ export function serializeFilters(filters: FilterState): string {
   return params.toString();
 }
 
-const VALID_ALARM_STATES = new Set<string>(["ALL", "ALARM", "INSUFFICIENT", "OK", "OFF"]);
+const VALID_ALARM_STATES = new Set<string>(["ALL", "ALARM", "INSUFFICIENT_DATA", "OK", "OFF"]);
 
 /**
  * URL searchParams를 필터 상태 객체로 파싱한다.

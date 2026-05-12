@@ -20,12 +20,12 @@ export async function GET(request: NextRequest) {
     const accountIds = getAccounts()
       .filter((a) => a.customer_id === customerId)
       .map((a) => a.account_id);
-    filtered = filtered.filter((a) => accountIds.some((id) => a.resource_id.includes(id)));
+    filtered = filtered.filter((a) => accountIds.includes(a.account));
   } else if (ownedCustomerIds.length > 0) {
     const ownedAccountIds = getAccounts()
       .filter((a) => ownedCustomerIds.includes(a.customer_id))
       .map((a) => a.account_id);
-    filtered = filtered.filter((a) => ownedAccountIds.some((id) => a.resource_id.includes(id)));
+    filtered = filtered.filter((a) => ownedAccountIds.includes(a.account));
   }
 
   return NextResponse.json(paginate(filtered, page, pageSize));

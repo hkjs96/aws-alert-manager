@@ -42,6 +42,7 @@ export async function POST(request: NextRequest) {
       time: timeStr,
       resource: resource.name,
       arn: resource.id,
+      account: resource.account,
       type: resource.type,
       metric: m.metric_name,
       state: "OK",
@@ -52,6 +53,7 @@ export async function POST(request: NextRequest) {
     const recent: RecentAlarm = {
       timestamp: now.toISOString(),
       resource_id: resource.id,
+      account: resource.account,
       resource_name: resource.name,
       resource_type: resource.type,
       metric: m.metric_name,

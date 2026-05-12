@@ -22,12 +22,12 @@ export async function GET(request: NextRequest) {
     const accountIds = getAccounts()
       .filter((a) => a.customer_id === customerId)
       .map((a) => a.account_id);
-    filtered = filtered.filter((a) => accountIds.some((id) => a.arn.includes(id)));
+    filtered = filtered.filter((a) => accountIds.includes(a.account));
   } else if (ownedCustomerIds.length > 0) {
     const ownedAccountIds = getAccounts()
       .filter((a) => ownedCustomerIds.includes(a.customer_id))
       .map((a) => a.account_id);
-    filtered = filtered.filter((a) => ownedAccountIds.some((id) => a.arn.includes(id)));
+    filtered = filtered.filter((a) => ownedAccountIds.includes(a.account));
   }
 
   if (state && state !== "ALL") {

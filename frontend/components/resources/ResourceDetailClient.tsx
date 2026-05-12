@@ -55,7 +55,7 @@ export function ResourceDetailClient({ resource, alarmConfigs }: ResourceDetailC
                     ? "bg-slate-50 border-slate-200"
                     : item.state === "ALARM"
                       ? "bg-red-50 border-red-200"
-                      : item.state === "INSUFFICIENT"
+                      : item.state === "INSUFFICIENT_DATA"
                         ? "bg-amber-50 border-amber-200"
                         : "bg-green-50 border-green-200"
                 }`}
@@ -65,7 +65,7 @@ export function ResourceDetailClient({ resource, alarmConfigs }: ResourceDetailC
                     ? "⚫"
                     : item.state === "ALARM"
                       ? "🔴"
-                      : item.state === "INSUFFICIENT"
+                      : item.state === "INSUFFICIENT_DATA"
                         ? "🟡"
                         : "🟢"}
                 </div>
@@ -73,7 +73,7 @@ export function ResourceDetailClient({ resource, alarmConfigs }: ResourceDetailC
                   {item.metricName}
                 </div>
                 <div className="text-[9px] text-slate-400 mt-0.5">
-                  {!item.enabled ? "Disabled" : item.state === "ALARM" ? "ALARM" : item.state === "INSUFFICIENT" ? "데이터 부족" : "OK"}
+                  {!item.enabled ? "Disabled" : item.state === "ALARM" ? "ALARM" : item.state === "INSUFFICIENT_DATA" ? "데이터 부족" : "OK"}
                 </div>
               </div>
             ))}

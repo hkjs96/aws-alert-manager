@@ -123,7 +123,7 @@ describe("1.2 API 타입 속성", () => {
 
 describe("1.7 필터 파라미터 속성", () => {
   const validStateArb = fc.constantFrom<AlarmStateFilter>(
-    "ALL", "ALARM", "INSUFFICIENT", "OK", "OFF",
+    "ALL", "ALARM", "INSUFFICIENT_DATA", "OK", "OFF",
   );
   const validOrderArb = fc.constantFrom<"asc" | "desc">("asc", "desc");
   const validPageSizeArb = fc.constantFrom<25 | 50 | 100>(25, 50, 100);

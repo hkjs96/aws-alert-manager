@@ -35,7 +35,7 @@ export interface EditableConfig extends AlarmConfig {
 const STATE_COLORS: Record<string, string> = {
   OK: "text-green-700 bg-green-100",
   ALARM: "text-error bg-error/10",
-  INSUFFICIENT: "text-amber-700 bg-amber-100",
+  INSUFFICIENT_DATA: "text-amber-700 bg-amber-100",
   OFF: "text-slate-500 bg-slate-100",
   MUTED: "text-purple-700 bg-purple-100",
 };
@@ -58,9 +58,12 @@ export function AlarmRow({ row, index, onUpdate }: AlarmRowProps) {
     <>
       <tr className="bg-white/30 hover:bg-white transition-colors">
         <td className="pl-8 py-5">
-          <input type="checkbox" checked={row.monitoring}
+          <input
+            type="checkbox"
+            checked={row.monitoring}
             onChange={(e) => onUpdate(index, { monitoring: e.target.checked })}
-            className="rounded border-slate-300 text-primary focus:ring-primary h-4 w-4" />
+            className="rounded border-slate-300 text-primary focus:ring-primary h-4 w-4"
+          />
         </td>
         <td className="px-4 py-5 font-semibold text-sm">
           {row.metric_name}
@@ -71,9 +74,12 @@ export function AlarmRow({ row, index, onUpdate }: AlarmRowProps) {
           )}
         </td>
         <td className="px-4 py-5">
-          <input type="number" value={row.threshold}
+          <input
+            type="number"
+            value={row.threshold}
             onChange={(e) => onUpdate(index, { threshold: Number(e.target.value) })}
-            className={`w-20 ${inp}`} />
+            className={`w-20 ${inp}`}
+          />
         </td>
         <td className="px-4 py-5">
           <select value={row.unit} onChange={(e) => onUpdate(index, { unit: e.target.value })} className={`${sel} min-w-[100px]`}>
@@ -95,15 +101,17 @@ export function AlarmRow({ row, index, onUpdate }: AlarmRowProps) {
           <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase tracking-tight ${stateColor}`}>{row.state}</span>
         </td>
         <td className="pr-4 py-5 text-right font-mono text-sm font-medium">
-          {row.current_value !== null ? row.current_value : "—"}
+          {row.current_value ?? "—"}
         </td>
         <td className="pr-4 py-5">
-          <button onClick={() => setOpen(!open)}
+          <button
+            onClick={() => setOpen(!open)}
             className={`group inline-flex items-center gap-1.5 text-[11px] font-semibold px-3 py-1.5 rounded-full border transition-all duration-200 ${
               open
                 ? "bg-primary text-white border-primary shadow-sm"
                 : "bg-white text-slate-500 border-slate-200 hover:border-primary hover:text-primary"
-            }`}>
+            }`}
+          >
             <SlidersHorizontal size={12} />
             <span className="hidden sm:inline">상세</span>
             <Chevron size={12} />
@@ -129,13 +137,23 @@ export function AlarmRow({ row, index, onUpdate }: AlarmRowProps) {
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Datapoints to Alarm</label>
                   <div className="flex items-center gap-1.5">
-                    <input type="number" min={1} max={100} value={row.datapoints_to_alarm ?? 1}
+                    <input
+                      type="number"
+                      min={1}
+                      max={100}
+                      value={row.datapoints_to_alarm ?? 1}
                       onChange={(e) => onUpdate(index, { datapoints_to_alarm: Number(e.target.value) })}
-                      className={`w-14 text-center ${inp}`} />
+                      className={`w-14 text-center ${inp}`}
+                    />
                     <span className="text-slate-400 text-xs font-medium">of</span>
-                    <input type="number" min={1} max={100} value={row.evaluation_periods ?? 1}
+                    <input
+                      type="number"
+                      min={1}
+                      max={100}
+                      value={row.evaluation_periods ?? 1}
                       onChange={(e) => onUpdate(index, { evaluation_periods: Number(e.target.value) })}
-                      className={`w-14 text-center ${inp}`} />
+                      className={`w-14 text-center ${inp}`}
+                    />
                   </div>
                 </div>
                 <div className="space-y-1">

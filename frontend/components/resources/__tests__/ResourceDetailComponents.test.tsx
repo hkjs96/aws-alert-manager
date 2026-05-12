@@ -63,6 +63,7 @@ const MOCK_EVENTS: RecentAlarm[] = [
   {
     timestamp: "2024-06-15T14:22:05Z",
     resource_id: "i-0a2b4c6d8e0f12",
+    account: "882311440092",
     resource_name: "payments-api-prod-01",
     resource_type: "EC2",
     metric: "CPUUtilization",

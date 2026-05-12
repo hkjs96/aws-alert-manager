@@ -16,20 +16,24 @@ const COLUMNS: { key: string; label: string; sortable: boolean; align?: string }
   { key: "value", label: "Value", sortable: false, align: "text-right" },
 ];
 
-const STATE_ORDER: Record<string, number> = { ALARM: 0, INSUFFICIENT: 1, OK: 2, OFF: 3 };
+const STATE_ORDER: Record<string, number> = { ALARM: 0, INSUFFICIENT_DATA: 1, OK: 2, OFF: 3 };
 
 const STATE_STYLES: Record<string, string> = {
   ALARM: "bg-error/10 text-error ring-error/20",
-  INSUFFICIENT: "bg-amber-100 text-amber-700 ring-amber-500/20",
+  INSUFFICIENT_DATA: "bg-amber-100 text-amber-700 ring-amber-500/20",
   OK: "bg-green-100 text-green-700 ring-green-500/20",
   OFF: "bg-slate-100 text-slate-500 ring-slate-400/20",
 };
 
 const DOT_STYLES: Record<string, string> = {
   ALARM: "bg-error animate-pulse",
-  INSUFFICIENT: "bg-amber-500",
+  INSUFFICIENT_DATA: "bg-amber-500",
   OK: "bg-green-500",
   OFF: "bg-slate-400",
+};
+
+const STATE_LABEL: Record<string, string> = {
+  INSUFFICIENT_DATA: "INSUFFICIENT",
 };
 
 interface AlarmTableProps {
@@ -120,10 +124,10 @@ export function AlarmTable({ alarms }: AlarmTableProps) {
                 <td className="px-4 py-3 font-medium text-slate-700">{alarm.metric}</td>
                 <td className="px-4 py-3">
                   <span className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-bold ring-1 ${STATE_STYLES[alarm.state] ?? STATE_STYLES.OFF}`}>
-                    <span className={`w-1.5 h-1.5 rounded-full ${DOT_STYLES[alarm.state] ?? DOT_STYLES.OFF}`} />{alarm.state}
+                    <span className={`w-1.5 h-1.5 rounded-full ${DOT_STYLES[alarm.state] ?? DOT_STYLES.OFF}`} />{STATE_LABEL[alarm.state] ?? alarm.state}
                   </span>
                 </td>
-                <td className={`px-4 py-3 text-right font-mono font-bold ${alarm.state === "ALARM" ? "text-red-600" : "text-slate-600"}`}>{alarm.value}</td>
+                <td className={`px-4 py-3 text-right font-mono font-bold ${alarm.state === "ALARM" ? "text-red-600" : "text-slate-600"}`}>{alarm.value ?? "—"}</td>
               </tr>
             ))}
           </tbody>

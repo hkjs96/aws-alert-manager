@@ -16,7 +16,15 @@ import { AlarmTable } from "./AlarmTable";
 import { useOwnedCustomers } from "@/hooks/useOwnedCustomers";
 import { OwnedEmptyState } from "@/components/shared/OwnedEmptyState";
 
-const FILTER_TABS: AlarmStateFilter[] = ["ALL", "ALARM", "INSUFFICIENT", "OK", "OFF"];
+const FILTER_TABS: AlarmStateFilter[] = ["ALL", "ALARM", "INSUFFICIENT_DATA", "OK", "OFF"];
+
+const TAB_LABEL: Record<AlarmStateFilter, string> = {
+  ALL: "ALL",
+  ALARM: "ALARM",
+  INSUFFICIENT_DATA: "INSUFFICIENT",
+  OK: "OK",
+  OFF: "OFF",
+};
 
 const DEFAULT_PAGE_SIZE = 25;
 
@@ -60,7 +68,7 @@ export function AlarmsContent({ alarms, summary, customers, accounts }: AlarmsCo
   );
 
   const stateCounts = useMemo(() => {
-    const counts: Record<string, number> = { ALL: 0, ALARM: 0, INSUFFICIENT: 0, OK: 0, OFF: 0 };
+    const counts: Record<string, number> = { ALL: 0, ALARM: 0, INSUFFICIENT_DATA: 0, OK: 0, OFF: 0 };
     alarms.forEach((a) => {
       counts.ALL++;
       if (a.state in counts) counts[a.state]++;
@@ -70,17 +78,17 @@ export function AlarmsContent({ alarms, summary, customers, accounts }: AlarmsCo
 
   const filtered = useMemo(() => {
     return alarms.filter((a) => {
-      const arn = a.arn ?? "";
+      const account = a.account ?? "";
       // 담당 고객사 범위 필터 (explicit customerFilter가 없을 때)
       if (!customerFilter && ownedAccountIds.length > 0) {
-        if (!ownedAccountIds.some((id) => arn.includes(id))) return false;
+        if (!ownedAccountIds.includes(account)) return false;
       }
       if (stateFilter !== "ALL" && a.state !== stateFilter) return false;
       if (typeFilter && a.type !== typeFilter) return false;
-      if (accountFilter && !arn.includes(accountFilter)) return false;
+      if (accountFilter && account !== accountFilter) return false;
       if (customerFilter) {
         const ids = accounts.filter((acc) => acc.customerId === customerFilter).map((acc) => acc.id);
-        if (!ids.some((id) => arn.includes(id))) return false;
+        if (!ids.includes(account)) return false;
       }
       if (search) {
         const q = search.toLowerCase();
@@ -165,13 +173,13 @@ export function AlarmsContent({ alarms, summary, customers, accounts }: AlarmsCo
       <div className="flex gap-2 p-1 bg-slate-100 rounded-xl w-max">
         {FILTER_TABS.map((f) => {
           const count = stateCounts[f];
-          const badgeColor = f === "ALL" ? "bg-slate-400 text-white" : f === "ALARM" ? "bg-red-500 text-white" : f === "INSUFFICIENT" ? "bg-amber-500 text-white" : f === "OK" ? "bg-green-500 text-white" : "bg-slate-400 text-white";
+          const badgeColor = f === "ALL" ? "bg-slate-400 text-white" : f === "ALARM" ? "bg-red-500 text-white" : f === "INSUFFICIENT_DATA" ? "bg-amber-500 text-white" : f === "OK" ? "bg-green-500 text-white" : "bg-slate-400 text-white";
           return (
             <button key={f} onClick={() => { setStateFilter(f); setPage(1); }}
               className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all inline-flex items-center gap-1 ${
                 stateFilter === f ? "bg-white text-primary shadow-sm" : "text-slate-500 hover:text-slate-700"
               }`}>
-              {f}
+              {TAB_LABEL[f]}
               {count > 0 && (
                 <span className={`inline-flex items-center justify-center w-[18px] h-[18px] rounded-full text-[9px] font-bold ml-1 ${badgeColor}`}>
                   {count}

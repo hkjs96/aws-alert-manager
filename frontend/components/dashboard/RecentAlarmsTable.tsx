@@ -16,7 +16,11 @@ const COLUMNS: { key: string; label: string; align?: string }[] = [
   { key: "value", label: "Value/Threshold", align: "text-right" },
 ];
 
-const STATE_ORDER: Record<string, number> = { ALARM: 0, INSUFFICIENT: 1, OK: 2, OFF: 3 };
+const STATE_ORDER: Record<string, number> = { ALARM: 0, INSUFFICIENT_DATA: 1, OK: 2, OFF: 3 };
+
+const STATE_LABEL: Record<string, string> = {
+  INSUFFICIENT_DATA: "INSUFFICIENT",
+};
 
 type TimeBucket = "recent" | "today" | "older";
 
@@ -38,7 +42,7 @@ function getTimeBucket(timeStr: string): TimeBucket {
 function stateRing(s: string) {
   const m: Record<string, string> = {
     ALARM: "bg-error/10 text-error ring-error/20",
-    INSUFFICIENT: "bg-amber-100 text-amber-700 ring-amber-500/20",
+    INSUFFICIENT_DATA: "bg-amber-100 text-amber-700 ring-amber-500/20",
     OK: "bg-green-100 text-green-700 ring-green-500/20",
     OFF: "bg-slate-100 text-slate-500 ring-slate-400/20",
   };
@@ -48,7 +52,7 @@ function stateRing(s: string) {
 function stateDot(s: string) {
   const m: Record<string, string> = {
     ALARM: "bg-error animate-pulse",
-    INSUFFICIENT: "bg-amber-500",
+    INSUFFICIENT_DATA: "bg-amber-500",
     OK: "bg-green-500",
     OFF: "bg-slate-400",
   };
@@ -78,11 +82,11 @@ function AlarmRow({ alarm, onClick }: { alarm: Alarm; onClick: () => void }) {
       <td className="px-4 py-3">
         <span className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-bold ring-1 ${stateRing(alarm.state)}`}>
           <span className={`w-1.5 h-1.5 rounded-full ${stateDot(alarm.state)}`} />
-          {alarm.state}
+          {STATE_LABEL[alarm.state] ?? alarm.state}
         </span>
       </td>
       <td className={`px-4 py-3 text-right font-mono font-bold ${alarm.state === "ALARM" ? "text-error" : "text-slate-600"}`}>
-        {alarm.value}
+        {alarm.value ?? "—"}
       </td>
     </tr>
   );

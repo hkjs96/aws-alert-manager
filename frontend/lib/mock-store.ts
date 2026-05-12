@@ -96,7 +96,7 @@ export function computeAlarmSummary(): AlarmSummary {
   const total = alarms.length;
   const alarmCount = alarms.filter((a) => a.state === "ALARM").length;
   const okCount = alarms.filter((a) => a.state === "OK").length;
-  const insufficientCount = alarms.filter((a) => a.state === "INSUFFICIENT").length;
+  const insufficientCount = alarms.filter((a) => a.state === "INSUFFICIENT_DATA").length;
 
   return {
     total,
