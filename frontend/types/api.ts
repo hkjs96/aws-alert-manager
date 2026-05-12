@@ -74,7 +74,7 @@ export interface ResourceListParams extends GlobalFilterParams, PaginationParams
 
 // --- 알람 목록 필터 ---
 
-export type AlarmStateFilter = "ALL" | "ALARM" | "INSUFFICIENT" | "OK" | "OFF";
+export type AlarmStateFilter = "ALL" | "ALARM" | "INSUFFICIENT_DATA" | "OK" | "OFF";
 
 export interface AlarmListParams extends GlobalFilterParams, PaginationParams {
   state?: AlarmStateFilter;

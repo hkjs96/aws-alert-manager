@@ -1,16 +1,17 @@
 export type View = "dashboard" | "resources" | "alarms" | "settings" | "detail";
 
-export type AlarmState = "ALARM" | "OK" | "INSUFFICIENT" | "OFF" | "MUTED";
+export type AlarmState = "ALARM" | "OK" | "INSUFFICIENT_DATA" | "OFF" | "MUTED";
 
 export interface Alarm {
   id: string;
   time: string;
   resource: string;
   arn: string;
+  account: string;
   type: string;
   metric: string;
   state: AlarmState;
-  value: string;
+  value?: string | null;
 }
 
 export interface Resource {
@@ -79,6 +80,7 @@ export interface DashboardStats {
 export interface RecentAlarm {
   timestamp: string;
   resource_id: string;
+  account: string;
   resource_name: string;
   resource_type: string;
   metric: string;
