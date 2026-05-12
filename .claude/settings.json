@@ -209,7 +209,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "ROOT=$(git rev-parse --show-toplevel 2>/dev/null); [ -n \"$ROOT\" ] && python \"$ROOT/.claude/deploy-api-handler.py\"; exit 0"
+            "command": "python -c \"import subprocess,os,sys; r=subprocess.run(['git','rev-parse','--show-toplevel'],capture_output=True,text=True); root=r.stdout.strip() if r.returncode==0 else ''; s=os.path.join(root,'.claude','deploy-api-handler.py') if root else ''; subprocess.run([sys.executable,s]) if s and os.path.isfile(s) else None\""
           }
         ]
       }
@@ -220,7 +220,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "ROOT=$(git rev-parse --show-toplevel 2>/dev/null); [ -n \"$ROOT\" ] && python \"$ROOT/.claude/deploy-api-handler.py\"; exit 0"
+            "command": "python -c \"import subprocess,os,sys; r=subprocess.run(['git','rev-parse','--show-toplevel'],capture_output=True,text=True); root=r.stdout.strip() if r.returncode==0 else ''; s=os.path.join(root,'.claude','deploy-api-handler.py') if root else ''; subprocess.run([sys.executable,s]) if s and os.path.isfile(s) else None\""
           }
         ]
       }
