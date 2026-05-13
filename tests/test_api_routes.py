@@ -469,3 +469,79 @@ class TestCwHelper:
 
         assert result["items"] == []
         assert result["total"] == 0
+
+    def test_list_alarms_uses_registered_account_regions(self):
+        fake_cw = MagicMock()
+        fake_cw.get_paginator.return_value.paginate.return_value = [{
+            "MetricAlarms": [
+                _alarm("[EC2] server CPU (TagName: i-001)", state="OK"),
+            ],
+        }]
+        fake_sts = MagicMock()
+        fake_sts.get_caller_identity.return_value = {"Account": "949501913924"}
+        fake_sts.assume_role.return_value = {
+            "Credentials": {
+                "AccessKeyId": "AKIA_TEST",
+                "SecretAccessKey": "secret",
+                "SessionToken": "token",
+            },
+        }
+
+        def client_side_effect(service, **kwargs):
+            if service == "sts":
+                return fake_sts
+            if service == "cloudwatch":
+                assert kwargs["region_name"] == "ap-northeast-2"
+                assert kwargs["aws_access_key_id"] == "AKIA_TEST"
+                return fake_cw
+            raise AssertionError(service)
+
+        with patch("api_handler.db.accounts_table", return_value=MagicMock()):
+            with patch("api_handler.db.scan_all", return_value=[{
+                "account_id": "111111111111",
+                "role_arn": "arn:aws:iam::111111111111:role/Monitor",
+                "regions": ["ap-northeast-2"],
+            }]):
+                with patch("api_handler.cw_helper.boto3.client", side_effect=client_side_effect):
+                    from api_handler.cw_helper import list_alarms
+                    alarms = list_alarms()
+
+        assert len(alarms) == 1
+        fake_sts.assume_role.assert_called_once()
+        fake_cw.get_paginator.assert_called_once_with("describe_alarms")
+
+    def test_list_alarms_skips_assume_role_for_current_account(self):
+        fake_cw = MagicMock()
+        fake_cw.get_paginator.return_value.paginate.return_value = [{
+            "MetricAlarms": [
+                _alarm("[EC2] server CPU (TagName: i-001)", state="OK"),
+            ],
+        }]
+        fake_sts = MagicMock()
+        fake_sts.get_caller_identity.return_value = {"Account": "949501913924"}
+
+        def client_side_effect(service, **kwargs):
+            if service == "sts":
+                return fake_sts
+            if service == "cloudwatch":
+                assert kwargs["region_name"] == "ap-northeast-2"
+                assert "aws_access_key_id" not in kwargs
+                return fake_cw
+            raise AssertionError(service)
+
+        from api_handler.cw_helper import _get_current_account_id
+        _get_current_account_id.cache_clear()
+
+        with patch("api_handler.db.accounts_table", return_value=MagicMock()):
+            with patch("api_handler.db.scan_all", return_value=[{
+                "account_id": "949501913924",
+                "role_arn": "arn:aws:iam::949501913924:role/aws-monitoring-engine-api-handler-role-dev",
+                "regions": ["ap-northeast-2"],
+            }]):
+                with patch("api_handler.cw_helper.boto3.client", side_effect=client_side_effect):
+                    from api_handler.cw_helper import list_alarms
+                    alarms = list_alarms()
+
+        assert len(alarms) == 1
+        fake_sts.assume_role.assert_not_called()
+        fake_cw.get_paginator.assert_called_once_with("describe_alarms")
