@@ -6,9 +6,7 @@
 ## 상세 규칙 참조 (필요 시 직접 열람)
 
 - 알람 이름/디멘션/태그 규칙 (§6, §7, §8, §9, §12): `.kiro/steering/alarm-rules.md`
-- Collector 인터페이스 & 새 리소스 추가 체크리스트 (§5, §11): `.kiro/steering/resource-checklist.md`
-
----
+- 품질 검증: [.claude/harness/evaluation-criteria.md](../.claude/harness/evaluation-criteria.md) 준수
 
 ## 핵심 체크리스트
 

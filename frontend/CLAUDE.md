@@ -7,7 +7,7 @@
 
 - Next.js 16 + React 19 프레임워크 규칙: @../.kiro/steering/nextjs-rules.md
 - TDD 규칙 (Red → Green → Refactor, 커버리지 기준): @../.kiro/steering/tdd-rules.md
-- 프론트엔드 아키텍처 작업 원칙 (이미 루트에서 로드됨): @../.kiro/steering/frontend-ruels.md
+- 품질 검증: [.claude/harness/evaluation-criteria.md](../.claude/harness/evaluation-criteria.md) 준수
 
 ## 핵심 체크리스트
 
