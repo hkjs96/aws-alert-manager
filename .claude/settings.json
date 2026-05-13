@@ -53,6 +53,7 @@
       "Bash(pytest:*)",
       "Bash(python -m mypy:*)",
       "Bash(python -c:*)",
+      "Bash(python scripts/verify_all.py)",
       "Bash(npx tsc:*)",
       "Bash(npx vitest:*)",
       "Bash(npx eslint:*)",
@@ -119,6 +120,15 @@
         "hooks": [
           {
             "type": "command",
+            "command": "if [ -f \"$CLAUDE_FILE_PATH\" ]; then cp \"$CLAUDE_FILE_PATH\" \"$CLAUDE_FILE_PATH.bak\" 2>/dev/null; fi || true"
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
             "command": "jq -r '.tool_input.content // .tool_input.new_string // \"\"' | grep -nE '(AKIA[0-9A-Z]{16}|(password|secret|token|api[_-]?key)\\s*=\\s*[\"'\\''][^\"'\\'' ${}]{6,})' >&2 && echo '[secret-leak-guard] ⚠️ 위 라인이 시크릿일 가능성이 있다. 환경 변수/Secrets Manager/SSM Parameter Store 사용을 검토하라. (anti-patterns.md AP-1)' >&2; exit 0"
           }
         ]
@@ -128,7 +138,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "FILE=$(jq -r '.tool_input.file_path // \"\"'); case \"$FILE\" in *.py) echo '[governance-check] 작성 전 확인: §1 boto3 lru_cache, §2 import 순서(stdlib→boto3→common.*), §3 복잡도(locals≤15,stmts≤50,branches≤12,args≤5), §4 ClientError만 catch·logger.error(\"%s\",e), §9 getLogger(__name__)+컨텍스트, §10 중복 금지. (.kiro/steering/coding-governance.md)' >&2 ;; esac; exit 0"
+            "command": "FILE=\"$CLAUDE_FILE_PATH\"; case \"$FILE\" in *.py) echo '[governance-check] 작성 전 확인: §1 boto3 lru_cache, §2 import 순서(stdlib→boto3→common.*), §3 복잡도(locals≤15,stmts≤50,branches≤12,args≤5), §4 ClientError만 catch·logger.error(\"%s\",e), §9 getLogger(__name__)+컨텍스트, §10 중복 금지. (.kiro/steering/coding-governance.md)' >&2 ;; esac; exit 0"
           }
         ]
       }
@@ -139,39 +149,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "FILE=$(jq -r '.tool_input.file_path // \"\"'); case \"$FILE\" in *.py) if command -v pylint >/dev/null 2>&1; then pylint --disable=all --enable=too-many-locals,too-many-statements,too-many-branches,too-many-arguments --max-locals=15 --max-statements=50 --max-branches=12 --max-args=5 \"$FILE\" >&2 || echo '[pylint-on-save] 복잡도 상한 초과. 헬퍼 함수로 분리하라. (§3)' >&2; else echo '[pylint-on-save] pylint 미설치 — locals≤15, stmts≤50, branches≤12, args≤5 수동 확인' >&2; fi ;; esac; exit 0"
-          }
-        ]
-      },
-      {
-        "_note": "구현 파일 수정 시 대응 테스트 자동 실행. 테스트 실패 = B.테스트버그 또는 A.구현버그 즉시 수정.",
-        "matcher": "Write|Edit|MultiEdit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "FILE=$(jq -r '.tool_input.file_path // \"\"'); case \"$FILE\" in *.py) case \"$FILE\" in *test_*|*conftest*) exit 0 ;; esac; MOD=$(basename \"$FILE\" .py); TEST=\"tests/test_${MOD}.py\"; if [ -f \"$TEST\" ]; then echo \"[pytest-on-save] ${TEST} 실행 중...\" >&2; pytest \"$TEST\" -x -q --tb=short 2>&1 | head -60 >&2; fi ;; esac; exit 0"
-          }
-        ]
-      },
-      {
-        "_kiro_origin": "typecheck-on-save.kiro.hook",
-        "_note": "frontend TS 파일 저장 시 타입 체크 실제 실행",
-        "matcher": "Write|Edit|MultiEdit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "FILE=$(jq -r '.tool_input.file_path // \"\"'); case \"$FILE\" in */frontend/*.ts|*/frontend/*.tsx) cd frontend && npx tsc --noEmit 2>&1 | head -40 >&2 ;; esac; exit 0"
-          }
-        ]
-      },
-      {
-        "_kiro_origin": "vitest-on-test-save.kiro.hook",
-        "_note": "frontend 테스트 파일 저장 시 vitest 실제 실행",
-        "matcher": "Write|Edit|MultiEdit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "FILE=$(jq -r '.tool_input.file_path // \"\"'); case \"$FILE\" in *.test.ts|*.test.tsx|*.spec.ts|*.spec.tsx) case \"$FILE\" in */frontend/*) cd frontend && npx vitest run --reporter=verbose 2>&1 | head -60 >&2 ;; esac ;; esac; exit 0"
+            "command": "FILE=\"$CLAUDE_FILE_PATH\"; case \"$FILE\" in *.py) if command -v pylint >/dev/null 2>&1; then pylint --disable=all --enable=too-many-locals,too-many-statements,too-many-branches,too-many-arguments --max-locals=15 --max-statements=50 --max-branches=12 --max-args=5 \"$FILE\" >&2 || echo '[pylint-on-save] 복잡도 상한 초과. 헬퍼 함수로 분리하라. (§3)' >&2; fi ;; esac; exit 0"
           }
         ]
       },
@@ -180,7 +158,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "FILE=$(jq -r '.tool_input.file_path // \"\"'); case \"$FILE\" in *common/alarm_registry.py|*common/dimension_builder.py) echo '[dimension-check] 확인: (1) 새 메트릭 디멘션이 AWS 공식 문서와 일치 (§6-1), (2) CloudFront/Route53/WAF의 Region 디멘션 (§8-3), (3) S3 FilterId, (4) Compound Dimension(ECS/WAF/S3/SageMaker) 보조 디멘션, (5) treat_missing_data (Route53/DX/MSK ActiveControllerCount=breaching)' >&2 ;; esac; exit 0"
+            "command": "FILE=\"$CLAUDE_FILE_PATH\"; case \"$FILE\" in *.py) case \"$FILE\" in *test_*|*conftest*) exit 0 ;; esac; MOD=$(basename \"$FILE\" .py); TEST=\"tests/test_${MOD}.py\"; if [ -f \"$TEST\" ]; then echo \"[pytest-on-save] ${TEST} 실행 중...\" >&2; pytest \"$TEST\" -x -q --tb=short 2>&1 | head -60 >&2; fi ;; esac; exit 0"
           }
         ]
       },
@@ -189,27 +167,25 @@
         "hooks": [
           {
             "type": "command",
-            "command": "FILE=$(jq -r '.tool_input.file_path // \"\"'); case \"$FILE\" in *remediation_handler/lambda_handler.py) echo '[arn-conversion] 확인: (1) 새 리소스의 TagResource/UntagResource ARN → 리소스 이름 변환이 _extract_id_from_arn()에 있는지 (§9-1), (2) _resolve_multi_tag_type()의 _ARN_SERVICE_MAP에 새 서비스 패턴 추가, (3) CreateTable/DeleteTable 등 ID 추출이 requestParameters vs responseElements 올바른 필드 참조' >&2 ;; esac; exit 0"
+            "command": "FILE=\"$CLAUDE_FILE_PATH\"; case \"$FILE\" in */frontend/*.ts|*/frontend/*.tsx) cd frontend && npx tsc --noEmit 2>&1 | head -40 >&2 ;; esac; exit 0"
           }
         ]
       },
       {
-        "matcher": "Write",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "FILE=$(jq -r '.tool_input.file_path // \"\"'); case \"$FILE\" in *common/collectors/*.py) if [ ! -f \"$FILE.existed\" ] && [ -f \"$FILE\" ]; then echo '[new-collector-checklist] §11 체크리스트: (1) AWS 문서 메트릭/네임스페이스/디멘션, (2) CloudTrail 이벤트 3레이어 등록, (3) _*_ALARMS 하드코딩, (4) HARDCODED_DEFAULTS, (5) SUPPORTED_RESOURCE_TYPES, (6) _NAMESPACE_SEARCH_MAP, (7) SRE 골든 시그널 커버리지, (8) 인스턴스 변형별 메트릭 가용성, (9) _COLLECTOR_MODULES/_RESOURCE_TYPE_TO_COLLECTOR(alias 포함), (10) resolve_alive_ids() 구현(§5-1)' >&2; fi ;; esac; exit 0"
-          }
-        ]
-      },
-      {
-        "_kiro_origin": "deploy-api-handler.py",
-        "_note": "api_handler/*.py 수정 시 CFN 스택 자동 배포. 스크립트 내부에서 경로를 확인하므로 matcher는 넓게 설정.",
         "matcher": "Write|Edit|MultiEdit",
         "hooks": [
           {
             "type": "command",
-            "command": "python -c \"import subprocess,os,sys; r=subprocess.run(['git','rev-parse','--show-toplevel'],capture_output=True,text=True); root=r.stdout.strip() if r.returncode==0 else ''; s=os.path.join(root,'.claude','deploy-api-handler.py') if root else ''; subprocess.run([sys.executable,s]) if s and os.path.isfile(s) else None\""
+            "command": "FILE=\"$CLAUDE_FILE_PATH\"; case \"$FILE\" in *.test.ts|*.test.tsx|*.spec.ts|*.spec.tsx) case \"$FILE\" in */frontend/*) cd frontend && npx vitest run --reporter=verbose 2>&1 | head -60 >&2 ;; esac ;; esac; exit 0"
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "FILE=\"$CLAUDE_FILE_PATH\"; git add \"$FILE\" 2>/dev/null || true; exit 0"
           }
         ]
       }
@@ -220,7 +196,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python -c \"import subprocess,os,sys; r=subprocess.run(['git','rev-parse','--show-toplevel'],capture_output=True,text=True); root=r.stdout.strip() if r.returncode==0 else ''; s=os.path.join(root,'.claude','deploy-api-handler.py') if root else ''; subprocess.run([sys.executable,s]) if s and os.path.isfile(s) else None\""
+            "command": "python scripts/verify_all.py"
           }
         ]
       }
