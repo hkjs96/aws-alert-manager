@@ -10,12 +10,22 @@ export const metadata: Metadata = {
 };
 
 export default async function DashboardPage() {
-  const [stats, alarms, customers, accounts] = await Promise.all([
-    fetchDashboardStats(),
-    fetchAlarms(),
-    fetchCustomerOptions(),
-    fetchAccountOptions(),
-  ]);
+  let stats, alarms, customers, accounts;
+  try {
+    [stats, alarms, customers, accounts] = await Promise.all([
+      fetchDashboardStats(),
+      fetchAlarms(),
+      fetchCustomerOptions(),
+      fetchAccountOptions(),
+    ]);
+  } catch (error) {
+    console.error("[DashboardPage] Failed to fetch data:", error);
+    // Fallback values to prevent crash
+    stats = { total_resources: 0, active_alarms: 0, unmonitored_resources: 0, connected_accounts: 0 };
+    alarms = [];
+    customers = [];
+    accounts = [];
+  }
 
   return (
     <Suspense fallback={<DashboardSkeleton />}>

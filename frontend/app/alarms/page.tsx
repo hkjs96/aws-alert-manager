@@ -8,12 +8,18 @@ export const metadata: Metadata = {
 };
 
 export default async function AlarmsPage() {
-  const [alarms, summary, customers, accounts] = await Promise.all([
-    fetchAlarms(),
-    fetchAlarmSummary(),
-    fetchCustomerOptions(),
-    fetchAccountOptions(),
-  ]);
+  let alarms = [], summary, customers = [], accounts = [];
+  try {
+    [alarms, summary, customers, accounts] = await Promise.all([
+      fetchAlarms(),
+      fetchAlarmSummary(),
+      fetchCustomerOptions(),
+      fetchAccountOptions(),
+    ]);
+  } catch (error) {
+    console.error("[AlarmsPage] Failed to fetch data:", error);
+    summary = { total: 0, alarm: 0, ok: 0, insufficient: 0, muted: 0 };
+  }
 
   return (
     <AlarmsContent

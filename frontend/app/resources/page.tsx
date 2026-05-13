@@ -8,11 +8,16 @@ export const metadata: Metadata = {
 };
 
 export default async function ResourcesPage() {
-  const [resources, customers, accounts] = await Promise.all([
-    fetchResources(),
-    fetchCustomerOptions(),
-    fetchAccountOptions(),
-  ]);
+  let resources = [], customers = [], accounts = [];
+  try {
+    [resources, customers, accounts] = await Promise.all([
+      fetchResources(),
+      fetchCustomerOptions(),
+      fetchAccountOptions(),
+    ]);
+  } catch (error) {
+    console.error("[ResourcesPage] Failed to fetch data:", error);
+  }
 
   return (
     <ResourcesContent

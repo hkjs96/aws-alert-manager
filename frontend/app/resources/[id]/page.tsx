@@ -12,7 +12,12 @@ interface ResourceDetailPageProps {
 export async function generateMetadata({ params }: ResourceDetailPageProps): Promise<Metadata> {
   const { id } = await params;
   const decodedId = decodeURIComponent(id);
-  const resource = await fetchResource(decodedId);
+  let resource = null;
+  try {
+    resource = await fetchResource(decodedId);
+  } catch (error) {
+    console.error("[generateMetadata] Failed to fetch resource:", error);
+  }
   return {
     title: resource ? `${resource.name} | Alarm Manager` : "Resource Detail | Alarm Manager",
     description: resource
@@ -25,13 +30,24 @@ export default async function ResourceDetailPage({ params }: ResourceDetailPageP
   const { id } = await params;
   const decodedId = decodeURIComponent(id);
 
-  const resource = await fetchResource(decodedId);
+  let resource = null;
+  try {
+    resource = await fetchResource(decodedId);
+  } catch (error) {
+    console.error("[ResourceDetailPage] Failed to fetch resource:", error);
+  }
+
   if (!resource) notFound();
 
-  const [alarmConfigs, events] = await Promise.all([
-    fetchResourceAlarms(resource.id),
-    Promise.resolve(getMockEvents(resource.id)),
-  ]);
+  let alarmConfigs = [], events = [];
+  try {
+    [alarmConfigs, events] = await Promise.all([
+      fetchResourceAlarms(resource.id),
+      Promise.resolve(getMockEvents(resource.id)),
+    ]);
+  } catch (error) {
+    console.error("[ResourceDetailPage] Failed to fetch secondary data:", error);
+  }
 
   return (
     <div className="space-y-8">

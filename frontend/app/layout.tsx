@@ -12,7 +12,14 @@ export const metadata: Metadata = {
 };
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
-  const alarms = await fetchAlarms();
+  let alarms = [];
+  try {
+    alarms = await fetchAlarms();
+  } catch (error) {
+    console.error("[RootLayout] Failed to fetch alarms:", error);
+    // Fallback to empty array to allow the app shell to render
+    alarms = [];
+  }
 
   return (
     <html lang="ko">
