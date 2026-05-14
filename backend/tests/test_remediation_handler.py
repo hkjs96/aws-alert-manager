@@ -806,7 +806,7 @@ class TestDeleteTargetGroup:
         """template.yaml EventPattern에 DeleteTargetGroup 포함 정적 검증"""
         from pathlib import Path
 
-        template_path = Path(__file__).resolve().parent.parent / "template.yaml"
+        template_path = Path(__file__).resolve().parents[2] / "infrastructure" / "backend" / "template.yaml"
         content = template_path.read_text(encoding="utf-8")
 
         # CloudTrailModifyRule 섹션에서 DeleteTargetGroup 문자열 존재 확인
@@ -1219,7 +1219,7 @@ class TestEventBridgeRule:
 
         _CfnLoader.add_multi_constructor("!", _cfn_tag_constructor)
 
-        template_path = Path(__file__).resolve().parent.parent / "template.yaml"
+        template_path = Path(__file__).resolve().parents[2] / "infrastructure" / "backend" / "template.yaml"
         with open(template_path, encoding="utf-8") as f:
             template = yaml.load(f, Loader=_CfnLoader)
 
