@@ -1,6 +1,8 @@
 import { fetchAlarms, fetchAlarmSummary, fetchCustomerOptions, fetchAccountOptions } from "@/lib/server/data";
 import { AlarmsContent } from "@/components/alarms/AlarmsContent";
 import type { Metadata } from "next";
+import type { Alarm } from "@/types";
+import type { AlarmSummary } from "@/types/api";
 
 export const metadata: Metadata = {
   title: "Alarms | Alarm Manager",
@@ -8,7 +10,10 @@ export const metadata: Metadata = {
 };
 
 export default async function AlarmsPage() {
-  let alarms = [], summary, customers = [], accounts = [];
+  let alarms: Alarm[] = [];
+  let summary: AlarmSummary = { total: 0, alarm_count: 0, ok_count: 0, insufficient_count: 0 };
+  let customers: { id: string; name: string }[] = [];
+  let accounts: { id: string; name: string; customerId: string }[] = [];
   try {
     [alarms, summary, customers, accounts] = await Promise.all([
       fetchAlarms(),
@@ -18,7 +23,6 @@ export default async function AlarmsPage() {
     ]);
   } catch (error) {
     console.error("[AlarmsPage] Failed to fetch data:", error);
-    summary = { total: 0, alarm: 0, ok: 0, insufficient: 0, muted: 0 };
   }
 
   return (

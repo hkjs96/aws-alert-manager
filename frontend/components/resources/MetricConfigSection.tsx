@@ -11,6 +11,14 @@ export type MetricRow = {
   enabled: boolean;
 };
 
+const metric = (
+  key: string,
+  name: string,
+  threshold: number,
+  unit = "",
+  direction = ">",
+): MetricRow => ({ key, name, threshold, unit, direction, enabled: true });
+
 export const METRICS_BY_TYPE: Record<string, MetricRow[]> = {
   EC2: [
     { key: "CPU", name: "CPUUtilization", threshold: 80, unit: "%", direction: ">", enabled: true },
@@ -28,15 +36,145 @@ export const METRICS_BY_TYPE: Record<string, MetricRow[]> = {
     { key: "BucketSize", name: "BucketSizeBytes", threshold: 500, unit: "GB", direction: ">", enabled: true },
     { key: "Objects", name: "NumberOfObjects", threshold: 1000000, unit: "Count", direction: ">", enabled: true },
   ],
-  LAMBDA: [
+  Lambda: [
     { key: "Errors", name: "Errors", threshold: 5, unit: "Count", direction: ">", enabled: true },
     { key: "Duration", name: "Duration", threshold: 10000, unit: "ms", direction: ">", enabled: true },
     { key: "Throttles", name: "Throttles", threshold: 0, unit: "Count", direction: ">", enabled: true },
   ],
-  NET: [
+  ALB: [
     { key: "5XX", name: "HTTPCode_ELB_5XX_Count", threshold: 50, unit: "Count", direction: ">", enabled: true },
     { key: "ResponseTime", name: "TargetResponseTime", threshold: 2, unit: "s", direction: ">", enabled: true },
     { key: "HealthyHosts", name: "HealthyHostCount", threshold: 2, unit: "Count", direction: "<", enabled: true },
+  ],
+  NLB: [
+    metric("ProcessedBytes", "ProcessedBytes", 100000000),
+    metric("ActiveFlowCount", "ActiveFlowCount", 10000),
+    metric("NewFlowCount", "NewFlowCount", 5000),
+    metric("TCP_Client_Reset_Count", "TCP_Client_Reset_Count", 100),
+    metric("TCP_Target_Reset_Count", "TCP_Target_Reset_Count", 100),
+  ],
+  TG: [
+    metric("HealthyHostCount", "HealthyHostCount", 1, "", "<"),
+    metric("UnHealthyHostCount", "UnHealthyHostCount", 1),
+    metric("RequestCountPerTarget", "RequestCountPerTarget", 1000),
+    metric("TargetResponseTime", "TargetResponseTime", 5, "s"),
+  ],
+  AuroraRDS: [
+    metric("CPUUtilization", "CPUUtilization", 80, "%"),
+    metric("FreeableMemory", "FreeableMemory", 2, "GB", "<"),
+    metric("DatabaseConnections", "DatabaseConnections", 100),
+    metric("FreeLocalStorage", "FreeLocalStorage", 10, "GB", "<"),
+    metric("ReplicaLag", "AuroraReplicaLagMaximum", 2000000, "us"),
+    metric("ReaderReplicaLag", "AuroraReplicaLag", 2000000, "us"),
+    metric("ACUUtilization", "ACUUtilization", 80, "%"),
+    metric("ServerlessDatabaseCapacity", "ServerlessDatabaseCapacity", 128, "ACU"),
+  ],
+  DocDB: [
+    metric("CPUUtilization", "CPUUtilization", 80, "%"),
+    metric("FreeableMemory", "FreeableMemory", 2, "GB", "<"),
+    metric("DatabaseConnections", "DatabaseConnections", 100),
+  ],
+  ElastiCache: [
+    metric("CPUUtilization", "CPUUtilization", 80, "%"),
+    metric("EngineCPU", "EngineCPUUtilization", 90, "%"),
+    metric("SwapUsage", "SwapUsage", 1),
+    metric("Evictions", "Evictions", 5),
+    metric("CurrConnections", "CurrConnections", 200),
+  ],
+  NAT: [
+    metric("PacketsDropCount", "PacketsDropCount", 1),
+    metric("ErrorPortAllocation", "ErrorPortAllocation", 1),
+  ],
+  VPN: [metric("TunnelState", "TunnelState", 1, "", "<")],
+  APIGW: [
+    metric("ApiLatency", "Latency", 3000, "ms"),
+    metric("Api4XXError", "4XXError", 1),
+    metric("Api5XXError", "5XXError", 1),
+    metric("Api4xx", "4xx", 1),
+    metric("Api5xx", "5xx", 1),
+    metric("WsConnectCount", "ConnectCount", 1000),
+    metric("WsMessageCount", "MessageCount", 10000),
+    metric("WsIntegrationError", "IntegrationError", 0),
+    metric("WsExecutionError", "ExecutionError", 0),
+  ],
+  ACM: [metric("DaysToExpiry", "DaysToExpiry", 14, "days", "<")],
+  Backup: [
+    metric("BackupJobsFailed", "NumberOfBackupJobsFailed", 0),
+    metric("BackupJobsAborted", "NumberOfBackupJobsAborted", 0),
+  ],
+  MQ: [
+    metric("MqCPU", "CpuUtilization", 90, "%"),
+    metric("HeapUsage", "HeapUsage", 80, "%"),
+    metric("JobSchedulerStoreUsage", "JobSchedulerStorePercentUsage", 80, "%"),
+    metric("StoreUsage", "StorePercentUsage", 80, "%"),
+  ],
+  CLB: [
+    metric("CLBUnHealthyHost", "UnHealthyHostCount", 0),
+    metric("CLB5XX", "HTTPCode_ELB_5XX", 300),
+    metric("CLB4XX", "HTTPCode_ELB_4XX", 300),
+    metric("CLBBackend5XX", "HTTPCode_Backend_5XX", 300),
+    metric("CLBBackend4XX", "HTTPCode_Backend_4XX", 300),
+    metric("SurgeQueueLength", "SurgeQueueLength", 300),
+    metric("SpilloverCount", "SpilloverCount", 300),
+  ],
+  OpenSearch: [
+    metric("ClusterStatusRed", "ClusterStatus.red", 0),
+    metric("ClusterStatusYellow", "ClusterStatus.yellow", 0),
+    metric("OSFreeStorageSpace", "FreeStorageSpace", 20480, "MB", "<"),
+    metric("ClusterIndexWritesBlocked", "ClusterIndexWritesBlocked", 0),
+    metric("OsCPU", "CPUUtilization", 80, "%"),
+    metric("JVMMemoryPressure", "JVMMemoryPressure", 80, "%"),
+    metric("MasterCPU", "MasterCPUUtilization", 50, "%"),
+    metric("MasterJVMMemoryPressure", "MasterJVMMemoryPressure", 80, "%"),
+  ],
+  SQS: [
+    metric("SQSMessagesVisible", "ApproximateNumberOfMessagesVisible", 1000),
+    metric("SQSOldestMessage", "ApproximateAgeOfOldestMessage", 300, "s"),
+    metric("SQSMessagesSent", "NumberOfMessagesSent", 10000),
+  ],
+  ECS: [
+    metric("EcsCPU", "CPUUtilization", 80, "%"),
+    metric("EcsMemory", "MemoryUtilization", 80, "%"),
+  ],
+  MSK: [
+    metric("OffsetLag", "SumOffsetLag", 1000),
+    metric("BytesInPerSec", "BytesInPerSec", 100000000, "B/s"),
+    metric("UnderReplicatedPartitions", "UnderReplicatedPartitions", 0),
+    metric("ActiveControllerCount", "ActiveControllerCount", 1, "", "<"),
+  ],
+  DynamoDB: [
+    metric("DDBReadCapacity", "ConsumedReadCapacityUnits", 80),
+    metric("DDBWriteCapacity", "ConsumedWriteCapacityUnits", 80),
+    metric("ThrottledRequests", "ThrottledRequests", 0),
+    metric("DDBSystemErrors", "SystemErrors", 0),
+  ],
+  CloudFront: [
+    metric("CF5xxErrorRate", "5xxErrorRate", 1, "%"),
+    metric("CF4xxErrorRate", "4xxErrorRate", 5, "%"),
+    metric("CFRequests", "Requests", 1000000),
+    metric("CFBytesDownloaded", "BytesDownloaded", 10000000000, "B"),
+  ],
+  WAF: [
+    metric("WAFBlockedRequests", "BlockedRequests", 100),
+    metric("WAFAllowedRequests", "AllowedRequests", 1000000),
+    metric("WAFCountedRequests", "CountedRequests", 100000),
+  ],
+  Route53: [metric("HealthCheckStatus", "HealthCheckStatus", 1, "", "<")],
+  DX: [metric("ConnectionState", "ConnectionState", 1, "", "<")],
+  EFS: [
+    metric("BurstCreditBalance", "BurstCreditBalance", 1000000000, "", "<"),
+    metric("PercentIOLimit", "PercentIOLimit", 90, "%"),
+    metric("EFSClientConnections", "ClientConnections", 1000),
+  ],
+  SageMaker: [
+    metric("SMInvocations", "Invocations", 100000),
+    metric("SMInvocationErrors", "InvocationErrors", 0),
+    metric("SMModelLatency", "ModelLatency", 1000, "us"),
+    metric("SMCPU", "CPUUtilization", 80, "%"),
+  ],
+  SNS: [
+    metric("SNSNotificationsFailed", "NumberOfNotificationsFailed", 0),
+    metric("SNSMessagesPublished", "NumberOfMessagesPublished", 1000000),
   ],
 };
 
@@ -53,12 +191,12 @@ export const AVAILABLE_CW_METRICS: Record<string, { name: string; namespace: str
     { name: "WriteLatency", namespace: "AWS/RDS" },
     { name: "ReplicaLag", namespace: "AWS/RDS" },
   ],
-  LAMBDA: [
+  Lambda: [
     { name: "ConcurrentExecutions", namespace: "AWS/Lambda" },
     { name: "IteratorAge", namespace: "AWS/Lambda" },
   ],
   S3: [],
-  NET: [
+  ALB: [
     { name: "RequestCount", namespace: "AWS/ApplicationELB" },
     { name: "ProcessedBytes", namespace: "AWS/ApplicationELB" },
   ],

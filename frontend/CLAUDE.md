@@ -1,70 +1,70 @@
-# Frontend — Claude Guide
+# Frontend Claude Guide
 
-`frontend/**/*.{ts,tsx,css}` 작업 시 적용되는 규칙.
-루트의 [`../CLAUDE.md`](../CLAUDE.md)는 그대로 유효하고, 아래 프론트엔드 전용 규칙이 추가된다.
+These rules apply to `frontend/**/*.{ts,tsx,css}`. The root `../CLAUDE.md`
+rules also apply.
 
-## 적용 규칙 (import)
+## Frontend API Contract Rules
 
-- Next.js 16 + React 19 프레임워크 규칙: @../.kiro/steering/nextjs-rules.md
-- TDD 규칙 (Red → Green → Refactor, 커버리지 기준): @../.kiro/steering/tdd-rules.md
-- 품질 검증: [.claude/harness/evaluation-criteria.md](../.claude/harness/evaluation-criteria.md) 준수
+When a frontend change touches API data:
 
-## 핵심 체크리스트
+- Check `docs/API-CONTRACT.md` before changing fetch code or component props.
+- Distinguish backend-supported resources from frontend-active resources.
+  Backend-wide type contracts use `SUPPORTED_RESOURCE_TYPES`; UI filters,
+  settings, and primary workflows currently use
+  `FRONTEND_INTEGRATION_RESOURCE_TYPES`.
+- Keep API JSON fields as `snake_case` until an explicit frontend DTO mapping is
+  created.
+- Keep UI option DTOs local and named clearly. For example, `{id, name,
+  customerId}` must be mapped from `{account_id, name, customer_id}` in one
+  place.
+- Update `frontend/types/index.ts` or `frontend/types/api.ts` in the same change
+  as any API contract change.
+- Update `frontend/lib/server/data.ts` fallback objects with the same keys as
+  the API contract.
+- Dashboard, list, and settings Server Components must catch backend fetch
+  failures and render empty or zero-state fallback data.
+- Do not use `useSearchParams()` in components rendered from the root layout
+  unless the Suspense/CSR bailout behavior is explicitly tested in production
+  SSR.
 
-### 설계 3단계 절대 규칙 (frontend-ruels.md)
+## Next.js Rules
 
-UI 이미지나 새 기능 요구사항이 주어졌을 때 **절대 바로 구현 코드를 작성하지 않는다.**
+- Default to Server Components. Add `"use client"` only at interaction leaves.
+- Do not put `"use client"` in `page.tsx` or `layout.tsx`.
+- Fetch initial page data in Server Components through
+  `frontend/lib/server/data.ts`.
+- Client Components should use `frontend/lib/api-functions.ts` or local route
+  handlers.
+- Parallelize independent page data with `Promise.all()`.
+- Keep API failure handling explicit. SSR pages should not crash for routine
+  backend failures.
 
-1. **분석 및 분해**: 컴포넌트 계층 구조로 쪼개기. 재사용 공통 컴포넌트 vs 도메인 컴포넌트 구분.
-2. **역질문**: 상태 관리(global/local/server), API·데이터 흐름(로딩/에러), 사용자 인터랙션/엣지 케이스에 대해 사용자에게 확인.
-3. **사양 확정**: 의사결정 완료 후에만 `requirements.md` / `design.md` / `tasks.md` 생성 제안. 모든 태스크는 TDD 기준 최소 단위로 분할.
+## TypeScript Rules
 
-### Next.js 렌더링 전략
+- `strict: true` is required.
+- Do not introduce `any`.
+- Prefer named exports except for Next.js `page.tsx` and `layout.tsx` default
+  exports.
+- Keep component props narrow. Do not pass full backend records when a smaller
+  DTO is enough.
+- Extract shared constants to `frontend/lib/constants.ts`.
 
-- 기본은 **Server Component**. `'use client'`는 상호작용이 필요한 leaf에만.
-- `page.tsx` / `layout.tsx`에 `'use client'` 절대 금지.
-- 데이터 페칭은 Server Component에서 직접. API Route는 Client Component 호출용으로만.
-- 병렬 페칭: `Promise.all()` 또는 개별 `<Suspense>`. 워터폴 금지.
-- `params`/`searchParams`/`cookies()`/`headers()`는 최상단에서 `await`하지 않고 필요한 컴포넌트까지 내려보낸다.
+## Security Rules
 
-### TypeScript & 코드 품질
+- Do not expose server-only secrets with `NEXT_PUBLIC_`.
+- Client props must not include credentials, role secrets, API keys, or raw
+  sensitive backend records.
+- Validate user-controlled payloads before sending them to backend mutation
+  endpoints.
 
-- `strict: true`, `any` 금지.
-- 파일 200줄 초과 시 역할별로 분리.
-- 매직 넘버는 `lib/constants.ts`로 추출.
-- 컴포넌트 named export (예외: `page.tsx`, `layout.tsx` 등 Next.js 컨벤션 default export).
+## Verification
 
-### 보안
-
-- 서버 전용 시크릿에 `NEXT_PUBLIC_` 접두사 금지.
-- Client Component props에 DB 레코드 전체 전달 금지 — 필요한 필드만 DTO로.
-- Server Action 내부에서 인증·인가·유효성 재검증 필수.
-
-### TDD
-
-- **Red 먼저**: `npm test`로 FAIL 확인 후에만 구현 시작.
-- 테스트 설명은 **한국어** (`describe`, `it`).
-- 커버리지: `src/domain/` 90% · `src/application/` 85% · 나머지 80%.
-- Unit: `jest.Mocked<T>`로 외부 의존성 교체 (실제 DB 호출 금지).
-- Integration: Repository는 InMemory 구현체, API Route는 `NextRequest`로 직접.
-- E2E: Playwright + `data-testid`.
-- 도메인 레이어(`src/domain`)에서 인프라/외부 라이브러리 import 금지 (Clean Architecture 의존성 규칙).
-
-### 완료 조건
+Run these when the environment allows child processes:
 
 ```bash
-npm test -- --coverage --forceExit
 npx tsc --noEmit
+npm test
 ```
 
-실패 시 원인을 **A. 구현 버그 / B. 테스트 버그 / C. 환경 문제**로 분류. B는 사용자에게 보고 후 수정.
-
-### 절대 금지
-
-- 테스트 없이 구현 코드 먼저 작성
-- `it.skip()` / `xit()` 방치
-- 테스트 주석/삭제로 커버리지 맞추기
-- `any` 타입
-- `page.tsx`/`layout.tsx`에 `'use client'`
-- 민감 데이터 클라이언트 노출
-- Supabase 마이그레이션(`supabase/migrations/`) 수정/삭제/생성은 반드시 사용자 허가 후
+If a command fails, classify the cause as implementation bug, test bug, or local
+environment issue.

@@ -1,13 +1,12 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { useSearchParams } from "next/navigation";
 import { Settings, Save } from "lucide-react";
 import { Button } from "@/components/shared/Button";
 import { useToast } from "@/components/shared/Toast";
 import { LoadingButton } from "@/components/shared/LoadingButton";
 import { getMockThresholdOverrides } from "@/lib/mock-data";
-import { SUPPORTED_RESOURCE_TYPES } from "@/lib/constants";
+import { FRONTEND_INTEGRATION_RESOURCE_TYPES } from "@/lib/constants";
 import { fetchThresholds, saveThresholds } from "@/lib/api-functions";
 import type { ThresholdOverride } from "@/types/api";
 
@@ -15,10 +14,17 @@ const USE_REAL_API = Boolean(process.env.NEXT_PUBLIC_API_BASE_URL);
 
 export function ThresholdSection() {
   const { showToast } = useToast();
-  const searchParams = useSearchParams();
+  const [queryString, setQueryString] = useState("");
+  useEffect(() => {
+    setQueryString(window.location.search);
+  }, []);
+  const searchParams = useMemo(
+    () => new URLSearchParams(queryString),
+    [queryString],
+  );
   const customerId = searchParams.get("customer_id") ?? "";
 
-  const [activeType, setActiveType] = useState<string>(SUPPORTED_RESOURCE_TYPES[0]);
+  const [activeType, setActiveType] = useState<string>(FRONTEND_INTEGRATION_RESOURCE_TYPES[0]);
   const [thresholds, setThresholds] = useState<ThresholdOverride[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -127,7 +133,7 @@ export function ThresholdSection() {
       {/* Resource type tabs */}
       <div className="px-6 py-4 border-b border-slate-100 overflow-x-auto">
         <div className="flex gap-2 scrollbar-thin">
-          {SUPPORTED_RESOURCE_TYPES.map((type) => (
+          {FRONTEND_INTEGRATION_RESOURCE_TYPES.map((type) => (
             <Button
               key={type}
               variant={activeType === type ? "primary" : "secondary"}

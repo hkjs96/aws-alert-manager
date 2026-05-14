@@ -32,15 +32,15 @@ export const MOCK_RESOURCES: Resource[] = [
   { id: "i-0a2b4c6d8e0f12", name: "payments-api-prod-01", type: "EC2", account: "882311440092", region: "us-east-1", monitoring: true, alarms: { critical: 2, warning: 0 } },
   { id: "arn:aws:s3:::user-data-store", name: "user-static-assets", type: "S3", account: "882311440092", region: "eu-central-1", monitoring: true, alarms: { critical: 0, warning: 0 } },
   { id: "db-XYZ9908821-RDS", name: "auth-db-postgres", type: "RDS", account: "440911228833", region: "us-west-2", monitoring: true, alarms: { critical: 0, warning: 1 } },
-  { id: "arn:aws:lambda:u...worker", name: "image-processor-worker", type: "LAMBDA", account: "882311440092", region: "us-east-1", monitoring: false, alarms: { critical: 0, warning: 0 } },
+  { id: "arn:aws:lambda:u...worker", name: "image-processor-worker", type: "Lambda", account: "882311440092", region: "us-east-1", monitoring: false, alarms: { critical: 0, warning: 0 } },
   { id: "alb-prod-external-332", name: "main-ingress-lb", type: "ALB", account: "882311440092", region: "us-east-1", monitoring: true, alarms: { critical: 0, warning: 0 } },
   { id: "i-0f1e2d3c4b5a69", name: "web-server-prod-02", type: "EC2", account: "882311440092", region: "us-east-1", monitoring: true, alarms: { critical: 1, warning: 1 } },
   { id: "db-ABC1234567-RDS", name: "orders-db-mysql", type: "RDS", account: "440911228833", region: "us-west-2", monitoring: false, alarms: { critical: 0, warning: 0 } },
-  { id: "arn:aws:lambda:u...notifier", name: "email-notifier", type: "LAMBDA", account: "112233445566", region: "ap-northeast-2", monitoring: true, alarms: { critical: 0, warning: 0 } },
+  { id: "arn:aws:lambda:u...notifier", name: "email-notifier", type: "Lambda", account: "112233445566", region: "ap-northeast-2", monitoring: true, alarms: { critical: 0, warning: 0 } },
   { id: "alb-staging-internal-221", name: "staging-internal-lb", type: "ALB", account: "440911228833", region: "us-west-2", monitoring: false, alarms: { critical: 0, warning: 0 } },
   { id: "arn:aws:s3:::log-archive", name: "log-archive-bucket", type: "S3", account: "112233445566", region: "ap-northeast-2", monitoring: true, alarms: { critical: 0, warning: 1 } },
   { id: "i-9a8b7c6d5e4f33", name: "batch-worker-01", type: "EC2", account: "112233445566", region: "ap-northeast-2", monitoring: true, alarms: { critical: 0, warning: 0 } },
-  { id: "arn:aws:lambda:u...cron", name: "scheduled-cron-job", type: "LAMBDA", account: "882311440092", region: "us-east-1", monitoring: true, alarms: { critical: 1, warning: 0 } },
+  { id: "arn:aws:lambda:u...cron", name: "scheduled-cron-job", type: "Lambda", account: "882311440092", region: "us-east-1", monitoring: true, alarms: { critical: 1, warning: 0 } },
 ];
 
 // --- Alarms ---
@@ -48,13 +48,13 @@ export const MOCK_ALARMS: Alarm[] = [
   { id: "alm-001", time: "14:22:05 UTC", resource: "payments-api-prod-01", arn: "arn:aws:cloudwatch:us-east-1:882311440092:alarm:cpu-high", account: "882311440092", type: "EC2", metric: "CPUUtilization", state: "ALARM", value: "94.2% > 85.0%" },
   { id: "alm-002", time: "14:18:32 UTC", resource: "auth-db-postgres", arn: "arn:aws:cloudwatch:us-west-2:440911228833:alarm:storage-low", account: "440911228833", type: "RDS", metric: "FreeStorageSpace", state: "INSUFFICIENT_DATA", value: "5.2GB < 10GB" },
   { id: "alm-003", time: "14:15:00 UTC", resource: "user-static-assets", arn: "arn:aws:cloudwatch:eu-central-1:882311440092:alarm:bucket-size", account: "882311440092", type: "S3", metric: "BucketSizeBytes", state: "OK", value: "128GB < 500GB" },
-  { id: "alm-004", time: "14:12:44 UTC", resource: "image-processor-worker", arn: "arn:aws:cloudwatch:us-east-1:882311440092:alarm:fn-errors", account: "882311440092", type: "LAMBDA", metric: "Errors", state: "OFF", value: "0 = 0" },
+  { id: "alm-004", time: "14:12:44 UTC", resource: "image-processor-worker", arn: "arn:aws:cloudwatch:us-east-1:882311440092:alarm:fn-errors", account: "882311440092", type: "Lambda", metric: "Errors", state: "OFF", value: "0 = 0" },
   { id: "alm-005", time: "14:10:12 UTC", resource: "main-ingress-lb", arn: "arn:aws:cloudwatch:us-east-1:882311440092:alarm:5xx", account: "882311440092", type: "ALB", metric: "HTTPCode_ELB_5XX_Count", state: "ALARM", value: "72 > 50" },
   { id: "alm-006", time: "13:55:00 UTC", resource: "web-server-prod-02", arn: "arn:aws:cloudwatch:us-east-1:882311440092:alarm:mem-high", account: "882311440092", type: "EC2", metric: "mem_used_percent", state: "ALARM", value: "92.1% > 80.0%" },
   { id: "alm-007", time: "13:48:22 UTC", resource: "orders-db-mysql", arn: "arn:aws:cloudwatch:us-west-2:440911228833:alarm:cpu-util", account: "440911228833", type: "RDS", metric: "CPUUtilization", state: "OK", value: "45.0% < 80.0%" },
-  { id: "alm-008", time: "13:30:10 UTC", resource: "email-notifier", arn: "arn:aws:cloudwatch:ap-northeast-2:112233445566:alarm:duration", account: "112233445566", type: "LAMBDA", metric: "Duration", state: "OK", value: "2500ms < 10000ms" },
+  { id: "alm-008", time: "13:30:10 UTC", resource: "email-notifier", arn: "arn:aws:cloudwatch:ap-northeast-2:112233445566:alarm:duration", account: "112233445566", type: "Lambda", metric: "Duration", state: "OK", value: "2500ms < 10000ms" },
   { id: "alm-009", time: "13:22:05 UTC", resource: "log-archive-bucket", arn: "arn:aws:cloudwatch:ap-northeast-2:112233445566:alarm:bucket-size", account: "112233445566", type: "S3", metric: "BucketSizeBytes", state: "INSUFFICIENT_DATA", value: "N/A" },
-  { id: "alm-010", time: "13:10:00 UTC", resource: "scheduled-cron-job", arn: "arn:aws:cloudwatch:us-east-1:882311440092:alarm:cron-errors", account: "882311440092", type: "LAMBDA", metric: "Errors", state: "ALARM", value: "12 > 5" },
+  { id: "alm-010", time: "13:10:00 UTC", resource: "scheduled-cron-job", arn: "arn:aws:cloudwatch:us-east-1:882311440092:alarm:cron-errors", account: "882311440092", type: "Lambda", metric: "Errors", state: "ALARM", value: "12 > 5" },
   { id: "alm-011", time: "12:55:33 UTC", resource: "batch-worker-01", arn: "arn:aws:cloudwatch:ap-northeast-2:112233445566:alarm:status-check", account: "112233445566", type: "EC2", metric: "StatusCheckFailed", state: "OK", value: "0 = 0" },
   { id: "alm-012", time: "12:40:15 UTC", resource: "staging-internal-lb", arn: "arn:aws:cloudwatch:us-west-2:440911228833:alarm:response-time", account: "440911228833", type: "ALB", metric: "TargetResponseTime", state: "OFF", value: "N/A" },
 ];
@@ -64,7 +64,7 @@ export const MOCK_RECENT_ALARMS: RecentAlarm[] = [
   { timestamp: "2024-06-15T14:22:05Z", resource_id: "i-0a2b4c6d8e0f12", account: "882311440092", resource_name: "payments-api-prod-01", resource_type: "EC2", metric: "CPUUtilization", severity: "SEV-1", state_change: "OK → ALARM", value: 94.2, threshold: 85.0 },
   { timestamp: "2024-06-15T14:18:32Z", resource_id: "db-XYZ9908821-RDS", account: "440911228833", resource_name: "auth-db-postgres", resource_type: "RDS", metric: "FreeStorageSpace", severity: "SEV-2", state_change: "OK → INSUFFICIENT", value: 5.2, threshold: 10.0 },
   { timestamp: "2024-06-15T13:55:00Z", resource_id: "i-0f1e2d3c4b5a69", account: "882311440092", resource_name: "web-server-prod-02", resource_type: "EC2", metric: "mem_used_percent", severity: "SEV-2", state_change: "OK → ALARM", value: 92.1, threshold: 80.0 },
-  { timestamp: "2024-06-15T13:10:00Z", resource_id: "arn:aws:lambda:u...cron", account: "882311440092", resource_name: "scheduled-cron-job", resource_type: "LAMBDA", metric: "Errors", severity: "SEV-3", state_change: "OK → ALARM", value: 12, threshold: 5 },
+  { timestamp: "2024-06-15T13:10:00Z", resource_id: "arn:aws:lambda:u...cron", account: "882311440092", resource_name: "scheduled-cron-job", resource_type: "Lambda", metric: "Errors", severity: "SEV-3", state_change: "OK → ALARM", value: 12, threshold: 5 },
   { timestamp: "2024-06-15T12:55:33Z", resource_id: "i-9a8b7c6d5e4f33", account: "112233445566", resource_name: "batch-worker-01", resource_type: "EC2", metric: "StatusCheckFailed", severity: "SEV-1", state_change: "ALARM → OK", value: 0, threshold: 0 },
 ];
 
@@ -157,7 +157,7 @@ export const TYPE_DEFAULT_METRICS: Record<string, { key: string; name: string; t
     { key: "BucketSize", name: "BucketSizeBytes", threshold: 500, unit: "GB", direction: ">" },
     { key: "Objects", name: "NumberOfObjects", threshold: 1000000, unit: "Count", direction: ">" },
   ],
-  LAMBDA: [
+  Lambda: [
     { key: "Errors", name: "Errors", threshold: 5, unit: "Count", direction: ">" },
     { key: "Duration", name: "Duration", threshold: 10000, unit: "ms", direction: ">" },
     { key: "Throttles", name: "Throttles", threshold: 0, unit: "Count", direction: ">" },

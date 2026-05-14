@@ -9,3 +9,18 @@ export const SUPPORTED_RESOURCE_TYPES = [
 ] as const;
 
 export type ResourceType = (typeof SUPPORTED_RESOURCE_TYPES)[number];
+
+/**
+ * Frontend integration MVP scope.
+ *
+ * The backend registry supports all `SUPPORTED_RESOURCE_TYPES`, but the current
+ * frontend/backend integration path is intentionally narrowed to these types
+ * until the workflows are complete end to end.
+ */
+export const FRONTEND_INTEGRATION_RESOURCE_TYPES = [
+  "EC2",
+  "RDS",
+  "S3",
+  "Lambda",
+  "ALB",
+] as const;

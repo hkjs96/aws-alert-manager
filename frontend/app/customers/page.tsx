@@ -2,6 +2,7 @@ import { fetchCustomers, fetchAccounts } from "@/lib/server/data";
 import { CustomerSection } from "@/components/settings/CustomerSection";
 import { AccountSection } from "@/components/settings/AccountSection";
 import type { Metadata } from "next";
+import type { Account, Customer } from "@/types";
 
 export const metadata: Metadata = {
   title: "Customers | Alarm Manager",
@@ -9,10 +10,16 @@ export const metadata: Metadata = {
 };
 
 export default async function CustomersPage() {
-  const [customers, accounts] = await Promise.all([
-    fetchCustomers(),
-    fetchAccounts(),
-  ]);
+  let customers: Customer[] = [];
+  let accounts: Account[] = [];
+  try {
+    [customers, accounts] = await Promise.all([
+      fetchCustomers(),
+      fetchAccounts(),
+    ]);
+  } catch (error) {
+    console.error("[CustomersPage] Failed to fetch data:", error);
+  }
 
   return (
     <div className="space-y-8">

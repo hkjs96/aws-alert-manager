@@ -7,7 +7,7 @@ import { getResources, addResource, resourceExists } from "@/lib/mock-store";
 const SYNC_CANDIDATES = [
   { id: "i-aabbccdd1122", name: "cache-server-prod-01", type: "EC2", account: "882311440092", region: "us-east-1", monitoring: false, alarms: { critical: 0, warning: 0 } },
   { id: "db-NEWRDS99-RDS", name: "analytics-db-aurora", type: "RDS", account: "440911228833", region: "us-west-2", monitoring: false, alarms: { critical: 0, warning: 0 } },
-  { id: "arn:aws:lambda:u...reporter", name: "report-generator", type: "LAMBDA", account: "112233445566", region: "ap-northeast-2", monitoring: false, alarms: { critical: 0, warning: 0 } },
+  { id: "arn:aws:lambda:u...reporter", name: "report-generator", type: "Lambda", account: "112233445566", region: "ap-northeast-2", monitoring: false, alarms: { critical: 0, warning: 0 } },
 ] as const;
 
 export async function POST() {

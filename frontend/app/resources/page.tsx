@@ -1,6 +1,7 @@
 import { fetchResources, fetchCustomerOptions, fetchAccountOptions } from "@/lib/server/data";
 import { ResourcesContent } from "@/components/resources/ResourcesContent";
 import type { Metadata } from "next";
+import type { Resource } from "@/types";
 
 export const metadata: Metadata = {
   title: "Resources | Alarm Manager",
@@ -8,7 +9,9 @@ export const metadata: Metadata = {
 };
 
 export default async function ResourcesPage() {
-  let resources = [], customers = [], accounts = [];
+  let resources: Resource[] = [];
+  let customers: { id: string; name: string }[] = [];
+  let accounts: { id: string; name: string; customerId: string }[] = [];
   try {
     [resources, customers, accounts] = await Promise.all([
       fetchResources(),

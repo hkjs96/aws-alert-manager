@@ -1,7 +1,7 @@
 "use client";
 
 import { Search } from "lucide-react";
-import { SUPPORTED_RESOURCE_TYPES } from "@/lib/constants";
+import { FRONTEND_INTEGRATION_RESOURCE_TYPES } from "@/lib/constants";
 
 interface FilterBarProps {
   search: string;
@@ -102,7 +102,7 @@ export function FilterBar({
             className="w-full bg-slate-50 border border-slate-200 rounded-lg text-sm px-3 py-2 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-colors"
           >
             <option value="">All Types</option>
-            {SUPPORTED_RESOURCE_TYPES.map((t) => (
+            {FRONTEND_INTEGRATION_RESOURCE_TYPES.map((t) => (
               <option key={t} value={t}>
                 {t}
               </option>

@@ -4,6 +4,7 @@ import { getMockEvents } from "@/lib/mock-data";
 import { ResourceDetailClient } from "@/components/resources/ResourceDetailClient";
 import { ResourceEvents } from "@/components/resources/ResourceEvents";
 import type { Metadata } from "next";
+import type { AlarmConfig, RecentAlarm, Resource } from "@/types";
 
 interface ResourceDetailPageProps {
   params: Promise<{ id: string }>;
@@ -12,7 +13,7 @@ interface ResourceDetailPageProps {
 export async function generateMetadata({ params }: ResourceDetailPageProps): Promise<Metadata> {
   const { id } = await params;
   const decodedId = decodeURIComponent(id);
-  let resource = null;
+  let resource: Resource | null = null;
   try {
     resource = await fetchResource(decodedId);
   } catch (error) {
@@ -30,7 +31,7 @@ export default async function ResourceDetailPage({ params }: ResourceDetailPageP
   const { id } = await params;
   const decodedId = decodeURIComponent(id);
 
-  let resource = null;
+  let resource: Resource | null = null;
   try {
     resource = await fetchResource(decodedId);
   } catch (error) {
@@ -39,7 +40,8 @@ export default async function ResourceDetailPage({ params }: ResourceDetailPageP
 
   if (!resource) notFound();
 
-  let alarmConfigs = [], events = [];
+  let alarmConfigs: AlarmConfig[] = [];
+  let events: RecentAlarm[] = [];
   try {
     [alarmConfigs, events] = await Promise.all([
       fetchResourceAlarms(resource.id),

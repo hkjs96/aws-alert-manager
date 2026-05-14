@@ -3,6 +3,7 @@ import { fetchDashboardStats, fetchAlarms, fetchCustomerOptions, fetchAccountOpt
 import { DashboardContent } from "@/components/dashboard/DashboardContent";
 import { Skeleton } from "@/components/shared/Skeleton";
 import type { Metadata } from "next";
+import type { Alarm, DashboardStats } from "@/types";
 
 export const metadata: Metadata = {
   title: "Dashboard | Alarm Manager",
@@ -10,7 +11,10 @@ export const metadata: Metadata = {
 };
 
 export default async function DashboardPage() {
-  let stats, alarms, customers, accounts;
+  let stats: DashboardStats;
+  let alarms: Alarm[];
+  let customers: { id: string; name: string }[];
+  let accounts: { id: string; name: string; customerId: string }[];
   try {
     [stats, alarms, customers, accounts] = await Promise.all([
       fetchDashboardStats(),
@@ -21,7 +25,7 @@ export default async function DashboardPage() {
   } catch (error) {
     console.error("[DashboardPage] Failed to fetch data:", error);
     // Fallback values to prevent crash
-    stats = { total_resources: 0, active_alarms: 0, unmonitored_resources: 0, connected_accounts: 0 };
+    stats = { monitored_count: 0, active_alarms: 0, unmonitored_count: 0, account_count: 0 };
     alarms = [];
     customers = [];
     accounts = [];

@@ -3,16 +3,15 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { GlobalFilterBar } from "../GlobalFilterBar";
+import { FRONTEND_INTEGRATION_RESOURCE_TYPES } from "@/lib/constants";
 
 // --- Next.js navigation mocks ---
 const mockPush = vi.fn();
 const mockReplace = vi.fn();
-const mockSearchParams = new URLSearchParams();
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: mockPush, replace: mockReplace }),
   usePathname: () => "/dashboard",
-  useSearchParams: () => mockSearchParams,
 }));
 
 // --- API function mocks ---
@@ -51,9 +50,7 @@ function makeOwnedState(ownedIds: string[]) {
 describe("GlobalFilterBar", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    for (const key of [...mockSearchParams.keys()]) {
-      mockSearchParams.delete(key);
-    }
+    window.history.replaceState(null, "", "/dashboard");
     // 기본: 두 고객사 모두 담당
     vi.mocked(useOwnedCustomers).mockReturnValue(
       makeOwnedState(["cust-001", "cust-002"]),
@@ -109,8 +106,7 @@ describe("GlobalFilterBar", () => {
   });
 
   it("Customer 변경 시 Account와 Service를 리셋한다", async () => {
-    mockSearchParams.set("account_id", "acc-001");
-    mockSearchParams.set("service", "EC2");
+    window.history.replaceState(null, "", "/dashboard?account_id=acc-001&service=EC2");
     render(<GlobalFilterBar />);
     await waitFor(() => {
       expect(screen.getByText("Acme Corp")).toBeInTheDocument();
@@ -125,8 +121,7 @@ describe("GlobalFilterBar", () => {
   });
 
   it("Account 변경 시 Service를 리셋한다", async () => {
-    mockSearchParams.set("customer_id", "cust-001");
-    mockSearchParams.set("service", "EC2");
+    window.history.replaceState(null, "", "/dashboard?customer_id=cust-001&service=EC2");
     render(<GlobalFilterBar />);
     await waitFor(() => {
       expect(screen.getByText("Acme Prod")).toBeInTheDocument();
@@ -139,16 +134,14 @@ describe("GlobalFilterBar", () => {
     expect(pushArg).not.toContain("service=");
   });
 
-  it("Service 드롭다운에 EC2, RDS, S3, LAMBDA, ALB 옵션을 표시한다", async () => {
+  it("Service 드롭다운에 프론트 통합 MVP 리소스 타입 옵션을 표시한다", async () => {
     render(<GlobalFilterBar />);
     await waitFor(() => {
       expect(screen.getByLabelText("Service filter")).toBeInTheDocument();
     });
-    expect(screen.getByText("EC2")).toBeInTheDocument();
-    expect(screen.getByText("RDS")).toBeInTheDocument();
-    expect(screen.getByText("S3")).toBeInTheDocument();
-    expect(screen.getByText("LAMBDA")).toBeInTheDocument();
-    expect(screen.getByText("ALB")).toBeInTheDocument();
+    for (const type of FRONTEND_INTEGRATION_RESOURCE_TYPES) {
+      expect(screen.getByText(type)).toBeInTheDocument();
+    }
   });
 
   // --- 담당 고객사 필터 관련 ---
@@ -174,7 +167,7 @@ describe("GlobalFilterBar", () => {
 
   it("URL에 OwnedCustomers에 없는 customer_id가 있으면 router.replace로 파라미터를 제거한다", async () => {
     vi.mocked(useOwnedCustomers).mockReturnValue(makeOwnedState(["cust-001"]));
-    mockSearchParams.set("customer_id", "cust-002"); // 담당 아닌 고객사
+    window.history.replaceState(null, "", "/dashboard?customer_id=cust-002");
     render(<GlobalFilterBar />);
     await waitFor(() => {
       expect(mockReplace).toHaveBeenCalledWith(

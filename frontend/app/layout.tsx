@@ -3,6 +3,7 @@ import "./globals.css";
 import { AppShell } from "@/components/layout/AppShell";
 import { ToastProvider } from "@/components/shared/Toast";
 import { fetchAlarms } from "@/lib/server/data";
+import type { Alarm } from "@/types";
 
 export const dynamic = "force-dynamic";
 
@@ -12,7 +13,7 @@ export const metadata: Metadata = {
 };
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
-  let alarms = [];
+  let alarms: Alarm[] = [];
   try {
     alarms = await fetchAlarms();
   } catch (error) {

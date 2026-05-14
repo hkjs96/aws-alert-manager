@@ -1,21 +1,29 @@
 "use client";
 
-import { useCallback, useEffect, useState, Suspense } from "react";
-import { useRouter, useSearchParams, usePathname } from "next/navigation";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter, usePathname } from "next/navigation";
 import type { Customer, Account } from "@/types/index";
 import { fetchCustomers, fetchAccounts } from "@/lib/api-functions";
 import { useOwnedCustomers } from "@/hooks/useOwnedCustomers";
-
-const SERVICES = ["EC2", "RDS", "S3", "LAMBDA", "ALB"] as const;
+import { FRONTEND_INTEGRATION_RESOURCE_TYPES } from "@/lib/constants";
 
 function GlobalFilterBarInner() {
   const router = useRouter();
   const pathname = usePathname();
-  const searchParams = useSearchParams();
   const { ownedCustomerIds } = useOwnedCustomers();
 
   const [allCustomers, setAllCustomers] = useState<Customer[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [queryString, setQueryString] = useState("");
+
+  useEffect(() => {
+    setQueryString(window.location.search);
+  }, [pathname]);
+
+  const searchParams = useMemo(
+    () => new URLSearchParams(queryString),
+    [queryString],
+  );
 
   const customerId = searchParams.get("customer_id") ?? "";
   const accountId = searchParams.get("account_id") ?? "";
@@ -48,7 +56,9 @@ function GlobalFilterBarInner() {
       params.delete("customer_id");
       params.delete("account_id");
       params.delete("service");
-      router.replace(`${pathname}?${params.toString()}`);
+      const nextQuery = params.toString();
+      setQueryString(nextQuery ? `?${nextQuery}` : "");
+      router.replace(nextQuery ? `${pathname}?${nextQuery}` : pathname);
     }
   }, [customerId, ownedCustomerIds, searchParams, pathname, router]);
 
@@ -62,7 +72,9 @@ function GlobalFilterBarInner() {
           params.delete(key);
         }
       }
-      router.push(`${pathname}?${params.toString()}`);
+      const nextQuery = params.toString();
+      setQueryString(nextQuery ? `?${nextQuery}` : "");
+      router.push(nextQuery ? `${pathname}?${nextQuery}` : pathname);
     },
     [router, pathname, searchParams],
   );
@@ -138,7 +150,7 @@ function GlobalFilterBarInner() {
         aria-label="Service filter"
       >
         <option value="">All Services</option>
-        {SERVICES.map((s) => (
+        {FRONTEND_INTEGRATION_RESOURCE_TYPES.map((s) => (
           <option key={s} value={s}>
             {s}
           </option>
@@ -149,9 +161,5 @@ function GlobalFilterBarInner() {
 }
 
 export function GlobalFilterBar() {
-  return (
-    <Suspense fallback={<div className="flex items-center gap-3 text-sm text-slate-400">Loading filters...</div>}>
-      <GlobalFilterBarInner />
-    </Suspense>
-  );
+  return <GlobalFilterBarInner />;
 }
