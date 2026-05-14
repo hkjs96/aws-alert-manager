@@ -70,11 +70,13 @@ Codex MCP config cannot use `vtsls --stdio` directly because `vtsls` speaks LSP,
 
 For Codex, use one of these:
 
-- Serena MCP: semantic code tools backed by language-server style indexing.
 - An LSP-to-MCP bridge that launches `vtsls --stdio` and exposes MCP tools.
+- Context7 MCP for current library documentation. This is not a code-indexing
+  replacement for LSP, but it is simpler and works with both Codex and Claude
+  Code.
 
-The Serena setup for this repo is documented in:
+The Context7 setup for this repo is documented in:
 
 ```text
-docs/SERENA-MCP-LSP.md
+docs/CONTEXT7-MCP.md
 ```

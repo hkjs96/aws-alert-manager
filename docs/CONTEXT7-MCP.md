@@ -1,4 +1,4 @@
-# Context7 MCP Setup for Codex
+# Context7 MCP Setup
 
 Context7 provides up-to-date library and framework documentation through MCP.
 
@@ -8,7 +8,7 @@ Use it when asking about current APIs and docs, for example:
 How do I use Next.js 15 app router metadata? use context7
 ```
 
-## Recommended Setup: Remote MCP
+## Codex Setup: Remote MCP
 
 This avoids local npm/npx cache issues.
 
@@ -27,6 +27,27 @@ Then restart Codex and verify:
 ```
 
 You should see `context7` connected.
+
+## Claude Code Setup
+
+Context7 supports Claude Code through remote HTTP MCP. From a normal PowerShell
+session, run:
+
+```powershell
+claude mcp add --scope user --transport http context7 https://mcp.context7.com/mcp
+```
+
+With an API key:
+
+```powershell
+claude mcp add --scope user --header "CONTEXT7_API_KEY: YOUR_CONTEXT7_API_KEY" --transport http context7 https://mcp.context7.com/mcp
+```
+
+Then restart Claude Code and verify with:
+
+```text
+/mcp
+```
 
 ## With API Key
 
