@@ -158,7 +158,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "FILE=\"$CLAUDE_FILE_PATH\"; case \"$FILE\" in *.py) case \"$FILE\" in *test_*|*conftest*) exit 0 ;; esac; MOD=$(basename \"$FILE\" .py); TEST=\"tests/test_${MOD}.py\"; if [ -f \"$TEST\" ]; then echo \"[pytest-on-save] ${TEST} 실행 중...\" >&2; pytest \"$TEST\" -x -q --tb=short 2>&1 | head -60 >&2; fi ;; esac; exit 0"
+            "command": "FILE=\"$CLAUDE_FILE_PATH\"; case \"$FILE\" in *.py) case \"$FILE\" in *test_*|*conftest*) exit 0 ;; esac; MOD=$(basename \"$FILE\" .py); TEST=\"backend/tests/test_${MOD}.py\"; if [ -f \"$TEST\" ]; then echo \"[pytest-on-save] ${TEST} running...\" >&2; (cd backend && pytest \"tests/test_${MOD}.py\" -x -q --tb=short) 2>&1 | head -60 >&2; fi ;; esac; exit 0"
           }
         ]
       },

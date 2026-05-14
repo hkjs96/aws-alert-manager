@@ -7,6 +7,7 @@ __pycache__/
 .venv
 venv/
 .pytest_cache/
+pytest-cache-files-*/
 .coverage
 .hypothesis/
 
@@ -55,6 +56,7 @@ frontend/test-results/
 
 # Tool caches / temp
 .lazyweb/
+.serena/
 codex-git-objects/
 codex-temp-index
 codex-temp-index2

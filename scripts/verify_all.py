@@ -13,6 +13,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+BACKEND = ROOT / "backend"
 FRONTEND = ROOT / "frontend"
 
 
@@ -48,7 +49,7 @@ def main() -> int:
     run_step(
         "Backend tests (pytest)",
         [sys.executable, "-m", "pytest", "tests", "-x", "-q", "--tb=short"],
-        ROOT,
+        BACKEND,
     )
     run_step(
         "Frontend type check (tsc)",
