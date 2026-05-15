@@ -150,6 +150,9 @@ Failure policy:
 - Missing required fields return `400`.
 - Missing CloudWatch metric or resource returns `404`.
 - CloudWatch API failures return `500` with `{code, message}`.
+- Missing-data behavior is backend-normalized. The frontend must read
+  `treat_missing_data` from API responses or shared contract metadata, not from
+  raw registry field presence.
 
 ## Bulk Monitoring
 

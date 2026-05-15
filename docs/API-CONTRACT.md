@@ -223,6 +223,19 @@ Response `200`:
 ]
 ```
 
+Alarm missing-data policy:
+
+- `treat_missing_data` is always a backend-normalized API field in alarm
+  responses.
+- Default policy is `notBreaching`.
+- `backend/common/alarm_builder.py` applies the default when an alarm registry
+  definition does not declare `treat_missing_data`.
+- `backend/common/alarm_registry.py` should declare only metric-specific
+  exceptions such as `breaching` or `missing`.
+- Frontend code must not infer CloudWatch missing-data behavior from the
+  registry field being absent. It must consume the API response field or a
+  shared normalized contract.
+
 ## POST /api/resources/{id}/alarms
 
 Request:
