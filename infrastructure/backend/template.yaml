@@ -164,6 +164,36 @@ Resources:
         - Key: ManagedBy
           Value: AlarmManager
 
+  ResourceInventoryTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub
+        - aws-monitoring-resource-inventory-${EnvShort}
+        - EnvShort: !FindInMap [EnvShortName, !Ref Environment, short]
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: resource_id
+          AttributeType: S
+        - AttributeName: account_id
+          AttributeType: S
+        - AttributeName: customer_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: resource_id
+          KeyType: HASH
+        - AttributeName: account_id
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: customer_id-index
+          KeySchema:
+            - AttributeName: customer_id
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+      Tags:
+        - Key: ManagedBy
+          Value: AlarmManager
+
   BulkOperationDLQ:
     Type: AWS::SQS::Queue
     Properties:

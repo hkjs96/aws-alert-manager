@@ -118,6 +118,45 @@ def list_alarms(
     return alarms
 
 
+def get_alarm_overlay(customer_id: str | None = None, account_id: str | None = None) -> dict[str, dict]:
+    """
+    Get alarm status overlay indexed by resource_id.
+    Returns: { resource_id: { "critical": N, "warning": N, "count": N, "alarms": [...] } }
+    """
+    try:
+        all_alarms = list_alarms(customer_id=customer_id, account_id=account_id)
+    except ClientError:
+        return {}
+
+    overlay = {}
+    for alarm in all_alarms:
+        result = extract_resource_from_alarm(alarm["AlarmName"])
+        if not result:
+            continue
+        rtype, tag_name = result
+        
+        if tag_name not in overlay:
+            overlay[tag_name] = {
+                "critical": 0,
+                "warning": 0,
+                "count": 0,
+                "alarms": []
+            }
+        
+        overlay[tag_name]["count"] += 1
+        overlay[tag_name]["alarms"].append(alarm["AlarmName"])
+        
+        if alarm.get("StateValue") == "ALARM":
+            tags = {t["Key"]: t["Value"] for t in alarm.get("Tags", [])} if alarm.get("Tags") else {}
+            sev = tags.get("Severity", "SEV-5")
+            if sev in ("SEV-1", "SEV-2"):
+                overlay[tag_name]["critical"] += 1
+            else:
+                overlay[tag_name]["warning"] += 1
+                
+    return overlay
+
+
 def count_registered_accounts(customer_id: str | None = None, account_id: str | None = None) -> int:
     accounts = _load_registered_accounts(customer_id=customer_id, account_id=account_id)
     return len(accounts) if accounts else 1

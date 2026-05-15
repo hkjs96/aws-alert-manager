@@ -153,7 +153,10 @@ Response `200`:
       "region": "ap-northeast-2",
       "monitoring": true,
       "alarms": {"critical": 0, "warning": 0},
-      "alarm_count": 0
+      "alarm_count": 0,
+      "inventory_source": "aws",
+      "persisted": true,
+      "status": "active"
     }
   ],
   "total": 1,
@@ -164,14 +167,16 @@ Response `200`:
 
 ## POST /api/resources/sync
 
+Triggers a full discovery of AWS resources and updates the `ResourceInventory` table.
+
 Response `200`:
 
 ```json
 {
-  "discovered": 0,
-  "updated": 0,
+  "discovered": 10,
+  "updated": 10,
   "removed": 0,
-  "message": "sync accepted or completed"
+  "message": "10 resources synchronized"
 }
 ```
 
@@ -188,7 +193,10 @@ Response `200`:
   "region": "ap-northeast-2",
   "monitoring": true,
   "alarms": {"critical": 1, "warning": 0},
-  "alarm_count": 1
+  "alarm_count": 1,
+  "inventory_source": "aws",
+  "persisted": true,
+  "status": "active"
 }
 ```
 

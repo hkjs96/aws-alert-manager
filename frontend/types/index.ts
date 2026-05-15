@@ -21,7 +21,11 @@ export interface Resource {
   account: string;
   region: string;
   monitoring: boolean;
+  alarm_count: number;
   alarms: { critical: number; warning: number };
+  inventory_source: "aws" | "db" | "alarms";
+  persisted: boolean;
+  status: "active" | "missing" | "deleted" | "orphan_candidate";
 }
 
 export type SeverityLevel = "SEV-1" | "SEV-2" | "SEV-3" | "SEV-4" | "SEV-5";

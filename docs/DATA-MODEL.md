@@ -7,7 +7,7 @@ backend, DynamoDB, and CloudWatch-derived data.
 
 ```text
 Customer 1 --- N Account
-Account  1 --- N Resource        (derived from CloudWatch/account metadata)
+Account  1 --- N Resource        (cached in DynamoDB + real-time AWS discovery)
 Resource 1 --- N Alarm           (derived from CloudWatch alarms)
 Resource 1 --- N AlarmConfig     (derived from CloudWatch alarm settings)
 Customer 1 --- N ThresholdOverride
@@ -16,7 +16,8 @@ JobStatus 1 --- N JobResult
 ```
 
 CloudWatch-derived entities are not fully persisted by this application. They
-are reconstructed from AWS APIs and alarm metadata.
+are reconstructed from AWS APIs and alarm metadata. Resource inventory is
+periodically discovered and cached in DynamoDB.
 
 ## Naming Policy
 
@@ -259,6 +260,30 @@ Persistent entity in `JOB_STATUS_TABLE`.
 | `total_count` | number | yes | Total work items. |
 | `completed_count` | number | yes | Completed work items. |
 | `failed_count` | number | yes | Failed work items. |
+| `results` | JobResult[] | no | Per-resource results. |
+| `created_at` | string | no | ISO timestamp. |
+
+Frontend interface: `frontend/types/api.ts::JobStatus`.
+
+## RecentAlarm / Event
+
+Derived display DTO used by dashboard and resource event panels.
+
+| Field | Type | Required |
+| --- | --- | --- |
+| `timestamp` | string | yes |
+| `resource_id` | string | yes |
+| `account` | string | yes |
+| `resource_name` | string | yes |
+| `resource_type` | string | yes |
+| `metric` | string | yes |
+| `severity` | string | yes |
+| `state_change` | string | yes |
+| `value` | number | yes |
+| `threshold` | number | yes |
+
+Frontend interface: `frontend/types/index.ts::RecentAlarm`.
+ | Failed work items. |
 | `results` | JobResult[] | no | Per-resource results. |
 | `created_at` | string | no | ISO timestamp. |
 
