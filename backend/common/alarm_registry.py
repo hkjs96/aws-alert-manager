@@ -688,7 +688,6 @@ _LAMBDA_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
-        "treat_missing_data": "notBreaching",  # 호출 없으면 데이터 없음
     },
     {
         "metric": "Errors",
@@ -699,7 +698,6 @@ _LAMBDA_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
-        "treat_missing_data": "notBreaching",  # 호출 없으면 에러도 없음
     },
 ]
 
@@ -727,7 +725,6 @@ _APIGW_REST_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
-        "treat_missing_data": "notBreaching",  # 요청 없으면 데이터 없음
     },
     {
         "metric": "Api4XXError",
@@ -738,7 +735,6 @@ _APIGW_REST_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
-        "treat_missing_data": "notBreaching",
     },
     {
         "metric": "Api5XXError",
@@ -749,7 +745,6 @@ _APIGW_REST_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
-        "treat_missing_data": "notBreaching",
     },
 ]
 
@@ -763,7 +758,6 @@ _APIGW_HTTP_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
-        "treat_missing_data": "notBreaching",
     },
     {
         "metric": "Api4xx",
@@ -774,7 +768,6 @@ _APIGW_HTTP_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
-        "treat_missing_data": "notBreaching",
     },
     {
         "metric": "Api5xx",
@@ -785,7 +778,6 @@ _APIGW_HTTP_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
-        "treat_missing_data": "notBreaching",
     },
 ]
 
@@ -799,7 +791,6 @@ _APIGW_WEBSOCKET_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
-        "treat_missing_data": "notBreaching",  # 연결 없으면 데이터 없음
     },
     {
         "metric": "WsMessageCount",
@@ -810,7 +801,6 @@ _APIGW_WEBSOCKET_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
-        "treat_missing_data": "notBreaching",
     },
     {
         "metric": "WsIntegrationError",
@@ -821,7 +811,6 @@ _APIGW_WEBSOCKET_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
-        "treat_missing_data": "notBreaching",
     },
     {
         "metric": "WsExecutionError",
@@ -832,7 +821,6 @@ _APIGW_WEBSOCKET_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
-        "treat_missing_data": "notBreaching",
     },
 ]
 
@@ -871,7 +859,6 @@ _BACKUP_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
-        "treat_missing_data": "notBreaching",  # 백업 작업 없는 기간에는 데이터 없음
     },
     {
         "metric": "BackupJobsAborted",
@@ -882,7 +869,6 @@ _BACKUP_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
-        "treat_missing_data": "notBreaching",
     },
 ]
 
@@ -896,7 +882,6 @@ _MQ_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
-        "treat_missing_data": "breaching",
     },
     {
         "metric": "HeapUsage",
@@ -907,7 +892,6 @@ _MQ_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
-        "treat_missing_data": "breaching",
     },
     {
         "metric": "JobSchedulerStoreUsage",
@@ -918,7 +902,6 @@ _MQ_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
-        "treat_missing_data": "breaching",
     },
     {
         "metric": "StoreUsage",
@@ -929,7 +912,6 @@ _MQ_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
-        "treat_missing_data": "breaching",
     },
 ]
 
@@ -943,7 +925,6 @@ _CLB_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 60,
         "evaluation_periods": 1,
-        "treat_missing_data": "breaching",  # 헬스 체크 데이터 없으면 장애 간주
     },
     {
         "metric": "CLB5XX",
@@ -954,7 +935,6 @@ _CLB_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 60,
         "evaluation_periods": 1,
-        "treat_missing_data": "notBreaching",  # 요청 없으면 에러 없음
     },
     {
         "metric": "CLB4XX",
@@ -965,7 +945,6 @@ _CLB_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 60,
         "evaluation_periods": 1,
-        "treat_missing_data": "notBreaching",
     },
     {
         "metric": "CLBBackend5XX",
@@ -976,7 +955,6 @@ _CLB_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 60,
         "evaluation_periods": 1,
-        "treat_missing_data": "notBreaching",
     },
     {
         "metric": "CLBBackend4XX",
@@ -987,7 +965,6 @@ _CLB_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 60,
         "evaluation_periods": 1,
-        "treat_missing_data": "notBreaching",
     },
     {
         "metric": "SurgeQueueLength",
@@ -998,7 +975,6 @@ _CLB_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 60,
         "evaluation_periods": 1,
-        "treat_missing_data": "notBreaching",  # 트래픽 없으면 큐 없음
     },
     {
         "metric": "SpilloverCount",
@@ -1009,7 +985,6 @@ _CLB_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 60,
         "evaluation_periods": 1,
-        "treat_missing_data": "notBreaching",
     },
 ]
 
@@ -1072,7 +1047,6 @@ _OPENSEARCH_ALARMS = [
         "period": 300,
         "evaluation_periods": 1,
         "needs_client_id": True,
-        "treat_missing_data": "breaching",
     },
     {
         "metric": "JVMMemoryPressure",
@@ -1084,7 +1058,6 @@ _OPENSEARCH_ALARMS = [
         "period": 300,
         "evaluation_periods": 1,
         "needs_client_id": True,
-        "treat_missing_data": "breaching",
     },
     {
         "metric": "MasterCPU",
@@ -1096,7 +1069,6 @@ _OPENSEARCH_ALARMS = [
         "period": 300,
         "evaluation_periods": 1,
         "needs_client_id": True,
-        "treat_missing_data": "breaching",
     },
     {
         "metric": "MasterJVMMemoryPressure",
@@ -1108,7 +1080,6 @@ _OPENSEARCH_ALARMS = [
         "period": 300,
         "evaluation_periods": 1,
         "needs_client_id": True,
-        "treat_missing_data": "breaching",
     },
 ]
 
@@ -1122,7 +1093,6 @@ _SQS_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
-        "treat_missing_data": "notBreaching",  # 빈 큐는 데이터 없음
     },
     {
         "metric": "SQSOldestMessage",
@@ -1133,7 +1103,6 @@ _SQS_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
-        "treat_missing_data": "notBreaching",  # 빈 큐는 데이터 없음
     },
     {
         "metric": "SQSMessagesSent",
@@ -1144,7 +1113,6 @@ _SQS_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
-        "treat_missing_data": "notBreaching",  # 메시지 없으면 데이터 없음
     },
 ]
 
@@ -1158,7 +1126,6 @@ _ECS_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
-        "treat_missing_data": "notBreaching",  # Container Insights 미활성화 시 데이터 없음
     },
     {
         "metric": "EcsMemory",
@@ -1169,7 +1136,6 @@ _ECS_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
-        "treat_missing_data": "notBreaching",  # Container Insights 미활성화 시 데이터 없음
     },
 ]
 
@@ -1183,7 +1149,6 @@ _MSK_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
-        "treat_missing_data": "notBreaching",  # 컨슈머 그룹 없으면 데이터 없음
     },
     {
         "metric": "BytesInPerSec",
@@ -1194,7 +1159,6 @@ _MSK_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
-        "treat_missing_data": "notBreaching",  # 프로듀서 없으면 데이터 없음
     },
     {
         "metric": "UnderReplicatedPartitions",
@@ -1230,7 +1194,6 @@ _DYNAMODB_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
-        "treat_missing_data": "notBreaching",  # 읽기 없으면 데이터 없음
     },
     {
         "metric": "DDBWriteCapacity",
@@ -1241,7 +1204,6 @@ _DYNAMODB_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
-        "treat_missing_data": "notBreaching",  # 쓰기 없으면 데이터 없음
     },
     {
         "metric": "ThrottledRequests",
@@ -1252,7 +1214,6 @@ _DYNAMODB_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
-        "treat_missing_data": "notBreaching",  # 요청 없으면 데이터 없음
     },
     {
         "metric": "DDBSystemErrors",
@@ -1263,7 +1224,6 @@ _DYNAMODB_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
-        "treat_missing_data": "notBreaching",  # 요청 없으면 에러 없음
     },
 ]
 
@@ -1278,7 +1238,6 @@ _CLOUDFRONT_ALARMS = [
         "period": 300,
         "evaluation_periods": 1,
         "region": "us-east-1",
-        "treat_missing_data": "notBreaching",  # 트래픽 없으면 데이터 없음
     },
     {
         "metric": "CF4xxErrorRate",
@@ -1290,7 +1249,6 @@ _CLOUDFRONT_ALARMS = [
         "period": 300,
         "evaluation_periods": 1,
         "region": "us-east-1",
-        "treat_missing_data": "notBreaching",
     },
     {
         "metric": "CFRequests",
@@ -1302,7 +1260,6 @@ _CLOUDFRONT_ALARMS = [
         "period": 300,
         "evaluation_periods": 1,
         "region": "us-east-1",
-        "treat_missing_data": "notBreaching",
     },
     {
         "metric": "CFBytesDownloaded",
@@ -1314,7 +1271,6 @@ _CLOUDFRONT_ALARMS = [
         "period": 300,
         "evaluation_periods": 1,
         "region": "us-east-1",
-        "treat_missing_data": "notBreaching",
     },
 ]
 
@@ -1328,7 +1284,6 @@ _WAF_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
-        "treat_missing_data": "notBreaching",  # 트래픽 없으면 데이터 없음
     },
     {
         "metric": "WAFAllowedRequests",
@@ -1339,7 +1294,6 @@ _WAF_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
-        "treat_missing_data": "notBreaching",
     },
     {
         "metric": "WAFCountedRequests",
@@ -1350,7 +1304,6 @@ _WAF_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
-        "treat_missing_data": "notBreaching",
     },
 ]
 
@@ -1364,8 +1317,8 @@ _ROUTE53_ALARMS = [
         "comparison": "LessThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
-        "treat_missing_data": "breaching",
         "region": "us-east-1",
+        "treat_missing_data": "breaching",
     },
 ]
 
@@ -1393,7 +1346,6 @@ _EFS_ALARMS = [
         "comparison": "LessThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
-        "treat_missing_data": "breaching",  # 파일 시스템 실행 중이면 항상 발행
     },
     {
         "metric": "PercentIOLimit",
@@ -1404,7 +1356,6 @@ _EFS_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
-        "treat_missing_data": "notBreaching",  # IO 없으면 데이터 없음
     },
     {
         "metric": "EFSClientConnections",
@@ -1415,7 +1366,6 @@ _EFS_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
-        "treat_missing_data": "notBreaching",  # 클라이언트 없으면 0 또는 데이터 없음
     },
 ]
 
@@ -1429,7 +1379,6 @@ _S3_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
-        "treat_missing_data": "notBreaching",  # 요청 없으면 에러 없음
     },
     {
         "metric": "S35xxErrors",
@@ -1440,7 +1389,6 @@ _S3_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
-        "treat_missing_data": "notBreaching",
     },
     {
         "metric": "S3BucketSizeBytes",
@@ -1478,7 +1426,6 @@ _SAGEMAKER_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
-        "treat_missing_data": "notBreaching",  # 호출 없으면 데이터 없음
     },
     {
         "metric": "SMInvocationErrors",
@@ -1489,7 +1436,6 @@ _SAGEMAKER_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
-        "treat_missing_data": "notBreaching",
     },
     {
         "metric": "SMModelLatency",
@@ -1500,7 +1446,6 @@ _SAGEMAKER_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
-        "treat_missing_data": "notBreaching",  # 호출 없으면 지연 데이터 없음
     },
     {
         "metric": "SMCPU",
@@ -1511,7 +1456,6 @@ _SAGEMAKER_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
-        "treat_missing_data": "breaching",  # 엔드포인트 인스턴스는 항상 실행 중
     },
 ]
 
@@ -1525,7 +1469,6 @@ _SNS_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
-        "treat_missing_data": "notBreaching",  # 발행 없으면 데이터 없음
     },
     {
         "metric": "SNSMessagesPublished",
@@ -1536,7 +1479,6 @@ _SNS_ALARMS = [
         "comparison": "GreaterThanThreshold",
         "period": 300,
         "evaluation_periods": 1,
-        "treat_missing_data": "notBreaching",
     },
 ]
 
