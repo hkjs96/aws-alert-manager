@@ -198,6 +198,8 @@ Resources:
       MemorySize: 256
       Handler: lambda_handler.lambda_handler
       Role: !GetAtt ApiHandlerRole.Arn
+      Layers:
+        - !Ref CommonLayer
       Code:
         S3Bucket: !Ref DeploymentBucket
         S3Key: !Sub ${CodeVersion}/api_handler.zip
@@ -270,6 +272,8 @@ Resources:
       MemorySize: 256
       Handler: lambda_handler.lambda_handler
       Role: !GetAtt SqsWorkerRole.Arn
+      Layers:
+        - !Ref CommonLayer
       Code:
         S3Bucket: !Ref DeploymentBucket
         S3Key: !Sub ${CodeVersion}/sqs_worker.zip
