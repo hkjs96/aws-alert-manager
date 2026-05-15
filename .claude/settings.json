@@ -188,6 +188,16 @@
             "command": "FILE=\"$CLAUDE_FILE_PATH\"; git add \"$FILE\" 2>/dev/null || true; exit 0"
           }
         ]
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python .claude/deploy-backend-stack.py",
+            "timeout": 360
+          }
+        ]
       }
     ],
     "Stop": [

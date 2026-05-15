@@ -27,18 +27,56 @@ Expected deployment artifacts:
 - `api_handler.zip`
 - `sqs_worker.zip`
 
-## API Handler Fast Deploy
+## Backend Lambda Auto Deploy
 
-When only API handler code changes, the Claude hook can package and deploy just
-the API handler artifact:
+Claude PostToolUse hooks package and deploy backend Lambda code changes
+automatically. When a Python file changes under one of these directories, the
+hook builds the affected artifact, copies unchanged artifacts from the currently
+deployed `CodeVersion`, uploads all artifacts to a new S3 prefix, and runs
+CloudFormation deploy with `infrastructure/backend/template.yaml`.
 
-```powershell
-'{"tool_input":{"file_path":"backend/api_handler/lambda_handler.py"}}' | python .claude\deploy-api-handler.py
+| Changed path | Rebuilt artifact |
+| --- | --- |
+| `backend/common/**/*.py` | `common_layer.zip` |
+| `backend/api_handler/**/*.py` | `api_handler.zip` |
+| `backend/daily_monitor/**/*.py` | `daily_monitor.zip` |
+| `backend/remediation_handler/**/*.py` | `remediation_handler.zip` |
+| `backend/sqs_worker/**/*.py` | `sqs_worker.zip` |
+
+Default deployment target:
+
+```text
+stack: aws-monitoring-engine-dev
+bucket: bjs-deploy-bucket
+profile: tlsgks678_poc
+region: us-east-1
+environment: development
 ```
 
-The hook packages `backend/api_handler`, uploads `dist/api_handler.zip`, copies
-unchanged artifacts from the previous deployment version, then runs
-CloudFormation deploy with `infrastructure/backend/template.yaml`.
+Override with environment variables when needed:
+
+```powershell
+$env:ALARM_MANAGER_STACK = "aws-monitoring-engine-dev"
+$env:ALARM_MANAGER_DEPLOY_BUCKET = "bjs-deploy-bucket"
+$env:AWS_PROFILE = "tlsgks678_poc"
+$env:AWS_REGION = "us-east-1"
+$env:ALARM_MANAGER_ENVIRONMENT = "development"
+```
+
+Disable auto deploy for a local edit session:
+
+```powershell
+$env:ALARM_MANAGER_AUTO_DEPLOY = "0"
+```
+
+Manual trigger example:
+
+```powershell
+'{"tool_input":{"file_path":"backend/common/alarm_registry.py"}}' | python .claude\deploy-backend-stack.py
+```
+
+The hook writes rebuilt zip files under `dist/` and leaves CloudFormation
+`CodeVersion` pointing at the new S3 prefix after deployment.
 
 ## Test Infrastructure
 
