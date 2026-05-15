@@ -1,0 +1,122 @@
+# =============================================================================
+# Pre-commit 설정 — AWS Alert Manager
+# =============================================================================
+# 설치 (최초 1회):
+#   pip install pre-commit
+#   pre-commit install                         # pre-commit 스테이지
+#   pre-commit install --hook-type post-commit # post-commit 스테이지 (배포)
+#
+# 수동 전체 실행:
+#   pre-commit run --all-files
+#
+# 훅 변경 시 governance/hooks-manifest.yaml 도 함께 버전 올릴 것
+# (hooks-manifest-sync 가 커밋 차단)
+# =============================================================================
+
+repos:
+  # ---------------------------------------------------------------------------
+  # 기본 위생 (빠름, 일부 자동 수정)
+  # ---------------------------------------------------------------------------
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-merge-conflict
+      - id: check-yaml
+        files: \.(yaml|yml)$
+      - id: check-json
+      - id: detect-private-key
+      - id: no-commit-to-branch
+        args: [--branch, main]
+
+  # ---------------------------------------------------------------------------
+  # 시크릿 감지 (AP-1)
+  # ---------------------------------------------------------------------------
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.21.2
+    hooks:
+      - id: gitleaks
+        name: "[AP-1] 시크릿 하드코딩 감지 (gitleaks)"
+
+  # ---------------------------------------------------------------------------
+  # Python: import 순서 (거버넌스 §2)
+  # ---------------------------------------------------------------------------
+  - repo: https://github.com/PyCQA/isort
+    rev: 5.13.2
+    hooks:
+      - id: isort
+        name: "[§2] import 순서 (isort)"
+        args: [--profile, black]
+        files: ^backend/
+
+  # ---------------------------------------------------------------------------
+  # 로컬 훅 (cwd 전환 필요 — scripts/ 래퍼 사용)
+  # ---------------------------------------------------------------------------
+  - repo: local
+    hooks:
+      # ── Python 복잡도 (거버넌스 §3) ─────────────────────────────────────
+      - id: pylint-complexity
+        name: "[§3] pylint 복잡도 검사"
+        language: system
+        entry: python scripts/run_pylint.py
+        types: [python]
+        files: ^backend/(?!tests/)
+        pass_filenames: true
+
+      # ── Backend pytest ───────────────────────────────────────────────────
+      - id: backend-tests
+        name: "[test] pytest backend -x"
+        language: system
+        entry: python scripts/run_backend_tests.py
+        pass_filenames: false
+        files: ^backend/(?!tests/).*\.py$
+
+      # ── CloudFormation 검증 (cfn-lint 설치 필요: pip install cfn-lint) ──
+      - id: cfn-lint
+        name: "[cfn] CloudFormation template 검증"
+        language: system
+        entry: python -m cfnlint
+        files: ^(infrastructure|backend)/.*\.(yaml|yml)$
+        pass_filenames: true
+
+      # ── Frontend ESLint ──────────────────────────────────────────────────
+      - id: eslint
+        name: "[lint] ESLint frontend"
+        language: system
+        entry: python scripts/run_frontend_eslint.py
+        pass_filenames: false
+        files: ^frontend/.*\.(ts|tsx)$
+
+      # ── Frontend TypeScript 타입 검사 ────────────────────────────────────
+      - id: frontend-typecheck
+        name: "[type-check] tsc --noEmit"
+        language: system
+        entry: python scripts/run_frontend_tsc.py
+        pass_filenames: false
+        files: ^frontend/.*\.(ts|tsx)$
+
+      # ── Frontend vitest ──────────────────────────────────────────────────
+      - id: frontend-tests
+        name: "[test] vitest frontend"
+        language: system
+        entry: python scripts/run_frontend_vitest.py
+        pass_filenames: false
+        files: ^frontend/.*\.(ts|tsx)$
+
+      # ── 에이전트 훅 설정 동기화 검증 ─────────────────────────────────────
+      - id: hooks-manifest-sync
+        name: "[governance] 에이전트 훅 설정 동기화 검증"
+        language: system
+        entry: python governance/verify-sync.py
+        pass_filenames: false
+        files: ^(\.claude|\.kiro|\.gemini|\.codex|governance)/
+
+      # ── 조건부 배포 트리거 (post-commit 스테이지) ────────────────────────
+      - id: deploy-trigger
+        name: "[deploy] 백엔드 zip->S3->CFN + 프론트 Amplify 트리거"
+        language: system
+        entry: python scripts/post_commit.py
+        pass_filenames: false
+        always_run: true
+        stages: [post-commit]

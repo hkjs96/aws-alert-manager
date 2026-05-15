@@ -1,0 +1,103 @@
+# 이 파일이 바뀌면 4개 에이전트 설정을 전부 동기화해야 함
+# pre-commit이 verify-sync.py로 강제 검증
+
+manifest_version: "2026-05-15-v1"   # ← 이 값이 모든 에이전트에 동일해야 함
+
+hooks:
+  - id: secret-guard
+    phase: pre-write
+    trigger:
+      files: ["*.py", "*.ts", "*.tsx", "*.json", "*.yaml"]
+    severity: block
+    description: "AP-1: AWS 키/비밀번호/토큰 하드코딩 감지"
+    implementations:
+      claude: ".claude/settings.json PreToolUse[secret-leak-guard]"
+      kiro:   ".kiro/hooks/secret-leak-guard.kiro.hook"
+      gemini: ".gemini/hooks-context.md 참조 (수동)"
+      codex:  ".codex/hooks-context.md 참조 (수동)"
+
+  - id: governance-remind
+    phase: pre-write
+    trigger:
+      files: ["backend/**/*.py"]
+    severity: warn
+    description: "§1-§4 거버넌스 리마인더 (lru_cache, import 순서, 복잡도, 에러 처리)"
+    implementations:
+      claude: ".claude/settings.json PreToolUse[governance-check]"
+      kiro:   ".kiro/hooks/governance-check-on-write.json"
+      gemini: ".gemini/hooks-context.md 참조"
+      codex:  ".codex/hooks-context.md 참조"
+
+  - id: pylint-complexity
+    phase: post-write
+    trigger:
+      files: ["backend/**/*.py"]
+      exclude: ["backend/tests/**"]
+    severity: block
+    description: "§3: locals≤15, stmts≤50, branches≤12, args≤5"
+    implementations:
+      claude: ".claude/settings.json PostToolUse[pylint-on-save]"
+      kiro:   ".kiro/hooks/pylint-on-save.json"
+      gemini: ".gemini/hooks-context.md 참조"
+      codex:  ".codex/hooks-context.md 참조"
+
+  - id: pytest-surgical
+    phase: post-write
+    trigger:
+      files: ["backend/**/*.py"]
+      exclude: ["backend/tests/**"]
+    severity: warn
+    description: "변경 모듈의 대응 테스트만 실행 (test_{module}.py)"
+    implementations:
+      claude: ".claude/settings.json PostToolUse[pytest-on-save]"
+      kiro:   "(미지원, postTaskExecution으로 대체)"
+      gemini: ".gemini/hooks-context.md 참조"
+      codex:  ".codex/hooks-context.md 참조"
+
+  - id: tsc-on-change
+    phase: post-write
+    trigger:
+      files: ["frontend/**/*.ts", "frontend/**/*.tsx"]
+    severity: block
+    description: "TypeScript 타입 오류 즉시 감지"
+    implementations:
+      claude: ".claude/settings.json PostToolUse[tsc-on-save]"
+      kiro:   ".kiro/hooks/typecheck-on-save.kiro.hook"
+      gemini: ".gemini/hooks-context.md 참조"
+      codex:  ".codex/hooks-context.md 참조"
+
+  - id: vitest-on-test-change
+    phase: post-write
+    trigger:
+      files: ["frontend/**/*.test.ts", "frontend/**/*.test.tsx"]
+    severity: warn
+    description: "테스트 파일 변경 시 vitest 실행"
+    implementations:
+      claude: ".claude/settings.json PostToolUse[vitest-on-save]"
+      kiro:   ".kiro/hooks/vitest-on-test-save.kiro.hook"
+      gemini: ".gemini/hooks-context.md 참조"
+      codex:  ".codex/hooks-context.md 참조"
+
+  - id: backend-deploy
+    phase: post-commit
+    trigger:
+      files: ["backend/**/*.py", "infrastructure/backend/**"]
+    severity: warn
+    description: "zip → S3 → CFN stack update"
+    implementations:
+      claude: ".claude/settings.json PostToolUse[deploy-backend-stack] (파일 저장마다)"
+      kiro:   ".kiro/hooks/deploy-after-tests.json (postTaskExecution)"
+      gemini: ".gemini/hooks-context.md 참조 (post-commit 자동)"
+      codex:  ".codex/hooks-context.md 참조 (post-commit 자동)"
+
+  - id: frontend-deploy
+    phase: post-commit
+    trigger:
+      files: ["frontend/**"]
+    severity: warn
+    description: "Amplify start-job 트리거"
+    implementations:
+      claude: "(post-commit 자동)"
+      kiro:   "(post-commit 자동)"
+      gemini: "(post-commit 자동)"
+      codex:  "(post-commit 자동)"

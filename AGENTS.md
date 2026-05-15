@@ -1,124 +1,35 @@
-# Agent Rules
+# Project: AWS Monitoring Engine (Alert Manager) - Agent Governance
 
-This file is the shared rulebook for any AI agent working in this repository,
-including Codex, Claude, Gemini, and similar tools.
+이 파일은 모든 AI 에이전트(Gemini, Claude, Cursor 등)가 프로젝트의 맥락을 이해하고 일관된 품질을 유지하기 위해 반드시 준수해야 하는 **최상위 지침**입니다.
 
-## Read First
+## 1. 프로젝트 개요
+- **목적:** AWS 리소스의 메트릭을 모니터링하고 태그 기반으로 알람을 자동 생성/관리하는 시스템.
+- **핵심 가치:** 인프라 코드화(IaC), 자동화된 거버넌스, 낮은 운영 부하.
 
-Before making non-trivial changes, read the relevant files:
+## 2. 에이전트 필수 행동 수칙
+1. **Context Awareness:** 작업 시작 전 반드시 해당 영역의 `AGENTS.md`를 읽으십시오.
+2. **Surgical Updates:** 코드 수정 시 기존 스타일과 패턴을 엄격히 준수하고, 불필요한 리팩토링은 피하십시오.
+3. **Validation First:** 코드 변경 후에는 반드시 통합 검증 스크립트를 실행하십시오:
+   - `python scripts/verify_all.py`
+4. **Security:** 절대 하드코딩된 시크릿을 추가하지 마십시오. (Secrets Manager/SSM 사용)
+   - 검증 스크립트에 포함된 `Secret Leak Guard`를 통과해야 합니다.
 
-- `docs/ARCHITECTURE.md`
-- `docs/API-CONTRACT.md`
-- `docs/DATA-MODEL.md`
-- `docs/API-WORKFLOWS.md`
-- `docs/INFRASTRUCTURE.md`
-- `guides/OPERATIONS.md`
+## 3. 기술 스택 및 디렉토리 구조
+- **Backend:** Python 3.12, Boto3, CloudFormation (`/backend`)
+- **Frontend:** Next.js, TypeScript, Tailwind CSS (`/frontend`)
+- **Infrastructure:** AWS CDK 또는 Pure CloudFormation (`/infrastructure`)
 
-For frontend work, also read:
+## 4. 하위 거버넌스 가이드라인
+영역별 상세 규칙은 다음 파일을 참조하십시오:
+- **백엔드 규칙:** [backend/AGENTS.md](./backend/AGENTS.md)
+- **프론트엔드 규칙:** [frontend/AGENTS.md](./frontend/AGENTS.md)
+- **알람/리소스 상세 규격:** `docs/specs/` 내 문서 참조
 
-- `frontend/CLAUDE.md`
-- `frontend/lib/constants.ts`
+## 5. 공통 안티패턴 (Anti-Patterns)
+- **AP-1:** 하드코딩된 시크릿 (AKIA..., password= 등)
+- **AP-2:** 모듈 레벨 global 변수로 AWS 클라이언트 관리 (반드시 `lru_cache` 싱글턴 사용)
+- **AP-3:** 예외 처리 시 `except Exception` 남용 (구체적인 에러 캐치 권장)
+- **AP-4:** 로깅 시 f-string 사용 (Lazy formatting `logger.info("%s", var)` 사용)
 
-For backend alarm engine work, also read:
-
-- `backend/common/CLAUDE.md`
-- `backend/common/alarm_registry.py`
-- `backend/common/alarm_builder.py`
-
-## Core Rules
-
-- Keep changes scoped to the requested behavior.
-- Do not revert unrelated user or agent changes.
-- Keep commits small and behaviorally coherent.
-- Prefer existing local patterns over new abstractions.
-- Do not hide backend contract problems with frontend mock fallbacks.
-- Run focused tests for the changed area before finishing.
-
-## Frontend-Backend Contract
-
-API JSON is a project-level contract. Any change to request payloads, response
-fields, entity fields, or field semantics must update all related artifacts in
-the same change:
-
-1. Backend route handler request/response handling.
-2. Frontend TypeScript interfaces in `frontend/types`.
-3. API documentation in `docs/API-CONTRACT.md`.
-4. Entity documentation in `docs/DATA-MODEL.md` when model fields change.
-5. Workflow documentation in `docs/API-WORKFLOWS.md` when call flows change.
-6. Contract tests or route tests.
-7. Frontend normalization/fallback logic in `frontend/lib/server/data.ts` or
-   `frontend/lib/api-functions.ts`.
-
-Rules:
-
-- API JSON and backend persistence fields use `snake_case`.
-- Frontend-only view DTOs may use camelCase only with explicit mapping.
-- Do not introduce alternate names for the same concept.
-- Do not use legacy fallback fields.
-- Server-rendered frontend pages must not turn routine backend API failures into
-  Amplify/Next.js 500 pages. List and dashboard pages render safe empty or
-  zero-state fallback data and log the backend failure.
-
-## Resource Inventory Rule
-
-`/api/resources` must represent AWS resource inventory with alarm state overlaid
-onto it. CloudWatch alarms are not the source of truth for resource existence.
-
-Required model:
-
-- AWS resource discovery is the source of truth for active resources.
-- DynamoDB is an inventory cache and operational metadata store.
-- CloudWatch alarms are an overlay for `monitoring`, `alarm_count`, and alarm
-  severity counts.
-- AWS resources without alarms must still appear in `/api/resources`.
-- DynamoDB records missing from AWS discovery should become `stale` or
-  `missing`, not be deleted immediately.
-- Alarms without a matching AWS resource are orphan alarm candidates.
-
-## Repository Boundaries
-
-- Backend application code lives under `backend/`.
-- Deployable backend infrastructure lives under `infrastructure/backend/`.
-- Disposable validation or experiment stacks live under
-  `infrastructure/test-stacks/`.
-- Frontend deployment documentation and frontend infra notes live under
-  `infrastructure/frontend/`.
-- Tool-required frontend deployment files may remain at the repository root or
-  under `frontend/` when the hosting tool requires that location.
-
-## Backend Deployment Rule
-
-Backend Lambda code changes are not complete until the deployed stack uses the
-new artifact version.
-
-For Python changes under these paths, package and deploy the matching artifact:
-
-- `backend/common/**/*.py` -> `common_layer.zip`
-- `backend/api_handler/**/*.py` -> `api_handler.zip`
-- `backend/daily_monitor/**/*.py` -> `daily_monitor.zip`
-- `backend/remediation_handler/**/*.py` -> `remediation_handler.zip`
-- `backend/sqs_worker/**/*.py` -> `sqs_worker.zip`
-
-The standard deploy flow is:
-
-1. Build changed zip artifact(s).
-2. Upload to the deploy S3 bucket under a new `CodeVersion` prefix.
-3. Copy unchanged artifacts from the previously deployed `CodeVersion`.
-4. Deploy `infrastructure/backend/template.yaml`.
-5. Confirm CloudFormation `UPDATE_COMPLETE`.
-6. Confirm affected Lambda functions reference the expected artifact or layer.
-
-The Claude/Codex hook in `.claude/deploy-backend-stack.py` automates this when
-enabled. See `guides/OPERATIONS.md`.
-
-## Verification
-
-Use focused verification first:
-
-- Backend: run relevant `pytest` tests from `backend/`.
-- Frontend: run `npx tsc --noEmit` from `frontend/`.
-- Contract changes: update and run route/API tests plus affected frontend tests.
-- Infrastructure changes: run CloudFormation validation and confirm deployed
-  stack status when deployment is requested.
-
-Record any command that could not be run and why.
+---
+*이 문서는 프로젝트의 헌법과 같으며, 수정이 필요한 경우 사용자에게 먼저 확인을 받으십시오.*

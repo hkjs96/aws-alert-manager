@@ -2,6 +2,7 @@
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "_comment": "Kiro hooks 중 포팅 가능한 것을 Claude Code 훅으로 재구성. stderr로 리마인더를 출력하면 Claude가 이어지는 턴에서 참고한다. Kiro 측 원본은 .kiro/hooks/ 아래 그대로 유지되어 있다. permissions/defaultMode는 이 저장소에서 자율 워크플로(테스트→커밋→푸시까지 단계별 수락 없이) 실행하도록 환경 독립적 항목만 등록. 본인 PC 절대 경로 같은 환경 특화는 .claude/settings.local.json(gitignored)으로.",
   "defaultMode": "acceptEdits",
+  "_manifest_version": "2026-05-15-v1",
   "permissions": {
     "allow": [
       "Read(./**)",
