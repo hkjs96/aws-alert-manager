@@ -1,7 +1,7 @@
 # Frontend Claude Guide
 
-These rules apply to `frontend/**/*.{ts,tsx,css}`. The root `../CLAUDE.md`
-rules also apply.
+These rules apply to `frontend/**/*.{ts,tsx,css}`. The shared root
+`../AGENTS.md` rules and the root `../CLAUDE.md` guide also apply.
 
 ## Frontend API Contract Rules
 
