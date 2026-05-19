@@ -28,19 +28,32 @@ export const MOCK_ACCOUNTS: Account[] = [
 ];
 
 // --- Resources ---
+type MockResourceSeed = Omit<Resource, "alarm_count" | "inventory_source" | "persisted" | "status"> &
+  Partial<Pick<Resource, "alarm_count" | "inventory_source" | "persisted" | "status">>;
+
+export function createMockResource(resource: MockResourceSeed): Resource {
+  return {
+    ...resource,
+    alarm_count: resource.alarm_count ?? resource.alarms.critical + resource.alarms.warning,
+    inventory_source: resource.inventory_source ?? "aws",
+    persisted: resource.persisted ?? true,
+    status: resource.status ?? "active",
+  };
+}
+
 export const MOCK_RESOURCES: Resource[] = [
-  { id: "i-0a2b4c6d8e0f12", name: "payments-api-prod-01", type: "EC2", account: "882311440092", region: "us-east-1", monitoring: true, alarms: { critical: 2, warning: 0 } },
-  { id: "arn:aws:s3:::user-data-store", name: "user-static-assets", type: "S3", account: "882311440092", region: "eu-central-1", monitoring: true, alarms: { critical: 0, warning: 0 } },
-  { id: "db-XYZ9908821-RDS", name: "auth-db-postgres", type: "RDS", account: "440911228833", region: "us-west-2", monitoring: true, alarms: { critical: 0, warning: 1 } },
-  { id: "arn:aws:lambda:u...worker", name: "image-processor-worker", type: "Lambda", account: "882311440092", region: "us-east-1", monitoring: false, alarms: { critical: 0, warning: 0 } },
-  { id: "alb-prod-external-332", name: "main-ingress-lb", type: "ALB", account: "882311440092", region: "us-east-1", monitoring: true, alarms: { critical: 0, warning: 0 } },
-  { id: "i-0f1e2d3c4b5a69", name: "web-server-prod-02", type: "EC2", account: "882311440092", region: "us-east-1", monitoring: true, alarms: { critical: 1, warning: 1 } },
-  { id: "db-ABC1234567-RDS", name: "orders-db-mysql", type: "RDS", account: "440911228833", region: "us-west-2", monitoring: false, alarms: { critical: 0, warning: 0 } },
-  { id: "arn:aws:lambda:u...notifier", name: "email-notifier", type: "Lambda", account: "112233445566", region: "ap-northeast-2", monitoring: true, alarms: { critical: 0, warning: 0 } },
-  { id: "alb-staging-internal-221", name: "staging-internal-lb", type: "ALB", account: "440911228833", region: "us-west-2", monitoring: false, alarms: { critical: 0, warning: 0 } },
-  { id: "arn:aws:s3:::log-archive", name: "log-archive-bucket", type: "S3", account: "112233445566", region: "ap-northeast-2", monitoring: true, alarms: { critical: 0, warning: 1 } },
-  { id: "i-9a8b7c6d5e4f33", name: "batch-worker-01", type: "EC2", account: "112233445566", region: "ap-northeast-2", monitoring: true, alarms: { critical: 0, warning: 0 } },
-  { id: "arn:aws:lambda:u...cron", name: "scheduled-cron-job", type: "Lambda", account: "882311440092", region: "us-east-1", monitoring: true, alarms: { critical: 1, warning: 0 } },
+  createMockResource({ id: "i-0a2b4c6d8e0f12", name: "payments-api-prod-01", type: "EC2", account: "882311440092", region: "us-east-1", monitoring: true, alarms: { critical: 2, warning: 0 } }),
+  createMockResource({ id: "arn:aws:s3:::user-data-store", name: "user-static-assets", type: "S3", account: "882311440092", region: "eu-central-1", monitoring: true, alarms: { critical: 0, warning: 0 } }),
+  createMockResource({ id: "db-XYZ9908821-RDS", name: "auth-db-postgres", type: "RDS", account: "440911228833", region: "us-west-2", monitoring: true, alarms: { critical: 0, warning: 1 } }),
+  createMockResource({ id: "arn:aws:lambda:u...worker", name: "image-processor-worker", type: "Lambda", account: "882311440092", region: "us-east-1", monitoring: false, alarms: { critical: 0, warning: 0 } }),
+  createMockResource({ id: "alb-prod-external-332", name: "main-ingress-lb", type: "ALB", account: "882311440092", region: "us-east-1", monitoring: true, alarms: { critical: 0, warning: 0 } }),
+  createMockResource({ id: "i-0f1e2d3c4b5a69", name: "web-server-prod-02", type: "EC2", account: "882311440092", region: "us-east-1", monitoring: true, alarms: { critical: 1, warning: 1 } }),
+  createMockResource({ id: "db-ABC1234567-RDS", name: "orders-db-mysql", type: "RDS", account: "440911228833", region: "us-west-2", monitoring: false, alarms: { critical: 0, warning: 0 } }),
+  createMockResource({ id: "arn:aws:lambda:u...notifier", name: "email-notifier", type: "Lambda", account: "112233445566", region: "ap-northeast-2", monitoring: true, alarms: { critical: 0, warning: 0 } }),
+  createMockResource({ id: "alb-staging-internal-221", name: "staging-internal-lb", type: "ALB", account: "440911228833", region: "us-west-2", monitoring: false, alarms: { critical: 0, warning: 0 } }),
+  createMockResource({ id: "arn:aws:s3:::log-archive", name: "log-archive-bucket", type: "S3", account: "112233445566", region: "ap-northeast-2", monitoring: true, alarms: { critical: 0, warning: 1 } }),
+  createMockResource({ id: "i-9a8b7c6d5e4f33", name: "batch-worker-01", type: "EC2", account: "112233445566", region: "ap-northeast-2", monitoring: true, alarms: { critical: 0, warning: 0 } }),
+  createMockResource({ id: "arn:aws:lambda:u...cron", name: "scheduled-cron-job", type: "Lambda", account: "882311440092", region: "us-east-1", monitoring: true, alarms: { critical: 1, warning: 0 } }),
 ];
 
 // --- Alarms ---

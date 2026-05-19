@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Cloud, Link as LinkIcon } from "lucide-react";
+import { CheckCircle2, Cloud, Link as LinkIcon, XCircle } from "lucide-react";
 import type { Account, Customer } from "@/types";
 import { Button } from "@/components/shared/Button";
 import { useToast } from "@/components/shared/Toast";
@@ -15,6 +15,10 @@ interface AccountSectionProps {
 }
 
 const INPUT_CLS = "w-full bg-slate-50 border-none rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-primary/20 outline-none";
+const REGION_OPTIONS = [
+  { value: "us-east-1", label: "US East (N. Virginia)" },
+  { value: "ap-northeast-2", label: "Asia Pacific (Seoul)" },
+] as const;
 
 function FormField({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -39,14 +43,16 @@ export function AccountSection({ accounts, customers }: AccountSectionProps) {
   const [roleArn, setRoleArn] = useState("");
   const [name, setName] = useState("");
   const [customerId, setCustomerId] = useState("");
+  const [regions, setRegions] = useState<string[]>(["us-east-1"]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [testingId, setTestingId] = useState<string | null>(null);
   const [statuses, setStatuses] = useState<Record<string, string>>({});
+  const [testDetails, setTestDetails] = useState<Record<string, string[]>>({});
 
   const handleConnect = async () => {
-    if (!accountId.trim() || !roleArn.trim() || !name.trim() || !customerId) {
-      setError("Please fill in all fields and select a customer.");
+    if (!accountId.trim() || !roleArn.trim() || !name.trim() || !customerId || regions.length === 0) {
+      setError("Please fill in all fields, select a customer, and choose at least one region.");
       return;
     }
     setError("");
@@ -57,11 +63,13 @@ export function AccountSection({ accounts, customers }: AccountSectionProps) {
         role_arn: roleArn.trim(),
         name: name.trim(),
         customer_id: customerId,
+        regions,
       });
       showToast("success", `Account "${name}" has been connected.`);
       setAccountId("");
       setRoleArn("");
       setName("");
+      setRegions(["us-east-1"]);
       router.refresh();
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Failed to connect account.";
@@ -71,16 +79,23 @@ export function AccountSection({ accounts, customers }: AccountSectionProps) {
     }
   };
 
-  const handleTest = async (id: string) => {
-    setTestingId(id);
+  const handleTest = async (account: Account) => {
+    setTestingId(account.account_id);
     try {
-      const data = await testConnection(id);
-      setStatuses((prev) => ({ ...prev, [id]: data.status }));
+      const data = await testConnection(account.account_id, account.customer_id);
+      setStatuses((prev) => ({ ...prev, [account.account_id]: data.status }));
+      setTestDetails((prev) => ({
+        ...prev,
+        [account.account_id]: (data.regions ?? []).map((region) => `${region.region}: ${region.status}`),
+      }));
       showToast(
         data.status === "connected" ? "success" : "error",
-        data.status === "connected" ? "Connection test passed" : "Connection test failed",
+        data.status === "connected" ? "Connection test passed" : "Connection test failed.",
       );
-    } catch {
+    } catch (e) {
+      setStatuses((prev) => ({ ...prev, [account.account_id]: "failed" }));
+      const msg = e instanceof Error ? e.message : "Connection test failed.";
+      setTestDetails((prev) => ({ ...prev, [account.account_id]: [msg] }));
       showToast("error", "Connection test failed.");
     } finally {
       setTestingId(null);
@@ -88,6 +103,13 @@ export function AccountSection({ accounts, customers }: AccountSectionProps) {
   };
 
   const getStatus = (acc: Account) => statuses[acc.account_id] ?? acc.connection_status;
+  const toggleRegion = (region: string) => {
+    setRegions((current) => (
+      current.includes(region)
+        ? current.filter((item) => item !== region)
+        : [...current, region]
+    ));
+  };
 
   return (
     <div className="bg-white rounded-xl border border-slate-200 shadow-soft overflow-hidden">
@@ -116,6 +138,7 @@ export function AccountSection({ accounts, customers }: AccountSectionProps) {
                 <th className="px-4 py-3 text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Account ID</th>
                 <th className="px-4 py-3 text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Name</th>
                 <th className="px-4 py-3 text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Customer</th>
+                <th className="px-4 py-3 text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Regions</th>
                 <th className="px-4 py-3 text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Status</th>
                 <th className="px-4 py-3 text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Action</th>
               </tr>
@@ -124,6 +147,7 @@ export function AccountSection({ accounts, customers }: AccountSectionProps) {
               {accounts.map((acc) => {
                 const status = getStatus(acc);
                 const style = STATUS_STYLES[status] ?? STATUS_STYLES.untested;
+                const details = testDetails[acc.account_id];
                 return (
                   <tr key={acc.account_id} className="hover:bg-slate-50 transition-colors">
                     <td className="px-4 py-3 font-mono text-xs text-primary">
@@ -136,17 +160,36 @@ export function AccountSection({ accounts, customers }: AccountSectionProps) {
                       </span>
                     </td>
                     <td className="px-4 py-3">
-                      <div className={`flex items-center gap-2 text-[10px] font-bold ${style.text}`}>
-                        <span className={`w-1.5 h-1.5 rounded-full ${style.dot}`} />
-                        {status.toUpperCase()}
+                      <div className="flex flex-wrap gap-1">
+                        {acc.regions.map((region) => (
+                          <span key={region} className="rounded-md bg-slate-100 px-2 py-1 font-mono text-[10px] text-slate-600">
+                            {region}
+                          </span>
+                        ))}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="space-y-1">
+                        <div className={`flex items-center gap-2 text-[10px] font-bold ${style.text}`}>
+                          <span className={`w-1.5 h-1.5 rounded-full ${style.dot}`} />
+                          {status.toUpperCase()}
+                        </div>
+                        {details && (
+                          <div className="space-y-0.5">
+                            {details.map((detail) => (
+                              <div key={detail} className="text-[10px] text-slate-400">{detail}</div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     </td>
                     <td className="px-4 py-3">
                       <LoadingButton
                         isLoading={testingId === acc.account_id}
-                        onClick={() => handleTest(acc.account_id)}
-                        className="text-xs font-semibold text-primary hover:underline"
+                        onClick={() => handleTest(acc)}
+                        className="inline-flex items-center gap-1.5 text-xs font-semibold text-primary hover:underline"
                       >
+                        {status === "connected" ? <CheckCircle2 size={14} /> : <XCircle size={14} />}
                         Test Connection
                       </LoadingButton>
                     </td>
@@ -186,6 +229,22 @@ export function AccountSection({ accounts, customers }: AccountSectionProps) {
                   <option key={c.customer_id} value={c.customer_id}>{c.name}</option>
                 ))}
               </select>
+            </FormField>
+            <FormField label="Monitoring Regions">
+              <div className="grid grid-cols-1 gap-2">
+                {REGION_OPTIONS.map((region) => (
+                  <label key={region.value} className="flex items-center gap-2 text-sm text-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={regions.includes(region.value)}
+                      onChange={() => toggleRegion(region.value)}
+                      className="h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary/20"
+                    />
+                    <span>{region.label}</span>
+                    <span className="font-mono text-xs text-slate-400">{region.value}</span>
+                  </label>
+                ))}
+              </div>
             </FormField>
           </div>
         </div>

@@ -7,6 +7,7 @@ DELETE /accounts/{id}             → 어카운트 삭제
 POST   /accounts/{id}/test        → AWS 연결 테스트 (STS AssumeRole)
 """
 
+import functools
 import json
 from datetime import datetime, UTC
 
@@ -14,6 +15,11 @@ import boto3
 from botocore.exceptions import ClientError
 
 from api_handler.db import accounts_table, scan_all, query_by_pk
+
+
+@functools.lru_cache(maxsize=1)
+def _current_account_id() -> str:
+    return boto3.client("sts").get_caller_identity().get("Account", "")
 
 
 def list_accounts(event: dict) -> dict:
@@ -55,12 +61,16 @@ def create_account(event: dict) -> dict:
     except ClientError as e:
         return _err(500, "DB_ERROR", str(e))
 
+    regions = _normalize_regions(body.get("regions"))
+    if not regions:
+        return _err(400, "VALIDATION_ERROR", "regions must include at least one AWS region")
+
     item = {
         "customer_id": customer_id,
         "account_id": account_id,
         "name": body["name"].strip(),
         "role_arn": body["role_arn"].strip(),
-        "regions": body.get("regions", ["ap-northeast-2"]),
+        "regions": regions,
         "connection_status": "untested",
         "created_at": datetime.now(UTC).isoformat(),
     }
@@ -116,14 +126,22 @@ def test_connection(event: dict) -> dict:
     if not role_arn:
         return _err(400, "MISSING_ROLE", "role_arn이 설정되지 않았습니다")
 
-    sts = boto3.client("sts")
     try:
-        sts.assume_role(RoleArn=role_arn, RoleSessionName="ConnectionTest")
-        status = "connected"
-        error_msg = None
+        session_kwargs = _assume_role_kwargs(item)
+        regions = item.get("regions") or []
+        region_results = [
+            _test_region_access(region, session_kwargs)
+            for region in regions
+        ]
+        status = "connected" if regions and all(r["status"] == "connected" for r in region_results) else "failed"
+        error_msg = next((r.get("error") for r in region_results if r["status"] == "failed"), None)
     except ClientError as e:
         status = "failed"
         error_msg = str(e)
+        region_results = [
+            {"region": region, "status": "failed", "error": error_msg}
+            for region in (item.get("regions") or [])
+        ]
 
     # 연결 상태 업데이트
     try:
@@ -138,7 +156,12 @@ def test_connection(event: dict) -> dict:
     except ClientError:
         pass  # 상태 업데이트 실패는 무시
 
-    result = {"account_id": account_id, "status": status}
+    result = {
+        "account_id": account_id,
+        "status": status,
+        "regions": region_results,
+        "tested_at": datetime.now(UTC).isoformat(),
+    }
     if error_msg:
         result["error"] = error_msg
     return _ok(result)
@@ -152,3 +175,34 @@ def _ok(data, status: int = 200) -> dict:
 
 def _err(status: int, code: str, message: str) -> dict:
     return {"statusCode": status, "body": json.dumps({"code": code, "message": message})}
+
+
+def _normalize_regions(value) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(region).strip() for region in value if str(region).strip()]
+
+
+def _assume_role_kwargs(account: dict) -> dict:
+    if account.get("account_id", "") == _current_account_id():
+        return {}
+
+    resp = boto3.client("sts").assume_role(
+        RoleArn=account.get("role_arn", ""),
+        RoleSessionName="ConnectionTest",
+    )
+    creds = resp["Credentials"]
+    return {
+        "aws_access_key_id": creds["AccessKeyId"],
+        "aws_secret_access_key": creds["SecretAccessKey"],
+        "aws_session_token": creds["SessionToken"],
+    }
+
+
+def _test_region_access(region: str, session_kwargs: dict) -> dict:
+    try:
+        cw = boto3.client("cloudwatch", region_name=region, **session_kwargs)
+        cw.describe_alarms(MaxRecords=1)
+        return {"region": region, "status": "connected"}
+    except ClientError as e:
+        return {"region": region, "status": "failed", "error": str(e)}

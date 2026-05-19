@@ -154,14 +154,21 @@ export interface CreateAccountRequest {
   role_arn: string;
   name: string;
   customer_id: string;
+  regions: string[];
 }
 
 // --- 연결 테스트 ---
 
 export interface ConnectionTestResult {
   status: "connected" | "failed";
-  message: string;
+  message?: string;
+  error?: string;
   tested_at: string;
+  regions?: Array<{
+    region: string;
+    status: "connected" | "failed";
+    error?: string;
+  }>;
 }
 
 // --- 임계치 오버라이드 ---

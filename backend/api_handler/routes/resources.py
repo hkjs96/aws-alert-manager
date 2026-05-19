@@ -1,31 +1,502 @@
 """
-/resources 엔드포인트 (TDD 원칙에 따라 이전 상태로 복구)
+/resources endpoints.
 """
 
+import functools
 import json
 import logging
 import os
+import re
+
+import boto3
 from botocore.exceptions import ClientError
-from api_handler.cw_helper import get_resources_from_alarms
+
+from api_handler.cw_helper import (
+    _parse_alarm_arn,
+    extract_resource_from_alarm,
+    get_alarm_overlay,
+    get_resources_from_alarms,
+    list_alarms,
+)
+from api_handler.db import accounts_table, resource_inventory_table, scan_all
+from api_handler.resource_discovery import discover_resources
+from common import dimension_builder
+from common.alarm_naming import _build_alarm_description, _pretty_alarm_name
+from common.alarm_registry import (
+    _DIMENSION_KEY_MAP,
+    _GLOBAL_SERVICE_REGION,
+    _METRIC_DISPLAY,
+    _NAMESPACE_MAP,
+    _metric_name_to_key,
+)
 
 logger = logging.getLogger(__name__)
 
+_ALARM_NAME_RE = re.compile(r"^\[(\w+)\]\s+.+\(TagName:\s*(.+)\)$")
+_LIST_METRICS_PAGE_CAP = 20
+
+
+@functools.lru_cache(maxsize=None)
+def _get_cw_client():
+    return boto3.client("cloudwatch", region_name=os.environ.get("AWS_REGION", "ap-northeast-2"))
+
+
+@functools.lru_cache(maxsize=None)
+def _get_cw_client_for_region(region: str):
+    return boto3.client("cloudwatch", region_name=region)
+
+
+@functools.lru_cache(maxsize=None)
+def _get_ec2_client():
+    return boto3.client("ec2", region_name=os.environ.get("AWS_REGION", "ap-northeast-2"))
+
+
 def list_resources(event: dict) -> dict:
-    qs = event.get("queryStringParameters") or {}
-    page = int(qs.get("page", 1))
-    page_size = min(int(qs.get("page_size", 25)), 100)
-    resource_type = qs.get("resource_type") or None
-    search = qs.get("search") or None
+    if os.environ.get("RESOURCE_INVENTORY_TABLE"):
+        return _list_inventory_resources(event)
+    return _list_alarm_resources(event)
+
+
+def sync_resources(event: dict) -> dict:
+    if not os.environ.get("RESOURCE_INVENTORY_TABLE") or not os.environ.get("ACCOUNTS_TABLE"):
+        return _ok({
+            "discovered": 0,
+            "updated": 0,
+            "removed": 0,
+            "message": "Resource synchronization runs from the scheduled monitor",
+        })
 
     try:
-        # 기존 로직: 알람 기반으로만 리소스를 가져옴
-        result = get_resources_from_alarms(
-            page=page,
-            page_size=page_size,
-            resource_type=resource_type,
-            search=search,
-        )
-    except ClientError as e:
-        return {"statusCode": 500, "body": json.dumps({"code": "CW_ERROR", "message": str(e)})}
+        accounts = scan_all(accounts_table())
+        discovered = discover_resources(accounts)
+        table = resource_inventory_table()
+        for resource in discovered:
+            table.put_item(Item=resource)
+    except ClientError as exc:
+        return _err(500, "AWS_ERROR", str(exc))
 
-    return {"statusCode": 200, "body": json.dumps(result)}
+    count = len(discovered)
+    return _ok({
+        "discovered": count,
+        "updated": count,
+        "removed": 0,
+        "message": f"{count} resources synchronized",
+    })
+
+
+def get_resource(event: dict) -> dict:
+    resource_id = _path_id(event)
+    if not resource_id:
+        return _err(400, "MISSING_PARAM", "resource_id is required")
+
+    try:
+        alarms = list_alarms()
+    except ClientError as exc:
+        return _err(500, "CW_ERROR", str(exc))
+
+    resource_alarms = _alarms_for_resource(alarms, resource_id)
+    if not resource_alarms:
+        return _err(404, "NOT_FOUND", f"Resource '{resource_id}' was not found")
+
+    resource_type = _get_resource_type(resource_alarms[0]["AlarmName"])
+    region, account_id = _parse_alarm_arn(resource_alarms[0].get("AlarmArn", ""))
+    critical = sum(1 for alarm in resource_alarms if alarm.get("StateValue") == "ALARM")
+    return _ok({
+        "id": resource_id,
+        "name": resource_id,
+        "type": resource_type,
+        "region": region,
+        "account_id": account_id,
+        "monitoring": True,
+        "alarm_count": len(resource_alarms),
+        "alarms": {"critical": critical, "warning": 0, "count": len(resource_alarms)},
+    })
+
+
+def get_resource_alarms(event: dict) -> dict:
+    resource_id = _path_id(event)
+    if not resource_id:
+        return _err(400, "MISSING_PARAM", "resource_id is required")
+
+    try:
+        alarms = list_alarms()
+    except ClientError as exc:
+        return _err(500, "CW_ERROR", str(exc))
+
+    configs = []
+    for alarm in _alarms_for_resource(alarms, resource_id):
+        tags = {tag["Key"]: tag["Value"] for tag in alarm.get("Tags", [])}
+        configs.append({
+            "alarm_name": alarm.get("AlarmName", ""),
+            "metric_name": alarm.get("MetricName", ""),
+            "namespace": alarm.get("Namespace", ""),
+            "threshold": alarm.get("Threshold"),
+            "comparison": alarm.get("ComparisonOperator", ""),
+            "state": alarm.get("StateValue", ""),
+            "severity": tags.get("Severity", "SEV-5"),
+            "monitoring": True,
+            "period": alarm.get("Period"),
+            "evaluation_periods": alarm.get("EvaluationPeriods"),
+            "datapoints_to_alarm": alarm.get("DatapointsToAlarm"),
+            "treat_missing_data": alarm.get("TreatMissingData", "notBreaching"),
+            "statistic": alarm.get("Statistic", "Average"),
+        })
+    return _ok(configs)
+
+
+def get_resource_metrics(event: dict) -> dict:
+    resource_id = _path_id(event)
+    if not resource_id:
+        return _err(400, "MISSING_PARAM", "resource_id is required")
+
+    try:
+        alarms = list_alarms()
+    except ClientError as exc:
+        return _err(500, "CW_ERROR", str(exc))
+
+    resource_alarms = _alarms_for_resource(alarms, resource_id)
+    if not resource_alarms:
+        return _err(404, "NOT_FOUND", f"Resource '{resource_id}' was not found")
+
+    resource_type = _get_resource_type(resource_alarms[0]["AlarmName"])
+    namespaces = _NAMESPACE_MAP.get(resource_type, [])
+    dim_key = _DIMENSION_KEY_MAP.get(resource_type, "")
+    if not namespaces or not dim_key:
+        return _ok([])
+
+    dim_value = _dimension_value(resource_type, resource_id)
+    region = _GLOBAL_SERVICE_REGION.get(resource_type)
+    cw = _get_cw_client_for_region(region) if region else _get_cw_client()
+
+    seen = set()
+    items = []
+    for namespace in namespaces:
+        try:
+            metrics = _paginated_list_metrics(cw, namespace, dim_key, dim_value)
+        except ClientError as exc:
+            logger.error("list_metrics failed (%s/%s): %s", namespace, dim_value, exc)
+            continue
+        for metric in metrics:
+            metric_name = metric.get("MetricName", "")
+            key = (namespace, metric_name)
+            if key in seen:
+                continue
+            seen.add(key)
+            items.append(_metric_catalog_entry(namespace, metric_name, resource_type))
+
+    items.sort(key=lambda item: (item["namespace"], item["metric_name"]))
+    return _ok(items)
+
+
+def get_disk_paths(event: dict) -> dict:
+    resource_id = _path_id(event)
+    if not resource_id:
+        return _err(400, "MISSING_PARAM", "resource_id is required")
+
+    try:
+        resp = _get_cw_client().list_metrics(
+            Namespace="CWAgent",
+            MetricName="disk_used_percent",
+            Dimensions=[{"Name": "InstanceId", "Value": resource_id}],
+        )
+    except ClientError as exc:
+        return _err(500, "CW_ERROR", str(exc))
+
+    paths = []
+    seen = set()
+    for metric in resp.get("Metrics", []):
+        path = next((dim["Value"] for dim in metric.get("Dimensions", []) if dim["Name"] == "path"), None)
+        if path and path not in seen:
+            seen.add(path)
+            paths.append(path)
+    return _ok(sorted(paths))
+
+
+def create_resource_alarm(event: dict) -> dict:
+    resource_id = _path_id(event)
+    if not resource_id:
+        return _err(400, "MISSING_PARAM", "resource_id is required")
+
+    try:
+        body = json.loads(event.get("body") or "{}")
+    except json.JSONDecodeError:
+        return _err(400, "INVALID_BODY", "Invalid JSON body")
+
+    metric_name = body.get("metric_name", "")
+    threshold = body.get("threshold")
+    mount_path = body.get("mount_path")
+    severity = body.get("severity", "SEV-5")
+    if not metric_name or threshold is None:
+        return _err(400, "MISSING_PARAM", "metric_name and threshold are required")
+    if metric_name == "disk_used_percent" and not mount_path:
+        return _err(400, "MISSING_PARAM", "mount_path is required for disk_used_percent")
+
+    try:
+        existing_alarms = list_alarms()
+    except ClientError as exc:
+        return _err(500, "CW_ERROR", str(exc))
+
+    resource_alarms = _alarms_for_resource(existing_alarms, resource_id)
+    if not resource_alarms:
+        return _err(404, "NOT_FOUND", f"Resource '{resource_id}' was not found")
+    resource_type = _get_resource_type(resource_alarms[0]["AlarmName"])
+
+    region = _GLOBAL_SERVICE_REGION.get(resource_type)
+    cw = _get_cw_client_for_region(region) if region else _get_cw_client()
+    resource_name = _get_instance_name(resource_id) if resource_type == "EC2" else ""
+
+    if metric_name == "disk_used_percent":
+        namespace = "CWAgent"
+        dims = _get_disk_dimensions_for_path(resource_id, mount_path, cw)
+        if not dims:
+            return _err(404, "NO_METRIC", f"No metric found for path '{mount_path}'")
+        metric_key = f"disk_used_percent_{mount_path.lstrip('/') or 'root'}"
+    else:
+        resolved = dimension_builder._resolve_metric_dimensions(
+            resource_id, metric_name, resource_type, cw=cw
+        )
+        if not resolved:
+            return _err(404, "NO_METRIC", f"Metric '{metric_name}' was not found")
+        namespace, dims = resolved
+        metric_key = _metric_name_to_key(metric_name) or metric_name
+
+    alarm_name = _pretty_alarm_name(resource_type, resource_id, resource_name, metric_key, float(threshold))
+    description = _build_alarm_description(resource_type, resource_id, metric_key)
+    sns_arn = os.environ.get("SNS_TOPIC_ARN_ALERT", "")
+
+    try:
+        cw.put_metric_alarm(
+            AlarmName=alarm_name,
+            AlarmDescription=description,
+            Namespace=namespace,
+            MetricName=metric_name,
+            Dimensions=dims,
+            Statistic="Average",
+            Period=300,
+            EvaluationPeriods=1,
+            Threshold=float(threshold),
+            ComparisonOperator="GreaterThanThreshold",
+            ActionsEnabled=True,
+            AlarmActions=[sns_arn] if sns_arn else [],
+            OKActions=[sns_arn] if sns_arn else [],
+            TreatMissingData="notBreaching",
+            Tags=[{"Key": "Severity", "Value": severity}],
+        )
+    except ClientError as exc:
+        return _err(500, "CW_ERROR", str(exc))
+
+    return _ok({"alarm_name": alarm_name, "metric_name": metric_name, "mount_path": mount_path}, status=201)
+
+
+def _list_alarm_resources(event: dict) -> dict:
+    qs = event.get("queryStringParameters") or {}
+    try:
+        result = get_resources_from_alarms(
+            page=int(qs.get("page", 1)),
+            page_size=min(int(qs.get("page_size", 25)), 100),
+            resource_type=qs.get("resource_type") or None,
+            search=qs.get("search") or None,
+        )
+        discovered = discover_resources([])
+    except ClientError as exc:
+        return _err(500, "CW_ERROR", str(exc))
+
+    existing_ids = {item.get("id") for item in result.get("items", [])}
+    discovered_items = []
+    for resource in discovered:
+        resource_id = resource.get("resource_id") or resource.get("id")
+        if not resource_id or resource_id in existing_ids:
+            continue
+        item = _inventory_item(resource, "aws", {}, False)
+        if qs.get("resource_type") and item.get("type") != qs["resource_type"]:
+            continue
+        search = (qs.get("search") or "").lower()
+        if search and search not in item.get("id", "").lower() and search not in item.get("name", "").lower():
+            continue
+        discovered_items.append(item)
+        existing_ids.add(resource_id)
+
+    if discovered_items:
+        result = {**result, "items": [*result.get("items", []), *discovered_items]}
+        result["total"] = result.get("total", 0) + len(discovered_items)
+    return _ok(result)
+
+
+def _list_inventory_resources(event: dict) -> dict:
+    qs = event.get("queryStringParameters") or {}
+    resource_type = qs.get("resource_type") or None
+    search = (qs.get("search") or "").lower()
+    page = int(qs.get("page", 1))
+    page_size = min(int(qs.get("page_size", 25)), 100)
+
+    try:
+        accounts = scan_all(accounts_table())
+        discovered = discover_resources(accounts)
+        persisted = scan_all(resource_inventory_table())
+        overlay = get_alarm_overlay()
+    except ClientError as exc:
+        return _err(500, "AWS_ERROR", str(exc))
+
+    items_by_id = {}
+    for resource in discovered:
+        item = _inventory_item(resource, "aws", overlay.get(resource["resource_id"], {}), False)
+        items_by_id[item["id"]] = item
+
+    for resource in persisted:
+        resource_id = resource.get("resource_id") or resource.get("id")
+        if not resource_id or resource_id in items_by_id:
+            continue
+        resource = {**resource, "resource_id": resource_id, "status": "missing"}
+        items_by_id[resource_id] = _inventory_item(resource, "db", overlay.get(resource_id, {}), True)
+
+    for resource_id, alarm_info in overlay.items():
+        if resource_id in items_by_id:
+            continue
+        items_by_id[resource_id] = {
+            "id": resource_id,
+            "name": resource_id,
+            "type": "",
+            "region": "",
+            "account_id": "",
+            "customer_id": "",
+            "monitoring": True,
+            "status": "orphan_candidate",
+            "inventory_source": "alarms",
+            "persisted": False,
+            "alarm_count": alarm_info.get("count", 0),
+            "alarms": _alarm_summary(alarm_info),
+        }
+
+    items = list(items_by_id.values())
+    if resource_type:
+        items = [item for item in items if item.get("type") == resource_type]
+    if search:
+        items = [
+            item for item in items
+            if search in item.get("id", "").lower() or search in item.get("name", "").lower()
+        ]
+
+    total = len(items)
+    start = (page - 1) * page_size
+    return _ok({"items": items[start:start + page_size], "total": total, "page": page, "page_size": page_size})
+
+
+def _inventory_item(resource: dict, source: str, alarm_info: dict, persisted: bool) -> dict:
+    return {
+        "id": resource.get("resource_id") or resource.get("id", ""),
+        "name": resource.get("name") or resource.get("resource_id") or resource.get("id", ""),
+        "type": resource.get("type", ""),
+        "region": resource.get("region", ""),
+        "account_id": resource.get("account_id", ""),
+        "customer_id": resource.get("customer_id", ""),
+        "monitoring": bool(resource.get("monitoring", False)),
+        "status": resource.get("status", "active"),
+        "inventory_source": source,
+        "persisted": persisted,
+        "alarm_count": alarm_info.get("count", 0),
+        "alarms": _alarm_summary(alarm_info),
+    }
+
+
+def _alarm_summary(alarm_info: dict) -> dict:
+    return {
+        "critical": alarm_info.get("critical", 0),
+        "warning": alarm_info.get("warning", 0),
+        "count": alarm_info.get("count", 0),
+    }
+
+
+def _path_id(event: dict) -> str:
+    return (event.get("pathParameters") or {}).get("id", "")
+
+
+def _get_tag_name(alarm_name: str) -> str:
+    match = _ALARM_NAME_RE.match(alarm_name)
+    return match.group(2) if match else ""
+
+
+def _get_resource_type(alarm_name: str) -> str:
+    parsed = extract_resource_from_alarm(alarm_name)
+    if parsed:
+        return parsed[0]
+    match = _ALARM_NAME_RE.match(alarm_name)
+    return match.group(1) if match else ""
+
+
+def _alarms_for_resource(alarms: list[dict], resource_id: str) -> list[dict]:
+    return [alarm for alarm in alarms if _get_tag_name(alarm.get("AlarmName", "")) == resource_id]
+
+
+def _dimension_value(resource_type: str, resource_id: str) -> str:
+    if resource_type in ("ALB", "NLB", "TG"):
+        return dimension_builder._extract_elb_dimension(resource_id)
+    return resource_id
+
+
+def _paginated_list_metrics(cw, namespace: str, dim_key: str, dim_value: str) -> list[dict]:
+    metrics = []
+    next_token = None
+    for _ in range(_LIST_METRICS_PAGE_CAP):
+        kwargs = {"Namespace": namespace, "Dimensions": [{"Name": dim_key, "Value": dim_value}]}
+        if next_token:
+            kwargs["NextToken"] = next_token
+        resp = cw.list_metrics(**kwargs)
+        metrics.extend(resp.get("Metrics", []))
+        next_token = resp.get("NextToken")
+        if not next_token:
+            break
+    return metrics
+
+
+def _metric_catalog_entry(namespace: str, metric_name: str, resource_type: str) -> dict:
+    metric_key = _metric_name_to_key(metric_name) or metric_name
+    display = _METRIC_DISPLAY.get(metric_key, {})
+    if isinstance(display, tuple):
+        _, direction, unit = display
+    else:
+        direction = display.get("direction", ">")
+        unit = display.get("unit")
+    return {
+        "namespace": namespace,
+        "metric_name": metric_name,
+        "unit": unit,
+        "direction": direction or ">",
+        "needs_mount_path": metric_name == "disk_used_percent",
+        "resource_type": resource_type,
+    }
+
+
+def _get_instance_name(instance_id: str) -> str:
+    try:
+        resp = _get_ec2_client().describe_instances(InstanceIds=[instance_id])
+        tags = resp["Reservations"][0]["Instances"][0].get("Tags", [])
+        return next((tag["Value"] for tag in tags if tag["Key"] == "Name"), "")
+    except (ClientError, IndexError, KeyError):
+        return ""
+
+
+def _get_disk_dimensions_for_path(instance_id: str, mount_path: str, cw) -> list[dict]:
+    try:
+        resp = cw.list_metrics(
+            Namespace="CWAgent",
+            MetricName="disk_used_percent",
+            Dimensions=[{"Name": "InstanceId", "Value": instance_id}],
+        )
+    except ClientError:
+        return []
+
+    allowed = {"InstanceId", "device", "fstype", "path"}
+    for metric in resp.get("Metrics", []):
+        dims = metric.get("Dimensions", [])
+        path = next((dim["Value"] for dim in dims if dim["Name"] == "path"), None)
+        if path == mount_path:
+            return [dim for dim in dims if dim["Name"] in allowed]
+    return []
+
+
+def _ok(data, status: int = 200) -> dict:
+    return {"statusCode": status, "body": json.dumps(data, default=str)}
+
+
+def _err(status: int, code: str, message: str) -> dict:
+    return {"statusCode": status, "body": json.dumps({"code": code, "message": message})}

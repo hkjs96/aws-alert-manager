@@ -136,8 +136,9 @@ export function createAccount(data: CreateAccountRequest): Promise<Account> {
   });
 }
 
-export function testConnection(id: string): Promise<ConnectionTestResult> {
-  return apiFetch(`/api/accounts/${id}/test`, { method: "POST" });
+export function testConnection(id: string, customerId: string): Promise<ConnectionTestResult> {
+  const qs = buildQueryString({ customer_id: customerId });
+  return apiFetch(`/api/accounts/${id}/test?${qs}`, { method: "POST" });
 }
 
 // --- Thresholds ---

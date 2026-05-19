@@ -13,7 +13,7 @@ export async function POST(request: NextRequest) {
   await mockDelay();
   const body = (await request.json()) as CreateAccountRequest;
 
-  if (!body.account_id || !body.role_arn || !body.name || !body.customer_id) {
+  if (!body.account_id || !body.role_arn || !body.name || !body.customer_id || !body.regions?.length) {
     return NextResponse.json(
       { code: "VALIDATION_ERROR", message: "All fields are required" },
       { status: 400 },
@@ -32,7 +32,7 @@ export async function POST(request: NextRequest) {
     customer_id: body.customer_id,
     name: body.name,
     role_arn: body.role_arn,
-    regions: ["us-east-1"],
+    regions: body.regions,
     connection_status: "untested",
   };
   addAccount(newAccount);

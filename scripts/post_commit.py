@@ -120,7 +120,10 @@ def _build_zip(artifact: str) -> Path:
             if f.suffix == ".pyc" or "__pycache__" in f.parts:
                 continue
             rel = f.relative_to(src_root).as_posix()
-            zf.write(f, f"{prefix}/{rel}" if prefix else rel)
+            arcname = f"{prefix}/{rel}" if prefix else rel
+            zf.write(f, arcname)
+            if artifact == "api_handler.zip":
+                zf.write(f, f"api_handler/{rel}")
     return zip_path
 
 

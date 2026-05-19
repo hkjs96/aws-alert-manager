@@ -35,6 +35,10 @@ const resourceArb = fc.record<Resource>({
   region: fc.constant("ap-northeast-2"),
   monitoring: fc.boolean(),
   alarms: fc.record({ critical: fc.nat(5), warning: fc.nat(5) }),
+  alarm_count: fc.nat(10),
+  inventory_source: fc.constantFrom("aws", "db", "alarms"),
+  persisted: fc.boolean(),
+  status: fc.constantFrom("active", "missing", "deleted", "orphan_candidate"),
 });
 
 const metricRowArb = (enabled?: boolean): fc.Arbitrary<MetricRow> =>

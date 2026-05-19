@@ -127,6 +127,8 @@ def _write_zip(zip_name: str) -> Path:
             rel = file.relative_to(root).as_posix()
             arcname = f"{prefix}/{rel}" if prefix else rel
             zf.write(file, arcname)
+            if zip_name == "api_handler.zip":
+                zf.write(file, f"api_handler/{rel}")
 
     return zip_path
 
