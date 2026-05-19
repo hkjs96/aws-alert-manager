@@ -17,7 +17,39 @@ interface AccountSectionProps {
 const INPUT_CLS = "w-full bg-slate-50 border-none rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-primary/20 outline-none";
 const REGION_OPTIONS = [
   { value: "us-east-1", label: "US East (N. Virginia)" },
+  { value: "us-east-2", label: "US East (Ohio)" },
+  { value: "us-west-1", label: "US West (N. California)" },
+  { value: "us-west-2", label: "US West (Oregon)" },
+  { value: "ca-central-1", label: "Canada (Central)" },
+  { value: "ca-west-1", label: "Canada West (Calgary)" },
+  { value: "mx-central-1", label: "Mexico (Central)" },
+  { value: "sa-east-1", label: "South America (Sao Paulo)" },
+  { value: "eu-west-1", label: "Europe (Ireland)" },
+  { value: "eu-west-2", label: "Europe (London)" },
+  { value: "eu-west-3", label: "Europe (Paris)" },
+  { value: "eu-central-1", label: "Europe (Frankfurt)" },
+  { value: "eu-central-2", label: "Europe (Zurich)" },
+  { value: "eu-north-1", label: "Europe (Stockholm)" },
+  { value: "eu-south-1", label: "Europe (Milan)" },
+  { value: "eu-south-2", label: "Europe (Spain)" },
+  { value: "af-south-1", label: "Africa (Cape Town)" },
+  { value: "il-central-1", label: "Israel (Tel Aviv)" },
+  { value: "me-central-1", label: "Middle East (UAE)" },
+  { value: "me-south-1", label: "Middle East (Bahrain)" },
+  { value: "ap-south-1", label: "Asia Pacific (Mumbai)" },
+  { value: "ap-south-2", label: "Asia Pacific (Hyderabad)" },
+  { value: "ap-east-1", label: "Asia Pacific (Hong Kong)" },
+  { value: "ap-east-2", label: "Asia Pacific (Taipei)" },
+  { value: "ap-northeast-1", label: "Asia Pacific (Tokyo)" },
   { value: "ap-northeast-2", label: "Asia Pacific (Seoul)" },
+  { value: "ap-northeast-3", label: "Asia Pacific (Osaka)" },
+  { value: "ap-southeast-1", label: "Asia Pacific (Singapore)" },
+  { value: "ap-southeast-2", label: "Asia Pacific (Sydney)" },
+  { value: "ap-southeast-3", label: "Asia Pacific (Jakarta)" },
+  { value: "ap-southeast-4", label: "Asia Pacific (Melbourne)" },
+  { value: "ap-southeast-5", label: "Asia Pacific (Malaysia)" },
+  { value: "ap-southeast-6", label: "Asia Pacific (New Zealand)" },
+  { value: "ap-southeast-7", label: "Asia Pacific (Thailand)" },
 ] as const;
 
 function FormField({ label, children }: { label: string; children: React.ReactNode }) {
@@ -231,7 +263,17 @@ export function AccountSection({ accounts, customers }: AccountSectionProps) {
               </select>
             </FormField>
             <FormField label="Monitoring Regions">
-              <div className="grid grid-cols-1 gap-2">
+              <div className="mb-2 flex items-center justify-between text-[11px] text-slate-400">
+                <span>{regions.length} selected</span>
+                <button
+                  type="button"
+                  onClick={() => setRegions(["us-east-1"])}
+                  className="font-semibold text-primary hover:underline"
+                >
+                  Reset
+                </button>
+              </div>
+              <div className="grid max-h-48 grid-cols-1 gap-2 overflow-y-auto rounded-lg bg-white p-3 ring-1 ring-slate-200 lg:grid-cols-2">
                 {REGION_OPTIONS.map((region) => (
                   <label key={region.value} className="flex items-center gap-2 text-sm text-slate-700">
                     <input
@@ -240,8 +282,8 @@ export function AccountSection({ accounts, customers }: AccountSectionProps) {
                       onChange={() => toggleRegion(region.value)}
                       className="h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary/20"
                     />
-                    <span>{region.label}</span>
-                    <span className="font-mono text-xs text-slate-400">{region.value}</span>
+                    <span className="min-w-0 flex-1 truncate">{region.label}</span>
+                    <span className="font-mono text-[10px] text-slate-400">{region.value}</span>
                   </label>
                 ))}
               </div>
