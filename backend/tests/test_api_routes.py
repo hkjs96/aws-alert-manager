@@ -242,6 +242,64 @@ class TestResources:
         metrics = {c["metric_name"] for c in configs}
         assert metrics == {"CPUUtilization", "mem_used_percent"}
 
+    def test_update_resource_alarms_updates_existing_alarm(self):
+        mock_cw = MagicMock()
+        mock_alarms = [{
+            **_alarm("[EC2] server CPU >80% (TagName: i-001)", metric="CPUUtilization"),
+            "AlarmArn": "arn:aws:cloudwatch:us-east-1:123456789012:alarm:test",
+            "Dimensions": [{"Name": "InstanceId", "Value": "i-001"}],
+            "Period": 300,
+            "EvaluationPeriods": 1,
+            "ActionsEnabled": True,
+            "AlarmActions": ["arn:aws:sns:us-east-1:123456789012:alerts"],
+            "OKActions": [],
+            "InsufficientDataActions": [],
+            "TreatMissingData": "notBreaching",
+            "Statistic": "Average",
+        }]
+
+        with patch("api_handler.routes.resources.list_alarms", return_value=mock_alarms), \
+             patch("api_handler.routes.resources._get_cw_client_for_region", return_value=mock_cw):
+            from api_handler.lambda_handler import lambda_handler
+            resp = lambda_handler(
+                _event("PUT", "/resources/i-001/alarms",
+                       body={"configs": [{
+                           "metric_key": "CPUUtilization",
+                           "threshold": 70,
+                           "monitoring": True,
+                           "unit": "Percent",
+                           "direction": ">",
+                           "severity": "SEV-4",
+                       }]},
+                       path_params={"id": "i-001"}),
+                None,
+            )
+
+        assert resp["statusCode"] == 200, resp["body"]
+        body = json.loads(resp["body"])
+        assert body["completed_count"] == 1
+        kwargs = mock_cw.put_metric_alarm.call_args.kwargs
+        assert kwargs["AlarmName"] == "[EC2] server CPU >80% (TagName: i-001)"
+        assert kwargs["Threshold"] == 70.0
+        assert kwargs["ComparisonOperator"] == "GreaterThanThreshold"
+        assert kwargs["Dimensions"] == [{"Name": "InstanceId", "Value": "i-001"}]
+        assert kwargs["AlarmActions"] == ["arn:aws:sns:us-east-1:123456789012:alerts"]
+        mock_cw.tag_resource.assert_called_once()
+
+    def test_update_resource_alarms_returns_404_for_missing_metric(self):
+        mock_alarms = [_alarm("[EC2] server CPU >80% (TagName: i-001)", metric="CPUUtilization")]
+        with patch("api_handler.routes.resources.list_alarms", return_value=mock_alarms):
+            from api_handler.lambda_handler import lambda_handler
+            resp = lambda_handler(
+                _event("PUT", "/resources/i-001/alarms",
+                       body={"configs": [{"metric_key": "mem_used_percent", "threshold": 80}]},
+                       path_params={"id": "i-001"}),
+                None,
+            )
+
+        assert resp["statusCode"] == 404
+        assert json.loads(resp["body"])["code"] == "NOT_FOUND"
+
 
 # ── /bulk ─────────────────────────────────────────────────────────────
 

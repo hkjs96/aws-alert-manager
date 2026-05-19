@@ -288,6 +288,58 @@ def create_resource_alarm(event: dict) -> dict:
     return _ok({"alarm_name": alarm_name, "metric_name": metric_name, "mount_path": mount_path}, status=201)
 
 
+def update_resource_alarms(event: dict) -> dict:
+    resource_id = _path_id(event)
+    if not resource_id:
+        return _err(400, "MISSING_PARAM", "resource_id is required")
+
+    try:
+        body = json.loads(event.get("body") or "{}")
+    except json.JSONDecodeError:
+        return _err(400, "INVALID_BODY", "Invalid JSON body")
+
+    configs = body.get("configs")
+    if not isinstance(configs, list):
+        return _err(400, "INVALID_BODY", "configs must be a list")
+
+    try:
+        resource_alarms = _alarms_for_resource(list_alarms(), resource_id)
+    except ClientError as exc:
+        return _err(500, "CW_ERROR", str(exc))
+
+    if not resource_alarms:
+        return _err(404, "NOT_FOUND", f"Resource '{resource_id}' was not found")
+
+    results = []
+    updated = 0
+    for config in configs:
+        if not isinstance(config, dict):
+            return _err(400, "INVALID_BODY", "each config must be an object")
+        alarm = _find_alarm_for_config(resource_alarms, config)
+        if not alarm:
+            metric_key = config.get("metric_key") or config.get("metric_name") or ""
+            return _err(404, "NOT_FOUND", f"Alarm for metric '{metric_key}' was not found")
+
+        try:
+            _update_metric_alarm(alarm, config)
+        except (TypeError, ValueError) as exc:
+            return _err(400, "INVALID_BODY", str(exc))
+        except ClientError as exc:
+            return _err(500, "CW_ERROR", str(exc))
+
+        updated += 1
+        results.append({"alarm_name": alarm.get("AlarmName", ""), "status": "updated"})
+
+    return _ok({
+        "job_id": "alarm-config-save",
+        "status": "completed",
+        "total_count": len(configs),
+        "completed_count": updated,
+        "failed_count": 0,
+        "results": results,
+    })
+
+
 def _list_alarm_resources(event: dict) -> dict:
     qs = event.get("queryStringParameters") or {}
     try:
@@ -425,6 +477,91 @@ def _get_resource_type(alarm_name: str) -> str:
 
 def _alarms_for_resource(alarms: list[dict], resource_id: str) -> list[dict]:
     return [alarm for alarm in alarms if _get_tag_name(alarm.get("AlarmName", "")) == resource_id]
+
+
+def _find_alarm_for_config(alarms: list[dict], config: dict) -> dict | None:
+    metric_key = config.get("metric_key") or config.get("metric_name")
+    if not metric_key:
+        return None
+    metric_name = _metric_key_to_name(metric_key)
+    for alarm in alarms:
+        if alarm.get("MetricName") == metric_name:
+            return alarm
+    for alarm in alarms:
+        if metric_key in alarm.get("AlarmName", ""):
+            return alarm
+    return None
+
+
+def _metric_key_to_name(metric_key: str) -> str:
+    for name in (metric_key, metric_key.split("_/", 1)[0]):
+        if _metric_name_to_key(name) == metric_key:
+            return name
+    return metric_key
+
+
+def _update_metric_alarm(alarm: dict, config: dict) -> None:
+    if "threshold" not in config or config.get("threshold") is None:
+        raise ValueError("threshold is required")
+
+    region, _ = _parse_alarm_arn(alarm.get("AlarmArn", ""))
+    cw = _get_cw_client_for_region(region) if region != "unknown" else _get_cw_client()
+    kwargs = _metric_alarm_update_kwargs(alarm, config)
+    cw.put_metric_alarm(**kwargs)
+
+    severity = config.get("severity")
+    alarm_arn = alarm.get("AlarmArn")
+    if severity and alarm_arn:
+        try:
+            cw.tag_resource(ResourceARN=alarm_arn, Tags=[{"Key": "Severity", "Value": str(severity)}])
+        except ClientError as exc:
+            logger.warning("Failed to update alarm severity tag for %s: %s", alarm.get("AlarmName", ""), exc)
+
+
+def _metric_alarm_update_kwargs(alarm: dict, config: dict) -> dict:
+    kwargs = {
+        "AlarmName": alarm["AlarmName"],
+        "MetricName": alarm["MetricName"],
+        "Namespace": alarm["Namespace"],
+        "Dimensions": alarm.get("Dimensions", []),
+        "Period": alarm.get("Period", 300),
+        "EvaluationPeriods": alarm.get("EvaluationPeriods", 1),
+        "Threshold": float(config["threshold"]),
+        "ComparisonOperator": _comparison_operator(config.get("direction"), alarm),
+        "ActionsEnabled": bool(config.get("monitoring", alarm.get("ActionsEnabled", True))),
+        "OKActions": alarm.get("OKActions", []),
+        "AlarmActions": alarm.get("AlarmActions", []),
+        "InsufficientDataActions": alarm.get("InsufficientDataActions", []),
+        "TreatMissingData": alarm.get("TreatMissingData", "notBreaching"),
+    }
+    optional_fields = (
+        "AlarmDescription",
+        "DatapointsToAlarm",
+        "EvaluateLowSampleCountPercentile",
+        "ExtendedStatistic",
+        "Statistic",
+        "Unit",
+    )
+    for field in optional_fields:
+        value = alarm.get(field)
+        if value is not None:
+            kwargs[field] = value
+    if "Unit" not in kwargs and config.get("unit"):
+        kwargs["Unit"] = config["unit"]
+    if "Statistic" not in kwargs and "ExtendedStatistic" not in kwargs:
+        kwargs["Statistic"] = "Average"
+    return kwargs
+
+
+def _comparison_operator(direction: str | None, alarm: dict) -> str:
+    if not direction:
+        return alarm.get("ComparisonOperator", "GreaterThanThreshold")
+    return {
+        ">": "GreaterThanThreshold",
+        ">=": "GreaterThanOrEqualToThreshold",
+        "<": "LessThanThreshold",
+        "<=": "LessThanOrEqualToThreshold",
+    }.get(direction, alarm.get("ComparisonOperator", "GreaterThanThreshold"))
 
 
 def _dimension_value(resource_type: str, resource_id: str) -> str:
