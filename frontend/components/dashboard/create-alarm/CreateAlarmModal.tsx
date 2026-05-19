@@ -146,13 +146,18 @@ export function CreateAlarmModal({ open, onClose, onSuccess }: CreateAlarmModalP
         });
       }
 
-      const res = await fetch("/api/alarms/create", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ resource_id: resourceId, track, metrics: activeMetrics }),
-      });
-
-      if (!res.ok) throw new Error("API Error");
+      for (const metric of activeMetrics) {
+        const res = await fetch(`/api/resources/${encodeURIComponent(resourceId)}/alarms`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            metric_name: metric.metric_name,
+            threshold: metric.threshold,
+            severity: "SEV-5",
+          }),
+        });
+        if (!res.ok) throw new Error("API Error");
+      }
 
       showToast("success", "알람이 성공적으로 생성되었습니다.");
       handleClose();

@@ -5,7 +5,6 @@ import { AlarmConfigTable } from "../AlarmConfigTable";
 import { ResourceEvents } from "../ResourceEvents";
 import { ResourceHeader } from "../ResourceHeader";
 import type { AlarmConfig, RecentAlarm, Resource } from "@/types";
-import { createMockResource } from "@/lib/mock-data";
 
 // Mock api-functions
 vi.mock("@/lib/api-functions", () => ({
@@ -21,15 +20,19 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(),
 }));
 
-const MOCK_RESOURCE: Resource = createMockResource({
+const MOCK_RESOURCE: Resource = {
   id: "i-0a2b4c6d8e0f12",
   name: "payments-api-prod-01",
   type: "EC2",
   account: "882311440092",
   region: "us-east-1",
   monitoring: true,
+  alarm_count: 2,
   alarms: { critical: 2, warning: 0 },
-});
+  inventory_source: "aws",
+  persisted: true,
+  status: "active",
+};
 
 const MOCK_CONFIGS: AlarmConfig[] = [
   {

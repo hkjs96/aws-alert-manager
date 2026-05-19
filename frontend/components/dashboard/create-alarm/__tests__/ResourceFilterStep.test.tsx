@@ -2,7 +2,6 @@ import { describe, it, expect, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import { ResourceFilterStep } from "../ResourceFilterStep";
 import type { Resource } from "@/types";
-import { createMockResource } from "@/lib/mock-data";
 
 vi.mock("@/lib/api-functions", () => ({
   fetchCustomers: vi.fn().mockResolvedValue([
@@ -17,9 +16,9 @@ vi.mock("@/lib/api-functions", () => ({
 }));
 
 const mockResources: Resource[] = [
-  createMockResource({ id: "i-001", name: "web-01", type: "EC2", account: "111111111111", region: "ap-northeast-2", monitoring: true, alarms: { critical: 0, warning: 0 } }),
-  createMockResource({ id: "i-002", name: "web-02", type: "EC2", account: "111111111111", region: "ap-northeast-2", monitoring: false, alarms: { critical: 0, warning: 0 } }),
-  createMockResource({ id: "i-003", name: "api-01", type: "EC2", account: "222222222222", region: "ap-northeast-2", monitoring: true, alarms: { critical: 0, warning: 0 } }),
+  { id: "i-001", name: "web-01", type: "EC2", account: "111111111111", region: "ap-northeast-2", monitoring: true, alarm_count: 0, alarms: { critical: 0, warning: 0 }, inventory_source: "aws", persisted: true, status: "active" },
+  { id: "i-002", name: "web-02", type: "EC2", account: "111111111111", region: "ap-northeast-2", monitoring: false, alarm_count: 0, alarms: { critical: 0, warning: 0 }, inventory_source: "aws", persisted: true, status: "active" },
+  { id: "i-003", name: "api-01", type: "EC2", account: "222222222222", region: "ap-northeast-2", monitoring: true, alarm_count: 0, alarms: { critical: 0, warning: 0 }, inventory_source: "aws", persisted: true, status: "active" },
 ];
 
 const defaultProps = {
@@ -98,7 +97,7 @@ describe("ResourceFilterStep 컴포넌트", () => {
   it("트랙 1 + accountId에 monitoring=true 리소스 없으면 '모니터링 중인 리소스가 없습니다' 표시", () => {
     // i-002만 있는 계정 없지만, monitoring=true가 하나도 없는 가상 시나리오
     const noMonitoringResources: Resource[] = [
-      createMockResource({ id: "i-999", name: "idle", type: "EC2", account: "999999999999", region: "ap-northeast-2", monitoring: false, alarms: { critical: 0, warning: 0 } }),
+      { id: "i-999", name: "idle", type: "EC2", account: "999999999999", region: "ap-northeast-2", monitoring: false, alarm_count: 0, alarms: { critical: 0, warning: 0 }, inventory_source: "aws", persisted: true, status: "active" },
     ];
     render(
       <ResourceFilterStep

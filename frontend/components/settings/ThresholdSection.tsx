@@ -5,12 +5,9 @@ import { Settings, Save } from "lucide-react";
 import { Button } from "@/components/shared/Button";
 import { useToast } from "@/components/shared/Toast";
 import { LoadingButton } from "@/components/shared/LoadingButton";
-import { getMockThresholdOverrides } from "@/lib/mock-data";
 import { FRONTEND_INTEGRATION_RESOURCE_TYPES } from "@/lib/constants";
 import { fetchThresholds, saveThresholds } from "@/lib/api-functions";
 import type { ThresholdOverride } from "@/types/api";
-
-const USE_REAL_API = Boolean(process.env.NEXT_PUBLIC_API_BASE_URL);
 
 export function ThresholdSection() {
   const { showToast } = useToast();
@@ -36,12 +33,7 @@ export function ThresholdSection() {
     const load = async () => {
       setIsLoading(true);
       try {
-        let data: ThresholdOverride[];
-        if (USE_REAL_API) {
-          data = await fetchThresholds(activeType, { customer_id: customerId });
-        } else {
-          data = getMockThresholdOverrides(activeType);
-        }
+        const data = await fetchThresholds(activeType, { customer_id: customerId });
         if (!cancelled) {
           setThresholds(data);
           setInitialThresholds(data);
@@ -95,11 +87,7 @@ export function ThresholdSection() {
     }
     setIsSaving(true);
     try {
-      if (USE_REAL_API) {
-        await saveThresholds(activeType, thresholds, customerId || undefined);
-      } else {
-        await new Promise((resolve) => setTimeout(resolve, 400));
-      }
+      await saveThresholds(activeType, thresholds, customerId || undefined);
       showToast("success", `${activeType} thresholds saved.`);
       setInitialThresholds(thresholds);
       setDirtyTabs((prev) => {

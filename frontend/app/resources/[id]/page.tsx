@@ -1,6 +1,5 @@
 import { notFound } from "next/navigation";
-import { fetchResource, fetchResourceAlarms } from "@/lib/server/data";
-import { getMockEvents } from "@/lib/mock-data";
+import { fetchResource, fetchResourceAlarms, fetchResourceEvents } from "@/lib/server/data";
 import { ResourceDetailClient } from "@/components/resources/ResourceDetailClient";
 import { ResourceEvents } from "@/components/resources/ResourceEvents";
 import type { Metadata } from "next";
@@ -45,7 +44,7 @@ export default async function ResourceDetailPage({ params }: ResourceDetailPageP
   try {
     [alarmConfigs, events] = await Promise.all([
       fetchResourceAlarms(resource.id),
-      Promise.resolve(getMockEvents(resource.id)),
+      fetchResourceEvents(resource.id),
     ]);
   } catch (error) {
     console.error("[ResourceDetailPage] Failed to fetch secondary data:", error);

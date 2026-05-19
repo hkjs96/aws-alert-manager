@@ -1,7 +1,19 @@
 import { describe, it, expect } from "vitest";
 import { filterAccounts, filterResources, isSubmitEnabled } from "../alarm-modal-utils";
-import { MOCK_ACCOUNTS, MOCK_RESOURCES } from "../mock-data";
 import type { MetricRow } from "@/components/resources/MetricConfigSection";
+import type { Account, Resource } from "@/types";
+
+const MOCK_ACCOUNTS: Account[] = [
+  { account_id: "882311440092", customer_id: "cust-001", name: "Production", role_arn: "", regions: ["us-east-1"], connection_status: "connected" },
+  { account_id: "440911228833", customer_id: "cust-001", name: "Staging", role_arn: "", regions: ["us-west-2"], connection_status: "connected" },
+  { account_id: "112233445566", customer_id: "cust-002", name: "Main", role_arn: "", regions: ["ap-northeast-2"], connection_status: "connected" },
+];
+
+const MOCK_RESOURCES: Resource[] = [
+  { id: "i-001", name: "web-01", type: "EC2", account: "882311440092", region: "us-east-1", monitoring: true, alarm_count: 1, alarms: { critical: 0, warning: 1 }, inventory_source: "aws", persisted: true, status: "active" },
+  { id: "i-002", name: "web-02", type: "EC2", account: "882311440092", region: "us-east-1", monitoring: false, alarm_count: 0, alarms: { critical: 0, warning: 0 }, inventory_source: "aws", persisted: true, status: "active" },
+  { id: "i-003", name: "api-01", type: "EC2", account: "112233445566", region: "ap-northeast-2", monitoring: true, alarm_count: 0, alarms: { critical: 0, warning: 0 }, inventory_source: "aws", persisted: true, status: "active" },
+];
 
 describe("filterAccounts", () => {
   it("customer_id가 일치하는 어카운트만 반환한다", () => {
