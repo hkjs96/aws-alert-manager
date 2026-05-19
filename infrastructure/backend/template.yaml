@@ -284,6 +284,8 @@ Resources:
                 Action:
                   - cloudwatch:DescribeAlarms
                   - cloudwatch:ListTagsForResource
+                  - cloudwatch:PutMetricAlarm
+                  - cloudwatch:TagResource
                 Resource: "*"
               - Effect: Allow
                 Action:
