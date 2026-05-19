@@ -329,7 +329,7 @@ export function AccountSection({ accounts, customers }: AccountSectionProps) {
                 <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
                   Common Regions
                 </div>
-                <div className="flex flex-wrap gap-2">
+                <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
                   {COMMON_REGIONS.map((region) => {
                     const selected = regions.includes(region);
                     return (
@@ -338,46 +338,51 @@ export function AccountSection({ accounts, customers }: AccountSectionProps) {
                         type="button"
                         onClick={() => toggleRegion(region)}
                         className={
-                          `rounded-md px-3 py-1.5 text-left text-xs font-semibold ring-1 transition-colors ${
+                          `flex min-w-0 items-center gap-2 rounded-md px-3 py-1.5 text-left text-xs font-semibold ring-1 transition-colors ${
                             selected
                               ? "bg-primary text-white ring-primary"
                               : "bg-slate-50 text-slate-600 ring-slate-200 hover:bg-slate-100"
                           }`
                         }
                       >
-                        <span className="font-mono">{region}</span>
-                        <span className="ml-2 font-normal opacity-80">{regionLabel(region)}</span>
+                        <span className="shrink-0 font-mono">{region}</span>
+                        <span className="min-w-0 truncate font-normal opacity-80">{regionLabel(region)}</span>
                       </button>
                     );
                   })}
                 </div>
               </div>
 
-              <div className="mt-5 grid gap-4 lg:grid-cols-2">
-                {REGION_GROUPS.map((group) => (
-                  <div key={group.title} className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-                    <div className="mb-3 text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                      {group.title}
+              <details className="mt-4 rounded-lg border border-slate-200 bg-slate-50">
+                <summary className="cursor-pointer px-3 py-2 text-xs font-semibold text-primary">
+                  Show all AWS regions
+                </summary>
+                <div className="grid gap-4 border-t border-slate-200 p-3 lg:grid-cols-2">
+                  {REGION_GROUPS.map((group) => (
+                    <div key={group.title} className="rounded-lg border border-slate-200 bg-white p-3">
+                      <div className="mb-3 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                        {group.title}
+                      </div>
+                      <div className="space-y-2">
+                        {group.regions.map((region) => (
+                          <label key={region} className="flex min-w-0 items-center gap-3 rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-700 ring-1 ring-slate-100">
+                            <input
+                              type="checkbox"
+                              checked={regions.includes(region)}
+                              onChange={() => toggleRegion(region)}
+                              className="h-4 w-4 shrink-0 rounded border-slate-300 text-primary focus:ring-primary/20"
+                            />
+                            <span className="flex min-w-0 flex-1 items-center gap-3 overflow-hidden">
+                              <span className="w-32 shrink-0 font-mono font-semibold text-slate-700">{region}</span>
+                              <span className="min-w-0 flex-1 truncate text-[11px] text-slate-400">{regionLabel(region)}</span>
+                            </span>
+                          </label>
+                        ))}
+                      </div>
                     </div>
-                    <div className="space-y-2">
-                      {group.regions.map((region) => (
-                        <label key={region} className="flex min-w-0 items-center gap-3 rounded-md bg-white px-3 py-2 text-xs text-slate-700 ring-1 ring-slate-100">
-                          <input
-                            type="checkbox"
-                            checked={regions.includes(region)}
-                            onChange={() => toggleRegion(region)}
-                            className="h-4 w-4 shrink-0 rounded border-slate-300 text-primary focus:ring-primary/20"
-                          />
-                          <span className="flex min-w-0 flex-1 items-center gap-3">
-                            <span className="w-32 shrink-0 font-mono font-semibold text-slate-700">{region}</span>
-                            <span className="min-w-0 flex-1 text-[11px] text-slate-400">{regionLabel(region)}</span>
-                          </span>
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              </details>
             </div>
           </FormField>
         </div>
