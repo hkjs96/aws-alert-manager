@@ -51,6 +51,40 @@ const REGION_OPTIONS = [
   { value: "ap-southeast-6", label: "Asia Pacific (New Zealand)" },
   { value: "ap-southeast-7", label: "Asia Pacific (Thailand)" },
 ] as const;
+const COMMON_REGIONS = ["us-east-1", "ap-northeast-2", "ap-northeast-1", "ap-southeast-1", "us-west-2"];
+const REGION_GROUPS = [
+  {
+    title: "Americas",
+    regions: ["us-east-1", "us-east-2", "us-west-1", "us-west-2", "ca-central-1", "ca-west-1", "mx-central-1", "sa-east-1"],
+  },
+  {
+    title: "Europe",
+    regions: ["eu-west-1", "eu-west-2", "eu-west-3", "eu-central-1", "eu-central-2", "eu-north-1", "eu-south-1", "eu-south-2"],
+  },
+  {
+    title: "Asia Pacific",
+    regions: [
+      "ap-south-1",
+      "ap-south-2",
+      "ap-east-1",
+      "ap-east-2",
+      "ap-northeast-1",
+      "ap-northeast-2",
+      "ap-northeast-3",
+      "ap-southeast-1",
+      "ap-southeast-2",
+      "ap-southeast-3",
+      "ap-southeast-4",
+      "ap-southeast-5",
+      "ap-southeast-6",
+      "ap-southeast-7",
+    ],
+  },
+  {
+    title: "Africa & Middle East",
+    regions: ["af-south-1", "il-central-1", "me-central-1", "me-south-1"],
+  },
+] as const;
 
 function FormField({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -142,6 +176,8 @@ export function AccountSection({ accounts, customers }: AccountSectionProps) {
         : [...current, region]
     ));
   };
+  const selectedRegionOptions = REGION_OPTIONS.filter((region) => regions.includes(region.value));
+  const regionLabel = (value: string) => REGION_OPTIONS.find((region) => region.value === value)?.label ?? value;
 
   return (
     <div className="bg-white rounded-xl border border-slate-200 shadow-soft overflow-hidden">
@@ -262,33 +298,88 @@ export function AccountSection({ accounts, customers }: AccountSectionProps) {
                 ))}
               </select>
             </FormField>
-            <FormField label="Monitoring Regions">
-              <div className="mb-2 flex items-center justify-between text-[11px] text-slate-400">
-                <span>{regions.length} selected</span>
+          </div>
+        </div>
+        <div className="mt-6">
+          <FormField label="Monitoring Regions">
+            <div className="rounded-lg bg-white p-4 ring-1 ring-slate-200">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="mb-2 text-[11px] font-semibold text-slate-400">
+                    {regions.length} selected
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {selectedRegionOptions.map((region) => (
+                      <span key={region.value} className="rounded-md bg-primary/10 px-2.5 py-1 font-mono text-[11px] font-semibold text-primary">
+                        {region.value}
+                      </span>
+                    ))}
+                  </div>
+                </div>
                 <button
                   type="button"
                   onClick={() => setRegions(["us-east-1"])}
-                  className="font-semibold text-primary hover:underline"
+                  className="text-xs font-semibold text-primary hover:underline"
                 >
-                  Reset
+                  Reset to Virginia
                 </button>
               </div>
-              <div className="grid max-h-48 grid-cols-1 gap-2 overflow-y-auto rounded-lg bg-white p-3 ring-1 ring-slate-200 lg:grid-cols-2">
-                {REGION_OPTIONS.map((region) => (
-                  <label key={region.value} className="flex items-center gap-2 text-sm text-slate-700">
-                    <input
-                      type="checkbox"
-                      checked={regions.includes(region.value)}
-                      onChange={() => toggleRegion(region.value)}
-                      className="h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary/20"
-                    />
-                    <span className="min-w-0 flex-1 truncate">{region.label}</span>
-                    <span className="font-mono text-[10px] text-slate-400">{region.value}</span>
-                  </label>
+
+              <div className="mt-4">
+                <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                  Common Regions
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {COMMON_REGIONS.map((region) => {
+                    const selected = regions.includes(region);
+                    return (
+                      <button
+                        key={region}
+                        type="button"
+                        onClick={() => toggleRegion(region)}
+                        className={
+                          `rounded-md px-3 py-1.5 text-left text-xs font-semibold ring-1 transition-colors ${
+                            selected
+                              ? "bg-primary text-white ring-primary"
+                              : "bg-slate-50 text-slate-600 ring-slate-200 hover:bg-slate-100"
+                          }`
+                        }
+                      >
+                        <span className="font-mono">{region}</span>
+                        <span className="ml-2 font-normal opacity-80">{regionLabel(region)}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="mt-5 grid gap-4 lg:grid-cols-2">
+                {REGION_GROUPS.map((group) => (
+                  <div key={group.title} className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                    <div className="mb-3 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                      {group.title}
+                    </div>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      {group.regions.map((region) => (
+                        <label key={region} className="flex min-w-0 items-start gap-2 rounded-md bg-white px-2.5 py-2 text-xs text-slate-700 ring-1 ring-slate-100">
+                          <input
+                            type="checkbox"
+                            checked={regions.includes(region)}
+                            onChange={() => toggleRegion(region)}
+                            className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-primary focus:ring-primary/20"
+                          />
+                          <span className="min-w-0">
+                            <span className="block font-mono font-semibold text-slate-700">{region}</span>
+                            <span className="block truncate text-[11px] text-slate-400">{regionLabel(region)}</span>
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
                 ))}
               </div>
-            </FormField>
-          </div>
+            </div>
+          </FormField>
         </div>
         {error && <p className="text-sm text-red-600 mt-2">{error}</p>}
         <div className="mt-6 flex justify-end">
