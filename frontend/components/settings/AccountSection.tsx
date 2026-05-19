@@ -16,40 +16,40 @@ interface AccountSectionProps {
 
 const INPUT_CLS = "w-full bg-slate-50 border-none rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-primary/20 outline-none";
 const REGION_OPTIONS = [
-  { value: "us-east-1", label: "US East (N. Virginia)" },
-  { value: "us-east-2", label: "US East (Ohio)" },
-  { value: "us-west-1", label: "US West (N. California)" },
-  { value: "us-west-2", label: "US West (Oregon)" },
-  { value: "ca-central-1", label: "Canada (Central)" },
-  { value: "ca-west-1", label: "Canada West (Calgary)" },
-  { value: "mx-central-1", label: "Mexico (Central)" },
-  { value: "sa-east-1", label: "South America (Sao Paulo)" },
-  { value: "eu-west-1", label: "Europe (Ireland)" },
-  { value: "eu-west-2", label: "Europe (London)" },
-  { value: "eu-west-3", label: "Europe (Paris)" },
-  { value: "eu-central-1", label: "Europe (Frankfurt)" },
-  { value: "eu-central-2", label: "Europe (Zurich)" },
-  { value: "eu-north-1", label: "Europe (Stockholm)" },
-  { value: "eu-south-1", label: "Europe (Milan)" },
-  { value: "eu-south-2", label: "Europe (Spain)" },
-  { value: "af-south-1", label: "Africa (Cape Town)" },
-  { value: "il-central-1", label: "Israel (Tel Aviv)" },
-  { value: "me-central-1", label: "Middle East (UAE)" },
-  { value: "me-south-1", label: "Middle East (Bahrain)" },
-  { value: "ap-south-1", label: "Asia Pacific (Mumbai)" },
-  { value: "ap-south-2", label: "Asia Pacific (Hyderabad)" },
-  { value: "ap-east-1", label: "Asia Pacific (Hong Kong)" },
-  { value: "ap-east-2", label: "Asia Pacific (Taipei)" },
-  { value: "ap-northeast-1", label: "Asia Pacific (Tokyo)" },
-  { value: "ap-northeast-2", label: "Asia Pacific (Seoul)" },
-  { value: "ap-northeast-3", label: "Asia Pacific (Osaka)" },
-  { value: "ap-southeast-1", label: "Asia Pacific (Singapore)" },
-  { value: "ap-southeast-2", label: "Asia Pacific (Sydney)" },
-  { value: "ap-southeast-3", label: "Asia Pacific (Jakarta)" },
-  { value: "ap-southeast-4", label: "Asia Pacific (Melbourne)" },
-  { value: "ap-southeast-5", label: "Asia Pacific (Malaysia)" },
-  { value: "ap-southeast-6", label: "Asia Pacific (New Zealand)" },
-  { value: "ap-southeast-7", label: "Asia Pacific (Thailand)" },
+  { value: "us-east-1", label: "버지니아" },
+  { value: "us-east-2", label: "오하이오" },
+  { value: "us-west-1", label: "캘리포니아" },
+  { value: "us-west-2", label: "오리건" },
+  { value: "ca-central-1", label: "캐나다 중부" },
+  { value: "ca-west-1", label: "캘거리" },
+  { value: "mx-central-1", label: "멕시코" },
+  { value: "sa-east-1", label: "상파울루" },
+  { value: "eu-west-1", label: "아일랜드" },
+  { value: "eu-west-2", label: "런던" },
+  { value: "eu-west-3", label: "파리" },
+  { value: "eu-central-1", label: "프랑크푸르트" },
+  { value: "eu-central-2", label: "취리히" },
+  { value: "eu-north-1", label: "스톡홀름" },
+  { value: "eu-south-1", label: "밀라노" },
+  { value: "eu-south-2", label: "스페인" },
+  { value: "af-south-1", label: "케이프타운" },
+  { value: "il-central-1", label: "텔아비브" },
+  { value: "me-central-1", label: "UAE" },
+  { value: "me-south-1", label: "바레인" },
+  { value: "ap-south-1", label: "뭄바이" },
+  { value: "ap-south-2", label: "하이데라바드" },
+  { value: "ap-east-1", label: "홍콩" },
+  { value: "ap-east-2", label: "타이베이" },
+  { value: "ap-northeast-1", label: "도쿄" },
+  { value: "ap-northeast-2", label: "서울" },
+  { value: "ap-northeast-3", label: "오사카" },
+  { value: "ap-southeast-1", label: "싱가포르" },
+  { value: "ap-southeast-2", label: "시드니" },
+  { value: "ap-southeast-3", label: "자카르타" },
+  { value: "ap-southeast-4", label: "멜버른" },
+  { value: "ap-southeast-5", label: "말레이시아" },
+  { value: "ap-southeast-6", label: "뉴질랜드" },
+  { value: "ap-southeast-7", label: "태국" },
 ] as const;
 const COMMON_REGIONS = ["us-east-1", "ap-northeast-2", "ap-northeast-1", "ap-southeast-1", "us-west-2"];
 const REGION_GROUPS = [
@@ -346,7 +346,7 @@ export function AccountSection({ accounts, customers }: AccountSectionProps) {
                         }
                       >
                         <span className="shrink-0 font-mono">{region}</span>
-                        <span className="min-w-0 truncate font-normal opacity-80">{regionLabel(region)}</span>
+                        <span className="shrink-0 font-normal opacity-80">{regionLabel(region)}</span>
                       </button>
                     );
                   })}
@@ -374,7 +374,7 @@ export function AccountSection({ accounts, customers }: AccountSectionProps) {
                             />
                             <span className="flex min-w-0 flex-1 items-center gap-3 overflow-hidden">
                               <span className="w-32 shrink-0 font-mono font-semibold text-slate-700">{region}</span>
-                              <span className="min-w-0 flex-1 truncate text-[11px] text-slate-400">{regionLabel(region)}</span>
+                              <span className="shrink-0 text-[11px] text-slate-400">{regionLabel(region)}</span>
                             </span>
                           </label>
                         ))}
