@@ -359,18 +359,18 @@ export function AccountSection({ accounts, customers }: AccountSectionProps) {
                     <div className="mb-3 text-[11px] font-bold uppercase tracking-wider text-slate-500">
                       {group.title}
                     </div>
-                    <div className="grid gap-2 sm:grid-cols-2">
+                    <div className="space-y-2">
                       {group.regions.map((region) => (
-                        <label key={region} className="flex min-w-0 items-start gap-2 rounded-md bg-white px-2.5 py-2 text-xs text-slate-700 ring-1 ring-slate-100">
+                        <label key={region} className="flex min-w-0 items-center gap-3 rounded-md bg-white px-3 py-2 text-xs text-slate-700 ring-1 ring-slate-100">
                           <input
                             type="checkbox"
                             checked={regions.includes(region)}
                             onChange={() => toggleRegion(region)}
-                            className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-primary focus:ring-primary/20"
+                            className="h-4 w-4 shrink-0 rounded border-slate-300 text-primary focus:ring-primary/20"
                           />
-                          <span className="min-w-0">
-                            <span className="block font-mono font-semibold text-slate-700">{region}</span>
-                            <span className="block truncate text-[11px] text-slate-400">{regionLabel(region)}</span>
+                          <span className="flex min-w-0 flex-1 items-center gap-3">
+                            <span className="w-32 shrink-0 font-mono font-semibold text-slate-700">{region}</span>
+                            <span className="min-w-0 flex-1 text-[11px] text-slate-400">{regionLabel(region)}</span>
                           </span>
                         </label>
                       ))}
