@@ -10,7 +10,7 @@ import logging
 import os
 
 import boto3
-from botocore.exceptions import ClientError
+from botocore.exceptions import BotoCoreError, ClientError
 
 from common import HARDCODED_DEFAULTS
 
@@ -270,6 +270,69 @@ def get_resource_tags(resource_id: str, resource_type: str) -> dict:
             resource_id, resource_type, e,
         )
         return {}
+
+
+def get_resource_tags_or_none(resource_id: str, resource_type: str) -> dict | None:
+    """AWS API errors return None so cleanup code can avoid destructive deletes."""
+    try:
+        if resource_type == "EC2":
+            return _get_ec2_tags(resource_id)
+        if resource_type in ("RDS", "AuroraRDS", "DocDB"):
+            return _get_rds_tags(resource_id)
+        if resource_type in ("ELB", "TG", "ALB", "NLB"):
+            return _get_elbv2_tags(resource_id)
+        if resource_type == "ElastiCache":
+            return _get_elasticache_tags(resource_id)
+        if resource_type == "NAT":
+            return _get_ec2_tags_by_resource(resource_id)
+        if resource_type == "Lambda":
+            return _get_lambda_tags(resource_id)
+        if resource_type == "VPN":
+            return _get_vpn_tags(resource_id)
+        if resource_type == "APIGW":
+            return _get_apigw_tags(resource_id)
+        if resource_type == "ACM":
+            return _get_acm_tags(resource_id)
+        if resource_type == "Backup":
+            return _get_backup_tags(resource_id)
+        if resource_type == "MQ":
+            return _get_mq_tags(resource_id)
+        if resource_type == "CLB":
+            return _get_clb_tags(resource_id)
+        if resource_type == "OpenSearch":
+            return _get_opensearch_tags(resource_id)
+        if resource_type == "SQS":
+            return _get_sqs_tags(resource_id)
+        if resource_type == "ECS":
+            return _get_ecs_tags(resource_id)
+        if resource_type == "MSK":
+            return _get_msk_tags(resource_id)
+        if resource_type == "DynamoDB":
+            return _get_dynamodb_tags(resource_id)
+        if resource_type == "CloudFront":
+            return _get_cloudfront_tags(resource_id)
+        if resource_type == "WAF":
+            return _get_waf_tags(resource_id)
+        if resource_type == "Route53":
+            return _get_route53_tags(resource_id)
+        if resource_type == "DX":
+            return _get_dx_tags(resource_id)
+        if resource_type == "EFS":
+            return _get_efs_tags(resource_id)
+        if resource_type == "S3":
+            return _get_s3_tags(resource_id)
+        if resource_type == "SageMaker":
+            return _get_sagemaker_tags(resource_id)
+        if resource_type == "SNS":
+            return _get_sns_tags(resource_id)
+        logger.warning("Unsupported resource_type %r for resource %s", resource_type, resource_id)
+        return None
+    except (BotoCoreError, ClientError) as e:
+        logger.warning(
+            "Failed to fetch tags for cleanup candidate %s (%s): %s",
+            resource_id, resource_type, e,
+        )
+        return None
 
 
 @functools.lru_cache(maxsize=None)

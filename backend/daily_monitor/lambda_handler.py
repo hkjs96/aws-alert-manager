@@ -49,7 +49,7 @@ from common.collectors import s3 as s3_collector
 from common.collectors import sagemaker as sagemaker_collector
 from common.collectors import sns as sns_collector
 from common.sns_notifier import send_alert, send_error_alert
-from common.tag_resolver import get_threshold
+from common.tag_resolver import get_resource_tags_or_none, get_threshold, has_monitoring_tag
 
 # collector 모듈 목록 (런타임에 .get_metrics 참조하여 패치 가능하도록)
 _COLLECTOR_MODULES = [
@@ -148,6 +148,7 @@ def _switch_account_session(role_arn: str, account_id: str) -> None:
 def _clear_all_client_caches() -> None:
     """모든 모듈의 lru_cache boto3 클라이언트를 무효화하여 새 세션으로 재생성되도록 한다."""
     import common._clients as _cl
+    import common.tag_resolver as tag_resolver
     from common.collectors import base as base_col
 
     # 핸들러 + 공통 모듈 클라이언트
@@ -155,6 +156,10 @@ def _clear_all_client_caches() -> None:
     _cl._get_cw_client.cache_clear()
     _cl._get_cw_client_for_region.cache_clear()
     base_col._get_cw_client.cache_clear()
+    for attr in dir(tag_resolver):
+        fn = getattr(tag_resolver, attr, None)
+        if attr.startswith("_get") and "client" in attr and callable(fn) and hasattr(fn, "cache_clear"):
+            fn.cache_clear()
 
     # 각 collector 모듈의 _get_*_client 함수 일괄 무효화
     for mod in _COLLECTOR_MODULES:
@@ -348,6 +353,13 @@ def _cleanup_orphan_alarms() -> list[str]:
                 logger.info(
                     "Orphan alarms for %s %s: %s", rtype, rid, alarm_names,
                 )
+                continue
+            if not _is_currently_monitored(rid, rtype):
+                to_delete.extend(alarm_names)
+                logger.info(
+                    "Monitoring disabled for %s %s: deleting alarms %s",
+                    rtype, rid, alarm_names,
+                )
 
     if not to_delete:
         return []
@@ -358,6 +370,17 @@ def _cleanup_orphan_alarms() -> list[str]:
 
     logger.info("Deleted %d orphan alarms", len(to_delete))
     return to_delete
+
+
+def _is_currently_monitored(resource_id: str, resource_type: str) -> bool:
+    tags = get_resource_tags_or_none(resource_id, resource_type)
+    if tags is None:
+        logger.warning(
+            "Skipping alarm cleanup for %s %s because tags could not be read",
+            resource_type, resource_id,
+        )
+        return True
+    return has_monitoring_tag(tags)
 
 
 def _process_resource(

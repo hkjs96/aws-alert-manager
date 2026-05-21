@@ -427,7 +427,10 @@ class TestCleanupOrphanAlarms:
                 Dimensions=[{"Name": "InstanceId", "Value": resource_id}],
             )
 
-            with patch.object(ec2_collector, "resolve_alive_ids", return_value={resource_id}):
+            with (
+                patch.object(ec2_collector, "resolve_alive_ids", return_value={resource_id}),
+                patch("daily_monitor.lambda_handler._is_currently_monitored", return_value=True),
+            ):
                 deleted = _cleanup_orphan_alarms()
 
         assert deleted == []
@@ -471,6 +474,88 @@ class TestCleanupOrphanAlarms:
         cw = boto3.client("cloudwatch", region_name="us-east-1")
         resp = cw.describe_alarms(AlarmNames=[alarm_name])
         assert len(resp["MetricAlarms"]) == 0
+
+    @mock_aws
+    def test_alive_unmonitored_resource_alarm_deleted(self):
+        """리소스가 살아있어도 Monitoring=on이 아니면 기존 알람을 삭제한다."""
+        from daily_monitor.lambda_handler import (
+            _cleanup_orphan_alarms, _get_cw_client, ec2_collector,
+        )
+
+        _get_cw_client.cache_clear()
+
+        resource_id = "i-0abc1234def567890"
+        alarm_name = f"[EC2] test CPUUtilization > 80% (TagName: {resource_id})"
+
+        with pytest.MonkeyPatch.context() as mp:
+            for k, v in _ENV.items():
+                mp.setenv(k, v)
+
+            cw = boto3.client("cloudwatch", region_name="us-east-1")
+            cw.put_metric_alarm(
+                AlarmName=alarm_name,
+                MetricName="CPUUtilization",
+                Namespace="AWS/EC2",
+                Statistic="Average",
+                Period=300,
+                EvaluationPeriods=2,
+                Threshold=80.0,
+                ComparisonOperator="GreaterThanThreshold",
+                Dimensions=[{"Name": "InstanceId", "Value": resource_id}],
+            )
+
+            with (
+                patch.object(ec2_collector, "resolve_alive_ids", return_value={resource_id}),
+                patch("daily_monitor.lambda_handler._is_currently_monitored", return_value=False),
+            ):
+                deleted = _cleanup_orphan_alarms()
+
+        assert alarm_name in deleted
+        resp = boto3.client("cloudwatch", region_name="us-east-1").describe_alarms(
+            AlarmNames=[alarm_name]
+        )
+        assert resp["MetricAlarms"] == []
+
+    @mock_aws
+    def test_alive_resource_alarm_not_deleted_when_tag_lookup_fails(self):
+        """태그 조회 실패는 Monitoring 해제로 간주하지 않는다."""
+        from daily_monitor.lambda_handler import (
+            _cleanup_orphan_alarms, _get_cw_client, ec2_collector,
+        )
+
+        _get_cw_client.cache_clear()
+
+        resource_id = "i-0abc1234def567890"
+        alarm_name = f"[EC2] test CPUUtilization > 80% (TagName: {resource_id})"
+
+        with pytest.MonkeyPatch.context() as mp:
+            for k, v in _ENV.items():
+                mp.setenv(k, v)
+
+            cw = boto3.client("cloudwatch", region_name="us-east-1")
+            cw.put_metric_alarm(
+                AlarmName=alarm_name,
+                MetricName="CPUUtilization",
+                Namespace="AWS/EC2",
+                Statistic="Average",
+                Period=300,
+                EvaluationPeriods=2,
+                Threshold=80.0,
+                ComparisonOperator="GreaterThanThreshold",
+                Dimensions=[{"Name": "InstanceId", "Value": resource_id}],
+            )
+
+            with (
+                patch.object(ec2_collector, "resolve_alive_ids", return_value={resource_id}),
+                patch("daily_monitor.lambda_handler.get_resource_tags_or_none", return_value=None),
+            ):
+                deleted = _cleanup_orphan_alarms()
+
+        assert deleted == []
+        resp = boto3.client("cloudwatch", region_name="us-east-1").describe_alarms(
+            AlarmNames=[alarm_name]
+        )
+        assert len(resp["MetricAlarms"]) == 1
 
     @mock_aws
     def test_unknown_resource_type_alarm_skipped(self):

@@ -4,6 +4,8 @@ import boto3
 from botocore.exceptions import ClientError
 from typing import List, Dict
 
+from common.tag_resolver import has_monitoring_tag
+
 logger = logging.getLogger(__name__)
 
 def _get_current_account_id() -> str:
@@ -82,7 +84,7 @@ def _discover_ec2(session, account_id, region, customer_id):
                         "account_id": account_id,
                         "region": region,
                         "customer_id": customer_id,
-                        "monitoring": tags.get("Monitoring") == "on",
+                        "monitoring": has_monitoring_tag(tags),
                         "status": "active",
                         "tags": tags
                     })
@@ -115,7 +117,7 @@ def _discover_rds(session, account_id, region, customer_id):
                     "account_id": account_id,
                     "region": region,
                     "customer_id": customer_id,
-                    "monitoring": tags.get("Monitoring") == "on",
+                    "monitoring": has_monitoring_tag(tags),
                     "status": "active",
                     "tags": tags
                 })
@@ -147,7 +149,7 @@ def _discover_alb(session, account_id, region, customer_id):
                     "account_id": account_id,
                     "region": region,
                     "customer_id": customer_id,
-                    "monitoring": tags.get("Monitoring") == "on",
+                    "monitoring": has_monitoring_tag(tags),
                     "status": "active",
                     "tags": tags
                 })
@@ -176,7 +178,7 @@ def _discover_lambda(session, account_id, region, customer_id):
                     "account_id": account_id,
                     "region": region,
                     "customer_id": customer_id,
-                    "monitoring": tags.get("Monitoring") == "on",
+                    "monitoring": has_monitoring_tag(tags),
                     "status": "active",
                     "tags": tags,
                     "arn": fn_arn
@@ -216,7 +218,7 @@ def _discover_s3(session, account_id, customer_id):
                 "account_id": account_id,
                 "region": region,
                 "customer_id": customer_id,
-                "monitoring": tags.get("Monitoring") == "on",
+                "monitoring": has_monitoring_tag(tags),
                 "status": "active",
                 "tags": tags
             })

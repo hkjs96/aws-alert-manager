@@ -17,6 +17,10 @@ def mock_db_env(monkeypatch):
     monkeypatch.setenv("RESOURCE_INVENTORY_TABLE", "test-inventory")
     monkeypatch.setenv("ACCOUNTS_TABLE", "test-accounts")
     monkeypatch.setenv("CUSTOMERS_TABLE", "test-customers")
+    monkeypatch.setenv("AWS_DEFAULT_REGION", "us-east-1")
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "testing")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "testing")
+    monkeypatch.setenv("AWS_SESSION_TOKEN", "testing")
 
 class TestResourceInventoryLogic:
 
@@ -153,6 +157,33 @@ class TestResourceInventoryLogic:
         assert item["id"] == "i-orphan-01"
         assert item["status"] == "orphan_candidate"
         assert item["inventory_source"] == "alarms"
+
+    @patch("api_handler.routes.resources.discover_resources")
+    @patch("api_handler.routes.resources.scan_all")
+    @patch("api_handler.routes.resources.get_alarm_overlay")
+    def test_list_resources_keeps_unmonitored_discovered_resources(self, mock_overlay, mock_scan, mock_discover, mock_db_env):
+        """Monitoring 태그 값이 비어도 실제 존재하는 리소스는 목록에 표시한다."""
+        mock_discover.return_value = [{
+            "resource_id": "i-unmonitored",
+            "name": "unmonitored",
+            "type": "EC2",
+            "account_id": "1",
+            "region": "us-east-1",
+            "customer_id": "cust-01",
+            "monitoring": False,
+            "status": "active",
+        }]
+        mock_scan.side_effect = [[{"account_id": "1", "regions": ["us-east-1"]}], []]
+        mock_overlay.return_value = {}
+
+        from api_handler.routes.resources import list_resources
+        resp = list_resources(_event("GET", "/resources"))
+
+        assert resp["statusCode"] == 200
+        body = json.loads(resp["body"])
+        assert body["total"] == 1
+        assert body["items"][0]["id"] == "i-unmonitored"
+        assert body["items"][0]["monitoring"] is False
 
     @patch("api_handler.routes.resources.discover_resources")
     @patch("api_handler.routes.resources.resource_inventory_table")
