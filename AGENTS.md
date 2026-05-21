@@ -31,5 +31,29 @@
 - **AP-3:** 예외 처리 시 `except Exception` 남용 (구체적인 에러 캐치 권장)
 - **AP-4:** 로깅 시 f-string 사용 (Lazy formatting `logger.info("%s", var)` 사용)
 
+## 6. Codex 작업 워크플로 (필수)
+
+Codex는 파일 수정 후 반드시 아래 순서를 완료하고 태스크를 종료하십시오.
+
+```bash
+# 1. 검증 (실패 시 중단)
+python scripts/verify_all.py
+
+# 2. 변경 파일만 스테이징
+git add <수정한 파일들...>
+
+# 3. 커밋
+git commit -m "fix|feat|refactor: <한 줄 요약>"
+
+# 4. 푸시
+git push origin main
+```
+
+**배포는 Codex가 하지 않습니다.** `aws cloudformation deploy`는 Codex 환경에서 권한이 없습니다.
+푸시 후 Claude Code가 배포를 이어받습니다 — "배포해줘"라고 요청하거나 Claude Code 세션을 열면 됩니다.
+
+**pre-push hook이 설치되어 있습니다.** `git push`를 실행하면 backend 테스트가 자동으로 게이트됩니다.
+테스트가 실패하면 push가 차단됩니다 — 이 경우 오류를 수정하고 재커밋 후 다시 push하십시오.
+
 ---
 *이 문서는 프로젝트의 헌법과 같으며, 수정이 필요한 경우 사용자에게 먼저 확인을 받으십시오.*
