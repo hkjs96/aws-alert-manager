@@ -197,6 +197,9 @@ def _resolve_metric_dimensions(
     return None
 
 
+_EXCLUDED_DEFAULT_DISK_PATHS = {"/boot", "/boot/efi"}
+
+
 def _get_disk_dimensions(instance_id: str, extra_paths: set[str] | None = None, *, cw=None) -> list[list[dict]]:
     """
     CloudWatch에서 해당 인스턴스의 실제 disk_used_percent dimension 조합 조회.
@@ -211,9 +214,7 @@ def _get_disk_dimensions(instance_id: str, extra_paths: set[str] | None = None, 
     Returns:
         dimension 조합 리스트. 조회 실패 또는 메트릭 없으면 빈 리스트 반환.
     """
-    target_paths = {"/"}
-    if extra_paths:
-        target_paths.update(extra_paths)
+    target_paths = set(extra_paths or [])
 
     cw = cw or _clients._get_cw_client()
     try:
@@ -236,7 +237,7 @@ def _get_disk_dimensions(instance_id: str, extra_paths: set[str] | None = None, 
         result = []
         for m in metrics:
             path = next((d["Value"] for d in m["Dimensions"] if d["Name"] == "path"), None)
-            if path and path in target_paths and path not in seen_paths:
+            if path and path not in seen_paths and _is_default_disk_path(path, target_paths):
                 seen_paths.add(path)
                 result.append(m["Dimensions"])
 
@@ -250,3 +251,11 @@ def _get_disk_dimensions(instance_id: str, extra_paths: set[str] | None = None, 
     except ClientError as e:
         logger.error("Failed to list disk metrics for %s: %s", instance_id, e)
         return []
+
+
+def _is_default_disk_path(path: str, explicit_paths: set[str]) -> bool:
+    if path in explicit_paths or path == "/":
+        return True
+    if path in _EXCLUDED_DEFAULT_DISK_PATHS or path.startswith("/boot/"):
+        return False
+    return not explicit_paths

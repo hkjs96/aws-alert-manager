@@ -16,6 +16,7 @@ from common.alarm_builder import (
     _recreate_alarm_by_name,
     _resolve_metric_key,
 )
+from common.dimension_builder import _get_disk_dimensions
 from common.alarm_registry import _get_alarm_defs
 from common.alarm_search import (
     _delete_alarm_names,
@@ -27,6 +28,7 @@ from common.tag_resolver import (
     disk_path_to_tag_suffix,
     get_threshold,
     is_threshold_off,
+    tag_suffix_to_disk_path,
 )
 from common.threshold_resolver import (
     _resolve_free_local_storage_threshold,
@@ -38,12 +40,34 @@ logger = logging.getLogger("common.alarm_manager")
 
 def _sync_disk_alarms(
     key_to_alarm: dict[str, dict],
+    resource_id: str,
     resource_tags: dict,
     result: dict[str, list],
+    *,
+    cw=None,
 ) -> bool:
     """Disk 알람 동기화. 변경 필요 시 True 반환."""
     disk_alarms = {k: v for k, v in key_to_alarm.items() if k.startswith("Disk_")}
     if not disk_alarms:
+        result["created"].append("disk_used_percent")
+        return True
+
+    extra_paths = {
+        tag_suffix_to_disk_path(k[len("Threshold_Disk_"):])
+        for k in resource_tags
+        if k.startswith("Threshold_Disk_") and k != "Threshold_Disk_root"
+    }
+    expected_paths = {
+        next((d["Value"] for d in dims if d["Name"] == "path"), "/")
+        for dims in _get_disk_dimensions(resource_id, extra_paths or None, cw=cw)
+    }
+    existing_paths = {
+        next((d["Value"] for d in alarm.get("Dimensions", []) if d["Name"] == "path"), "/")
+        for alarm in disk_alarms.values()
+    }
+    missing_paths = expected_paths - existing_paths
+    if missing_paths:
+        logger.info("Missing disk alarms for %s paths: %s", resource_id, sorted(missing_paths))
         result["created"].append("disk_used_percent")
         return True
 

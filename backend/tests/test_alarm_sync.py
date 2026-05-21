@@ -94,6 +94,38 @@ class TestSyncAlarms:
         assert result["created"] == []
         assert result["updated"] == []
 
+    def test_missing_disk_path_triggers_recreate(self):
+        from common.alarm_sync import _sync_disk_alarms
+
+        mock_cw = MagicMock()
+        mock_cw.list_metrics.return_value = {"Metrics": [
+            {"Dimensions": [
+                {"Name": "InstanceId", "Value": "i-001"},
+                {"Name": "path", "Value": "/"},
+                {"Name": "device", "Value": "xvda1"},
+                {"Name": "fstype", "Value": "xfs"},
+            ]},
+            {"Dimensions": [
+                {"Name": "InstanceId", "Value": "i-001"},
+                {"Name": "path", "Value": "/data"},
+                {"Name": "device", "Value": "xvdb"},
+                {"Name": "fstype", "Value": "ext4"},
+            ]},
+        ]}
+        key_to_alarm = {
+            "Disk_root": {
+                "AlarmName": "[EC2] srv disk_used_percent(/) > 80% (TagName: i-001)",
+                "Threshold": 80.0,
+                "Dimensions": [{"Name": "path", "Value": "/"}],
+            }
+        }
+        result = {"created": [], "updated": [], "ok": [], "deleted": []}
+
+        changed = _sync_disk_alarms(key_to_alarm, "i-001", {}, result, cw=mock_cw)
+
+        assert changed is True
+        assert result["created"] == ["disk_used_percent"]
+
     def test_mismatched_threshold_gets_updated(self):
         import json
         mock_cw = MagicMock()

@@ -429,3 +429,39 @@ class TestGetDiskDimensions:
         assert "/" in paths_found
         assert "/data" in paths_found
         _get_cw_client.cache_clear()
+
+    @mock_aws
+    def test_default_includes_data_disk_and_excludes_boot_paths(self):
+        from common.dimension_builder import _get_disk_dimensions
+        from common._clients import _get_cw_client
+
+        _get_cw_client.cache_clear()
+        cw = boto3.client("cloudwatch", region_name="ap-northeast-2")
+
+        for path, device, fstype in [
+            ("/", "xvda1", "xfs"),
+            ("/data", "xvdb", "ext4"),
+            ("/boot/efi", "xvda128", "vfat"),
+        ]:
+            cw.put_metric_data(
+                Namespace="CWAgent",
+                MetricData=[{
+                    "MetricName": "disk_used_percent",
+                    "Dimensions": [
+                        {"Name": "InstanceId", "Value": "i-0abc1234"},
+                        {"Name": "path", "Value": path},
+                        {"Name": "device", "Value": device},
+                        {"Name": "fstype", "Value": fstype},
+                    ],
+                    "Value": 50.0,
+                    "Unit": "Percent",
+                }],
+            )
+
+        result = _get_disk_dimensions("i-0abc1234", cw=cw)
+        paths_found = {
+            next(d["Value"] for d in dims if d["Name"] == "path")
+            for dims in result
+        }
+        assert paths_found == {"/", "/data"}
+        _get_cw_client.cache_clear()
