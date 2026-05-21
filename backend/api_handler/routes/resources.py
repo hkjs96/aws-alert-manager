@@ -33,6 +33,8 @@ from common.alarm_registry import (
 logger = logging.getLogger(__name__)
 
 _ALARM_NAME_RE = re.compile(r"^\[(\w+)\]\s+.+\(TagName:\s*(.+)\)$")
+_ALARM_NAME_PREFIX_RE = re.compile(r"^\[[^\]]+\]\s+")
+_ALARM_NAME_CONDITION_RE = re.compile(r"\s+(?:<=|>=|<|>)\s*[-+]?\d+(?:\.\d+)?\S*\s+\(TagName:\s*.+\)$")
 _LIST_METRICS_PAGE_CAP = 20
 
 
@@ -322,14 +324,14 @@ def update_resource_alarms(event: dict) -> dict:
             return _err(404, "NOT_FOUND", f"Alarm for metric '{metric_key}' was not found")
 
         try:
-            _update_metric_alarm(alarm, config)
+            alarm_name = _update_metric_alarm(alarm, config)
         except (TypeError, ValueError) as exc:
             return _err(400, "INVALID_BODY", str(exc))
         except ClientError as exc:
             return _err(500, "CW_ERROR", str(exc))
 
         updated += 1
-        results.append({"alarm_name": alarm.get("AlarmName", ""), "status": "updated"})
+        results.append({"alarm_name": alarm_name, "status": "updated"})
 
     return _ok({
         "job_id": "alarm-config-save",
@@ -522,39 +524,47 @@ def _alarm_mount_path(alarm: dict) -> str | None:
     )
 
 
-def _update_metric_alarm(alarm: dict, config: dict) -> None:
+def _update_metric_alarm(alarm: dict, config: dict) -> str:
     if "threshold" not in config or config.get("threshold") is None:
         raise ValueError("threshold is required")
 
     region, _ = _parse_alarm_arn(alarm.get("AlarmArn", ""))
     cw = _get_cw_client_for_region(region) if region != "unknown" else _get_cw_client()
     kwargs = _metric_alarm_update_kwargs(alarm, config)
+    previous_name = alarm["AlarmName"]
+    next_name = kwargs["AlarmName"]
     cw.put_metric_alarm(**kwargs)
 
     severity = config.get("severity")
-    alarm_arn = alarm.get("AlarmArn")
+    alarm_arn = _alarm_arn_for_name(alarm, next_name)
     if severity and alarm_arn:
         try:
             cw.tag_resource(ResourceARN=alarm_arn, Tags=[{"Key": "Severity", "Value": str(severity)}])
         except ClientError as exc:
-            logger.warning("Failed to update alarm severity tag for %s: %s", alarm.get("AlarmName", ""), exc)
+            logger.warning("Failed to update alarm severity tag for %s: %s", next_name, exc)
+    if next_name != previous_name:
+        cw.delete_alarms(AlarmNames=[previous_name])
+    return next_name
 
 
 def _metric_alarm_update_kwargs(alarm: dict, config: dict) -> dict:
+    threshold = float(config["threshold"])
+    alarm_name = _updated_alarm_name(alarm, config, threshold)
     kwargs = {
-        "AlarmName": alarm["AlarmName"],
+        "AlarmName": alarm_name,
         "MetricName": alarm["MetricName"],
         "Namespace": alarm["Namespace"],
         "Dimensions": alarm.get("Dimensions", []),
         "Period": alarm.get("Period", 300),
         "EvaluationPeriods": alarm.get("EvaluationPeriods", 1),
-        "Threshold": float(config["threshold"]),
+        "Threshold": threshold,
         "ComparisonOperator": _comparison_operator(config.get("direction"), alarm),
         "ActionsEnabled": bool(config.get("monitoring", alarm.get("ActionsEnabled", True))),
         "OKActions": alarm.get("OKActions", []),
         "AlarmActions": alarm.get("AlarmActions", []),
         "InsufficientDataActions": alarm.get("InsufficientDataActions", []),
         "TreatMissingData": alarm.get("TreatMissingData", "notBreaching"),
+        "Tags": _alarm_tags(alarm, config),
     }
     optional_fields = (
         "AlarmDescription",
@@ -573,6 +583,61 @@ def _metric_alarm_update_kwargs(alarm: dict, config: dict) -> dict:
     if "Statistic" not in kwargs and "ExtendedStatistic" not in kwargs:
         kwargs["Statistic"] = "Average"
     return kwargs
+
+
+def _updated_alarm_name(alarm: dict, config: dict, threshold: float) -> str:
+    resource_id = _get_tag_name(alarm.get("AlarmName", ""))
+    resource_type = _get_resource_type(alarm.get("AlarmName", ""))
+    metric_key = _alarm_metric_key(alarm, config)
+    if not resource_id or not resource_type or not metric_key:
+        return alarm["AlarmName"]
+    resource_name = _alarm_resource_name(alarm, metric_key)
+    return _pretty_alarm_name(resource_type, resource_id, resource_name, metric_key, threshold)
+
+
+def _alarm_metric_key(alarm: dict, config: dict) -> str:
+    if alarm.get("MetricName") == "disk_used_percent":
+        path = config.get("mount_path") or _alarm_mount_path(alarm) or _mount_path_from_metric_key(
+            config.get("metric_key", "")
+        )
+        suffix = path.lstrip("/") or "root"
+        return f"disk_used_percent_{suffix}"
+    return _metric_key_to_name(config.get("metric_key") or alarm.get("MetricName", ""))
+
+
+def _alarm_resource_name(alarm: dict, metric_key: str) -> str:
+    name = alarm.get("AlarmName", "")
+    body = _ALARM_NAME_PREFIX_RE.sub("", name, count=1)
+    body = _ALARM_NAME_CONDITION_RE.sub("", body)
+    metric_display = _alarm_metric_display(metric_key)
+    suffix = f" {metric_display}"
+    if body.endswith(suffix):
+        return body[:-len(suffix)]
+    if " " in body:
+        return body.rsplit(" ", 1)[0]
+    return ""
+
+
+def _alarm_metric_display(metric_key: str) -> str:
+    if metric_key.startswith("disk_used_percent_"):
+        suffix = metric_key[len("disk_used_percent_"):]
+        return "disk_used_percent(/)" if suffix == "root" else f"disk_used_percent(/{suffix})"
+    return _metric_key_to_name(metric_key)
+
+
+def _alarm_tags(alarm: dict, config: dict) -> list[dict]:
+    tags = {tag["Key"]: tag["Value"] for tag in alarm.get("Tags", [])}
+    if config.get("severity"):
+        tags["Severity"] = str(config["severity"])
+    tags.setdefault("ManagedBy", "AlarmManager")
+    return [{"Key": key, "Value": value} for key, value in tags.items()]
+
+
+def _alarm_arn_for_name(alarm: dict, alarm_name: str) -> str | None:
+    alarm_arn = alarm.get("AlarmArn")
+    if not alarm_arn:
+        return None
+    return alarm_arn.rsplit(":", 1)[0] + f":{alarm_name}"
 
 
 def _comparison_operator(direction: str | None, alarm: dict) -> str:

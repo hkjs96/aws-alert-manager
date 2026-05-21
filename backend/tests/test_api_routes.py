@@ -285,12 +285,65 @@ class TestResources:
         body = json.loads(resp["body"])
         assert body["completed_count"] == 1
         kwargs = mock_cw.put_metric_alarm.call_args.kwargs
-        assert kwargs["AlarmName"] == "[EC2] server CPU >80% (TagName: i-001)"
+        assert kwargs["AlarmName"] == "[EC2] server CPUUtilization > 70% (TagName: i-001)"
         assert kwargs["Threshold"] == 70.0
         assert kwargs["ComparisonOperator"] == "GreaterThanThreshold"
         assert kwargs["Dimensions"] == [{"Name": "InstanceId", "Value": "i-001"}]
         assert kwargs["AlarmActions"] == ["arn:aws:sns:us-east-1:123456789012:alerts"]
+        mock_cw.delete_alarms.assert_called_once_with(
+            AlarmNames=["[EC2] server CPU >80% (TagName: i-001)"]
+        )
         mock_cw.tag_resource.assert_called_once()
+
+    def test_update_resource_alarms_renames_disk_alarm_for_threshold(self):
+        mock_cw = MagicMock()
+        mock_alarms = [{
+            **_alarm(
+                "[EC2] server disk_used_percent(/data) > 80% (TagName: i-001)",
+                metric="disk_used_percent",
+            ),
+            "AlarmArn": "arn:aws:cloudwatch:us-east-1:123456789012:alarm:disk-old",
+            "Namespace": "CWAgent",
+            "Dimensions": [
+                {"Name": "InstanceId", "Value": "i-001"},
+                {"Name": "path", "Value": "/data"},
+            ],
+            "Period": 300,
+            "EvaluationPeriods": 1,
+            "ActionsEnabled": True,
+            "AlarmActions": [],
+            "OKActions": [],
+            "InsufficientDataActions": [],
+            "TreatMissingData": "notBreaching",
+            "Statistic": "Average",
+        }]
+
+        with patch("api_handler.routes.resources.list_alarms", return_value=mock_alarms), \
+             patch("api_handler.routes.resources._get_cw_client_for_region", return_value=mock_cw):
+            from api_handler.lambda_handler import lambda_handler
+            resp = lambda_handler(
+                _event("PUT", "/resources/i-001/alarms",
+                       body={"configs": [{
+                           "metric_key": "disk_used_percent:/data",
+                           "threshold": 70,
+                           "monitoring": True,
+                           "mount_path": "/data",
+                       }]},
+                       path_params={"id": "i-001"}),
+                None,
+            )
+
+        assert resp["statusCode"] == 200, resp["body"]
+        kwargs = mock_cw.put_metric_alarm.call_args.kwargs
+        assert kwargs["AlarmName"] == "[EC2] server disk_used_percent(/data) > 70% (TagName: i-001)"
+        assert kwargs["Threshold"] == 70.0
+        assert kwargs["Dimensions"] == [
+            {"Name": "InstanceId", "Value": "i-001"},
+            {"Name": "path", "Value": "/data"},
+        ]
+        mock_cw.delete_alarms.assert_called_once_with(
+            AlarmNames=["[EC2] server disk_used_percent(/data) > 80% (TagName: i-001)"]
+        )
 
     def test_update_resource_alarms_returns_404_for_missing_metric(self):
         mock_alarms = [_alarm("[EC2] server CPU >80% (TagName: i-001)", metric="CPUUtilization")]
