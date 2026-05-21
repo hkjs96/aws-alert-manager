@@ -130,6 +130,7 @@ def get_resource_alarms(event: dict) -> dict:
             "alarm_name": alarm.get("AlarmName", ""),
             "metric_name": alarm.get("MetricName", ""),
             "namespace": alarm.get("Namespace", ""),
+            "mount_path": _alarm_mount_path(alarm),
             "threshold": alarm.get("Threshold"),
             "comparison": alarm.get("ComparisonOperator", ""),
             "state": alarm.get("StateValue", ""),
@@ -484,9 +485,13 @@ def _find_alarm_for_config(alarms: list[dict], config: dict) -> dict | None:
     if not metric_key:
         return None
     metric_name = _metric_key_to_name(metric_key)
+    mount_path = config.get("mount_path") or _mount_path_from_metric_key(metric_key)
     for alarm in alarms:
-        if alarm.get("MetricName") == metric_name:
-            return alarm
+        if alarm.get("MetricName") != metric_name:
+            continue
+        if mount_path and _alarm_mount_path(alarm) != mount_path:
+            continue
+        return alarm
     for alarm in alarms:
         if metric_key in alarm.get("AlarmName", ""):
             return alarm
@@ -494,10 +499,27 @@ def _find_alarm_for_config(alarms: list[dict], config: dict) -> dict | None:
 
 
 def _metric_key_to_name(metric_key: str) -> str:
+    if ":" in metric_key:
+        metric_key = metric_key.split(":", 1)[0]
     for name in (metric_key, metric_key.split("_/", 1)[0]):
         if _metric_name_to_key(name) == metric_key:
             return name
     return metric_key
+
+
+def _mount_path_from_metric_key(metric_key: str) -> str:
+    if ":" not in metric_key:
+        return ""
+    return metric_key.split(":", 1)[1]
+
+
+def _alarm_mount_path(alarm: dict) -> str | None:
+    if alarm.get("MetricName") != "disk_used_percent":
+        return None
+    return next(
+        (dim["Value"] for dim in alarm.get("Dimensions", []) if dim.get("Name") == "path"),
+        None,
+    )
 
 
 def _update_metric_alarm(alarm: dict, config: dict) -> None:

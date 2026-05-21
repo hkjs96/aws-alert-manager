@@ -58,6 +58,7 @@ export function AlarmConfigTable({
             unit: c.unit,
             direction: c.direction,
             severity: c.severity,
+            mount_path: c.mount_path,
           })),
       });
       showToast("success", "Alarm configuration saved.");
@@ -130,7 +131,7 @@ export function AlarmConfigTable({
           </thead>
           <tbody className="divide-y divide-slate-100">
             {configs.map((row, i) => (
-              <AlarmRow key={row.metric_key} row={row} index={i} onUpdate={updateConfig} />
+              <AlarmRow key={`${row.metric_key}:${row.mount_path ?? ""}`} row={row} index={i} onUpdate={updateConfig} />
             ))}
           </tbody>
         </table>

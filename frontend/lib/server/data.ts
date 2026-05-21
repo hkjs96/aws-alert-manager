@@ -116,7 +116,9 @@ export async function fetchResourceAlarms(resourceId: string): Promise<AlarmConf
   try {
     const items = await apiFetch<ApiAlarm[]>(`/api/resources/${encodeURIComponent(resourceId)}/alarms`);
     return items.map((a) => {
-      const { metricName, mountPath } = parseMountPath(a.metric_name);
+      const parsed = parseMountPath(a.metric_name);
+      const metricName = parsed.metricName;
+      const mountPath = parsed.mountPath ?? a.mount_path;
       return {
         metric_key: mountPath ? `${metricName}:${mountPath}` : metricName,
         metric_name: metricName,

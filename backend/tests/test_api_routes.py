@@ -229,6 +229,10 @@ class TestResources:
         mock_alarms = [
             _alarm("[EC2] server CPU >80% (TagName: i-001)", metric="CPUUtilization"),
             _alarm("[EC2] server Mem >80% (TagName: i-001)", metric="mem_used_percent"),
+            {
+                **_alarm("[EC2] server disk_used_percent(/data) >80% (TagName: i-001)", metric="disk_used_percent"),
+                "Dimensions": [{"Name": "path", "Value": "/data"}],
+            },
         ]
         with patch("api_handler.routes.resources.list_alarms", return_value=mock_alarms):
             from api_handler.lambda_handler import lambda_handler
@@ -238,9 +242,11 @@ class TestResources:
 
         assert resp["statusCode"] == 200
         configs = json.loads(resp["body"])
-        assert len(configs) == 2
+        assert len(configs) == 3
         metrics = {c["metric_name"] for c in configs}
-        assert metrics == {"CPUUtilization", "mem_used_percent"}
+        assert metrics == {"CPUUtilization", "mem_used_percent", "disk_used_percent"}
+        disk = next(c for c in configs if c["metric_name"] == "disk_used_percent")
+        assert disk["mount_path"] == "/data"
 
     def test_update_resource_alarms_updates_existing_alarm(self):
         mock_cw = MagicMock()

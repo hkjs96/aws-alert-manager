@@ -136,6 +136,10 @@ export interface AlarmConfigUpdate {
   metric_key: string;
   threshold: number;
   monitoring: boolean;
+  unit?: string;
+  direction?: ">" | ">=" | "<" | "<=";
+  severity?: string;
+  mount_path?: string;
 }
 
 export interface SaveAlarmConfigRequest {

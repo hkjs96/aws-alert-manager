@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 import { ToastProvider } from "@/components/shared/Toast";
 import { AlarmConfigTable } from "../AlarmConfigTable";
@@ -68,6 +68,44 @@ describe("AlarmConfigTable — 미저장 변경 감지", () => {
     fireEvent.change(input, { target: { value: "90" } });
     const saveBtn = screen.getByText("Save Changes");
     expect(saveBtn).not.toBeDisabled();
+  });
+});
+
+describe("AlarmConfigTable disk mount paths", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("displays and saves mount path", async () => {
+    vi.mocked(saveAlarmConfigs).mockResolvedValue({
+      job_id: "j1",
+      status: "completed",
+      total_count: 1,
+      completed_count: 1,
+      failed_count: 0,
+      results: [],
+    });
+    renderTable([{
+      ...MOCK_CONFIG,
+      metric_key: "disk_used_percent:/data",
+      metric_name: "disk_used_percent",
+      namespace: "CWAgent",
+      mount_path: "/data",
+    }]);
+
+    expect(screen.getByText("/data")).toBeInTheDocument();
+    fireEvent.change(screen.getByDisplayValue("80"), { target: { value: "85" } });
+    fireEvent.click(screen.getByText("Save Changes"));
+
+    await waitFor(() => {
+      expect(saveAlarmConfigs).toHaveBeenCalledWith("i-test", {
+        configs: [expect.objectContaining({
+          metric_key: "disk_used_percent:/data",
+          mount_path: "/data",
+          threshold: 85,
+        })],
+      });
+    });
   });
 });
 
