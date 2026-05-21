@@ -239,6 +239,7 @@ Resources:
           ACCOUNTS_TABLE: !Ref AccountsTable
           THRESHOLD_OVERRIDES_TABLE: !Ref ThresholdOverridesTable
           JOB_STATUS_TABLE: !Ref JobStatusTable
+          RESOURCE_INVENTORY_TABLE: !Ref ResourceInventoryTable
           BULK_OPERATION_QUEUE_URL: !Ref BulkOperationQueue
           API_STAGE: !FindInMap [EnvShortName, !Ref Environment, short]
 
@@ -276,6 +277,8 @@ Resources:
                   - !Sub "${AccountsTable.Arn}/index/*"
                   - !GetAtt ThresholdOverridesTable.Arn
                   - !GetAtt JobStatusTable.Arn
+                  - !GetAtt ResourceInventoryTable.Arn
+                  - !Sub "${ResourceInventoryTable.Arn}/index/*"
               - Effect: Allow
                 Action:
                   - sqs:SendMessage
@@ -287,6 +290,21 @@ Resources:
                   - cloudwatch:PutMetricAlarm
                   - cloudwatch:DeleteAlarms
                   - cloudwatch:TagResource
+                  - cloudwatch:ListMetrics
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - ec2:DescribeInstances
+                  - ec2:DescribeTags
+                  - rds:DescribeDBInstances
+                  - rds:ListTagsForResource
+                  - elasticloadbalancing:DescribeLoadBalancers
+                  - elasticloadbalancing:DescribeTags
+                  - lambda:ListFunctions
+                  - lambda:ListTags
+                  - s3:ListAllMyBuckets
+                  - s3:GetBucketTagging
+                  - s3:GetBucketLocation
                 Resource: "*"
               - Effect: Allow
                 Action:
