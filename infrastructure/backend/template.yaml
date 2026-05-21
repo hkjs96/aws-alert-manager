@@ -483,6 +483,8 @@ Resources:
           DEFAULT_FREE_STORAGE_GB_THRESHOLD: !Ref DefaultFreeStorageGBThreshold
           DEFAULT_DISK_THRESHOLD: !Ref DefaultDiskThreshold
           ENVIRONMENT: !FindInMap [EnvShortName, !Ref Environment, short]
+          ACCOUNTS_TABLE: !Ref AccountsTable
+          RESOURCE_INVENTORY_TABLE: !Ref ResourceInventoryTable
 
   # -- Dead Letter Queue: Remediation Handler (RISK-08) --
   RemediationDLQ:
@@ -977,6 +979,21 @@ Resources:
                   - !Ref MonitoringAlertTopic
                   - !Ref ErrorAlertTopic
                   - !GetAtt GlobalAlertSetup.TopicArn
+              # -- DynamoDB: AccountsTable 메타데이터 조회 (inventory sync 전 단계) --
+              - Effect: Allow
+                Action:
+                  - dynamodb:Query
+                  - dynamodb:GetItem
+                Resource:
+                  - !GetAtt AccountsTable.Arn
+                  - !Sub "${AccountsTable.Arn}/index/*"
+              # -- DynamoDB: ResourceInventoryTable upsert (Daily Monitor inventory sync) --
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:BatchWriteItem
+                Resource: !GetAtt ResourceInventoryTable.Arn
               # -- 멀티 어카운트: 대상 계정 Role AssumeRole --
               - Effect: Allow
                 Action:

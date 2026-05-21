@@ -12,9 +12,11 @@ event 형식 (Orchestrator → Worker):
 
 import functools
 import logging
+import os
 import re
 
 import boto3
+from boto3.dynamodb.conditions import Key
 from botocore.exceptions import ClientError
 
 # Lambda 환경에서 root logger 레벨 설정 (모든 모듈에 적용)
@@ -22,6 +24,7 @@ logging.getLogger().setLevel(logging.INFO)
 logger = logging.getLogger(__name__)
 
 from common.alarm_manager import sync_alarms_for_resource
+from common.resource_discovery import discover_resources
 from common.collectors import docdb as docdb_collector
 from common.collectors import ec2 as ec2_collector
 from common.collectors import elasticache as elasticache_collector
@@ -188,13 +191,22 @@ def lambda_handler(event, context):
     role_arn = event.get("role_arn", "") if isinstance(event, dict) else ""
     account_id = event.get("account_id", "self") if isinstance(event, dict) else "self"
 
+    # 0단계: ResourceInventoryTable 동기화 (세션 전환 전 — 메인 계정 DDB 접근 필요)
+    # discover_resources()가 자체적으로 AssumeRole 하므로 세션 전환 불필요.
+    try:
+        inventory_stats = _sync_inventory(account_id, role_arn)
+        logger.info("Inventory sync: %s", inventory_stats)
+    except (ClientError, RuntimeError, KeyError) as e:
+        logger.error("Inventory sync failed: %s", e)
+        inventory_stats = {"error": str(e)}
+
     if role_arn:
         try:
             _switch_account_session(role_arn, account_id)
         except ClientError:
             return {"status": "error", "account_id": account_id, "reason": "assume_role_failed"}
 
-    # 0단계: 고아 알람 정리
+    # 1단계: 고아 알람 정리
     try:
         orphaned = _cleanup_orphan_alarms()
         if orphaned:
@@ -260,8 +272,8 @@ def lambda_handler(event, context):
                 )
 
     logger.info(
-        "Daily monitor complete: account=%s, processed=%d, alerts=%d, alarms_synced=%s",
-        account_id, total_processed, total_alerts, alarms_synced,
+        "Daily monitor complete: account=%s, processed=%d, alerts=%d, alarms_synced=%s, inventory=%s",
+        account_id, total_processed, total_alerts, alarms_synced, inventory_stats,
     )
     return {
         "status": "ok",
@@ -269,7 +281,134 @@ def lambda_handler(event, context):
         "processed": total_processed,
         "alerts": total_alerts,
         "alarms_synced": alarms_synced,
+        "inventory_synced": inventory_stats,
     }
+
+
+# ──────────────────────────────────────────────
+# ResourceInventoryTable 동기화
+# ──────────────────────────────────────────────
+
+
+def _sync_inventory(account_id_hint: str, role_arn: str) -> dict:
+    """대상 계정의 리소스를 discover하여 ResourceInventoryTable에 upsert.
+
+    반드시 _switch_account_session() 호출 전에 실행해야 한다.
+    이유: ResourceInventoryTable은 메인 계정에 있는데, 세션 전환 후에는
+    대상 계정의 DDB를 보게 되어 write가 실패한다.
+
+    discover_resources()는 account 객체의 role_arn을 보고 자체적으로 assume role
+    하므로, 여기서는 default session(메인 계정)을 유지한 채 호출한다.
+    """
+    inv_table_name = os.environ.get("RESOURCE_INVENTORY_TABLE")
+    if not inv_table_name:
+        return {"discovered": 0, "synced": 0, "skipped": "no_inventory_table"}
+
+    accounts = _resolve_accounts_for_inventory(account_id_hint, role_arn)
+    if not accounts:
+        return {"discovered": 0, "synced": 0, "skipped": "no_account_metadata"}
+
+    try:
+        discovered = discover_resources(accounts)
+    except ClientError as e:
+        logger.error("discover_resources failed during inventory sync: %s", e)
+        return {"discovered": 0, "synced": 0, "error": "discover_failed"}
+
+    ddb = boto3.resource("dynamodb")
+    inv_table = ddb.Table(inv_table_name)
+    synced = 0
+    for resource in discovered:
+        item = _sanitize_inventory_item(resource)
+        if not item.get("resource_id") or not item.get("account_id"):
+            continue
+        try:
+            inv_table.put_item(Item=item)
+            synced += 1
+        except ClientError as e:
+            logger.error(
+                "put_item failed for inventory %s: %s",
+                item.get("resource_id"), e,
+            )
+
+    return {"discovered": len(discovered), "synced": synced}
+
+
+def _resolve_accounts_for_inventory(account_id_hint: str, role_arn: str) -> list[dict]:
+    """ACCOUNTS_TABLE에서 regions/customer_id 메타데이터를 채워 account 객체 구성.
+
+    GSI account_id-index로 account_id 기준 조회.
+    ACCOUNTS_TABLE이 없거나 항목이 없으면 기본 region으로 fallback.
+    single-account 모드(account_id_hint="self")에서는 STS로 실제 ID를 확인.
+    """
+    accounts_table_name = os.environ.get("ACCOUNTS_TABLE")
+
+    if not account_id_hint or account_id_hint == "self":
+        try:
+            real_id = boto3.client("sts").get_caller_identity()["Account"]
+        except ClientError as e:
+            logger.error("get_caller_identity failed during inventory sync: %s", e)
+            return []
+        target_account_id = real_id
+        target_role_arn = ""
+    else:
+        target_account_id = account_id_hint
+        target_role_arn = role_arn
+
+    fallback = [{
+        "account_id": target_account_id,
+        "role_arn": target_role_arn,
+        "regions": ["ap-northeast-2"],
+        "customer_id": "",
+    }]
+
+    if not accounts_table_name:
+        return fallback
+
+    try:
+        table = boto3.resource("dynamodb").Table(accounts_table_name)
+        resp = table.query(
+            IndexName="account_id-index",
+            KeyConditionExpression=Key("account_id").eq(target_account_id),
+        )
+    except ClientError as e:
+        logger.warning(
+            "AccountsTable query failed for %s, using fallback: %s",
+            target_account_id, e,
+        )
+        return fallback
+
+    items = resp.get("Items", [])
+    if not items:
+        return fallback
+
+    item = items[0]
+    return [{
+        "account_id": target_account_id,
+        "role_arn": target_role_arn,
+        "regions": list(item.get("regions") or ["ap-northeast-2"]),
+        "customer_id": item.get("customer_id", "") or "",
+    }]
+
+
+def _sanitize_inventory_item(resource: dict) -> dict:
+    """DDB 저장용으로 정규화. tags/arn 등 변동성 큰 필드는 제외.
+
+    customer_id가 비어있으면 attribute 자체를 제외하여 GSI(customer_id-index)에
+    들어가지 않도록 한다 (DDB는 빈 문자열 GSI key를 허용하지 않음).
+    """
+    item = {
+        "resource_id": resource.get("resource_id", ""),
+        "account_id": resource.get("account_id", "") or "",
+        "name": resource.get("name", ""),
+        "type": resource.get("type", ""),
+        "region": resource.get("region", ""),
+        "monitoring": bool(resource.get("monitoring", False)),
+        "status": resource.get("status", "active"),
+    }
+    customer_id = resource.get("customer_id")
+    if customer_id:
+        item["customer_id"] = customer_id
+    return item
 
 
 # ──────────────────────────────────────────────

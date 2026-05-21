@@ -19,8 +19,8 @@ from api_handler.cw_helper import (
     list_alarms,
 )
 from api_handler.db import accounts_table, resource_inventory_table, scan_all
-from api_handler.resource_discovery import discover_resources
 from common import dimension_builder
+from common.resource_discovery import discover_resources
 from common.alarm_naming import _build_alarm_description, _pretty_alarm_name
 from common.alarm_registry import (
     _DIMENSION_KEY_MAP,
