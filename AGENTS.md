@@ -49,8 +49,9 @@ git commit -m "fix|feat|refactor: <한 줄 요약>"
 git push origin main
 ```
 
-**배포는 Codex가 하지 않습니다.** `aws cloudformation deploy`는 Codex 환경에서 권한이 없습니다.
-푸시 후 Claude Code가 배포를 이어받습니다 — "배포해줘"라고 요청하거나 Claude Code 세션을 열면 됩니다.
+**배포는 Codex가 수행할 수 있습니다.** 코드 변경이 배포 대상이고 검증/커밋/푸시가 완료되면 Codex가 배포까지 이어서 진행하십시오.
+배포 전 `python scripts/verify_all.py`를 통과해야 하며, 필요한 AWS 프로필/리전/스택 이름을 로컬 설정과 문서에서 확인한 뒤 `aws cloudformation deploy`를 실행하십시오.
+배포 권한 또는 AWS 인증이 없으면 중단하고 사용자에게 필요한 권한/프로필 정보를 요청하십시오.
 
 **pre-push hook이 설치되어 있습니다.** `git push`를 실행하면 backend 테스트가 자동으로 게이트됩니다.
 테스트가 실패하면 push가 차단됩니다 — 이 경우 오류를 수정하고 재커밋 후 다시 push하십시오.
