@@ -87,6 +87,35 @@ class TestResourceInventoryLogic:
     @patch("api_handler.routes.resources.discover_resources")
     @patch("api_handler.routes.resources.scan_all")
     @patch("api_handler.routes.resources.get_alarm_overlay")
+    def test_list_resources_discovers_current_account_when_accounts_empty(self, mock_overlay, mock_scan, mock_discover, mock_db_env):
+        mock_discover.return_value = [{
+            "resource_id": "i-live-01",
+            "name": "live-instance",
+            "type": "EC2",
+            "account_id": "self",
+            "region": "us-east-1",
+            "monitoring": True,
+            "status": "active",
+        }]
+        mock_scan.side_effect = [[], []]
+        mock_overlay.return_value = {}
+
+        from api_handler.routes.resources import list_resources
+        resp = list_resources(_event("GET", "/resources"))
+
+        assert resp["statusCode"] == 200
+        body = json.loads(resp["body"])
+        assert body["total"] == 1
+        assert body["items"][0]["id"] == "i-live-01"
+        assert body["items"][0]["inventory_source"] == "aws"
+        mock_discover.assert_called_once_with([{
+            "account_id": "self",
+            "regions": ["us-east-1"],
+        }])
+
+    @patch("api_handler.routes.resources.discover_resources")
+    @patch("api_handler.routes.resources.scan_all")
+    @patch("api_handler.routes.resources.get_alarm_overlay")
     def test_list_resources_identifies_orphan_alarms(self, mock_overlay, mock_scan, mock_discover, mock_db_env):
         """AWS나 DB에는 없지만 알람만 존재하는 경우 orphan_candidate 후보로 표시해야 한다."""
         # 1. AWS/DB 모두 비어 있음
@@ -184,6 +213,32 @@ class TestResourceInventoryLogic:
         assert body["total"] == 1
         assert body["items"][0]["id"] == "i-unmonitored"
         assert body["items"][0]["monitoring"] is False
+
+    @patch("api_handler.routes.resources.discover_resources")
+    @patch("api_handler.routes.resources.resource_inventory_table")
+    @patch("api_handler.routes.resources.scan_all")
+    def test_sync_resources_discovers_current_account_when_accounts_empty(self, mock_scan, mock_table_func, mock_discover, mock_db_env):
+        mock_discover.return_value = [{
+            "resource_id": "i-live-01",
+            "account_id": "self",
+            "name": "live-instance",
+            "type": "EC2",
+            "region": "us-east-1",
+            "monitoring": True,
+        }]
+        mock_scan.return_value = []
+        mock_table = MagicMock()
+        mock_table_func.return_value = mock_table
+
+        from api_handler.routes.resources import sync_resources
+        resp = sync_resources(_event("POST", "/resources/sync"))
+
+        assert resp["statusCode"] == 200
+        assert mock_table.put_item.called
+        mock_discover.assert_called_once_with([{
+            "account_id": "self",
+            "regions": ["us-east-1"],
+        }])
 
     @patch("api_handler.routes.resources.discover_resources")
     @patch("api_handler.routes.resources.resource_inventory_table")

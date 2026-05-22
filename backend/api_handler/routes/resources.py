@@ -53,6 +53,22 @@ def _get_ec2_client():
     return boto3.client("ec2", region_name=os.environ.get("AWS_REGION", "ap-northeast-2"))
 
 
+def _default_discovery_account() -> dict:
+    region = (
+        os.environ.get("AWS_REGION")
+        or os.environ.get("AWS_DEFAULT_REGION")
+        or "ap-northeast-2"
+    )
+    return {"account_id": "self", "regions": [region]}
+
+
+def _accounts_for_resource_discovery() -> list[dict]:
+    accounts = scan_all(accounts_table())
+    if accounts:
+        return accounts
+    return [_default_discovery_account()]
+
+
 def list_resources(event: dict) -> dict:
     if os.environ.get("RESOURCE_INVENTORY_TABLE"):
         return _list_inventory_resources(event)
@@ -69,7 +85,7 @@ def sync_resources(event: dict) -> dict:
         })
 
     try:
-        accounts = scan_all(accounts_table())
+        accounts = _accounts_for_resource_discovery()
         discovered = discover_resources(accounts)
         table = resource_inventory_table()
         for resource in discovered:
@@ -385,7 +401,7 @@ def _list_inventory_resources(event: dict) -> dict:
     page_size = min(int(qs.get("page_size", 25)), 100)
 
     try:
-        accounts = scan_all(accounts_table())
+        accounts = _accounts_for_resource_discovery()
         discovered = discover_resources(accounts)
         persisted = scan_all(resource_inventory_table())
         overlay = get_alarm_overlay()
