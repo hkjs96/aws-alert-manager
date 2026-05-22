@@ -50,7 +50,8 @@ git push origin main
 ```
 
 **배포는 Codex가 수행할 수 있습니다.** 코드 변경이 배포 대상이고 검증/커밋/푸시가 완료되면 Codex가 배포까지 이어서 진행하십시오.
-배포 전 `python scripts/verify_all.py`를 통과해야 하며, 필요한 AWS 프로필/리전/스택 이름을 로컬 설정과 문서에서 확인한 뒤 `aws cloudformation deploy`를 실행하십시오.
+백엔드/인프라 배포는 Codex 전용 스크립트 `python .codex/deploy-backend-stack.py`를 사용하십시오.
+배포 전 `python scripts/verify_all.py`를 통과해야 하며, 필요한 AWS 프로필/리전/스택 이름은 스크립트 기본값 또는 환경 변수로 지정하십시오.
 배포 권한 또는 AWS 인증이 없으면 중단하고 사용자에게 필요한 권한/프로필 정보를 요청하십시오.
 
 **pre-push hook이 설치되어 있습니다.** `git push`를 실행하면 backend 테스트가 자동으로 게이트됩니다.
