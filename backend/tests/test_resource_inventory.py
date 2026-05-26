@@ -71,6 +71,8 @@ class TestResourceInventoryLogic:
         # Check AWS discovered item
         aws_item = next(i for i in items if i["id"] == "i-aws-01")
         assert aws_item["inventory_source"] == "aws"
+        assert aws_item["account"] == "123456789012"
+        assert aws_item["account_id"] == "123456789012"
         assert aws_item["status"] == "active"
         assert aws_item["alarm_count"] == 1
         assert aws_item["alarms"]["critical"] == 1

@@ -19,6 +19,8 @@ const API_BASE_URL =
   process.env.API_BASE_URL ??
   "";
 
+type ApiResource = Resource & { account_id?: string };
+
 async function apiFetch<T>(path: string): Promise<T> {
   if (!API_BASE_URL) {
     throw new Error("API Gateway URL is not configured");
@@ -33,14 +35,21 @@ async function apiFetch<T>(path: string): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+function normalizeResource(resource: ApiResource): Resource {
+  return {
+    ...resource,
+    account: resource.account || resource.account_id || "",
+  };
+}
+
 export async function fetchAlarms(): Promise<Alarm[]> {
   const data = await apiFetch<{ items: Alarm[] }>("/api/alarms?page_size=100");
   return data.items;
 }
 
 export async function fetchResources(): Promise<Resource[]> {
-  const data = await apiFetch<{ items: Resource[] }>("/api/resources?page_size=100");
-  return data.items;
+  const data = await apiFetch<{ items: ApiResource[] }>("/api/resources?page_size=100");
+  return data.items.map(normalizeResource);
 }
 
 export async function fetchCustomers(): Promise<Customer[]> {
@@ -76,7 +85,8 @@ export async function fetchAccountOptions(): Promise<{ id: string; name: string;
 
 export async function fetchResource(idOrName: string): Promise<Resource | null> {
   try {
-    return await apiFetch<Resource>(`/api/resources/${encodeURIComponent(idOrName)}`);
+    const resource = await apiFetch<ApiResource>(`/api/resources/${encodeURIComponent(idOrName)}`);
+    return normalizeResource(resource);
   } catch {
     return null;
   }

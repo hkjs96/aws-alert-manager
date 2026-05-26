@@ -428,6 +428,7 @@ def _list_inventory_resources(event: dict) -> dict:
             "name": resource_id,
             "type": "",
             "region": "",
+            "account": "",
             "account_id": "",
             "customer_id": "",
             "monitoring": True,
@@ -453,12 +454,14 @@ def _list_inventory_resources(event: dict) -> dict:
 
 
 def _inventory_item(resource: dict, source: str, alarm_info: dict, persisted: bool) -> dict:
+    account_id = resource.get("account_id", "")
     return {
         "id": resource.get("resource_id") or resource.get("id", ""),
         "name": resource.get("name") or resource.get("resource_id") or resource.get("id", ""),
         "type": resource.get("type", ""),
         "region": resource.get("region", ""),
-        "account_id": resource.get("account_id", ""),
+        "account": account_id,
+        "account_id": account_id,
         "customer_id": resource.get("customer_id", ""),
         "monitoring": bool(resource.get("monitoring", False)),
         "status": resource.get("status", "active"),

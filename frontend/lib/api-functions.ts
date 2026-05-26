@@ -20,6 +20,15 @@ import type {
 import type { AlarmConfig, Resource, Customer, Account, RecentAlarm, Alarm } from "@/types/index";
 import { apiFetch, buildFilterParams, buildQueryString } from "./api";
 
+type ApiResource = Resource & { account_id?: string };
+
+function normalizeResource(resource: ApiResource): Resource {
+  return {
+    ...resource,
+    account: resource.account || resource.account_id || "",
+  };
+}
+
 // --- Dashboard ---
 
 export function fetchDashboardStats(filters: GlobalFilterParams): Promise<DashboardStats> {
@@ -41,7 +50,10 @@ export function fetchResources(
   params: ResourceListParams,
 ): Promise<PaginatedResponse<Resource>> {
   const qs = buildQueryString(params as unknown as Record<string, string | number | boolean | undefined>);
-  return apiFetch(`/api/resources${qs ? `?${qs}` : ""}`);
+  return apiFetch<PaginatedResponse<ApiResource>>(`/api/resources${qs ? `?${qs}` : ""}`).then((data) => ({
+    ...data,
+    items: data.items.map(normalizeResource),
+  }));
 }
 
 export function syncResources(filters: GlobalFilterParams): Promise<SyncResult> {
@@ -50,7 +62,7 @@ export function syncResources(filters: GlobalFilterParams): Promise<SyncResult> 
 }
 
 export function fetchResource(id: string): Promise<Resource> {
-  return apiFetch(`/api/resources/${id}`);
+  return apiFetch<ApiResource>(`/api/resources/${id}`).then(normalizeResource);
 }
 
 export function fetchAlarmConfigs(id: string): Promise<AlarmConfig[]> {
