@@ -14,6 +14,8 @@ import functools
 import logging
 import os
 import re
+import time
+from datetime import datetime, timezone
 
 import boto3
 from boto3.dynamodb.conditions import Key
@@ -115,6 +117,11 @@ def _get_cw_client():
     return boto3.client("cloudwatch")
 
 
+@functools.lru_cache(maxsize=None)
+def _get_ddb_resource():
+    return boto3.resource("dynamodb")
+
+
 # ──────────────────────────────────────────────
 # 멀티 어카운트 세션 전환 (RISK-01, RISK-07 대응)
 # ──────────────────────────────────────────────
@@ -156,6 +163,7 @@ def _clear_all_client_caches() -> None:
 
     # 핸들러 + 공통 모듈 클라이언트
     _get_cw_client.cache_clear()
+    _get_ddb_resource.cache_clear()
     _cl._get_cw_client.cache_clear()
     _cl._get_cw_client_for_region.cache_clear()
     base_col._get_cw_client.cache_clear()
@@ -190,6 +198,11 @@ def lambda_handler(event, context):
     # 멀티 어카운트: Orchestrator가 주입한 계정 정보로 세션 전환
     role_arn = event.get("role_arn", "") if isinstance(event, dict) else ""
     account_id = event.get("account_id", "self") if isinstance(event, dict) else "self"
+    run_started_at = _utc_now_iso()
+    run_started_ts = time.time()
+    run_id = _build_monitor_run_id(account_id, context)
+    run_table = _monitor_run_history_table()
+    _put_monitor_run_start(run_table, run_id, run_started_at, account_id, event, context)
 
     # 0단계: ResourceInventoryTable 동기화 (세션 전환 전 — 메인 계정 DDB 접근 필요)
     # discover_resources()가 자체적으로 AssumeRole 하므로 세션 전환 불필요.
@@ -204,7 +217,12 @@ def lambda_handler(event, context):
         try:
             _switch_account_session(role_arn, account_id)
         except ClientError:
-            return {"status": "error", "account_id": account_id, "reason": "assume_role_failed"}
+            result = {"status": "error", "account_id": account_id, "reason": "assume_role_failed"}
+            _finish_monitor_run(
+                run_table, run_id, run_started_at, run_started_ts,
+                "error", result, "assume_role_failed",
+            )
+            return result
 
     # 1단계: 고아 알람 정리
     try:
@@ -275,7 +293,7 @@ def lambda_handler(event, context):
         "Daily monitor complete: account=%s, processed=%d, alerts=%d, alarms_synced=%s, inventory=%s",
         account_id, total_processed, total_alerts, alarms_synced, inventory_stats,
     )
-    return {
+    result = {
         "status": "ok",
         "account_id": account_id,
         "processed": total_processed,
@@ -283,11 +301,109 @@ def lambda_handler(event, context):
         "alarms_synced": alarms_synced,
         "inventory_synced": inventory_stats,
     }
+    run_status = "partial" if inventory_stats.get("error") else "success"
+    _finish_monitor_run(
+        run_table, run_id, run_started_at, run_started_ts, run_status, result,
+        inventory_stats.get("error"),
+    )
+    return result
 
 
 # ──────────────────────────────────────────────
 # ResourceInventoryTable 동기화
 # ──────────────────────────────────────────────
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def _build_monitor_run_id(account_id: str, context) -> str:
+    request_id = getattr(context, "aws_request_id", "") if context else ""
+    suffix = request_id or str(int(time.time() * 1000))
+    return f"daily-monitor#{account_id}#{suffix}"
+
+
+def _monitor_run_history_table():
+    table_name = os.environ.get("MONITOR_RUN_HISTORY_TABLE")
+    if not table_name:
+        return None
+    return _get_ddb_resource().Table(table_name)
+
+
+def _put_monitor_run_start(
+    table, run_id: str, started_at: str, account_id: str, event, context,
+) -> None:
+    if table is None:
+        return
+    item = {
+        "scope": "daily_monitor",
+        "started_at": started_at,
+        "run_id": run_id,
+        "account_id": account_id,
+        "status": "running",
+        "trigger": _monitor_run_trigger(event),
+        "lambda_request_id": getattr(context, "aws_request_id", "") if context else "",
+        "ttl": int(time.time()) + 90 * 24 * 60 * 60,
+    }
+    try:
+        table.put_item(Item=item)
+    except ClientError as e:
+        logger.error("Monitor run start write failed: %s", e)
+
+
+def _finish_monitor_run(
+    table, run_id: str, started_at: str, started_ts: float,
+    status: str, result: dict, error_message: str | None = None,
+) -> None:
+    if table is None:
+        return
+    values = {
+        ":status": status,
+        ":finished_at": _utc_now_iso(),
+        ":duration_ms": int((time.time() - started_ts) * 1000),
+        ":summary": _monitor_run_summary(result),
+    }
+    update_expr = (
+        "SET #s = :status, finished_at = :finished_at, "
+        "duration_ms = :duration_ms, summary = :summary"
+    )
+    if error_message:
+        update_expr += ", error_message = :error_message"
+        values[":error_message"] = str(error_message)
+    try:
+        table.update_item(
+            Key={"scope": "daily_monitor", "started_at": started_at},
+            UpdateExpression=update_expr,
+            ExpressionAttributeNames={"#s": "status"},
+            ExpressionAttributeValues=values,
+        )
+    except ClientError as e:
+        logger.error("Monitor run finish write failed: %s", e)
+
+
+def _monitor_run_trigger(event) -> str:
+    if not isinstance(event, dict):
+        return "unknown"
+    if event.get("source") == "aws.scheduler":
+        return "schedule"
+    if event.get("account_id") or event.get("role_arn"):
+        return "orchestrator"
+    return "manual"
+
+
+def _monitor_run_summary(result: dict) -> dict:
+    alarms = result.get("alarms_synced") or {}
+    inventory = result.get("inventory_synced") or {}
+    return {
+        "processed": result.get("processed", 0),
+        "alerts": result.get("alerts", 0),
+        "alarms_created": alarms.get("created", 0),
+        "alarms_updated": alarms.get("updated", 0),
+        "alarms_ok": alarms.get("ok", 0),
+        "inventory_discovered": inventory.get("discovered", 0),
+        "inventory_synced": inventory.get("synced", 0),
+    }
 
 
 def _sync_inventory(account_id_hint: str, role_arn: str) -> dict:

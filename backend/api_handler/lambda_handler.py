@@ -19,7 +19,10 @@ import re
 logging.getLogger().setLevel(logging.INFO)
 logger = logging.getLogger(__name__)
 
-from api_handler.routes import customers, accounts, dashboard, resources, alarms, thresholds, jobs, bulk
+from api_handler.routes import (
+    customers, accounts, dashboard, resources, alarms, thresholds, jobs, bulk,
+    monitor_runs,
+)
 
 
 def _health(event: dict) -> dict:
@@ -65,6 +68,8 @@ _ROUTES: list[tuple[str, re.Pattern, object]] = [
     ("PUT",    re.compile(r"^/thresholds/(?P<type>[^/]+)$"),          thresholds.put_thresholds),
     # Jobs
     ("GET",    re.compile(r"^/jobs/(?P<id>[^/]+)$"),                  jobs.get_job),
+    # Monitor runs
+    ("GET",    re.compile(r"^/monitor-runs$"),                        monitor_runs.list_monitor_runs),
     # Bulk
     ("POST",   re.compile(r"^/bulk/monitoring$"),                     bulk.bulk_monitoring),
 ]

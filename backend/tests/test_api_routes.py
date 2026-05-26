@@ -747,3 +747,30 @@ class TestCwHelper:
         assert len(alarms) == 1
         fake_sts.assume_role.assert_not_called()
         fake_cw.get_paginator.assert_called_once_with("describe_alarms")
+
+
+class TestMonitorRuns:
+
+    def test_list_monitor_runs_returns_recent_items(self):
+        mock_table = MagicMock()
+        mock_table.query.return_value = {
+            "Items": [{
+                "scope": "daily_monitor",
+                "started_at": "2026-05-26T00:00:00Z",
+                "run_id": "daily-monitor#self#req-1",
+                "account_id": "self",
+                "status": "success",
+                "summary": {"processed": 5},
+            }]
+        }
+
+        with patch("api_handler.routes.monitor_runs.monitor_run_history_table", return_value=mock_table):
+            from api_handler.lambda_handler import lambda_handler
+            resp = lambda_handler(_event("GET", "/monitor-runs", qs={"limit": "10"}), None)
+
+        assert resp["statusCode"] == 200
+        body = json.loads(resp["body"])
+        assert body["count"] == 1
+        assert body["limit"] == 10
+        assert body["items"][0]["run_id"] == "daily-monitor#self#req-1"
+        assert mock_table.query.call_args.kwargs["Limit"] == 10

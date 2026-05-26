@@ -637,3 +637,40 @@ class TestClassifyAlarm:
         _classify_alarm("[EC2] srv Memory > 80% (TagName: i-001)", result)
 
         assert len(result["EC2"]["i-001"]) == 2
+
+
+class TestMonitorRunHistory:
+    """DailyMonitor 실행 증적 기록."""
+
+    @mock_aws
+    def test_monitor_run_history_records_success(self):
+        from daily_monitor import lambda_handler as lh
+
+        lh._get_cw_client.cache_clear()
+
+        mock_collector = _make_collector_mock(resources=[])
+        mock_table = MagicMock()
+        context = MagicMock(aws_request_id="req-123")
+
+        with pytest.MonkeyPatch.context() as mp:
+            for k, v in _ENV.items():
+                mp.setenv(k, v)
+            mp.setenv("MONITOR_RUN_HISTORY_TABLE", "monitor-runs")
+            with (
+                patch.object(lh, "_COLLECTOR_MODULES", [mock_collector]),
+                patch("daily_monitor.lambda_handler._monitor_run_history_table", return_value=mock_table),
+                patch("daily_monitor.lambda_handler._sync_inventory", return_value={"discovered": 2, "synced": 2}),
+                patch("daily_monitor.lambda_handler._cleanup_orphan_alarms", return_value=[]),
+            ):
+                result = lh.lambda_handler({"account_id": "111122223333"}, context)
+
+        assert result["status"] == "ok"
+        start_item = mock_table.put_item.call_args.kwargs["Item"]
+        assert start_item["scope"] == "daily_monitor"
+        assert start_item["run_id"] == "daily-monitor#111122223333#req-123"
+        assert start_item["status"] == "running"
+
+        update_kwargs = mock_table.update_item.call_args.kwargs
+        assert update_kwargs["Key"]["scope"] == "daily_monitor"
+        assert update_kwargs["ExpressionAttributeValues"][":status"] == "success"
+        assert update_kwargs["ExpressionAttributeValues"][":summary"]["inventory_synced"] == 2

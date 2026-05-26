@@ -583,3 +583,48 @@ Errors:
 - `400 BAD_REQUEST`
 - `404 NOT_FOUND`
 - `500 INTERNAL_ERROR`
+
+## GET /api/monitor-runs
+
+Returns recent DailyMonitor execution records. This is the audit trail for the
+daily inventory sync and alarm reconciliation run; bulk jobs continue to use
+`/api/jobs/{id}`.
+
+Query:
+
+- `limit`: optional, default `50`, max `100`
+
+Response `200`:
+
+```json
+{
+  "items": [
+    {
+      "scope": "daily_monitor",
+      "started_at": "2026-05-26T00:00:00Z",
+      "finished_at": "2026-05-26T00:00:12Z",
+      "run_id": "daily-monitor#self#request-id",
+      "account_id": "self",
+      "status": "success",
+      "trigger": "manual",
+      "duration_ms": 12000,
+      "summary": {
+        "processed": 5,
+        "alerts": 0,
+        "alarms_created": 1,
+        "alarms_updated": 0,
+        "alarms_ok": 4,
+        "inventory_discovered": 5,
+        "inventory_synced": 5
+      }
+    }
+  ],
+  "count": 1,
+  "limit": 50,
+  "next_key": null
+}
+```
+
+Errors:
+
+- `500 DDB_ERROR`

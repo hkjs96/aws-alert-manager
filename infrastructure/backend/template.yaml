@@ -164,6 +164,39 @@ Resources:
         - Key: ManagedBy
           Value: AlarmManager
 
+  MonitorRunHistoryTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub
+        - aws-monitoring-monitor-runs-${EnvShort}
+        - EnvShort: !FindInMap [EnvShortName, !Ref Environment, short]
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: scope
+          AttributeType: S
+        - AttributeName: started_at
+          AttributeType: S
+        - AttributeName: run_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: scope
+          KeyType: HASH
+        - AttributeName: started_at
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: run_id-index
+          KeySchema:
+            - AttributeName: run_id
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+      Tags:
+        - Key: ManagedBy
+          Value: AlarmManager
+
   ResourceInventoryTable:
     Type: AWS::DynamoDB::Table
     Properties:
@@ -239,6 +272,7 @@ Resources:
           ACCOUNTS_TABLE: !Ref AccountsTable
           THRESHOLD_OVERRIDES_TABLE: !Ref ThresholdOverridesTable
           JOB_STATUS_TABLE: !Ref JobStatusTable
+          MONITOR_RUN_HISTORY_TABLE: !Ref MonitorRunHistoryTable
           RESOURCE_INVENTORY_TABLE: !Ref ResourceInventoryTable
           BULK_OPERATION_QUEUE_URL: !Ref BulkOperationQueue
           API_STAGE: !FindInMap [EnvShortName, !Ref Environment, short]
@@ -277,6 +311,8 @@ Resources:
                   - !Sub "${AccountsTable.Arn}/index/*"
                   - !GetAtt ThresholdOverridesTable.Arn
                   - !GetAtt JobStatusTable.Arn
+                  - !GetAtt MonitorRunHistoryTable.Arn
+                  - !Sub "${MonitorRunHistoryTable.Arn}/index/*"
                   - !GetAtt ResourceInventoryTable.Arn
                   - !Sub "${ResourceInventoryTable.Arn}/index/*"
               - Effect: Allow
@@ -486,6 +522,7 @@ Resources:
           ENVIRONMENT: !FindInMap [EnvShortName, !Ref Environment, short]
           ACCOUNTS_TABLE: !Ref AccountsTable
           RESOURCE_INVENTORY_TABLE: !Ref ResourceInventoryTable
+          MONITOR_RUN_HISTORY_TABLE: !Ref MonitorRunHistoryTable
 
   # -- Dead Letter Queue: Remediation Handler (RISK-08) --
   RemediationDLQ:
@@ -995,6 +1032,11 @@ Resources:
                   - dynamodb:UpdateItem
                   - dynamodb:BatchWriteItem
                 Resource: !GetAtt ResourceInventoryTable.Arn
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                Resource: !GetAtt MonitorRunHistoryTable.Arn
               # -- 멀티 어카운트: 대상 계정 Role AssumeRole --
               - Effect: Allow
                 Action:
@@ -1427,6 +1469,10 @@ Outputs:
   JobStatusTableName:
     Description: DynamoDB Job Status table name
     Value: !Ref JobStatusTable
+
+  MonitorRunHistoryTableName:
+    Description: DynamoDB Daily Monitor run history table name
+    Value: !Ref MonitorRunHistoryTable
 
   GlobalAlertTopicArn:
     Description: us-east-1 SNS topic ARN for global service alarms (CloudFront/Route53)

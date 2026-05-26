@@ -37,6 +37,10 @@ def job_status_table():
     return _get_dynamodb().Table(os.environ["JOB_STATUS_TABLE"])
 
 
+def monitor_run_history_table():
+    return _get_dynamodb().Table(os.environ["MONITOR_RUN_HISTORY_TABLE"])
+
+
 def resource_inventory_table():
     return _get_dynamodb().Table(os.environ["RESOURCE_INVENTORY_TABLE"])
 
