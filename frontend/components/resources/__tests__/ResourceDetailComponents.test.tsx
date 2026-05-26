@@ -103,6 +103,39 @@ describe("ResourceHeader", () => {
   });
 });
 
+describe("ResourceHeader confirmation", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("requires confirmation before toggling monitoring", async () => {
+    const { toggleMonitoring } = await import("@/lib/api-functions");
+    render(<ResourceHeader resource={MOCK_RESOURCE} />, { wrapper: Wrapper });
+
+    fireEvent.click(screen.getByRole("button", { name: "Turn monitoring off" }));
+
+    expect(screen.getByText("Turn monitoring off?")).toBeInTheDocument();
+    expect(toggleMonitoring).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByText("Turn Off"));
+
+    await waitFor(() => {
+      expect(toggleMonitoring).toHaveBeenCalledWith(MOCK_RESOURCE.id, false);
+    });
+  });
+
+  it("does not toggle monitoring when confirmation is cancelled", async () => {
+    const { toggleMonitoring } = await import("@/lib/api-functions");
+    render(<ResourceHeader resource={MOCK_RESOURCE} />, { wrapper: Wrapper });
+
+    fireEvent.click(screen.getByRole("button", { name: "Turn monitoring off" }));
+    fireEvent.click(screen.getByText("Cancel"));
+
+    expect(screen.queryByText("Turn monitoring off?")).not.toBeInTheDocument();
+    expect(toggleMonitoring).not.toHaveBeenCalled();
+  });
+});
+
 describe("AlarmConfigTable", () => {
   it("알람 설정 행을 렌더링한다", () => {
     render(

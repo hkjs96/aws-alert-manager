@@ -207,6 +207,7 @@ function MonitoringToggle({
     <button
       onClick={onToggle}
       disabled={loading}
+      aria-label={enabled ? "Turn monitoring off" : "Turn monitoring on"}
       className={`w-8 h-4 rounded-full relative transition-colors ${
         loading ? "opacity-50 cursor-wait" : ""
       } ${enabled ? "bg-primary" : "bg-slate-300"}`}

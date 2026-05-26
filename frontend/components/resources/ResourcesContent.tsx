@@ -8,6 +8,7 @@ import { Button } from "@/components/shared/Button";
 import { useToast } from "@/components/shared/Toast";
 import { LoadingButton } from "@/components/shared/LoadingButton";
 import { Pagination } from "@/components/shared/Pagination";
+import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { useMonitoringToggle } from "@/hooks/useMonitoringToggle";
 import { useOwnedCustomers } from "@/hooks/useOwnedCustomers";
 import { OwnedEmptyState } from "@/components/shared/OwnedEmptyState";
@@ -19,6 +20,11 @@ import { EnableModal } from "./EnableModal";
 import { DisableModal } from "./DisableModal";
 
 type SortDir = "asc" | "desc";
+type PendingToggle = {
+  id: string;
+  name: string;
+  currentState: boolean;
+};
 
 interface CustomerDto {
   id: string;
@@ -67,6 +73,7 @@ export function ResourcesContent({
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [isSyncing, setIsSyncing] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [pendingToggle, setPendingToggle] = useState<PendingToggle | null>(null);
 
   // Customer 선택 시 해당 Customer의 Account만 표시
   const filteredAccounts = useMemo(
@@ -157,11 +164,25 @@ export function ResourcesContent({
   const selectedType = isSameType ? [...selectedTypes][0] : null;
 
   const handleToggleMonitoring = useCallback(
-    async (id: string, currentState: boolean) => {
-      const success = await toggle(id, currentState);
+    (id: string, currentState: boolean) => {
+      const resource = resources.find((item) => item.id === id);
+      setPendingToggle({
+        id,
+        name: resource?.name || id,
+        currentState,
+      });
+    },
+    [resources],
+  );
+
+  const confirmToggleMonitoring = useCallback(
+    async () => {
+      if (!pendingToggle) return;
+      setPendingToggle(null);
+      const success = await toggle(pendingToggle.id, pendingToggle.currentState);
       if (success) router.refresh();
     },
-    [toggle, router],
+    [pendingToggle, toggle, router],
   );
 
   const handleSync = async () => {
@@ -311,6 +332,20 @@ export function ResourcesContent({
           onComplete={handleBulkComplete}
         />
       )}
+      <ConfirmDialog
+        isOpen={pendingToggle !== null}
+        title={pendingToggle?.currentState ? "Turn monitoring off?" : "Turn monitoring on?"}
+        message={
+          pendingToggle
+            ? `${pendingToggle.name} (${pendingToggle.id}) monitoring will be ${pendingToggle.currentState ? "disabled" : "enabled"}. Continue?`
+            : ""
+        }
+        confirmLabel={pendingToggle?.currentState ? "Turn Off" : "Turn On"}
+        cancelLabel="Cancel"
+        variant={pendingToggle?.currentState ? "danger" : "default"}
+        onConfirm={confirmToggleMonitoring}
+        onCancel={() => setPendingToggle(null)}
+      />
     </div>
   );
 }
