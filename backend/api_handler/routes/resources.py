@@ -159,9 +159,11 @@ def update_resource_monitoring(event: dict) -> dict:
         monitoring = bool(body["monitoring"])
         region = resource.get("region") or os.environ.get("AWS_REGION") or "ap-northeast-2"
         _set_ec2_monitoring_tag(resource_id, region, monitoring)
-        _update_inventory_monitoring(resource_id, monitoring)
+        _update_inventory_monitoring(resource, monitoring)
     except ClientError as exc:
         return _err(500, "AWS_ERROR", str(exc))
+    except ValueError as exc:
+        return _err(500, "INVENTORY_ERROR", str(exc))
 
     return _ok({
         "resource_id": resource_id,
@@ -540,11 +542,15 @@ def _set_ec2_monitoring_tag(resource_id: str, region: str, monitoring: bool) -> 
     )
 
 
-def _update_inventory_monitoring(resource_id: str, monitoring: bool) -> None:
+def _update_inventory_monitoring(resource: dict, monitoring: bool) -> None:
     if not os.environ.get("RESOURCE_INVENTORY_TABLE"):
         return
+    resource_id = resource.get("resource_id") or resource.get("id")
+    account_id = resource.get("account_id")
+    if not resource_id or not account_id:
+        raise ValueError("Inventory item is missing resource_id or account_id")
     resource_inventory_table().update_item(
-        Key={"resource_id": resource_id},
+        Key={"resource_id": resource_id, "account_id": account_id},
         UpdateExpression="SET monitoring = :monitoring",
         ExpressionAttributeValues={":monitoring": monitoring},
     )

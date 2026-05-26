@@ -202,7 +202,7 @@ class TestResources:
     @patch("api_handler.routes.resources.resource_inventory_table")
     @patch("api_handler.routes.resources.scan_all")
     def test_update_resource_monitoring_route(self, mock_scan, mock_table_func, mock_ec2_func):
-        mock_scan.return_value = [{"resource_id": "i-001", "type": "EC2", "region": "us-east-1"}]
+        mock_scan.return_value = [{"resource_id": "i-001", "account_id": "123", "type": "EC2", "region": "us-east-1"}]
         mock_table_func.return_value = MagicMock()
         mock_ec2_func.return_value = MagicMock()
 

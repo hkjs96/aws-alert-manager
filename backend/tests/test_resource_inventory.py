@@ -272,6 +272,7 @@ class TestResourceInventoryLogic:
     def test_update_resource_monitoring_sets_ec2_tag_and_inventory(self, mock_scan, mock_table_func, mock_ec2_func, mock_db_env):
         mock_scan.return_value = [{
             "resource_id": "i-01",
+            "account_id": "123",
             "type": "EC2",
             "region": "us-east-1",
             "monitoring": False,
@@ -293,7 +294,7 @@ class TestResourceInventoryLogic:
             Tags=[{"Key": "Monitoring", "Value": "on"}],
         )
         mock_table.update_item.assert_called_once_with(
-            Key={"resource_id": "i-01"},
+            Key={"resource_id": "i-01", "account_id": "123"},
             UpdateExpression="SET monitoring = :monitoring",
             ExpressionAttributeValues={":monitoring": True},
         )
