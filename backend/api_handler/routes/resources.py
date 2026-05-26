@@ -20,6 +20,7 @@ from api_handler.cw_helper import (
 )
 from api_handler.db import accounts_table, resource_inventory_table, scan_all
 from common import dimension_builder
+from common.tag_resolver import disk_path_to_tag_suffix
 from common.resource_discovery import discover_resources
 from common.alarm_naming import _build_alarm_description, _pretty_alarm_name
 from common.alarm_registry import (
@@ -396,6 +397,7 @@ def update_resource_alarms(event: dict) -> dict:
 
         try:
             alarm_name = _update_metric_alarm(alarm, config)
+            _sync_threshold_tag_for_alarm(resource_id, alarm, config)
         except (TypeError, ValueError) as exc:
             return _err(400, "INVALID_BODY", str(exc))
         except ClientError as exc:
@@ -690,6 +692,51 @@ def _update_metric_alarm(alarm: dict, config: dict) -> str:
     if next_name != previous_name:
         cw.delete_alarms(AlarmNames=[previous_name])
     return next_name
+
+
+def _sync_threshold_tag_for_alarm(resource_id: str, alarm: dict, config: dict) -> None:
+    if _get_resource_type(alarm.get("AlarmName", "")) != "EC2":
+        return
+    tag_key = _threshold_tag_key(alarm, config)
+    if not tag_key:
+        return
+    tag_value = _threshold_tag_value(config)
+    if tag_value is None:
+        return
+    region, _ = _parse_alarm_arn(alarm.get("AlarmArn", ""))
+    ec2 = _get_ec2_client_for_region(region) if region != "unknown" else _get_ec2_client()
+    ec2.create_tags(
+        Resources=[resource_id],
+        Tags=[{"Key": tag_key, "Value": tag_value}],
+    )
+
+
+def _threshold_tag_key(alarm: dict, config: dict) -> str:
+    metric_name = alarm.get("MetricName", "")
+    if metric_name == "disk_used_percent":
+        mount_path = config.get("mount_path") or _alarm_mount_path(alarm)
+        if not mount_path:
+            return ""
+        return f"Threshold_Disk_{disk_path_to_tag_suffix(mount_path)}"
+    aliases = {
+        "CPUUtilization": "CPU",
+        "mem_used_percent": "Memory",
+    }
+    tag_metric = aliases.get(metric_name) or config.get("metric_key") or metric_name
+    if not tag_metric or ":" in str(tag_metric):
+        return ""
+    return f"Threshold_{tag_metric}"
+
+
+def _threshold_tag_value(config: dict) -> str | None:
+    if config.get("monitoring") is False:
+        return "off"
+    if "threshold" not in config or config.get("threshold") is None:
+        return None
+    threshold = float(config["threshold"])
+    if threshold <= 0:
+        return None
+    return str(int(threshold)) if threshold == int(threshold) else f"{threshold:g}"
 
 
 def _metric_alarm_update_kwargs(alarm: dict, config: dict) -> dict:

@@ -298,8 +298,10 @@ class TestResources:
             "Statistic": "Average",
         }]
 
+        mock_ec2 = MagicMock()
         with patch("api_handler.routes.resources.list_alarms", return_value=mock_alarms), \
-             patch("api_handler.routes.resources._get_cw_client_for_region", return_value=mock_cw):
+             patch("api_handler.routes.resources._get_cw_client_for_region", return_value=mock_cw), \
+             patch("api_handler.routes.resources._get_ec2_client_for_region", return_value=mock_ec2):
             from api_handler.lambda_handler import lambda_handler
             resp = lambda_handler(
                 _event("PUT", "/resources/i-001/alarms",
@@ -328,6 +330,10 @@ class TestResources:
             AlarmNames=["[EC2] server CPU >80% (TagName: i-001)"]
         )
         mock_cw.tag_resource.assert_called_once()
+        mock_ec2.create_tags.assert_called_once_with(
+            Resources=["i-001"],
+            Tags=[{"Key": "Threshold_CPU", "Value": "70"}],
+        )
 
     def test_update_resource_alarms_renames_disk_alarm_for_threshold(self):
         mock_cw = MagicMock()
@@ -352,8 +358,10 @@ class TestResources:
             "Statistic": "Average",
         }]
 
+        mock_ec2 = MagicMock()
         with patch("api_handler.routes.resources.list_alarms", return_value=mock_alarms), \
-             patch("api_handler.routes.resources._get_cw_client_for_region", return_value=mock_cw):
+             patch("api_handler.routes.resources._get_cw_client_for_region", return_value=mock_cw), \
+             patch("api_handler.routes.resources._get_ec2_client_for_region", return_value=mock_ec2):
             from api_handler.lambda_handler import lambda_handler
             resp = lambda_handler(
                 _event("PUT", "/resources/i-001/alarms",
@@ -377,6 +385,49 @@ class TestResources:
         ]
         mock_cw.delete_alarms.assert_called_once_with(
             AlarmNames=["[EC2] server disk_used_percent(/data) > 80% (TagName: i-001)"]
+        )
+        mock_ec2.create_tags.assert_called_once_with(
+            Resources=["i-001"],
+            Tags=[{"Key": "Threshold_Disk_data", "Value": "70"}],
+        )
+
+    def test_update_resource_alarms_writes_off_threshold_tag_when_metric_disabled(self):
+        mock_cw = MagicMock()
+        mock_ec2 = MagicMock()
+        mock_alarms = [{
+            **_alarm("[EC2] server Memory >80% (TagName: i-001)", metric="mem_used_percent"),
+            "AlarmArn": "arn:aws:cloudwatch:us-east-1:123456789012:alarm:memory-old",
+            "Namespace": "CWAgent",
+            "Dimensions": [{"Name": "InstanceId", "Value": "i-001"}],
+            "Period": 300,
+            "EvaluationPeriods": 1,
+            "ActionsEnabled": True,
+            "AlarmActions": [],
+            "OKActions": [],
+            "InsufficientDataActions": [],
+            "TreatMissingData": "notBreaching",
+            "Statistic": "Average",
+        }]
+
+        with patch("api_handler.routes.resources.list_alarms", return_value=mock_alarms), \
+             patch("api_handler.routes.resources._get_cw_client_for_region", return_value=mock_cw), \
+             patch("api_handler.routes.resources._get_ec2_client_for_region", return_value=mock_ec2):
+            from api_handler.lambda_handler import lambda_handler
+            resp = lambda_handler(
+                _event("PUT", "/resources/i-001/alarms",
+                       body={"configs": [{
+                           "metric_key": "mem_used_percent",
+                           "threshold": 80,
+                           "monitoring": False,
+                       }]},
+                       path_params={"id": "i-001"}),
+                None,
+            )
+
+        assert resp["statusCode"] == 200, resp["body"]
+        mock_ec2.create_tags.assert_called_once_with(
+            Resources=["i-001"],
+            Tags=[{"Key": "Threshold_Memory", "Value": "off"}],
         )
 
     def test_update_resource_alarms_returns_404_for_missing_metric(self):
