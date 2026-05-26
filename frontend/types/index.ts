@@ -10,6 +10,7 @@ export interface Alarm {
   account: string;
   type: string;
   metric: string;
+  mount_path?: string | null;
   state: AlarmState;
   value?: string | null;
 }

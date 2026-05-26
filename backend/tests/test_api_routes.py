@@ -112,6 +112,22 @@ class TestAlarms:
         assert item["type"] == "EC2"
         assert item["severity"] == "SEV-3"
 
+    def test_list_alarms_includes_disk_mount_path(self):
+        mock_alarms = [{
+            **_alarm(
+                "[EC2] server disk_used_percent(/data) >80% (TagName: i-001)",
+                metric="disk_used_percent",
+            ),
+            "Dimensions": [{"Name": "path", "Value": "/data"}],
+        }]
+        with patch("api_handler.routes.alarms.list_alarms", return_value=mock_alarms):
+            from api_handler.lambda_handler import lambda_handler
+            resp = lambda_handler(_event("GET", "/alarms"), None)
+
+        item = json.loads(resp["body"])["items"][0]
+        assert item["metric"] == "disk_used_percent"
+        assert item["mount_path"] == "/data"
+
     def test_list_alarms_cw_error_returns_500(self):
         from botocore.exceptions import ClientError
         err = ClientError({"Error": {"Code": "AccessDenied", "Message": "Denied"}}, "DescribeAlarms")

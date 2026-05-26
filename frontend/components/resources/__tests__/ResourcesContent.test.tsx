@@ -4,6 +4,9 @@ import { ToastProvider } from "@/components/shared/Toast";
 import { ResourcesContent } from "../ResourcesContent";
 import type { Resource } from "@/types";
 
+const mockRouterPush = vi.hoisted(() => vi.fn());
+const mockRouterRefresh = vi.hoisted(() => vi.fn());
+
 vi.mock("@/lib/api-functions", () => ({
   toggleMonitoring: vi.fn().mockResolvedValue({ resource_id: "i-001", monitoring: false, status: "updated" }),
 }));
@@ -18,7 +21,7 @@ vi.mock("@/hooks/useOwnedCustomers", () => ({
 }));
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
+  useRouter: () => ({ push: mockRouterPush, refresh: mockRouterRefresh }),
 }));
 
 const resources: Resource[] = [
@@ -79,5 +82,13 @@ describe("ResourcesContent monitoring toggle", () => {
 
     expect(screen.queryByText("Turn monitoring off?")).not.toBeInTheDocument();
     expect(toggleMonitoring).not.toHaveBeenCalled();
+  });
+
+  it("navigates to resource detail by resource id", () => {
+    renderContent();
+
+    fireEvent.click(screen.getByText("web-01"));
+
+    expect(mockRouterPush).toHaveBeenCalledWith("/resources/i-001");
   });
 });

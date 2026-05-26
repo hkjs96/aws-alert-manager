@@ -180,7 +180,11 @@ Response `200`:
 }
 ```
 
-## GET /api/resources/{id}
+## GET /api/resources/{idOrName}
+
+`{idOrName}` may be the stable resource ID such as an EC2 instance ID, or the
+display name returned by `GET /api/resources`. Frontend navigation should use
+the stable `id` field.
 
 Response `200`:
 
@@ -321,6 +325,7 @@ Response `200`:
       "resource": "i-123",
       "type": "EC2",
       "metric": "CPUUtilization",
+      "mount_path": null,
       "state": "ALARM",
       "threshold": 80,
       "severity": "SEV-5",

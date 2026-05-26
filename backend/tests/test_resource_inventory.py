@@ -217,6 +217,63 @@ class TestResourceInventoryLogic:
         assert body["items"][0]["monitoring"] is False
 
     @patch("api_handler.routes.resources.discover_resources")
+    @patch("api_handler.routes.resources.scan_all")
+    @patch("api_handler.routes.resources.get_alarm_overlay")
+    def test_get_resource_resolves_discovered_resource_by_name_without_alarms(self, mock_overlay, mock_scan, mock_discover, mock_db_env):
+        mock_discover.return_value = [{
+            "resource_id": "i-01",
+            "name": "web-01",
+            "type": "EC2",
+            "account_id": "123",
+            "customer_id": "cust-01",
+            "region": "us-east-1",
+            "monitoring": False,
+            "status": "active",
+        }]
+        mock_scan.side_effect = [[{"account_id": "123", "regions": ["us-east-1"]}], []]
+        mock_overlay.return_value = {}
+
+        from api_handler.routes.resources import get_resource
+        resp = get_resource(_event("GET", "/resources/web-01", path_params={"id": "web-01"}))
+
+        assert resp["statusCode"] == 200
+        body = json.loads(resp["body"])
+        assert body["id"] == "i-01"
+        assert body["name"] == "web-01"
+        assert body["monitoring"] is False
+        assert body["alarm_count"] == 0
+
+    @patch("api_handler.routes.resources.discover_resources")
+    @patch("api_handler.routes.resources.scan_all")
+    @patch("api_handler.routes.resources.get_alarm_overlay")
+    def test_get_resource_resolves_persisted_resource_by_id_without_alarms(self, mock_overlay, mock_scan, mock_discover, mock_db_env):
+        mock_discover.return_value = []
+        mock_scan.side_effect = [
+            [{"account_id": "123", "regions": ["us-east-1"]}],
+            [{
+                "resource_id": "i-02",
+                "name": "db-only",
+                "type": "EC2",
+                "account_id": "123",
+                "customer_id": "cust-01",
+                "region": "us-east-1",
+                "monitoring": False,
+                "status": "active",
+            }],
+        ]
+        mock_overlay.return_value = {}
+
+        from api_handler.routes.resources import get_resource
+        resp = get_resource(_event("GET", "/resources/i-02", path_params={"id": "i-02"}))
+
+        assert resp["statusCode"] == 200
+        body = json.loads(resp["body"])
+        assert body["id"] == "i-02"
+        assert body["name"] == "db-only"
+        assert body["inventory_source"] == "db"
+        assert body["monitoring"] is False
+
+    @patch("api_handler.routes.resources.discover_resources")
     @patch("api_handler.routes.resources.resource_inventory_table")
     @patch("api_handler.routes.resources.scan_all")
     def test_sync_resources_discovers_current_account_when_accounts_empty(self, mock_scan, mock_table_func, mock_discover, mock_db_env):

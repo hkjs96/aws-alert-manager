@@ -121,7 +121,14 @@ export function AlarmTable({ alarms }: AlarmTableProps) {
                     {alarm.type}
                   </span>
                 </td>
-                <td className="px-4 py-3 font-medium text-slate-700">{alarm.metric}</td>
+                <td className="px-4 py-3">
+                  <div className="font-medium text-slate-700">{alarm.metric}</div>
+                  {alarm.mount_path && (
+                    <div className="mt-1 inline-flex rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-slate-500">
+                      {alarm.mount_path}
+                    </div>
+                  )}
+                </td>
                 <td className="px-4 py-3">
                   <span className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-bold ring-1 ${STATE_STYLES[alarm.state] ?? STATE_STYLES.OFF}`}>
                     <span className={`w-1.5 h-1.5 rounded-full ${DOT_STYLES[alarm.state] ?? DOT_STYLES.OFF}`} />{STATE_LABEL[alarm.state] ?? alarm.state}

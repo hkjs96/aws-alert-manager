@@ -39,6 +39,7 @@ def list_alarms_handler(event: dict) -> dict:
             "resource": _extract_resource_id(alarm["AlarmName"]),
             "type": _extract_resource_type(alarm["AlarmName"]),
             "metric": alarm.get("MetricName", ""),
+            "mount_path": _alarm_mount_path(alarm),
             "state": alarm.get("StateValue", ""),
             "threshold": alarm.get("Threshold"),
             "severity": tags.get("Severity", "SEV-5"),
@@ -81,6 +82,7 @@ def get_alarm_summary(event: dict) -> dict:
 
 import re
 _ALARM_NAME_RE = re.compile(r"^\[(\w+)\]\s+.+\(TagName:\s*(.+)\)$")
+_DISK_PATH_RE = re.compile(r"disk_used_percent\(([^)]+)\)")
 
 
 def _extract_resource_id(alarm_name: str) -> str:
@@ -91,6 +93,16 @@ def _extract_resource_id(alarm_name: str) -> str:
 def _extract_resource_type(alarm_name: str) -> str:
     m = _ALARM_NAME_RE.match(alarm_name)
     return m.group(1) if m else ""
+
+
+def _alarm_mount_path(alarm: dict) -> str | None:
+    if alarm.get("MetricName") != "disk_used_percent":
+        return None
+    for dim in alarm.get("Dimensions", []):
+        if dim.get("Name") == "path" and dim.get("Value"):
+            return dim["Value"]
+    match = _DISK_PATH_RE.search(alarm.get("AlarmName", ""))
+    return match.group(1) if match else None
 
 
 def _ok(data, status: int = 200) -> dict:

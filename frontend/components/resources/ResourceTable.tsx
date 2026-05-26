@@ -108,7 +108,7 @@ export function ResourceTable({
             <tr
               key={res.id}
               onClick={() =>
-                router.push(`/resources/${encodeURIComponent(res.name)}`)
+                router.push(`/resources/${encodeURIComponent(res.id)}`)
               }
               className={`hover:bg-slate-50 cursor-pointer ${
                 selectedKeys.has(res.id)
