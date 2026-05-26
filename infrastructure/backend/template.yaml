@@ -296,6 +296,7 @@ Resources:
                 Action:
                   - ec2:DescribeInstances
                   - ec2:DescribeTags
+                  - ec2:CreateTags
                   - rds:DescribeDBInstances
                   - rds:ListTagsForResource
                   - elasticloadbalancing:DescribeLoadBalancers

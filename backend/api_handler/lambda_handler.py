@@ -41,6 +41,7 @@ _ROUTES: list[tuple[str, re.Pattern, object]] = [
     # Resources
     ("GET",    re.compile(r"^/resources$"),                           resources.list_resources),
     ("POST",   re.compile(r"^/resources/sync$"),                      resources.sync_resources),
+    ("PUT",    re.compile(r"^/resources/(?P<id>[^/]+)/monitoring$"),   resources.update_resource_monitoring),
     ("GET",    re.compile(r"^/resources/(?P<id>[^/]+)/alarms$"),      resources.get_resource_alarms),
     ("PUT",    re.compile(r"^/resources/(?P<id>[^/]+)/alarms$"),      resources.update_resource_alarms),
     ("POST",   re.compile(r"^/resources/(?P<id>[^/]+)/alarms$"),      resources.create_resource_alarm),

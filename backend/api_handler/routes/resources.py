@@ -53,6 +53,11 @@ def _get_ec2_client():
     return boto3.client("ec2", region_name=os.environ.get("AWS_REGION", "ap-northeast-2"))
 
 
+@functools.lru_cache(maxsize=None)
+def _get_ec2_client_for_region(region: str):
+    return boto3.client("ec2", region_name=region)
+
+
 def _default_discovery_account() -> dict:
     region = (
         os.environ.get("AWS_REGION")
@@ -128,6 +133,40 @@ def get_resource(event: dict) -> dict:
         "monitoring": True,
         "alarm_count": len(resource_alarms),
         "alarms": {"critical": critical, "warning": 0, "count": len(resource_alarms)},
+    })
+
+
+def update_resource_monitoring(event: dict) -> dict:
+    resource_id = _path_id(event)
+    if not resource_id:
+        return _err(400, "MISSING_PARAM", "resource_id is required")
+
+    try:
+        body = json.loads(event.get("body") or "{}")
+    except json.JSONDecodeError:
+        return _err(400, "BAD_REQUEST", "JSON parse error")
+
+    if "monitoring" not in body or not isinstance(body.get("monitoring"), bool):
+        return _err(400, "VALIDATION_ERROR", "monitoring boolean is required")
+
+    try:
+        resource = _find_inventory_resource(resource_id)
+        if not resource:
+            return _err(404, "NOT_FOUND", f"Resource '{resource_id}' was not found")
+        if resource.get("type") != "EC2":
+            return _err(400, "UNSUPPORTED_RESOURCE_TYPE", "Only EC2 monitoring toggle is supported")
+
+        monitoring = bool(body["monitoring"])
+        region = resource.get("region") or os.environ.get("AWS_REGION") or "ap-northeast-2"
+        _set_ec2_monitoring_tag(resource_id, region, monitoring)
+        _update_inventory_monitoring(resource_id, monitoring)
+    except ClientError as exc:
+        return _err(500, "AWS_ERROR", str(exc))
+
+    return _ok({
+        "resource_id": resource_id,
+        "monitoring": monitoring,
+        "status": "updated",
     })
 
 
@@ -482,6 +521,33 @@ def _alarm_summary(alarm_info: dict) -> dict:
 
 def _path_id(event: dict) -> str:
     return (event.get("pathParameters") or {}).get("id", "")
+
+
+def _find_inventory_resource(resource_id: str) -> dict | None:
+    if not os.environ.get("RESOURCE_INVENTORY_TABLE"):
+        return None
+    for resource in scan_all(resource_inventory_table()):
+        if (resource.get("resource_id") or resource.get("id")) == resource_id:
+            return resource
+    return None
+
+
+def _set_ec2_monitoring_tag(resource_id: str, region: str, monitoring: bool) -> None:
+    value = "on" if monitoring else "off"
+    _get_ec2_client_for_region(region).create_tags(
+        Resources=[resource_id],
+        Tags=[{"Key": "Monitoring", "Value": value}],
+    )
+
+
+def _update_inventory_monitoring(resource_id: str, monitoring: bool) -> None:
+    if not os.environ.get("RESOURCE_INVENTORY_TABLE"):
+        return
+    resource_inventory_table().update_item(
+        Key={"resource_id": resource_id},
+        UpdateExpression="SET monitoring = :monitoring",
+        ExpressionAttributeValues={":monitoring": monitoring},
+    )
 
 
 def _get_tag_name(alarm_name: str) -> str:

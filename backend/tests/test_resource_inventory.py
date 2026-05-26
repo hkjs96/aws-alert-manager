@@ -265,3 +265,47 @@ class TestResourceInventoryLogic:
         assert resp["statusCode"] == 200
         assert mock_table.put_item.called
         assert json.loads(resp["body"])["discovered"] == 1
+
+    @patch("api_handler.routes.resources._get_ec2_client_for_region")
+    @patch("api_handler.routes.resources.resource_inventory_table")
+    @patch("api_handler.routes.resources.scan_all")
+    def test_update_resource_monitoring_sets_ec2_tag_and_inventory(self, mock_scan, mock_table_func, mock_ec2_func, mock_db_env):
+        mock_scan.return_value = [{
+            "resource_id": "i-01",
+            "type": "EC2",
+            "region": "us-east-1",
+            "monitoring": False,
+        }]
+        mock_table = MagicMock()
+        mock_table_func.return_value = mock_table
+        mock_ec2 = MagicMock()
+        mock_ec2_func.return_value = mock_ec2
+
+        from api_handler.routes.resources import update_resource_monitoring
+        resp = update_resource_monitoring(
+            _event("PUT", "/resources/i-01/monitoring", body={"monitoring": True}, path_params={"id": "i-01"})
+        )
+
+        assert resp["statusCode"] == 200
+        assert json.loads(resp["body"])["monitoring"] is True
+        mock_ec2.create_tags.assert_called_once_with(
+            Resources=["i-01"],
+            Tags=[{"Key": "Monitoring", "Value": "on"}],
+        )
+        mock_table.update_item.assert_called_once_with(
+            Key={"resource_id": "i-01"},
+            UpdateExpression="SET monitoring = :monitoring",
+            ExpressionAttributeValues={":monitoring": True},
+        )
+
+    @patch("api_handler.routes.resources.scan_all")
+    def test_update_resource_monitoring_rejects_non_ec2(self, mock_scan, mock_db_env):
+        mock_scan.return_value = [{"resource_id": "bucket-01", "type": "S3"}]
+
+        from api_handler.routes.resources import update_resource_monitoring
+        resp = update_resource_monitoring(
+            _event("PUT", "/resources/bucket-01/monitoring", body={"monitoring": True}, path_params={"id": "bucket-01"})
+        )
+
+        assert resp["statusCode"] == 400
+        assert json.loads(resp["body"])["code"] == "UNSUPPORTED_RESOURCE_TYPE"

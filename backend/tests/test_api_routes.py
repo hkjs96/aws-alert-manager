@@ -197,6 +197,24 @@ class TestResources:
         body = json.loads(resp["body"])
         assert "message" in body
 
+    @patch.dict(os.environ, {"RESOURCE_INVENTORY_TABLE": "test-inventory"})
+    @patch("api_handler.routes.resources._get_ec2_client_for_region")
+    @patch("api_handler.routes.resources.resource_inventory_table")
+    @patch("api_handler.routes.resources.scan_all")
+    def test_update_resource_monitoring_route(self, mock_scan, mock_table_func, mock_ec2_func):
+        mock_scan.return_value = [{"resource_id": "i-001", "type": "EC2", "region": "us-east-1"}]
+        mock_table_func.return_value = MagicMock()
+        mock_ec2_func.return_value = MagicMock()
+
+        from api_handler.lambda_handler import lambda_handler
+        resp = lambda_handler(
+            _event("PUT", "/resources/i-001/monitoring", body={"monitoring": True}, path_params={"id": "i-001"}),
+            None,
+        )
+
+        assert resp["statusCode"] == 200
+        assert json.loads(resp["body"])["monitoring"] is True
+
     def test_get_resource_returns_detail(self):
         mock_alarms = [
             _alarm("[EC2] server CPU >80% (TagName: i-001)"),
