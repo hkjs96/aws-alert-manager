@@ -425,7 +425,7 @@ def _list_alarm_resources(event: dict) -> dict:
             resource_type=qs.get("resource_type") or None,
             search=qs.get("search") or None,
         )
-        discovered = discover_resources([])
+        discovered = []
     except ClientError as exc:
         return _err(500, "CW_ERROR", str(exc))
 
@@ -458,24 +458,24 @@ def _list_inventory_resources(event: dict) -> dict:
     page_size = min(int(qs.get("page_size", 25)), 100)
 
     try:
-        accounts = _accounts_for_resource_discovery()
-        discovered = discover_resources(accounts)
         persisted = scan_all(resource_inventory_table())
         overlay = get_alarm_overlay()
     except ClientError as exc:
         return _err(500, "AWS_ERROR", str(exc))
 
     items_by_id = {}
-    for resource in discovered:
-        item = _inventory_item(resource, "aws", overlay.get(resource["resource_id"], {}), False)
-        items_by_id[item["id"]] = item
-
     for resource in persisted:
         resource_id = resource.get("resource_id") or resource.get("id")
-        if not resource_id or resource_id in items_by_id:
+        if not resource_id:
             continue
-        resource = {**resource, "resource_id": resource_id, "status": "missing"}
-        items_by_id[resource_id] = _inventory_item(resource, "db", overlay.get(resource_id, {}), True)
+        status = resource.get("status", "active")
+        source = resource.get("inventory_source", "aws")
+        items_by_id[resource_id] = _inventory_item(
+            {**resource, "resource_id": resource_id, "status": status},
+            source,
+            overlay.get(resource_id, {}),
+            True
+        )
 
     for resource_id, alarm_info in overlay.items():
         if resource_id in items_by_id:
@@ -542,24 +542,17 @@ def _path_id(event: dict) -> str:
 
 
 def _find_resource_detail(resource_id_or_name: str) -> dict | None:
-    accounts = _accounts_for_resource_discovery()
-    discovered = discover_resources(accounts)
     persisted = scan_all(resource_inventory_table())
     overlay = get_alarm_overlay()
-
-    for resource in discovered:
-        resource_id = resource.get("resource_id") or resource.get("id")
-        if not resource_id:
-            continue
-        if resource_id == resource_id_or_name or resource.get("name") == resource_id_or_name:
-            return _inventory_item(resource, "aws", overlay.get(resource_id, {}), False)
 
     for resource in persisted:
         resource_id = resource.get("resource_id") or resource.get("id")
         if not resource_id:
             continue
         if resource_id == resource_id_or_name or resource.get("name") == resource_id_or_name:
-            return _inventory_item({**resource, "resource_id": resource_id, "status": "missing"}, "db", overlay.get(resource_id, {}), True)
+            status = resource.get("status", "active")
+            source = resource.get("inventory_source", "aws")
+            return _inventory_item({**resource, "resource_id": resource_id, "status": status}, source, overlay.get(resource_id, {}), True)
 
     alarm_info = overlay.get(resource_id_or_name)
     if alarm_info:

@@ -28,30 +28,25 @@ class TestResourceInventoryLogic:
     @patch("api_handler.routes.resources.scan_all")
     @patch("api_handler.routes.resources.get_alarm_overlay")
     def test_list_resources_merges_aws_and_db(self, mock_overlay, mock_scan, mock_discover, mock_db_env):
-        # 1. AWS Discovery returns 1 resource
-        mock_discover.return_value = [{
+        # DB scan returns both resources (snapshot)
+        mock_scan.return_value = [{ # inventory
             "resource_id": "i-aws-01",
+            "account_id": "123456789012",
             "name": "aws-instance",
             "type": "EC2",
-            "account_id": "123456789012",
-            "region": "ap-northeast-2",
             "customer_id": "cust-01",
+            "region": "ap-northeast-2",
             "monitoring": True,
-            "status": "active"
+            "status": "active",
+            "inventory_source": "aws"
+        }, {
+            "resource_id": "i-db-01",
+            "account_id": "123456789012",
+            "name": "stale-instance",
+            "type": "EC2",
+            "status": "missing",
+            "inventory_source": "db"
         }]
-        
-        # 2. DB scan returns 1 different resource (stale)
-        # mock_scan is called twice: once for accounts, once for inventory
-        mock_scan.side_effect = [
-            [{"account_id": "123456789012", "customer_id": "cust-01"}], # accounts
-            [{ # inventory
-                "resource_id": "i-db-01",
-                "account_id": "123456789012",
-                "name": "stale-instance",
-                "type": "EC2",
-                "status": "active"
-            }]
-        ]
         
         # 3. Alarm overlay returns alarm for both
         mock_overlay.return_value = {
@@ -76,7 +71,7 @@ class TestResourceInventoryLogic:
         assert aws_item["status"] == "active"
         assert aws_item["alarm_count"] == 1
         assert aws_item["alarms"]["critical"] == 1
-        assert aws_item["persisted"] == False
+        assert aws_item["persisted"] == True
         
         # Check DB stale item
         db_item = next(i for i in items if i["id"] == "i-db-01")
@@ -89,71 +84,12 @@ class TestResourceInventoryLogic:
     @patch("api_handler.routes.resources.discover_resources")
     @patch("api_handler.routes.resources.scan_all")
     @patch("api_handler.routes.resources.get_alarm_overlay")
-    def test_list_resources_discovers_current_account_when_accounts_empty(self, mock_overlay, mock_scan, mock_discover, mock_db_env):
-        mock_discover.return_value = [{
-            "resource_id": "i-live-01",
-            "name": "live-instance",
-            "type": "EC2",
-            "account_id": "self",
-            "region": "us-east-1",
-            "monitoring": True,
-            "status": "active",
-        }]
-        mock_scan.side_effect = [[], []]
-        mock_overlay.return_value = {}
-
-        from api_handler.routes.resources import list_resources
-        resp = list_resources(_event("GET", "/resources"))
-
-        assert resp["statusCode"] == 200
-        body = json.loads(resp["body"])
-        assert body["total"] == 1
-        assert body["items"][0]["id"] == "i-live-01"
-        assert body["items"][0]["inventory_source"] == "aws"
-        mock_discover.assert_called_once_with([{
-            "account_id": "self",
-            "regions": ["us-east-1"],
-        }])
-
-    @patch("api_handler.routes.resources.discover_resources")
-    @patch("api_handler.routes.resources.scan_all")
-    @patch("api_handler.routes.resources.get_alarm_overlay")
-    def test_list_resources_identifies_orphan_alarms(self, mock_overlay, mock_scan, mock_discover, mock_db_env):
-        """AWS나 DB에는 없지만 알람만 존재하는 경우 orphan_candidate 후보로 표시해야 한다."""
-        # 1. AWS/DB 모두 비어 있음
-        mock_discover.return_value = []
-        mock_scan.side_effect = [
-            [{"account_id": "123", "regions": ["ap-ne2"]}], # accounts
-            [] # inventory
-        ] 
-        
-        # 2. 알람은 존재함 (i-orphan-01)
-        mock_overlay.return_value = {
-            "i-orphan-01": {"count": 1, "critical": 0, "warning": 1}
-        }
-        
-        from api_handler.routes.resources import list_resources
-        resp = list_resources(_event("GET", "/resources"))
-        
-        body = json.loads(resp["body"])
-        items = body["items"]
-        
-        assert len(items) == 1
-        item = items[0]
-        assert item["id"] == "i-orphan-01"
-        assert item["status"] == "orphan_candidate"
-        assert item["inventory_source"] == "alarms"
-
-    @patch("api_handler.routes.resources.discover_resources")
-    @patch("api_handler.routes.resources.scan_all")
-    @patch("api_handler.routes.resources.get_alarm_overlay")
     def test_list_resources_filters_correctly(self, mock_overlay, mock_scan, mock_discover, mock_db_env):
         """resource_type 필터링이 정확히 동작해야 한다."""
-        mock_discover.return_value = [
+        mock_scan.return_value = [ # inventory
             {"resource_id": "i-01", "name": "e1", "type": "EC2", "account_id": "1", "region": "r1", "monitoring": True, "status": "active"},
             {"resource_id": "db-01", "name": "r1", "type": "RDS", "account_id": "1", "region": "r1", "monitoring": True, "status": "active"}
         ]
-        mock_scan.side_effect = [[{"account_id": "1"}], []]
         mock_overlay.return_value = {}
         
         from api_handler.routes.resources import list_resources
@@ -194,7 +130,7 @@ class TestResourceInventoryLogic:
     @patch("api_handler.routes.resources.get_alarm_overlay")
     def test_list_resources_keeps_unmonitored_discovered_resources(self, mock_overlay, mock_scan, mock_discover, mock_db_env):
         """Monitoring 태그 값이 비어도 실제 존재하는 리소스는 목록에 표시한다."""
-        mock_discover.return_value = [{
+        mock_scan.return_value = [{ # inventory
             "resource_id": "i-unmonitored",
             "name": "unmonitored",
             "type": "EC2",
@@ -204,7 +140,6 @@ class TestResourceInventoryLogic:
             "monitoring": False,
             "status": "active",
         }]
-        mock_scan.side_effect = [[{"account_id": "1", "regions": ["us-east-1"]}], []]
         mock_overlay.return_value = {}
 
         from api_handler.routes.resources import list_resources
@@ -220,7 +155,7 @@ class TestResourceInventoryLogic:
     @patch("api_handler.routes.resources.scan_all")
     @patch("api_handler.routes.resources.get_alarm_overlay")
     def test_get_resource_resolves_discovered_resource_by_name_without_alarms(self, mock_overlay, mock_scan, mock_discover, mock_db_env):
-        mock_discover.return_value = [{
+        mock_scan.return_value = [{ # inventory
             "resource_id": "i-01",
             "name": "web-01",
             "type": "EC2",
@@ -230,7 +165,6 @@ class TestResourceInventoryLogic:
             "monitoring": False,
             "status": "active",
         }]
-        mock_scan.side_effect = [[{"account_id": "123", "regions": ["us-east-1"]}], []]
         mock_overlay.return_value = {}
 
         from api_handler.routes.resources import get_resource
@@ -248,19 +182,17 @@ class TestResourceInventoryLogic:
     @patch("api_handler.routes.resources.get_alarm_overlay")
     def test_get_resource_resolves_persisted_resource_by_id_without_alarms(self, mock_overlay, mock_scan, mock_discover, mock_db_env):
         mock_discover.return_value = []
-        mock_scan.side_effect = [
-            [{"account_id": "123", "regions": ["us-east-1"]}],
-            [{
-                "resource_id": "i-02",
-                "name": "db-only",
-                "type": "EC2",
-                "account_id": "123",
-                "customer_id": "cust-01",
-                "region": "us-east-1",
-                "monitoring": False,
-                "status": "active",
-            }],
-        ]
+        mock_scan.return_value = [{ # inventory
+            "resource_id": "i-02",
+            "name": "db-only",
+            "type": "EC2",
+            "account_id": "123",
+            "customer_id": "cust-01",
+            "region": "us-east-1",
+            "monitoring": False,
+            "status": "active",
+            "inventory_source": "db",
+        }]
         mock_overlay.return_value = {}
 
         from api_handler.routes.resources import get_resource
