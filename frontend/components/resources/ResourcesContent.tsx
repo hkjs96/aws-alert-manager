@@ -244,10 +244,20 @@ export function ResourcesContent({
     setPage(1);
   };
 
-  const handleBulkComplete = () => {
+  const handleBulkEnableComplete = () => {
+    setLocalResources((prev) =>
+      prev.map((r) => (selected.has(r.id) ? { ...r, monitoring: true } : r))
+    );
     setModal(null);
     setSelected(new Set());
-    router.refresh();
+  };
+
+  const handleBulkDisableComplete = () => {
+    setLocalResources((prev) =>
+      prev.map((r) => (selected.has(r.id) ? { ...r, monitoring: false } : r))
+    );
+    setModal(null);
+    setSelected(new Set());
   };
 
   if (!isOwnedLoading && ownedCustomerIds.length === 0) {
@@ -341,14 +351,14 @@ export function ResourcesContent({
           selectedType={selectedType ?? null}
           isSameType={isSameType}
           onClose={() => setModal(null)}
-          onComplete={handleBulkComplete}
+          onComplete={handleBulkEnableComplete}
         />
       )}
       {modal === "disable" && (
         <DisableModal
           selectedIds={[...selected]}
           onClose={() => setModal(null)}
-          onComplete={handleBulkComplete}
+          onComplete={handleBulkDisableComplete}
         />
       )}
       <ConfirmDialog
