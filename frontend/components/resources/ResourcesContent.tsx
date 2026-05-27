@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Download, RefreshCw } from "lucide-react";
 import type { Resource } from "@/types";
@@ -58,6 +58,12 @@ export function ResourcesContent({
 }: ResourcesContentProps) {
   const router = useRouter();
   const { showToast } = useToast();
+  const [localResources, setLocalResources] = useState<Resource[]>(resources);
+
+  useEffect(() => {
+    setLocalResources(resources);
+  }, [resources]);
+
   const { loadingIds, toggle } = useMonitoringToggle();
   const { ownedCustomerIds, isLoading: isOwnedLoading } = useOwnedCustomers();
 
@@ -111,7 +117,7 @@ export function ResourcesContent({
 
   // 필터링
   const filtered = useMemo(() => {
-    return resources.filter((r) => {
+    return localResources.filter((r) => {
       // 담당 고객사 범위 필터 (explicit customerFilter가 없을 때)
       if (!customerFilter && ownedCustomerIds.length > 0) {
         if (!ownedAccountIds.includes(r.account)) return false;
@@ -131,7 +137,7 @@ export function ResourcesContent({
       }
       return true;
     });
-  }, [resources, customerFilter, accountFilter, typeFilter, search, accounts, ownedAccountIds, ownedCustomerIds]);
+  }, [localResources, customerFilter, accountFilter, typeFilter, search, accounts, ownedAccountIds, ownedCustomerIds]);
 
   // 정렬
   const sorted = useMemo(() => {
@@ -155,7 +161,7 @@ export function ResourcesContent({
   }, [sorted, page, pageSize]);
 
   // Selection analysis
-  const selectedResources = resources.filter((r) => selected.has(r.id));
+  const selectedResources = localResources.filter((r) => selected.has(r.id));
   const selectedTypes = useMemo(
     () => new Set(selectedResources.map((r) => r.type)),
     [selectedResources],
@@ -165,24 +171,37 @@ export function ResourcesContent({
 
   const handleToggleMonitoring = useCallback(
     (id: string, currentState: boolean) => {
-      const resource = resources.find((item) => item.id === id);
+      const resource = localResources.find((item) => item.id === id);
       setPendingToggle({
         id,
         name: resource?.name || id,
         currentState,
       });
     },
-    [resources],
+    [localResources],
   );
 
   const confirmToggleMonitoring = useCallback(
     async () => {
       if (!pendingToggle) return;
+      const { id, currentState } = pendingToggle;
       setPendingToggle(null);
-      const success = await toggle(pendingToggle.id, pendingToggle.currentState);
-      if (success) router.refresh();
+
+      const targetState = !currentState;
+      // Optimistic update
+      setLocalResources((prev) =>
+        prev.map((r) => (r.id === id ? { ...r, monitoring: targetState } : r))
+      );
+
+      const success = await toggle(id, currentState);
+      if (!success) {
+        // Rollback
+        setLocalResources((prev) =>
+          prev.map((r) => (r.id === id ? { ...r, monitoring: currentState } : r))
+        );
+      }
     },
-    [pendingToggle, toggle, router],
+    [pendingToggle, toggle],
   );
 
   const handleSync = async () => {
@@ -302,7 +321,7 @@ export function ResourcesContent({
         sortKey={sortKey}
         sortDir={sortDir}
         onSort={handleSort}
-        totalResourceCount={resources.length}
+        totalResourceCount={localResources.length}
         onClearFilters={handleClearFilters}
       />
 
