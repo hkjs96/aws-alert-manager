@@ -10,17 +10,13 @@ def _event(method: str, path: str, qs=None) -> dict:
 
 class TestResourcesTDD:
     @patch("api_handler.routes.resources.resource_inventory_table")
-    @patch("api_handler.routes.resources.get_alarm_overlay")
     @patch("api_handler.routes.resources.scan_all")
     @patch.dict("os.environ", {"RESOURCE_INVENTORY_TABLE": "test-inventory"})
-    def test_should_display_resource_even_without_alarms(self, mock_scan, mock_overlay, mock_table):
+    def test_should_display_resource_even_without_alarms(self, mock_scan, mock_table):
         """
         DynamoDB 스냅샷에는 존재하지만 알람이 없는 리소스가 목록에 표시되는지 검증.
         """
-        # 1. 알람 overlay는 비어 있음
-        mock_overlay.return_value = {}
-        
-        # 2. DynamoDB 스냅샷에는 1개 존재
+        # DynamoDB 스냅샷에는 1개 존재
         mock_scan.return_value = [{
             "resource_id": "i-tdd-no-alarm",
             "name": "tdd-test",
@@ -29,7 +25,8 @@ class TestResourcesTDD:
             "region": "ap-northeast-2",
             "monitoring": False,
             "status": "active",
-            "inventory_source": "aws"
+            "inventory_source": "aws",
+            "entity_type": "resource",
         }]
         
         from api_handler.routes.resources import list_resources

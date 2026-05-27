@@ -231,6 +231,7 @@ class TestSyncInventory:
         ]
 
         inv_table = MagicMock()
+        inv_table.scan.return_value = {"Items": []}
         ddb_resource = MagicMock()
         ddb_resource.Table.return_value = inv_table
 
@@ -241,6 +242,7 @@ class TestSyncInventory:
                   return_value=[{"account_id": "123", "role_arn": "",
                                  "regions": ["us-east-1"], "customer_id": "cust-1"}]),
             patch("daily_monitor.lambda_handler.discover_resources", return_value=discovered),
+            patch("daily_monitor.lambda_handler._fetch_alarms_for_accounts", return_value=[]),
             patch("daily_monitor.lambda_handler.boto3.resource", return_value=ddb_resource),
         ):
             result = lh._sync_inventory("123", "")
@@ -293,6 +295,7 @@ class TestSyncInventory:
         ]
 
         inv_table = MagicMock()
+        inv_table.scan.return_value = {"Items": []}
         ddb_resource = MagicMock()
         ddb_resource.Table.return_value = inv_table
 
@@ -302,6 +305,7 @@ class TestSyncInventory:
             patch("daily_monitor.lambda_handler._resolve_accounts_for_inventory",
                   return_value=[{"account_id": "123", "role_arn": "", "regions": ["us-east-1"]}]),
             patch("daily_monitor.lambda_handler.discover_resources", return_value=discovered),
+            patch("daily_monitor.lambda_handler._fetch_alarms_for_accounts", return_value=[]),
             patch("daily_monitor.lambda_handler.boto3.resource", return_value=ddb_resource),
         ):
             result = lh._sync_inventory("123", "")

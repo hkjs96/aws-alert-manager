@@ -38,6 +38,12 @@ def _alarm(name: str, metric: str = "CPUUtilization") -> dict:
 def set_env(monkeypatch):
     monkeypatch.setenv("API_STAGE", "dev")
     monkeypatch.setenv("AWS_REGION", "ap-northeast-2")
+    monkeypatch.setenv("RESOURCE_INVENTORY_TABLE", "test-inventory")
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "testing")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "testing")
+    monkeypatch.setenv("AWS_SECURITY_TOKEN", "testing")
+    monkeypatch.setenv("AWS_SESSION_TOKEN", "testing")
+    monkeypatch.setattr("api_handler.routes.resources.resource_inventory_table", lambda: MagicMock())
 
 
 # ── GET /resources/{id}/metrics ─────────────────────────────────────
@@ -46,7 +52,7 @@ class TestGetResourceMetrics:
 
     def test_returns_404_when_resource_has_no_alarms(self):
         """리소스에 매칭되는 알람이 없으면 404."""
-        with patch("api_handler.routes.resources.list_alarms", return_value=[]):
+        with patch("api_handler.routes.resources.scan_all", return_value=[]):
             from api_handler.lambda_handler import lambda_handler
             resp = lambda_handler(
                 _event("GET", "/resources/nonexistent/metrics",
@@ -93,7 +99,7 @@ class TestGetResourceMetrics:
             return {"Metrics": []}
         mock_cw.list_metrics.side_effect = list_metrics_side_effect
 
-        with patch("api_handler.routes.resources.list_alarms", return_value=mock_alarms), \
+        with patch("api_handler.routes.resources.scan_all", return_value=[{"resource_id": "i-001", "entity_type": "resource", "type": "EC2"}]), \
              patch("api_handler.routes.resources._get_cw_client", return_value=mock_cw):
             from api_handler.lambda_handler import lambda_handler
             resp = lambda_handler(
@@ -128,7 +134,7 @@ class TestGetResourceMetrics:
             ] if kw["Namespace"] == "CWAgent" else []
         }
 
-        with patch("api_handler.routes.resources.list_alarms", return_value=mock_alarms), \
+        with patch("api_handler.routes.resources.scan_all", return_value=[{"resource_id": "i-001", "entity_type": "resource", "type": "EC2"}]), \
              patch("api_handler.routes.resources._get_cw_client", return_value=mock_cw):
             from api_handler.lambda_handler import lambda_handler
             resp = lambda_handler(
@@ -155,7 +161,7 @@ class TestGetResourceMetrics:
             ] if kw["Namespace"] == "AWS/EC2" else []
         }
 
-        with patch("api_handler.routes.resources.list_alarms", return_value=mock_alarms), \
+        with patch("api_handler.routes.resources.scan_all", return_value=[{"resource_id": "i-001", "entity_type": "resource", "type": "EC2"}]), \
              patch("api_handler.routes.resources._get_cw_client", return_value=mock_cw):
             from api_handler.lambda_handler import lambda_handler
             resp = lambda_handler(
@@ -180,7 +186,7 @@ class TestGetResourceMetrics:
             ] if kw["Namespace"] == "AWS/EC2" else []
         }
 
-        with patch("api_handler.routes.resources.list_alarms", return_value=mock_alarms), \
+        with patch("api_handler.routes.resources.scan_all", return_value=[{"resource_id": "i-001", "entity_type": "resource", "type": "EC2"}]), \
              patch("api_handler.routes.resources._get_cw_client", return_value=mock_cw):
             from api_handler.lambda_handler import lambda_handler
             resp = lambda_handler(
@@ -201,7 +207,7 @@ class TestGetResourceMetrics:
         mock_cw = MagicMock()
         mock_cw.list_metrics.return_value = {"Metrics": []}
 
-        with patch("api_handler.routes.resources.list_alarms", return_value=mock_alarms), \
+        with patch("api_handler.routes.resources.scan_all", return_value=[{"resource_id": "db-001", "entity_type": "resource", "type": "RDS"}]), \
              patch("api_handler.routes.resources._get_cw_client", return_value=mock_cw):
             from api_handler.lambda_handler import lambda_handler
             resp = lambda_handler(
@@ -242,7 +248,7 @@ class TestGetResourceMetrics:
 
         mock_cw.list_metrics.side_effect = list_metrics
 
-        with patch("api_handler.routes.resources.list_alarms", return_value=mock_alarms), \
+        with patch("api_handler.routes.resources.scan_all", return_value=[{"resource_id": "i-001", "entity_type": "resource", "type": "EC2"}]), \
              patch("api_handler.routes.resources._get_cw_client", return_value=mock_cw):
             from api_handler.lambda_handler import lambda_handler
             resp = lambda_handler(

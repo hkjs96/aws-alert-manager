@@ -14,8 +14,6 @@ from botocore.exceptions import ClientError
 from api_handler.cw_helper import (
     _parse_alarm_arn,
     extract_resource_from_alarm,
-    get_alarm_overlay,
-    get_resources_from_alarms,
     list_alarms,
 )
 from api_handler.db import accounts_table, resource_inventory_table, scan_all
@@ -76,9 +74,7 @@ def _accounts_for_resource_discovery() -> list[dict]:
 
 
 def list_resources(event: dict) -> dict:
-    if os.environ.get("RESOURCE_INVENTORY_TABLE"):
-        return _list_inventory_resources(event)
-    return _list_alarm_resources(event)
+    return _list_inventory_resources(event)
 
 
 def sync_resources(event: dict) -> dict:
@@ -95,6 +91,24 @@ def sync_resources(event: dict) -> dict:
         discovered = discover_resources(accounts)
         table = resource_inventory_table()
         for resource in discovered:
+            resource_id = resource.get("resource_id") or resource.get("id")
+            account_id = resource.get("account_id")
+            if not resource_id or not account_id:
+                continue
+
+            existing = None
+            try:
+                resp = table.get_item(Key={"resource_id": resource_id, "account_id": account_id})
+                existing = resp.get("Item")
+            except ClientError as exc:
+                logger.warning("Failed to read existing inventory snapshot for %s: %s", resource_id, exc)
+
+            resource["entity_type"] = "resource"
+            if existing:
+                for field in ["alarm_count", "critical_count", "warning_count", "alarm_names", "alarm_state", "last_alarm_synced_at"]:
+                    if field in existing:
+                        resource[field] = existing[field]
+
             table.put_item(Item=resource)
     except ClientError as exc:
         return _err(500, "AWS_ERROR", str(exc))
@@ -113,42 +127,13 @@ def get_resource(event: dict) -> dict:
     if not resource_id_or_name:
         return _err(400, "MISSING_PARAM", "resource_id is required")
 
-    if os.environ.get("RESOURCE_INVENTORY_TABLE"):
-        try:
-            resource = _find_resource_detail(resource_id_or_name)
-        except ClientError as exc:
-            return _err(500, "AWS_ERROR", str(exc))
-        if not resource:
-            return _err(404, "NOT_FOUND", f"Resource '{resource_id_or_name}' was not found")
-        return _ok(resource)
-
     try:
-        alarms = list_alarms()
+        resource = _find_resource_detail(resource_id_or_name)
     except ClientError as exc:
-        return _err(500, "CW_ERROR", str(exc))
-
-    resource_alarms = _alarms_for_resource(alarms, resource_id_or_name)
-    if not resource_alarms:
+        return _err(500, "AWS_ERROR", str(exc))
+    if not resource:
         return _err(404, "NOT_FOUND", f"Resource '{resource_id_or_name}' was not found")
-
-    resource_type = _get_resource_type(resource_alarms[0]["AlarmName"])
-    region, account_id = _parse_alarm_arn(resource_alarms[0].get("AlarmArn", ""))
-    critical = sum(1 for alarm in resource_alarms if alarm.get("StateValue") == "ALARM")
-    return _ok({
-        "id": resource_id_or_name,
-        "name": resource_id_or_name,
-        "type": resource_type,
-        "region": region,
-        "account": account_id,
-        "account_id": account_id,
-        "customer_id": "",
-        "monitoring": True,
-        "alarm_count": len(resource_alarms),
-        "alarms": {"critical": critical, "warning": 0, "count": len(resource_alarms)},
-        "inventory_source": "alarms",
-        "persisted": False,
-        "status": "active",
-    })
+    return _ok(resource)
 
 
 def update_resource_monitoring(event: dict) -> dict:
@@ -193,28 +178,39 @@ def get_resource_alarms(event: dict) -> dict:
         return _err(400, "MISSING_PARAM", "resource_id is required")
 
     try:
-        alarms = list_alarms()
+        db_items = scan_all(resource_inventory_table())
     except ClientError as exc:
-        return _err(500, "CW_ERROR", str(exc))
+        return _err(500, "AWS_ERROR", str(exc))
+
+    resource_alarms = [
+        item for item in db_items
+        if item.get("entity_type") == "alarm" and item.get("resource") == resource_id
+    ]
 
     configs = []
-    for alarm in _alarms_for_resource(alarms, resource_id):
-        tags = {tag["Key"]: tag["Value"] for tag in alarm.get("Tags", [])}
+    for alarm in resource_alarms:
+        tags = alarm.get("tags") or {}
+        threshold_val = alarm.get("threshold")
+        if threshold_val is not None:
+            try:
+                threshold_val = float(threshold_val)
+            except ValueError:
+                pass
         configs.append({
-            "alarm_name": alarm.get("AlarmName", ""),
-            "metric_name": alarm.get("MetricName", ""),
-            "namespace": alarm.get("Namespace", ""),
-            "mount_path": _alarm_mount_path(alarm),
-            "threshold": alarm.get("Threshold"),
-            "comparison": alarm.get("ComparisonOperator", ""),
-            "state": alarm.get("StateValue", ""),
-            "severity": tags.get("Severity", "SEV-5"),
+            "alarm_name": alarm.get("alarm_name", ""),
+            "metric_name": alarm.get("metric", ""),
+            "namespace": alarm.get("namespace", ""),
+            "mount_path": alarm.get("mount_path"),
+            "threshold": threshold_val,
+            "comparison": alarm.get("comparison", ""),
+            "state": alarm.get("state", ""),
+            "severity": alarm.get("severity", "SEV-5"),
             "monitoring": True,
-            "period": alarm.get("Period"),
-            "evaluation_periods": alarm.get("EvaluationPeriods"),
-            "datapoints_to_alarm": alarm.get("DatapointsToAlarm"),
-            "treat_missing_data": alarm.get("TreatMissingData", "notBreaching"),
-            "statistic": alarm.get("Statistic", "Average"),
+            "period": alarm.get("period"),
+            "evaluation_periods": alarm.get("evaluation_periods"),
+            "datapoints_to_alarm": alarm.get("datapoints_to_alarm"),
+            "treat_missing_data": alarm.get("treat_missing_data", "notBreaching"),
+            "statistic": alarm.get("statistic", "Average"),
         })
     return _ok(configs)
 
@@ -225,15 +221,26 @@ def get_resource_metrics(event: dict) -> dict:
         return _err(400, "MISSING_PARAM", "resource_id is required")
 
     try:
-        alarms = list_alarms()
+        db_items = scan_all(resource_inventory_table())
     except ClientError as exc:
-        return _err(500, "CW_ERROR", str(exc))
+        return _err(500, "AWS_ERROR", str(exc))
 
-    resource_alarms = _alarms_for_resource(alarms, resource_id)
-    if not resource_alarms:
-        return _err(404, "NOT_FOUND", f"Resource '{resource_id}' was not found")
+    resource = next(
+        (item for item in db_items if item.get("resource_id") == resource_id and item.get("entity_type") == "resource"),
+        None,
+    )
+    if not resource:
+        alarm = next(
+            (item for item in db_items if item.get("entity_type") == "alarm" and item.get("resource") == resource_id),
+            None,
+        )
+        if alarm:
+            resource_type = alarm.get("type")
+        else:
+            return _err(404, "NOT_FOUND", f"Resource '{resource_id}' was not found")
+    else:
+        resource_type = resource.get("type")
 
-    resource_type = _get_resource_type(resource_alarms[0]["AlarmName"])
     namespaces = _NAMESPACE_MAP.get(resource_type, [])
     dim_key = _DIMENSION_KEY_MAP.get(resource_type, "")
     if not namespaces or not dim_key:
@@ -416,40 +423,6 @@ def update_resource_alarms(event: dict) -> dict:
     })
 
 
-def _list_alarm_resources(event: dict) -> dict:
-    qs = event.get("queryStringParameters") or {}
-    try:
-        result = get_resources_from_alarms(
-            page=int(qs.get("page", 1)),
-            page_size=min(int(qs.get("page_size", 25)), 100),
-            resource_type=qs.get("resource_type") or None,
-            search=qs.get("search") or None,
-        )
-        discovered = []
-    except ClientError as exc:
-        return _err(500, "CW_ERROR", str(exc))
-
-    existing_ids = {item.get("id") for item in result.get("items", [])}
-    discovered_items = []
-    for resource in discovered:
-        resource_id = resource.get("resource_id") or resource.get("id")
-        if not resource_id or resource_id in existing_ids:
-            continue
-        item = _inventory_item(resource, "aws", {}, False)
-        if qs.get("resource_type") and item.get("type") != qs["resource_type"]:
-            continue
-        search = (qs.get("search") or "").lower()
-        if search and search not in item.get("id", "").lower() and search not in item.get("name", "").lower():
-            continue
-        discovered_items.append(item)
-        existing_ids.add(resource_id)
-
-    if discovered_items:
-        result = {**result, "items": [*result.get("items", []), *discovered_items]}
-        result["total"] = result.get("total", 0) + len(discovered_items)
-    return _ok(result)
-
-
 def _list_inventory_resources(event: dict) -> dict:
     qs = event.get("queryStringParameters") or {}
     resource_type = qs.get("resource_type") or None
@@ -459,42 +432,23 @@ def _list_inventory_resources(event: dict) -> dict:
 
     try:
         persisted = scan_all(resource_inventory_table())
-        overlay = get_alarm_overlay()
     except ClientError as exc:
         return _err(500, "AWS_ERROR", str(exc))
 
     items_by_id = {}
-    for resource in persisted:
+    for resource in _resource_snapshots(persisted):
         resource_id = resource.get("resource_id") or resource.get("id")
         if not resource_id:
             continue
         status = resource.get("status", "active")
         source = resource.get("inventory_source", "aws")
+
         items_by_id[resource_id] = _inventory_item(
             {**resource, "resource_id": resource_id, "status": status},
             source,
-            overlay.get(resource_id, {}),
+            _alarm_info_from_resource(resource),
             True
         )
-
-    for resource_id, alarm_info in overlay.items():
-        if resource_id in items_by_id:
-            continue
-        items_by_id[resource_id] = {
-            "id": resource_id,
-            "name": resource_id,
-            "type": "",
-            "region": "",
-            "account": "",
-            "account_id": "",
-            "customer_id": "",
-            "monitoring": True,
-            "status": "orphan_candidate",
-            "inventory_source": "alarms",
-            "persisted": False,
-            "alarm_count": alarm_info.get("count", 0),
-            "alarms": _alarm_summary(alarm_info),
-        }
 
     items = list(items_by_id.values())
     if resource_type:
@@ -537,40 +491,42 @@ def _alarm_summary(alarm_info: dict) -> dict:
     }
 
 
+def _resource_snapshots(items: list[dict]) -> list[dict]:
+    return [item for item in items if item.get("entity_type") == "resource"]
+
+
+def _alarm_snapshots(items: list[dict]) -> list[dict]:
+    return [item for item in items if item.get("entity_type") == "alarm"]
+
+
+def _alarm_info_from_resource(resource: dict) -> dict:
+    return {
+        "count": int(resource.get("alarm_count") or 0),
+        "critical": int(resource.get("critical_count") or 0),
+        "warning": int(resource.get("warning_count") or 0),
+    }
+
+
 def _path_id(event: dict) -> str:
     return (event.get("pathParameters") or {}).get("id", "")
 
 
 def _find_resource_detail(resource_id_or_name: str) -> dict | None:
     persisted = scan_all(resource_inventory_table())
-    overlay = get_alarm_overlay()
 
-    for resource in persisted:
+    for resource in _resource_snapshots(persisted):
         resource_id = resource.get("resource_id") or resource.get("id")
         if not resource_id:
             continue
         if resource_id == resource_id_or_name or resource.get("name") == resource_id_or_name:
             status = resource.get("status", "active")
             source = resource.get("inventory_source", "aws")
-            return _inventory_item({**resource, "resource_id": resource_id, "status": status}, source, overlay.get(resource_id, {}), True)
-
-    alarm_info = overlay.get(resource_id_or_name)
-    if alarm_info:
-        return {
-            "id": resource_id_or_name,
-            "name": resource_id_or_name,
-            "type": "",
-            "region": "",
-            "account": "",
-            "account_id": "",
-            "customer_id": "",
-            "monitoring": True,
-            "status": "orphan_candidate",
-            "inventory_source": "alarms",
-            "persisted": False,
-            "alarm_count": alarm_info.get("count", 0),
-            "alarms": _alarm_summary(alarm_info),
-        }
+            return _inventory_item(
+                {**resource, "resource_id": resource_id, "status": status},
+                source,
+                _alarm_info_from_resource(resource),
+                True,
+            )
     return None
 
 

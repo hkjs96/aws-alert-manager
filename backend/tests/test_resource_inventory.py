@@ -21,13 +21,13 @@ def mock_db_env(monkeypatch):
     monkeypatch.setenv("AWS_ACCESS_KEY_ID", "testing")
     monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "testing")
     monkeypatch.setenv("AWS_SESSION_TOKEN", "testing")
+    monkeypatch.setattr("api_handler.routes.resources.resource_inventory_table", lambda: MagicMock())
 
 class TestResourceInventoryLogic:
 
     @patch("api_handler.routes.resources.scan_all")
-    @patch("api_handler.routes.resources.get_alarm_overlay")
-    def test_list_resources_merges_aws_and_db(self, mock_overlay, mock_scan, mock_db_env):
-        # DB scan returns both resources (snapshot)
+    def test_list_resources_merges_aws_and_db(self, mock_scan, mock_db_env):
+        # DB scan returns both resources and alarm items
         mock_scan.return_value = [{ # inventory
             "resource_id": "i-aws-01",
             "account_id": "123456789012",
@@ -37,21 +37,44 @@ class TestResourceInventoryLogic:
             "region": "ap-northeast-2",
             "monitoring": True,
             "status": "active",
-            "inventory_source": "aws"
+            "inventory_source": "aws",
+            "entity_type": "resource",
+            "alarm_count": 1,
+            "critical_count": 1,
+            "warning_count": 0,
         }, {
             "resource_id": "i-db-01",
             "account_id": "123456789012",
             "name": "stale-instance",
             "type": "EC2",
             "status": "missing",
-            "inventory_source": "db"
+            "inventory_source": "db",
+            "entity_type": "resource",
+            "alarm_count": 2,
+            "critical_count": 0,
+            "warning_count": 2,
+        }, {
+            "resource_id": "alarm#arn:aws:cloudwatch:ap-northeast-2:123456789012:alarm:aws-cpu",
+            "alarm_name": "aws-cpu",
+            "resource": "i-aws-01",
+            "entity_type": "alarm",
+            "state": "ALARM",
+            "severity": "SEV-1"
+        }, {
+            "resource_id": "alarm#arn:aws:cloudwatch:ap-northeast-2:123456789012:alarm:db-mem1",
+            "alarm_name": "db-mem1",
+            "resource": "i-db-01",
+            "entity_type": "alarm",
+            "state": "ALARM",
+            "severity": "SEV-3"
+        }, {
+            "resource_id": "alarm#arn:aws:cloudwatch:ap-northeast-2:123456789012:alarm:db-mem2",
+            "alarm_name": "db-mem2",
+            "resource": "i-db-01",
+            "entity_type": "alarm",
+            "state": "ALARM",
+            "severity": "SEV-3"
         }]
-        
-        # 3. Alarm overlay returns alarm for both
-        mock_overlay.return_value = {
-            "i-aws-01": {"count": 1, "critical": 1, "warning": 0},
-            "i-db-01": {"count": 2, "critical": 0, "warning": 2}
-        }
         
         from api_handler.routes.resources import list_resources
         resp = list_resources(_event("GET", "/resources"))
@@ -81,14 +104,12 @@ class TestResourceInventoryLogic:
         assert db_item["persisted"] == True
 
     @patch("api_handler.routes.resources.scan_all")
-    @patch("api_handler.routes.resources.get_alarm_overlay")
-    def test_list_resources_filters_correctly(self, mock_overlay, mock_scan, mock_db_env):
+    def test_list_resources_filters_correctly(self, mock_scan, mock_db_env):
         """resource_type 필터링이 정확히 동작해야 한다."""
         mock_scan.return_value = [ # inventory
-            {"resource_id": "i-01", "name": "e1", "type": "EC2", "account_id": "1", "region": "r1", "monitoring": True, "status": "active"},
-            {"resource_id": "db-01", "name": "r1", "type": "RDS", "account_id": "1", "region": "r1", "monitoring": True, "status": "active"}
+            {"resource_id": "i-01", "name": "e1", "type": "EC2", "account_id": "1", "region": "r1", "monitoring": True, "status": "active", "entity_type": "resource"},
+            {"resource_id": "db-01", "name": "r1", "type": "RDS", "account_id": "1", "region": "r1", "monitoring": True, "status": "active", "entity_type": "resource"}
         ]
-        mock_overlay.return_value = {}
         
         from api_handler.routes.resources import list_resources
         # EC2만 필터링
@@ -98,16 +119,16 @@ class TestResourceInventoryLogic:
         assert body["items"][0]["type"] == "EC2"
 
     @patch("api_handler.routes.resources.scan_all")
-    @patch("api_handler.routes.resources.get_alarm_overlay")
-    def test_list_resources_identifies_orphan_alarms(self, mock_overlay, mock_scan, mock_db_env):
-        """AWS나 DB에는 없지만 알람만 존재하는 경우 orphan_alarm 후보로 표시해야 한다."""
-        # 1. AWS/DB 모두 비어 있음
-        mock_scan.return_value = []
-        
-        # 2. 알람은 존재함 (i-orphan-01)
-        mock_overlay.return_value = {
-            "i-orphan-01": {"count": 1, "critical": 0, "warning": 1}
-        }
+    def test_list_resources_ignores_orphan_alarm_snapshots(self, mock_scan, mock_db_env):
+        """리소스 snapshot 없는 alarm snapshot은 리소스 목록에 섞이면 안 된다."""
+        mock_scan.return_value = [{
+            "resource_id": "alarm#arn:aws:cloudwatch:us-east-1:123456789012:alarm:orphan-01",
+            "alarm_name": "orphan-01",
+            "resource": "i-orphan-01",
+            "entity_type": "alarm",
+            "state": "ALARM",
+            "severity": "SEV-3",
+        }]
         
         from api_handler.routes.resources import list_resources
         resp = list_resources(_event("GET", "/resources"))
@@ -115,15 +136,10 @@ class TestResourceInventoryLogic:
         body = json.loads(resp["body"])
         items = body["items"]
         
-        assert len(items) == 1
-        item = items[0]
-        assert item["id"] == "i-orphan-01"
-        assert item["status"] == "orphan_candidate"
-        assert item["inventory_source"] == "alarms"
+        assert len(items) == 0
 
     @patch("api_handler.routes.resources.scan_all")
-    @patch("api_handler.routes.resources.get_alarm_overlay")
-    def test_list_resources_keeps_unmonitored_discovered_resources(self, mock_overlay, mock_scan, mock_db_env):
+    def test_list_resources_keeps_unmonitored_discovered_resources(self, mock_scan, mock_db_env):
         """Monitoring 태그 값이 비어도 실제 존재하는 리소스는 목록에 표시한다."""
         mock_scan.return_value = [{ # inventory
             "resource_id": "i-unmonitored",
@@ -134,8 +150,8 @@ class TestResourceInventoryLogic:
             "customer_id": "cust-01",
             "monitoring": False,
             "status": "active",
+            "entity_type": "resource",
         }]
-        mock_overlay.return_value = {}
 
         from api_handler.routes.resources import list_resources
         resp = list_resources(_event("GET", "/resources"))
@@ -147,8 +163,7 @@ class TestResourceInventoryLogic:
         assert body["items"][0]["monitoring"] is False
 
     @patch("api_handler.routes.resources.scan_all")
-    @patch("api_handler.routes.resources.get_alarm_overlay")
-    def test_get_resource_resolves_discovered_resource_by_name_without_alarms(self, mock_overlay, mock_scan, mock_db_env):
+    def test_get_resource_resolves_discovered_resource_by_name_without_alarms(self, mock_scan, mock_db_env):
         mock_scan.return_value = [{ # inventory
             "resource_id": "i-01",
             "name": "web-01",
@@ -158,8 +173,8 @@ class TestResourceInventoryLogic:
             "region": "us-east-1",
             "monitoring": False,
             "status": "active",
+            "entity_type": "resource",
         }]
-        mock_overlay.return_value = {}
 
         from api_handler.routes.resources import get_resource
         resp = get_resource(_event("GET", "/resources/web-01", path_params={"id": "web-01"}))
@@ -172,8 +187,7 @@ class TestResourceInventoryLogic:
         assert body["alarm_count"] == 0
 
     @patch("api_handler.routes.resources.scan_all")
-    @patch("api_handler.routes.resources.get_alarm_overlay")
-    def test_get_resource_resolves_persisted_resource_by_id_without_alarms(self, mock_overlay, mock_scan, mock_db_env):
+    def test_get_resource_resolves_persisted_resource_by_id_without_alarms(self, mock_scan, mock_db_env):
         mock_scan.return_value = [{ # inventory
             "resource_id": "i-02",
             "name": "db-only",
@@ -184,8 +198,8 @@ class TestResourceInventoryLogic:
             "monitoring": False,
             "status": "active",
             "inventory_source": "db",
+            "entity_type": "resource",
         }]
-        mock_overlay.return_value = {}
 
         from api_handler.routes.resources import get_resource
         resp = get_resource(_event("GET", "/resources/i-02", path_params={"id": "i-02"}))
@@ -257,6 +271,7 @@ class TestResourceInventoryLogic:
             "type": "EC2",
             "region": "us-east-1",
             "monitoring": False,
+            "entity_type": "resource",
         }]
         mock_table = MagicMock()
         mock_table_func.return_value = mock_table
@@ -282,7 +297,7 @@ class TestResourceInventoryLogic:
 
     @patch("api_handler.routes.resources.scan_all")
     def test_update_resource_monitoring_rejects_non_ec2(self, mock_scan, mock_db_env):
-        mock_scan.return_value = [{"resource_id": "bucket-01", "type": "S3"}]
+        mock_scan.return_value = [{"resource_id": "bucket-01", "type": "S3", "entity_type": "resource"}]
 
         from api_handler.routes.resources import update_resource_monitoring
         resp = update_resource_monitoring(

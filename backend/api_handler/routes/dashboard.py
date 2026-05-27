@@ -10,7 +10,7 @@ from datetime import datetime, UTC
 
 from botocore.exceptions import ClientError
 
-from api_handler.cw_helper import list_alarms, get_dashboard_stats
+from api_handler.cw_helper import get_dashboard_stats
 
 
 def get_stats(event: dict) -> dict:
@@ -32,29 +32,36 @@ def get_recent_alarms(event: dict) -> dict:
     page_size = min(int(qs.get("page_size", 10)), 50)
 
     try:
-        alarms = list_alarms(state_value="ALARM")
+        from api_handler.db import scan_all, resource_inventory_table
+        db_items = scan_all(resource_inventory_table())
     except ClientError as e:
-        return _err(500, "CW_ERROR", str(e))
+        return _err(500, "AWS_ERROR", str(e))
 
-    # CloudWatch 알람을 RecentAlarm 형식으로 변환
+    alarms = [
+        item for item in db_items
+        if item.get("entity_type") == "alarm" and item.get("state") == "ALARM"
+    ]
+
     items = []
     for alarm in alarms:
-        tags = {t["Key"]: t["Value"] for t in alarm.get("Tags", [])} if alarm.get("Tags") else {}
+        threshold_val = alarm.get("threshold")
+        if threshold_val is not None:
+            try:
+                threshold_val = float(threshold_val)
+            except ValueError:
+                pass
         items.append({
-            "timestamp": alarm.get("StateUpdatedTimestamp", datetime.now(UTC)).isoformat()
-                         if not isinstance(alarm.get("StateUpdatedTimestamp"), str)
-                         else alarm["StateUpdatedTimestamp"],
-            "alarm_name": alarm["AlarmName"],
-            "resource": _extract_resource_id(alarm["AlarmName"]),
-            "type": _extract_resource_type(alarm["AlarmName"]),
-            "metric": alarm.get("MetricName", ""),
-            "state": alarm.get("StateValue", ""),
-            "threshold": alarm.get("Threshold"),
-            "severity": tags.get("Severity", "SEV-5"),
+            "timestamp": alarm.get("time"),
+            "alarm_name": alarm.get("alarm_name"),
+            "resource": alarm.get("resource"),
+            "type": alarm.get("type"),
+            "metric": alarm.get("metric"),
+            "state": alarm.get("state"),
+            "threshold": threshold_val,
+            "severity": alarm.get("severity", "SEV-5"),
         })
 
-    # 최신순 정렬
-    items.sort(key=lambda x: x["timestamp"], reverse=True)
+    items.sort(key=lambda x: x["timestamp"] or "", reverse=True)
     total = len(items)
     start = (page - 1) * page_size
 

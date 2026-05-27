@@ -406,6 +406,56 @@ def _monitor_run_summary(result: dict) -> dict:
     }
 
 
+def _fetch_alarms_for_accounts(accounts: list[dict]) -> list[dict]:
+    from common.resource_discovery import _get_session_for_account
+    all_alarms = []
+    for account in accounts:
+        regions = account.get("regions") or ["ap-northeast-2"]
+        account_id = account.get("account_id")
+        for region in regions:
+            session = _get_session_for_account(account, region)
+            if not session:
+                continue
+            try:
+                cw = session.client("cloudwatch")
+                paginator = cw.get_paginator("describe_alarms")
+                for page in paginator.paginate(AlarmTypes=["MetricAlarm"], AlarmNamePrefix="["):
+                    for alarm in page.get("MetricAlarms", []):
+                        alarm["_region"] = region
+                        alarm["_account_id"] = account_id
+                        all_alarms.append(alarm)
+            except ClientError as e:
+                logger.error("Failed to describe alarms in %s/%s: %s", account_id, region, e)
+    return all_alarms
+
+
+def _extract_resource_from_alarm_name(name: str) -> tuple[str, str] | None:
+    m = _NEW_FORMAT_RE.match(name)
+    if m:
+        return m.group(1), m.group(2)
+    legacy = re.match(r"^(i-[0-9a-f]+)-", name)
+    if legacy:
+        return "EC2", legacy.group(1)
+    return None
+
+
+def _is_alarm_critical(alarm: dict) -> bool:
+    tags = {t["Key"]: t["Value"] for t in alarm.get("Tags", [])} if alarm.get("Tags") else {}
+    sev = tags.get("Severity", "SEV-5")
+    return sev in ("SEV-1", "SEV-2")
+
+
+def _determine_alarm_state(alarms: list[dict]) -> str:
+    if not alarms:
+        return "OK"
+    states = {a.get("StateValue") for a in alarms}
+    if "ALARM" in states:
+        return "ALARM"
+    if "INSUFFICIENT_DATA" in states:
+        return "INSUFFICIENT_DATA"
+    return "OK"
+
+
 def _sync_inventory(account_id_hint: str, role_arn: str) -> dict:
     """대상 계정의 리소스를 discover하여 ResourceInventoryTable에 upsert.
 
@@ -430,21 +480,138 @@ def _sync_inventory(account_id_hint: str, role_arn: str) -> dict:
         logger.error("discover_resources failed during inventory sync: %s", e)
         return {"discovered": 0, "synced": 0, "error": "discover_failed"}
 
+    try:
+        alarms = _fetch_alarms_for_accounts(accounts)
+    except ClientError as e:
+        logger.error("Failed to fetch alarms during inventory sync: %s", e)
+        alarms = []
+
+    # Map resource ID to alarms
+    resource_alarms_map = {}
+    for alarm in alarms:
+        extracted = _extract_resource_from_alarm_name(alarm["AlarmName"])
+        if extracted:
+            rtype, rid = extracted
+            resource_alarms_map.setdefault(rid, []).append(alarm)
+
     ddb = boto3.resource("dynamodb")
     inv_table = ddb.Table(inv_table_name)
     synced = 0
+
+    # Save resource items
     for resource in discovered:
         item = _sanitize_inventory_item(resource)
         if not item.get("resource_id") or not item.get("account_id"):
             continue
+
+        item["entity_type"] = "resource"
+
+        # Pre-aggregate alarm summary fields
+        res_id = item["resource_id"]
+        res_alarms = resource_alarms_map.get(res_id, [])
+        item["alarm_count"] = len(res_alarms)
+        item["critical_count"] = sum(1 for a in res_alarms if a.get("StateValue") == "ALARM" and _is_alarm_critical(a))
+        item["warning_count"] = sum(1 for a in res_alarms if a.get("StateValue") == "ALARM" and not _is_alarm_critical(a))
+        item["alarm_names"] = [a["AlarmName"] for a in res_alarms]
+        item["alarm_state"] = _determine_alarm_state(res_alarms)
+        item["last_alarm_synced_at"] = datetime.now(timezone.utc).isoformat()
+
         try:
             inv_table.put_item(Item=item)
             synced += 1
         except ClientError as e:
             logger.error(
-                "put_item failed for inventory %s: %s",
-                item.get("resource_id"), e,
+                "put_item failed for inventory resource %s: %s",
+                res_id, e,
             )
+
+    # Save alarm snapshot items
+    synced_alarms = 0
+    fresh_alarm_keys = set()
+    for alarm in alarms:
+        arn = alarm.get("AlarmArn", "")
+        if not arn:
+            continue
+
+        alarm_name = alarm["AlarmName"]
+        arn_parts = arn.split(":")
+        account = arn_parts[4] if len(arn_parts) > 4 and arn_parts[4] else alarm.get("_account_id", "unknown")
+        region = arn_parts[3] if len(arn_parts) > 3 and arn_parts[3] else alarm.get("_region", "unknown")
+
+        res_id_extracted = ""
+        res_type_extracted = ""
+        extracted = _extract_resource_from_alarm_name(alarm_name)
+        if extracted:
+            res_type_extracted, res_id_extracted = extracted
+        else:
+            res_id_extracted = alarm_name
+
+        tags = {t["Key"]: t["Value"] for t in alarm.get("Tags", [])} if alarm.get("Tags") else {}
+        severity = tags.get("Severity", "SEV-5")
+
+        ts = alarm.get("StateUpdatedTimestamp")
+        ts_str = ts.isoformat() if hasattr(ts, "isoformat") else str(ts or "")
+
+        db_key = f"alarm#{arn}"
+        alarm_item = {
+            "resource_id": db_key,
+            "account_id": account,
+            "alarm_name": alarm_name,
+            "arn": arn,
+            "entity_type": "alarm",
+            "state": alarm.get("StateValue", ""),
+            "metric": alarm.get("MetricName", ""),
+            "namespace": alarm.get("Namespace", ""),
+            "comparison": alarm.get("ComparisonOperator", ""),
+            "threshold": str(alarm.get("Threshold", "0")),
+            "severity": severity,
+            "time": ts_str,
+            "region": region,
+            "type": res_type_extracted,
+            "resource": res_id_extracted,
+            "inventory_source": "alarms",
+            "tags": tags,
+            "status": "active",
+            "period": alarm.get("Period"),
+            "evaluation_periods": alarm.get("EvaluationPeriods"),
+            "datapoints_to_alarm": alarm.get("DatapointsToAlarm"),
+            "treat_missing_data": alarm.get("TreatMissingData"),
+            "statistic": alarm.get("Statistic"),
+        }
+
+        try:
+            inv_table.put_item(Item=alarm_item)
+            synced_alarms += 1
+            fresh_alarm_keys.add((db_key, account))
+        except ClientError as e:
+            logger.error("Failed to write alarm snapshot %s: %s", db_key, e)
+
+    # Cleanup stale alarms for synchronized accounts
+    target_accounts = {acc["account_id"] for acc in accounts}
+    deleted_alarms = 0
+    try:
+        db_items = []
+        scan_kwargs = {}
+        while True:
+            resp = inv_table.scan(**scan_kwargs)
+            db_items.extend(resp.get("Items", []))
+            last = resp.get("LastEvaluatedKey")
+            if not last:
+                break
+            scan_kwargs["ExclusiveStartKey"] = last
+
+        for item in db_items:
+            res_id = item.get("resource_id", "")
+            acc_id = item.get("account_id", "")
+            if item.get("entity_type") == "alarm" and acc_id in target_accounts:
+                if (res_id, acc_id) not in fresh_alarm_keys:
+                    try:
+                        inv_table.delete_item(Key={"resource_id": res_id, "account_id": acc_id})
+                        deleted_alarms += 1
+                    except ClientError as e:
+                        logger.error("Failed to delete stale alarm %s: %s", res_id, e)
+    except ClientError as e:
+        logger.error("Failed to scan table for alarm cleanup: %s", e)
 
     return {"discovered": len(discovered), "synced": synced}
 

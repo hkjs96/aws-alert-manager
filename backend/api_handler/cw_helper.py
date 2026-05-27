@@ -32,7 +32,7 @@ def _load_registered_accounts(customer_id: str | None = None, account_id: str | 
             accounts = query_by_pk(accounts_table(), "customer_id", customer_id)
         else:
             accounts = scan_all(accounts_table())
-    except Exception as e:
+    except (ClientError, KeyError) as e:
         logger.warning("Registered account lookup failed; using current account fallback: %s", e)
         return []
 
@@ -179,25 +179,32 @@ def extract_resource_from_alarm(alarm_name: str) -> tuple[str, str] | None:
 
 
 def get_dashboard_stats(customer_id: str | None = None, account_id: str | None = None) -> dict:
-    """Aggregate dashboard stats from registered accounts."""
+    """Aggregate dashboard stats from DynamoDB resource and alarm snapshots."""
     try:
-        all_alarms = list_alarms(customer_id=customer_id, account_id=account_id)
+        from api_handler.db import scan_all, resource_inventory_table
+        db_items = scan_all(resource_inventory_table())
     except ClientError:
         return {"monitored_count": 0, "active_alarms": 0, "unmonitored_count": 0, "account_count": 0}
 
-    resources: set[tuple[str, str]] = set()
-    active_alarms = 0
-    for alarm in all_alarms:
-        result = extract_resource_from_alarm(alarm["AlarmName"])
-        if result:
-            resources.add(result)
-        if alarm.get("StateValue") == "ALARM":
-            active_alarms += 1
+    db_resources = [item for item in db_items if item.get("entity_type") == "resource"]
+    db_alarms = [item for item in db_items if item.get("entity_type") == "alarm"]
+
+    if customer_id:
+        db_resources = [r for r in db_resources if r.get("customer_id") == customer_id]
+        res_ids_for_customer = {r.get("resource_id") for r in db_resources}
+        db_alarms = [a for a in db_alarms if a.get("resource") in res_ids_for_customer]
+
+    if account_id:
+        db_resources = [r for r in db_resources if r.get("account_id") == account_id]
+        db_alarms = [a for a in db_alarms if a.get("account_id") == account_id]
+
+    monitored_count = sum(1 for r in db_resources if r.get("monitoring", False))
+    active_alarms = sum(1 for alarm in db_alarms if alarm.get("state") == "ALARM")
 
     return {
-        "monitored_count": len(resources),
+        "monitored_count": monitored_count,
         "active_alarms": active_alarms,
-        "unmonitored_count": 0,
+        "unmonitored_count": max(len(db_resources) - monitored_count, 0),
         "account_count": count_registered_accounts(customer_id=customer_id, account_id=account_id),
     }
 

@@ -35,7 +35,9 @@ def set_env(monkeypatch):
     monkeypatch.setenv("CUSTOMERS_TABLE", "test-customers")
     monkeypatch.setenv("ACCOUNTS_TABLE", "test-accounts")
     monkeypatch.setenv("THRESHOLD_OVERRIDES_TABLE", "test-thresholds")
+    monkeypatch.setenv("RESOURCE_INVENTORY_TABLE", "test-inventory")
     monkeypatch.setenv("API_STAGE", "dev")
+    monkeypatch.setattr("api_handler.db.resource_inventory_table", lambda: MagicMock())
 
 
 # ── 라우터 ──────────────────────────────────────────────────────────
@@ -180,12 +182,27 @@ def test_create_account_validates_required_fields():
 
 
 def test_dashboard_stats_returns_expected_shape():
-    mock_alarms = [
-        {"AlarmName": "[EC2] server CPU >80% (TagName: i-001)", "StateValue": "OK", "Tags": []},
-        {"AlarmName": "[EC2] server CPU >80% (TagName: i-001)", "StateValue": "ALARM", "Tags": []},
-        {"AlarmName": "[RDS] db free <2GB (TagName: db-001)", "StateValue": "OK", "Tags": []},
+    snapshot_items = [
+        {"entity_type": "resource", "resource_id": "i-001", "type": "EC2", "monitoring": True},
+        {"entity_type": "resource", "resource_id": "db-001", "type": "RDS", "monitoring": True},
+        {
+            "entity_type": "alarm",
+            "resource_id": "alarm#arn:aws:cloudwatch:ap-northeast-2:111111111111:alarm:cpu",
+            "account_id": "111111111111",
+            "resource": "i-001",
+            "type": "EC2",
+            "state": "ALARM",
+        },
+        {
+            "entity_type": "alarm",
+            "resource_id": "alarm#arn:aws:cloudwatch:ap-northeast-2:111111111111:alarm:db",
+            "account_id": "111111111111",
+            "resource": "db-001",
+            "type": "RDS",
+            "state": "OK",
+        },
     ]
-    with patch("api_handler.cw_helper.list_alarms", return_value=mock_alarms):
+    with patch("api_handler.db.scan_all", return_value=snapshot_items):
         from api_handler.lambda_handler import lambda_handler
         resp = lambda_handler(_event("GET", "/dashboard/stats"), None)
 

@@ -30,6 +30,9 @@ def _event(method: str, path: str, body=None, qs=None, path_params=None) -> dict
     }
 
 
+import re
+_ALARM_NAME_RE = re.compile(r"^\[(\w+)\]\s+.+\(TagName:\s*(.+)\)$")
+
 def _alarm(name: str, state: str = "OK", metric: str = "CPUUtilization",
            threshold: float = 80.0, severity: str = "SEV-3") -> dict:
     return {
@@ -43,15 +46,96 @@ def _alarm(name: str, state: str = "OK", metric: str = "CPUUtilization",
         "Tags": [{"Key": "Severity", "Value": severity}],
     }
 
+def _alarm_to_ddb(alarm_dict):
+    arn = alarm_dict.get("AlarmArn", f"arn:aws:cloudwatch:ap-northeast-2:123456789012:alarm:{alarm_dict['AlarmName']}")
+    arn_parts = arn.split(":")
+    account = arn_parts[4] if len(arn_parts) > 4 and arn_parts[4] else "123456789012"
+    region = arn_parts[3] if len(arn_parts) > 3 and arn_parts[3] else "ap-northeast-2"
+    tags = {t["Key"]: t["Value"] for t in alarm_dict.get("Tags", [])}
+    ts = alarm_dict.get("StateUpdatedTimestamp")
+    ts_str = ts.isoformat() if hasattr(ts, "isoformat") else str(ts or "")
+
+    # Extract mount path
+    mount_path = None
+    if alarm_dict.get("Dimensions"):
+        for dim in alarm_dict["Dimensions"]:
+            if dim.get("Name") == "path":
+                mount_path = dim.get("Value")
+    if not mount_path:
+        import re
+        disk_match = re.search(r"disk_used_percent\(([^)]+)\)", alarm_dict["AlarmName"])
+        if disk_match:
+            mount_path = disk_match.group(1)
+
+    # Extract resource/type
+    res_id = ""
+    res_type = ""
+    m = _ALARM_NAME_RE.match(alarm_dict["AlarmName"])
+    if m:
+        res_type, res_id = m.group(1), m.group(2)
+    return {
+        "resource_id": f"alarm#{arn}",
+        "account_id": account,
+        "alarm_name": alarm_dict["AlarmName"],
+        "arn": arn,
+        "entity_type": "alarm",
+        "state": alarm_dict.get("StateValue", ""),
+        "metric": alarm_dict.get("MetricName", ""),
+        "namespace": alarm_dict.get("Namespace", "AWS/EC2"),
+        "comparison": alarm_dict.get("ComparisonOperator", "GreaterThanThreshold"),
+        "threshold": str(alarm_dict.get("Threshold", "0")),
+        "severity": tags.get("Severity", "SEV-5"),
+        "time": ts_str,
+        "region": region,
+        "type": res_type,
+        "resource": res_id,
+        "mount_path": mount_path,
+        "period": alarm_dict.get("Period"),
+        "evaluation_periods": alarm_dict.get("EvaluationPeriods"),
+        "datapoints_to_alarm": alarm_dict.get("DatapointsToAlarm"),
+        "treat_missing_data": alarm_dict.get("TreatMissingData"),
+        "statistic": alarm_dict.get("Statistic"),
+        "status": "active"
+    }
+
+
+def _resource_snapshot(
+    resource_id: str,
+    resource_type: str,
+    *,
+    name: str | None = None,
+    alarm_count: int = 0,
+    critical_count: int = 0,
+    warning_count: int = 0,
+) -> dict:
+    return {
+        "resource_id": resource_id,
+        "entity_type": "resource",
+        "name": name or resource_id,
+        "type": resource_type,
+        "status": "active",
+        "monitoring": True,
+        "alarm_count": alarm_count,
+        "critical_count": critical_count,
+        "warning_count": warning_count,
+    }
+
 
 @pytest.fixture(autouse=True)
 def set_env(monkeypatch):
+    monkeypatch.setenv("RESOURCE_INVENTORY_TABLE", "test-inventory")
     monkeypatch.setenv("CUSTOMERS_TABLE", "test-customers")
     monkeypatch.setenv("ACCOUNTS_TABLE", "test-accounts")
     monkeypatch.setenv("THRESHOLD_OVERRIDES_TABLE", "test-thresholds")
     monkeypatch.setenv("JOB_STATUS_TABLE", "test-jobs")
     monkeypatch.setenv("BULK_OPERATION_QUEUE_URL", "https://sqs.ap-northeast-2.amazonaws.com/123/bulk.fifo")
     monkeypatch.setenv("API_STAGE", "dev")
+    monkeypatch.setenv("AWS_REGION", "ap-northeast-2")
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "testing")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "testing")
+    monkeypatch.setenv("AWS_SECURITY_TOKEN", "testing")
+    monkeypatch.setenv("AWS_SESSION_TOKEN", "testing")
+    monkeypatch.setattr("api_handler.routes.resources.resource_inventory_table", lambda: MagicMock())
 
 
 # ── /alarms ──────────────────────────────────────────────────────────
@@ -63,7 +147,7 @@ class TestAlarms:
             _alarm(f"[EC2] server CPU >80% (TagName: i-00{i})", state="OK")
             for i in range(3)
         ]
-        with patch("api_handler.routes.alarms.list_alarms", return_value=mock_alarms):
+        with patch("api_handler.routes.alarms.scan_all", return_value=[_alarm_to_ddb(a) for a in mock_alarms]):
             from api_handler.lambda_handler import lambda_handler
             resp = lambda_handler(_event("GET", "/alarms"), None)
 
@@ -78,7 +162,7 @@ class TestAlarms:
             _alarm(f"[EC2] server CPU >80% (TagName: i-{i:03d})")
             for i in range(50)
         ]
-        with patch("api_handler.routes.alarms.list_alarms", return_value=mock_alarms):
+        with patch("api_handler.routes.alarms.scan_all", return_value=[_alarm_to_ddb(a) for a in mock_alarms]):
             from api_handler.lambda_handler import lambda_handler
             resp = lambda_handler(_event("GET", "/alarms", qs={"page_size": "200"}), None)
 
@@ -90,7 +174,7 @@ class TestAlarms:
             _alarm(f"[EC2] server CPU >80% (TagName: i-{i:03d})")
             for i in range(30)
         ]
-        with patch("api_handler.routes.alarms.list_alarms", return_value=mock_alarms):
+        with patch("api_handler.routes.alarms.scan_all", return_value=[_alarm_to_ddb(a) for a in mock_alarms]):
             from api_handler.lambda_handler import lambda_handler
             resp = lambda_handler(
                 _event("GET", "/alarms", qs={"page": "2", "page_size": "10"}), None
@@ -103,7 +187,7 @@ class TestAlarms:
 
     def test_list_alarms_extracts_resource_id_and_type(self):
         mock_alarms = [_alarm("[EC2] prod-ec2-api CPU >80% (TagName: i-0abc1234)")]
-        with patch("api_handler.routes.alarms.list_alarms", return_value=mock_alarms):
+        with patch("api_handler.routes.alarms.scan_all", return_value=[_alarm_to_ddb(a) for a in mock_alarms]):
             from api_handler.lambda_handler import lambda_handler
             resp = lambda_handler(_event("GET", "/alarms"), None)
 
@@ -120,7 +204,7 @@ class TestAlarms:
             ),
             "Dimensions": [{"Name": "path", "Value": "/data"}],
         }]
-        with patch("api_handler.routes.alarms.list_alarms", return_value=mock_alarms):
+        with patch("api_handler.routes.alarms.scan_all", return_value=[_alarm_to_ddb(a) for a in mock_alarms]):
             from api_handler.lambda_handler import lambda_handler
             resp = lambda_handler(_event("GET", "/alarms"), None)
 
@@ -131,12 +215,12 @@ class TestAlarms:
     def test_list_alarms_cw_error_returns_500(self):
         from botocore.exceptions import ClientError
         err = ClientError({"Error": {"Code": "AccessDenied", "Message": "Denied"}}, "DescribeAlarms")
-        with patch("api_handler.routes.alarms.list_alarms", side_effect=err):
+        with patch("api_handler.routes.alarms.scan_all", side_effect=err):
             from api_handler.lambda_handler import lambda_handler
             resp = lambda_handler(_event("GET", "/alarms"), None)
 
         assert resp["statusCode"] == 500
-        assert json.loads(resp["body"])["code"] == "CW_ERROR"
+        assert json.loads(resp["body"])["code"] == "AWS_ERROR"
 
     def test_alarm_summary_counts_by_state(self):
         mock_alarms = [
@@ -145,7 +229,7 @@ class TestAlarms:
             _alarm("[RDS] c CPU (TagName: db-001)", state="INSUFFICIENT_DATA"),
             _alarm("[RDS] d CPU (TagName: db-002)", state="ALARM"),
         ]
-        with patch("api_handler.routes.alarms.list_alarms", return_value=mock_alarms):
+        with patch("api_handler.routes.alarms.scan_all", return_value=[_alarm_to_ddb(a) for a in mock_alarms]):
             from api_handler.lambda_handler import lambda_handler
             resp = lambda_handler(_event("GET", "/alarms/summary"), None)
 
@@ -162,12 +246,11 @@ class TestAlarms:
 class TestResources:
 
     def test_list_resources_returns_paginated_result(self):
-        mock_alarms = [
-            _alarm("[EC2] server CPU >80% (TagName: i-001)"),
-            _alarm("[EC2] server Mem >80% (TagName: i-001)"),
-            _alarm("[RDS] db CPU >80% (TagName: db-001)"),
+        db_items = [
+            _resource_snapshot("i-001", "EC2", alarm_count=2, critical_count=0, warning_count=0),
+            _resource_snapshot("db-001", "RDS", alarm_count=1, critical_count=0, warning_count=0),
         ]
-        with patch("api_handler.cw_helper.list_alarms", return_value=mock_alarms):
+        with patch("api_handler.routes.resources.scan_all", return_value=db_items):
             from api_handler.lambda_handler import lambda_handler
             resp = lambda_handler(_event("GET", "/resources"), None)
 
@@ -176,11 +259,11 @@ class TestResources:
         assert body["total"] == 2  # i-001과 db-001 두 리소스
 
     def test_list_resources_filters_by_type(self):
-        mock_alarms = [
-            _alarm("[EC2] server CPU (TagName: i-001)"),
-            _alarm("[RDS] db CPU (TagName: db-001)"),
+        db_items = [
+            _resource_snapshot("i-001", "EC2"),
+            _resource_snapshot("db-001", "RDS"),
         ]
-        with patch("api_handler.cw_helper.list_alarms", return_value=mock_alarms):
+        with patch("api_handler.routes.resources.scan_all", return_value=db_items):
             from api_handler.lambda_handler import lambda_handler
             resp = lambda_handler(
                 _event("GET", "/resources", qs={"resource_type": "EC2"}), None
@@ -191,11 +274,11 @@ class TestResources:
         assert body["items"][0]["type"] == "EC2"
 
     def test_list_resources_filters_by_search(self):
-        mock_alarms = [
-            _alarm("[EC2] server CPU (TagName: i-001)"),
-            _alarm("[RDS] db CPU (TagName: prod-rds-01)"),
+        db_items = [
+            _resource_snapshot("i-001", "EC2"),
+            _resource_snapshot("prod-rds-01", "RDS"),
         ]
-        with patch("api_handler.cw_helper.list_alarms", return_value=mock_alarms):
+        with patch("api_handler.routes.resources.scan_all", return_value=db_items):
             from api_handler.lambda_handler import lambda_handler
             resp = lambda_handler(
                 _event("GET", "/resources", qs={"search": "prod"}), None
@@ -206,8 +289,10 @@ class TestResources:
         assert "prod" in body["items"][0]["id"]
 
     def test_sync_resources_returns_202_like_response(self):
-        from api_handler.lambda_handler import lambda_handler
-        resp = lambda_handler(_event("POST", "/resources/sync"), None)
+        with patch("api_handler.routes.resources._accounts_for_resource_discovery", return_value=[]), \
+             patch("api_handler.routes.resources.discover_resources", return_value=[]):
+            from api_handler.lambda_handler import lambda_handler
+            resp = lambda_handler(_event("POST", "/resources/sync"), None)
 
         assert resp["statusCode"] == 200
         body = json.loads(resp["body"])
@@ -236,7 +321,12 @@ class TestResources:
             _alarm("[EC2] server CPU >80% (TagName: i-001)"),
             _alarm("[EC2] server Mem >80% (TagName: i-001)", state="ALARM"),
         ]
-        with patch("api_handler.routes.resources.list_alarms", return_value=mock_alarms):
+        db_items = [
+            _resource_snapshot("i-001", "EC2", alarm_count=2, critical_count=1, warning_count=0),
+            _alarm_to_ddb(mock_alarms[0]),
+            _alarm_to_ddb(mock_alarms[1]),
+        ]
+        with patch("api_handler.routes.resources.scan_all", return_value=db_items):
             from api_handler.lambda_handler import lambda_handler
             resp = lambda_handler(
                 _event("GET", "/resources/i-001", path_params={"id": "i-001"}), None
@@ -250,7 +340,7 @@ class TestResources:
         assert body["alarms"]["critical"] == 1
 
     def test_get_resource_not_found_returns_404(self):
-        with patch("api_handler.routes.resources.list_alarms", return_value=[]):
+        with patch("api_handler.routes.resources.scan_all", return_value=[]):
             from api_handler.lambda_handler import lambda_handler
             resp = lambda_handler(
                 _event("GET", "/resources/nonexistent", path_params={"id": "nonexistent"}), None
@@ -268,7 +358,7 @@ class TestResources:
                 "Dimensions": [{"Name": "path", "Value": "/data"}],
             },
         ]
-        with patch("api_handler.routes.resources.list_alarms", return_value=mock_alarms):
+        with patch("api_handler.routes.resources.scan_all", return_value=[_alarm_to_ddb(a) for a in mock_alarms]):
             from api_handler.lambda_handler import lambda_handler
             resp = lambda_handler(
                 _event("GET", "/resources/i-001/alarms", path_params={"id": "i-001"}), None
@@ -569,7 +659,7 @@ class TestDashboardRecentAlarms:
             _alarm("[EC2] server CPU >80% (TagName: i-001)", state="ALARM"),
             _alarm("[RDS] db free <2GB (TagName: db-01)", state="ALARM"),
         ]
-        with patch("api_handler.routes.dashboard.list_alarms", return_value=mock_alarms):
+        with patch("api_handler.db.scan_all", return_value=[_alarm_to_ddb(a) for a in mock_alarms]):
             from api_handler.lambda_handler import lambda_handler
             resp = lambda_handler(_event("GET", "/dashboard/recent-alarms"), None)
 
@@ -586,7 +676,7 @@ class TestDashboardRecentAlarms:
             _alarm(f"[EC2] s CPU (TagName: i-{i:03d})", state="ALARM")
             for i in range(15)
         ]
-        with patch("api_handler.routes.dashboard.list_alarms", return_value=mock_alarms):
+        with patch("api_handler.db.scan_all", return_value=[_alarm_to_ddb(a) for a in mock_alarms]):
             from api_handler.lambda_handler import lambda_handler
             resp = lambda_handler(
                 _event("GET", "/dashboard/recent-alarms", qs={"page": "2", "page_size": "5"}), None
@@ -601,7 +691,7 @@ class TestDashboardRecentAlarms:
             _alarm(f"[EC2] s CPU (TagName: i-{i:03d})", state="ALARM")
             for i in range(100)
         ]
-        with patch("api_handler.routes.dashboard.list_alarms", return_value=mock_alarms):
+        with patch("api_handler.db.scan_all", return_value=[_alarm_to_ddb(a) for a in mock_alarms]):
             from api_handler.lambda_handler import lambda_handler
             resp = lambda_handler(
                 _event("GET", "/dashboard/recent-alarms", qs={"page_size": "200"}), None
@@ -613,7 +703,7 @@ class TestDashboardRecentAlarms:
     def test_recent_alarms_cw_error_returns_500(self):
         from botocore.exceptions import ClientError
         err = ClientError({"Error": {"Code": "AccessDenied", "Message": "Denied"}}, "DescribeAlarms")
-        with patch("api_handler.routes.dashboard.list_alarms", side_effect=err):
+        with patch("api_handler.db.scan_all", side_effect=err):
             from api_handler.lambda_handler import lambda_handler
             resp = lambda_handler(_event("GET", "/dashboard/recent-alarms"), None)
 

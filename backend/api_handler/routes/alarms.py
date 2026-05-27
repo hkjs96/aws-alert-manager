@@ -10,7 +10,7 @@ from datetime import datetime, UTC
 
 from botocore.exceptions import ClientError
 
-from api_handler.cw_helper import list_alarms
+from api_handler.db import scan_all, resource_inventory_table
 
 
 def list_alarms_handler(event: dict) -> dict:
@@ -20,30 +20,35 @@ def list_alarms_handler(event: dict) -> dict:
     state_filter = qs.get("state")  # ALARM | OK | INSUFFICIENT_DATA
 
     try:
-        alarms = list_alarms(state_value=state_filter if state_filter else None)
+        db_items = scan_all(resource_inventory_table())
     except ClientError as e:
-        return _err(500, "CW_ERROR", str(e))
+        return _err(500, "AWS_ERROR", str(e))
+
+    alarms = [item for item in db_items if item.get("entity_type") == "alarm"]
+    if state_filter:
+        alarms = [alarm for alarm in alarms if alarm.get("state") == state_filter]
 
     items = []
     for alarm in alarms:
-        tags = {t["Key"]: t["Value"] for t in alarm.get("Tags", [])} if alarm.get("Tags") else {}
-        ts = alarm.get("StateUpdatedTimestamp")
-        arn = alarm.get("AlarmArn", "")
-        arn_parts = arn.split(":")
-        account = arn_parts[4] if len(arn_parts) > 4 and arn_parts[4] else "unknown"
+        threshold_val = alarm.get("threshold")
+        if threshold_val is not None:
+            try:
+                threshold_val = float(threshold_val)
+            except ValueError:
+                pass
         items.append({
-            "id": alarm["AlarmName"],
-            "alarm_name": alarm["AlarmName"],
-            "arn": arn,
-            "account": account,
-            "resource": _extract_resource_id(alarm["AlarmName"]),
-            "type": _extract_resource_type(alarm["AlarmName"]),
-            "metric": alarm.get("MetricName", ""),
-            "mount_path": _alarm_mount_path(alarm),
-            "state": alarm.get("StateValue", ""),
-            "threshold": alarm.get("Threshold"),
-            "severity": tags.get("Severity", "SEV-5"),
-            "time": ts.isoformat() if hasattr(ts, "isoformat") else str(ts or ""),
+            "id": alarm.get("alarm_name"),
+            "alarm_name": alarm.get("alarm_name"),
+            "arn": alarm.get("arn"),
+            "account": alarm.get("account_id"),
+            "resource": alarm.get("resource"),
+            "type": alarm.get("type"),
+            "metric": alarm.get("metric"),
+            "mount_path": alarm.get("mount_path"),
+            "state": alarm.get("state"),
+            "threshold": threshold_val,
+            "severity": alarm.get("severity", "SEV-5"),
+            "time": alarm.get("time"),
             "value": None,
         })
 
@@ -59,31 +64,31 @@ def list_alarms_handler(event: dict) -> dict:
 
 def get_alarm_summary(event: dict) -> dict:
     try:
-        all_alarms = list_alarms()
+        db_items = scan_all(resource_inventory_table())
     except ClientError as e:
-        return _err(500, "CW_ERROR", str(e))
+        return _err(500, "AWS_ERROR", str(e))
+
+    alarms = [item for item in db_items if item.get("entity_type") == "alarm"]
 
     summary = {"ALARM": 0, "OK": 0, "INSUFFICIENT_DATA": 0}
-    for alarm in all_alarms:
-        state = alarm.get("StateValue", "")
+    for alarm in alarms:
+        state = alarm.get("state", "")
         if state in summary:
             summary[state] += 1
 
     return _ok({
-        "total": len(all_alarms),
+        "total": len(alarms),
         "by_state": summary,
         "alarm_count": summary["ALARM"],
         "ok_count": summary["OK"],
         "insufficient_count": summary["INSUFFICIENT_DATA"],
     })
 
-
 # ── 내부 헬퍼 ─────────────────────────────────────────────────────
 
 import re
 _ALARM_NAME_RE = re.compile(r"^\[(\w+)\]\s+.+\(TagName:\s*(.+)\)$")
 _DISK_PATH_RE = re.compile(r"disk_used_percent\(([^)]+)\)")
-
 
 def _extract_resource_id(alarm_name: str) -> str:
     m = _ALARM_NAME_RE.match(alarm_name)
