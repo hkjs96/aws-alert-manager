@@ -24,10 +24,9 @@ def mock_db_env(monkeypatch):
 
 class TestResourceInventoryLogic:
 
-    @patch("api_handler.routes.resources.discover_resources")
     @patch("api_handler.routes.resources.scan_all")
     @patch("api_handler.routes.resources.get_alarm_overlay")
-    def test_list_resources_merges_aws_and_db(self, mock_overlay, mock_scan, mock_discover, mock_db_env):
+    def test_list_resources_merges_aws_and_db(self, mock_overlay, mock_scan, mock_db_env):
         # DB scan returns both resources (snapshot)
         mock_scan.return_value = [{ # inventory
             "resource_id": "i-aws-01",
@@ -81,10 +80,9 @@ class TestResourceInventoryLogic:
         assert db_item["alarms"]["warning"] == 2
         assert db_item["persisted"] == True
 
-    @patch("api_handler.routes.resources.discover_resources")
     @patch("api_handler.routes.resources.scan_all")
     @patch("api_handler.routes.resources.get_alarm_overlay")
-    def test_list_resources_filters_correctly(self, mock_overlay, mock_scan, mock_discover, mock_db_env):
+    def test_list_resources_filters_correctly(self, mock_overlay, mock_scan, mock_db_env):
         """resource_type 필터링이 정확히 동작해야 한다."""
         mock_scan.return_value = [ # inventory
             {"resource_id": "i-01", "name": "e1", "type": "EC2", "account_id": "1", "region": "r1", "monitoring": True, "status": "active"},
@@ -99,14 +97,12 @@ class TestResourceInventoryLogic:
         assert body["total"] == 1
         assert body["items"][0]["type"] == "EC2"
 
-    @patch("api_handler.routes.resources.discover_resources")
     @patch("api_handler.routes.resources.scan_all")
     @patch("api_handler.routes.resources.get_alarm_overlay")
-    def test_list_resources_identifies_orphan_alarms(self, mock_overlay, mock_scan, mock_discover, mock_db_env):
+    def test_list_resources_identifies_orphan_alarms(self, mock_overlay, mock_scan, mock_db_env):
         """AWS나 DB에는 없지만 알람만 존재하는 경우 orphan_alarm 후보로 표시해야 한다."""
         # 1. AWS/DB 모두 비어 있음
-        mock_discover.return_value = []
-        mock_scan.side_effect = [[], []] 
+        mock_scan.return_value = []
         
         # 2. 알람은 존재함 (i-orphan-01)
         mock_overlay.return_value = {
@@ -125,10 +121,9 @@ class TestResourceInventoryLogic:
         assert item["status"] == "orphan_candidate"
         assert item["inventory_source"] == "alarms"
 
-    @patch("api_handler.routes.resources.discover_resources")
     @patch("api_handler.routes.resources.scan_all")
     @patch("api_handler.routes.resources.get_alarm_overlay")
-    def test_list_resources_keeps_unmonitored_discovered_resources(self, mock_overlay, mock_scan, mock_discover, mock_db_env):
+    def test_list_resources_keeps_unmonitored_discovered_resources(self, mock_overlay, mock_scan, mock_db_env):
         """Monitoring 태그 값이 비어도 실제 존재하는 리소스는 목록에 표시한다."""
         mock_scan.return_value = [{ # inventory
             "resource_id": "i-unmonitored",
@@ -151,10 +146,9 @@ class TestResourceInventoryLogic:
         assert body["items"][0]["id"] == "i-unmonitored"
         assert body["items"][0]["monitoring"] is False
 
-    @patch("api_handler.routes.resources.discover_resources")
     @patch("api_handler.routes.resources.scan_all")
     @patch("api_handler.routes.resources.get_alarm_overlay")
-    def test_get_resource_resolves_discovered_resource_by_name_without_alarms(self, mock_overlay, mock_scan, mock_discover, mock_db_env):
+    def test_get_resource_resolves_discovered_resource_by_name_without_alarms(self, mock_overlay, mock_scan, mock_db_env):
         mock_scan.return_value = [{ # inventory
             "resource_id": "i-01",
             "name": "web-01",
@@ -177,11 +171,9 @@ class TestResourceInventoryLogic:
         assert body["monitoring"] is False
         assert body["alarm_count"] == 0
 
-    @patch("api_handler.routes.resources.discover_resources")
     @patch("api_handler.routes.resources.scan_all")
     @patch("api_handler.routes.resources.get_alarm_overlay")
-    def test_get_resource_resolves_persisted_resource_by_id_without_alarms(self, mock_overlay, mock_scan, mock_discover, mock_db_env):
-        mock_discover.return_value = []
+    def test_get_resource_resolves_persisted_resource_by_id_without_alarms(self, mock_overlay, mock_scan, mock_db_env):
         mock_scan.return_value = [{ # inventory
             "resource_id": "i-02",
             "name": "db-only",
