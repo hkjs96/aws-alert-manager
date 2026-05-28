@@ -185,6 +185,7 @@ def test_dashboard_stats_returns_expected_shape():
     snapshot_items = [
         {"entity_type": "resource", "resource_id": "i-001", "type": "EC2", "monitoring": True},
         {"entity_type": "resource", "resource_id": "db-001", "type": "RDS", "monitoring": True},
+        {"resource_id": "i-legacy", "type": "EC2", "monitoring": True},
         {
             "entity_type": "alarm",
             "resource_id": "alarm#arn:aws:cloudwatch:ap-northeast-2:111111111111:alarm:cpu",
@@ -210,4 +211,5 @@ def test_dashboard_stats_returns_expected_shape():
     stats = json.loads(resp["body"])
     assert "monitored_count" in stats
     assert "active_alarms" in stats
+    assert stats["monitored_count"] == 3
     assert stats["active_alarms"] == 1  # ALARM 상태 1개

@@ -139,6 +139,26 @@ class TestResourceInventoryLogic:
         assert len(items) == 0
 
     @patch("api_handler.routes.resources.scan_all")
+    def test_list_resources_keeps_legacy_resource_snapshots(self, mock_scan, mock_db_env):
+        mock_scan.return_value = [{
+            "resource_id": "i-legacy",
+            "name": "legacy-instance",
+            "type": "EC2",
+            "account_id": "1",
+            "region": "us-east-1",
+            "monitoring": True,
+            "status": "active",
+        }]
+
+        from api_handler.routes.resources import list_resources
+        resp = list_resources(_event("GET", "/resources"))
+
+        assert resp["statusCode"] == 200
+        body = json.loads(resp["body"])
+        assert body["total"] == 1
+        assert body["items"][0]["id"] == "i-legacy"
+
+    @patch("api_handler.routes.resources.scan_all")
     def test_list_resources_keeps_unmonitored_discovered_resources(self, mock_scan, mock_db_env):
         """Monitoring 태그 값이 비어도 실제 존재하는 리소스는 목록에 표시한다."""
         mock_scan.return_value = [{ # inventory

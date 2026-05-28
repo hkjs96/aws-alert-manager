@@ -226,7 +226,7 @@ def get_resource_metrics(event: dict) -> dict:
         return _err(500, "AWS_ERROR", str(exc))
 
     resource = next(
-        (item for item in db_items if item.get("resource_id") == resource_id and item.get("entity_type") == "resource"),
+        (item for item in db_items if _is_resource_snapshot(item) and _resource_id(item) == resource_id),
         None,
     )
     if not resource:
@@ -492,11 +492,33 @@ def _alarm_summary(alarm_info: dict) -> dict:
 
 
 def _resource_snapshots(items: list[dict]) -> list[dict]:
-    return [item for item in items if item.get("entity_type") == "resource"]
+    return [item for item in items if _is_resource_snapshot(item)]
 
 
 def _alarm_snapshots(items: list[dict]) -> list[dict]:
-    return [item for item in items if item.get("entity_type") == "alarm"]
+    return [item for item in items if _is_alarm_snapshot(item)]
+
+
+def _resource_id(item: dict) -> str:
+    return item.get("resource_id") or item.get("id", "")
+
+
+def _is_resource_snapshot(item: dict) -> bool:
+    entity_type = item.get("entity_type")
+    if entity_type == "resource":
+        return True
+    if entity_type:
+        return False
+    return not _resource_id(item).startswith("alarm#")
+
+
+def _is_alarm_snapshot(item: dict) -> bool:
+    entity_type = item.get("entity_type")
+    if entity_type == "alarm":
+        return True
+    if entity_type:
+        return False
+    return _resource_id(item).startswith("alarm#")
 
 
 def _alarm_info_from_resource(resource: dict) -> dict:

@@ -186,8 +186,8 @@ def get_dashboard_stats(customer_id: str | None = None, account_id: str | None =
     except ClientError:
         return {"monitored_count": 0, "active_alarms": 0, "unmonitored_count": 0, "account_count": 0}
 
-    db_resources = [item for item in db_items if item.get("entity_type") == "resource"]
-    db_alarms = [item for item in db_items if item.get("entity_type") == "alarm"]
+    db_resources = [item for item in db_items if _is_resource_snapshot(item)]
+    db_alarms = [item for item in db_items if _is_alarm_snapshot(item)]
 
     if customer_id:
         db_resources = [r for r in db_resources if r.get("customer_id") == customer_id]
@@ -207,6 +207,28 @@ def get_dashboard_stats(customer_id: str | None = None, account_id: str | None =
         "unmonitored_count": max(len(db_resources) - monitored_count, 0),
         "account_count": count_registered_accounts(customer_id=customer_id, account_id=account_id),
     }
+
+
+def _snapshot_resource_id(item: dict) -> str:
+    return item.get("resource_id") or item.get("id", "")
+
+
+def _is_resource_snapshot(item: dict) -> bool:
+    entity_type = item.get("entity_type")
+    if entity_type == "resource":
+        return True
+    if entity_type:
+        return False
+    return not _snapshot_resource_id(item).startswith("alarm#")
+
+
+def _is_alarm_snapshot(item: dict) -> bool:
+    entity_type = item.get("entity_type")
+    if entity_type == "alarm":
+        return True
+    if entity_type:
+        return False
+    return _snapshot_resource_id(item).startswith("alarm#")
 
 
 def get_resources_from_alarms(
