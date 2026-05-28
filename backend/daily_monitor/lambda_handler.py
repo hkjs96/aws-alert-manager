@@ -182,6 +182,9 @@ def _clear_all_client_caches() -> None:
 
 
 def lambda_handler(event, context):
+    # 수동 알람 동기화 요청(Event) 분기
+    if isinstance(event, dict) and event.get("sync_target") == "alarms":
+        return _handle_alarms_sync_job(event, context)
     """
     Lambda 핸들러 진입점 (Worker).
 
@@ -866,3 +869,223 @@ def _process_resource(
                 resource_type, resource_id, metric_name, current_value, threshold,
             )
     return alerts_sent
+
+
+def _job_status_table():
+    table_name = os.environ.get("JOB_STATUS_TABLE")
+    if not table_name:
+        return None
+    return _get_ddb_resource().Table(table_name)
+
+
+def _update_job_status(job_id: str, status: str, extra: dict | None = None) -> None:
+    job_table = _job_status_table()
+    if not job_table or not job_id:
+        return
+    now = datetime.now(timezone.utc).isoformat()
+    expr = "SET #s = :status, updated_at = :updated_at"
+    vals = {":status": status, ":updated_at": now}
+    if extra:
+        for k, v in extra.items():
+            expr += f", {k} = :{k}"
+            vals[f":{k}"] = v
+    try:
+        job_table.update_item(
+            Key={"job_id": job_id},
+            UpdateExpression=expr,
+            ExpressionAttributeNames={"#s": "status"},
+            ExpressionAttributeValues=vals
+        )
+    except ClientError as e:
+        logger.error("Failed to update job status %s to %s: %s", job_id, status, e)
+
+
+def _resolve_target_accounts(scope: dict) -> list[dict]:
+    customer_id = scope.get("customer_id")
+    account_id = scope.get("account_id")
+    table_name = os.environ.get("ACCOUNTS_TABLE")
+    if not table_name:
+        return _fallback_single_account()
+
+    try:
+        table = _get_ddb_resource().Table(table_name)
+        if customer_id and account_id:
+            res = table.get_item(Key={"customer_id": customer_id, "account_id": account_id})
+            return [res["Item"]] if res.get("Item") else []
+        if customer_id:
+            return table.query(KeyConditionExpression=Key("customer_id").eq(customer_id)).get("Items", [])
+        if account_id:
+            return table.query(IndexName="account_id-index", KeyConditionExpression=Key("account_id").eq(account_id)).get("Items", [])
+        return _scan_all_accounts(table)
+    except ClientError as e:
+        logger.error("Failed to resolve target accounts: %s", e)
+        raise
+
+
+def _fallback_single_account() -> list[dict]:
+    sts = boto3.client("sts")
+    real_id = sts.get_caller_identity()["Account"]
+    return [{
+        "account_id": real_id,
+        "role_arn": "",
+        "regions": ["ap-northeast-2"],
+        "customer_id": "",
+    }]
+
+
+def _scan_all_accounts(table) -> list[dict]:
+    items = []
+    kwargs = {}
+    while True:
+        resp = table.scan(**kwargs)
+        items.extend(resp.get("Items", []))
+        last = resp.get("LastEvaluatedKey")
+        if not last:
+            break
+        kwargs["ExclusiveStartKey"] = last
+    return items
+
+
+def _write_alarm_snapshots(inv_table, alarms: list[dict]) -> tuple[int, set[tuple[str, str]]]:
+    synced = 0
+    fresh_keys = set()
+    for alarm in alarms:
+        arn = alarm.get("AlarmArn", "")
+        if not arn:
+            continue
+        db_key = f"alarm#{arn}"
+        arn_parts = arn.split(":")
+        acc = arn_parts[4] if len(arn_parts) > 4 and arn_parts[4] else alarm.get("_account_id", "unknown")
+        
+        item = _build_alarm_item(alarm, db_key, acc, arn_parts)
+        try:
+            inv_table.put_item(Item=item)
+            synced += 1
+            fresh_keys.add((db_key, acc))
+        except ClientError as e:
+            logger.error("Failed to write alarm snapshot %s: %s", db_key, e)
+    return synced, fresh_keys
+
+
+def _build_alarm_item(alarm: dict, db_key: str, account: str, arn_parts: list[str]) -> dict:
+    alarm_name = alarm["AlarmName"]
+    region = arn_parts[3] if len(arn_parts) > 3 and arn_parts[3] else alarm.get("_region", "unknown")
+    
+    res_id, res_type = "", ""
+    extracted = _extract_resource_from_alarm_name(alarm_name)
+    if extracted:
+        res_type, res_id = extracted
+    else:
+        res_id = alarm_name
+
+    tags = {t["Key"]: t["Value"] for t in alarm.get("Tags", [])} if alarm.get("Tags") else {}
+    severity = tags.get("Severity", "SEV-5")
+    ts = alarm.get("StateUpdatedTimestamp")
+    ts_str = ts.isoformat() if hasattr(ts, "isoformat") else str(ts or "")
+
+    return {
+        "resource_id": db_key,
+        "account_id": account,
+        "alarm_name": alarm_name,
+        "arn": alarm.get("AlarmArn", ""),
+        "entity_type": "alarm",
+        "state": alarm.get("StateValue", ""),
+        "metric": alarm.get("MetricName", ""),
+        "namespace": alarm.get("Namespace", ""),
+        "comparison": alarm.get("ComparisonOperator", ""),
+        "threshold": str(alarm.get("Threshold", "0")),
+        "severity": severity,
+        "time": ts_str,
+        "region": region,
+        "type": res_type,
+        "resource": res_id,
+        "inventory_source": "alarms",
+        "tags": tags,
+        "status": "active",
+        "period": alarm.get("Period"),
+        "evaluation_periods": alarm.get("EvaluationPeriods"),
+        "datapoints_to_alarm": alarm.get("DatapointsToAlarm"),
+        "treat_missing_data": alarm.get("TreatMissingData"),
+        "statistic": alarm.get("Statistic"),
+    }
+
+
+def _cleanup_stale_snapshots(inv_table, fresh_keys: set[tuple[str, str]], target_acc_regions: set[tuple[str, str]]) -> int:
+    deleted = 0
+    try:
+        db_items = []
+        scan_kwargs = {}
+        while True:
+            resp = inv_table.scan(**scan_kwargs)
+            db_items.extend(resp.get("Items", []))
+            last = resp.get("LastEvaluatedKey")
+            if not last:
+                break
+            scan_kwargs["ExclusiveStartKey"] = last
+
+        for item in db_items:
+            res_id = item.get("resource_id", "")
+            acc_id = item.get("account_id", "")
+            reg_id = item.get("region", "")
+            if item.get("entity_type") == "alarm" and (acc_id, reg_id) in target_acc_regions:
+                if (res_id, acc_id) not in fresh_keys:
+                    try:
+                        inv_table.delete_item(Key={"resource_id": res_id, "account_id": acc_id})
+                        deleted += 1
+                    except ClientError as e:
+                        logger.error("Failed to delete stale alarm %s: %s", res_id, e)
+    except ClientError as e:
+        logger.error("Failed to scan table for alarm cleanup: %s", e)
+    return deleted
+
+
+def _handle_alarms_sync_job(event: dict, context) -> dict:
+    job_id = event.get("sync_job_id", "")
+    scope = event.get("scope", {})
+    regions_override = scope.get("regions") or []
+    
+    _update_job_status(job_id, "in_progress")
+
+    try:
+        accounts = _resolve_target_accounts(scope)
+    except ClientError as e:
+        _update_job_status(job_id, "failed", {"error_message": f"DB_ERROR: {e}"})
+        return {"status": "error", "message": str(e)}
+
+    if not accounts:
+        _update_job_status(job_id, "failed", {"error_message": "No matching accounts found"})
+        return {"status": "ok", "message": "No matching accounts found"}
+
+    for acc in accounts:
+        acc["regions"] = regions_override if regions_override else list(acc.get("regions") or ["ap-northeast-2"])
+
+    try:
+        alarms = _fetch_alarms_for_accounts(accounts)
+    except ClientError as e:
+        _update_job_status(job_id, "failed", {"error_message": f"AWS_ERROR: {e}"})
+        return {"status": "error", "message": str(e)}
+
+    inv_table_name = os.environ.get("RESOURCE_INVENTORY_TABLE")
+    synced, deleted = 0, 0
+    if inv_table_name:
+        inv_table = _get_ddb_resource().Table(inv_table_name)
+        synced, fresh = _write_alarm_snapshots(inv_table, alarms)
+        
+        target_acc_regions = {(acc["account_id"], reg) for acc in accounts for reg in acc["regions"]}
+        deleted = _cleanup_stale_snapshots(inv_table, fresh, target_acc_regions)
+
+    results = [{
+        "account_id": acc["account_id"],
+        "regions": acc["regions"],
+        "status": "success",
+        "imported": synced,
+        "deleted": deleted
+    } for acc in accounts]
+
+    _update_job_status(job_id, "completed", {
+        "completed_count": len(accounts),
+        "failed_count": 0,
+        "results": results
+    })
+
+    return {"status": "ok", "imported": synced, "deleted": deleted}

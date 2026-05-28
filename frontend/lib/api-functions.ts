@@ -173,3 +173,20 @@ export function saveThresholds(
     body: JSON.stringify({ customer_id: customerId ?? "", overrides }),
   });
 }
+
+// --- Sync ---
+
+export function syncAlarms(scope: {
+  customer_id?: string;
+  account_id?: string;
+  regions?: string[];
+}): Promise<{ job_id: string; status: string; total_count: number }> {
+  return apiFetch("/api/sync/alarms", {
+    method: "POST",
+    body: JSON.stringify({ scope }),
+  });
+}
+
+export function fetchJobStatus(id: string): Promise<JobStatus> {
+  return apiFetch(`/api/jobs/${id}`);
+}

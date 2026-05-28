@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { Download } from "lucide-react";
+import { Download, RefreshCw } from "lucide-react";
 import type { Alarm } from "@/types";
 import type { AlarmSummary, AlarmStateFilter } from "@/types/api";
 import { Button } from "@/components/shared/Button";
@@ -15,6 +15,9 @@ import { AlarmSummaryCards } from "./AlarmSummaryCards";
 import { AlarmTable } from "./AlarmTable";
 import { useOwnedCustomers } from "@/hooks/useOwnedCustomers";
 import { OwnedEmptyState } from "@/components/shared/OwnedEmptyState";
+import { syncAlarms } from "@/lib/api-functions";
+import { SyncScopeModal } from "./SyncScopeModal";
+import { SyncProgressModal } from "./SyncProgressModal";
 
 const FILTER_TABS: AlarmStateFilter[] = ["ALL", "ALARM", "INSUFFICIENT_DATA", "OK", "OFF"];
 
@@ -50,6 +53,21 @@ export function AlarmsContent({ alarms, summary, customers, accounts }: AlarmsCo
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [isExporting, setIsExporting] = useState(false);
+
+  const [isSyncScopeOpen, setIsSyncScopeOpen] = useState(false);
+  const [isSyncProgressOpen, setIsSyncProgressOpen] = useState(false);
+  const [activeJobId, setActiveJobId] = useState("");
+
+  const handleStartSync = async (scope: { customer_id?: string; account_id?: string; regions?: string[] }) => {
+    setIsSyncScopeOpen(false);
+    try {
+      const res = await syncAlarms(scope);
+      setActiveJobId(res.job_id);
+      setIsSyncProgressOpen(true);
+    } catch (err) {
+      showToast("error", "Failed to start alarm sync job.");
+    }
+  };
 
   const filteredAccounts = useMemo(
     () => customerFilter ? accounts.filter((a) => a.customerId === customerFilter) : accounts,
@@ -137,6 +155,12 @@ export function AlarmsContent({ alarms, summary, customers, accounts }: AlarmsCo
           <p className="text-sm text-slate-500 mt-1">Comprehensive list of all triggered and monitored alarm states.</p>
         </div>
         <div className="flex items-center gap-3">
+          <Button
+            onClick={() => setIsSyncScopeOpen(true)}
+            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold rounded-lg shadow-sm flex items-center gap-2"
+          >
+            <RefreshCw size={16} /> Sync Alarms
+          </Button>
           <LoadingButton isLoading={isExporting} onClick={handleExport}
             className="px-4 py-2 bg-white text-slate-700 text-sm font-semibold rounded-lg shadow-sm border border-slate-200 hover:bg-slate-50 flex items-center gap-2">
             <Download size={16} /> Export Report
@@ -196,6 +220,24 @@ export function AlarmsContent({ alarms, summary, customers, accounts }: AlarmsCo
       {/* Pagination */}
       <Pagination page={page} pageSize={pageSize} total={filtered.length}
         onPageChange={setPage} onPageSizeChange={(s) => { setPageSize(s); setPage(1); }} />
+
+      {/* Modals */}
+      <SyncScopeModal
+        isOpen={isSyncScopeOpen}
+        onClose={() => setIsSyncScopeOpen(false)}
+        customers={customers}
+        accounts={accounts}
+        onStartSync={handleStartSync}
+      />
+      <SyncProgressModal
+        isOpen={isSyncProgressOpen}
+        jobId={activeJobId}
+        onClose={() => setIsSyncProgressOpen(false)}
+        onSuccess={() => {
+          showToast("success", "Alarm database updated successfully.");
+          router.refresh();
+        }}
+      />
     </div>
   );
 }

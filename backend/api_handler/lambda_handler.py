@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 from api_handler.routes import (
     customers, accounts, dashboard, resources, alarms, thresholds, jobs, bulk,
-    monitor_runs,
+    monitor_runs, sync,
 )
 
 
@@ -54,6 +54,7 @@ _ROUTES: list[tuple[str, re.Pattern, object]] = [
     # Alarms
     ("GET",    re.compile(r"^/alarms/summary$"),                      alarms.get_alarm_summary),
     ("GET",    re.compile(r"^/alarms$"),                              alarms.list_alarms_handler),
+    ("POST",   re.compile(r"^/sync/alarms$"),                         sync.import_alarms),
     # Customers
     ("GET",    re.compile(r"^/customers$"),                           customers.list_customers),
     ("POST",   re.compile(r"^/customers$"),                           customers.create_customer),
