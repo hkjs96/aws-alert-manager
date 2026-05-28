@@ -19,7 +19,7 @@ from api_handler.cw_helper import (
 from api_handler.db import accounts_table, resource_inventory_table, scan_all
 from common import dimension_builder
 from common.tag_resolver import disk_path_to_tag_suffix
-from common.resource_discovery import discover_resources
+from common.resource_discovery import discover_resources, _get_session_for_account
 from common.alarm_naming import _build_alarm_description, _pretty_alarm_name
 from common.alarm_registry import (
     _DIMENSION_KEY_MAP,
@@ -55,6 +55,26 @@ def _get_ec2_client():
 @functools.lru_cache(maxsize=None)
 def _get_ec2_client_for_region(region: str):
     return boto3.client("ec2", region_name=region)
+
+
+@functools.lru_cache(maxsize=None)
+def _get_rds_client_for_region(region: str):
+    return boto3.client("rds", region_name=region)
+
+
+@functools.lru_cache(maxsize=None)
+def _get_elbv2_client_for_region(region: str):
+    return boto3.client("elbv2", region_name=region)
+
+
+@functools.lru_cache(maxsize=None)
+def _get_lambda_client_for_region(region: str):
+    return boto3.client("lambda", region_name=region)
+
+
+@functools.lru_cache(maxsize=None)
+def _get_s3_client_for_region(region: str):
+    return boto3.client("s3", region_name=region)
 
 
 def _default_discovery_account() -> dict:
@@ -153,16 +173,18 @@ def update_resource_monitoring(event: dict) -> dict:
         resource = _find_inventory_resource(resource_id)
         if not resource:
             return _err(404, "NOT_FOUND", f"Resource '{resource_id}' was not found")
-        if resource.get("type") != "EC2":
-            return _err(400, "UNSUPPORTED_RESOURCE_TYPE", "Only EC2 monitoring toggle is supported")
+
+        supported_types = ("EC2", "RDS", "AuroraRDS", "ALB", "Lambda", "S3")
+        res_type = resource.get("type")
+        if res_type not in supported_types:
+            return _err(400, "UNSUPPORTED_RESOURCE_TYPE", f"Only {', '.join(supported_types)} monitoring toggle is supported")
 
         monitoring = bool(body["monitoring"])
-        region = resource.get("region") or os.environ.get("AWS_REGION") or "ap-northeast-2"
-        _set_ec2_monitoring_tag(resource_id, region, monitoring)
+        _set_resource_monitoring_tag(resource, monitoring)
         _update_inventory_monitoring(resource, monitoring)
     except ClientError as exc:
         return _err(500, "AWS_ERROR", str(exc))
-    except ValueError as exc:
+    except (ValueError, RuntimeError) as exc:
         return _err(500, "INVENTORY_ERROR", str(exc))
 
     return _ok({
@@ -561,12 +583,102 @@ def _find_inventory_resource(resource_id: str) -> dict | None:
     return None
 
 
-def _set_ec2_monitoring_tag(resource_id: str, region: str, monitoring: bool) -> None:
+def _find_account(account_id: str) -> dict | None:
+    from boto3.dynamodb.conditions import Key
+    table = accounts_table()
+    try:
+        resp = table.query(
+            IndexName="account_id-index",
+            KeyConditionExpression=Key("account_id").eq(account_id)
+        )
+        items = resp.get("Items", [])
+        return items[0] if items else None
+    except ClientError as exc:
+        logger.warning("Failed to query accounts_table for account_id %s: %s", account_id, exc)
+        return None
+
+
+def _set_resource_monitoring_tag(resource: dict, monitoring: bool) -> None:
+    resource_id = resource.get("resource_id") or resource.get("id")
+    resource_type = resource.get("type")
+    region = resource.get("region") or os.environ.get("AWS_REGION") or "ap-northeast-2"
+    account_id = resource.get("account_id")
+
+    if not resource_id or not resource_type or not account_id:
+        raise ValueError("Missing required resource attributes (id, type, account_id)")
+
+    account_meta = _find_account(account_id) if account_id else None
+    role_arn = account_meta.get("role_arn") if account_meta else ""
+
+    use_assume_role = False
+    if role_arn:
+        try:
+            current_account = boto3.client("sts").get_caller_identity().get("Account", "")
+            if account_id != current_account:
+                use_assume_role = True
+        except ClientError:
+            pass
+
+    if use_assume_role and account_meta:
+        session = _get_session_for_account(account_meta, region)
+        if not session:
+            raise RuntimeError(f"Failed to obtain AWS Session for account {account_id} in {region}")
+        ec2_client = session.client("ec2")
+        rds_client = session.client("rds")
+        elbv2_client = session.client("elbv2")
+        lambda_client = session.client("lambda")
+        s3_client = session.client("s3")
+    else:
+        ec2_client = _get_ec2_client_for_region(region)
+        rds_client = _get_rds_client_for_region(region)
+        elbv2_client = _get_elbv2_client_for_region(region)
+        lambda_client = _get_lambda_client_for_region(region)
+        s3_client = _get_s3_client_for_region(region)
+
     value = "on" if monitoring else "off"
-    _get_ec2_client_for_region(region).create_tags(
-        Resources=[resource_id],
-        Tags=[{"Key": "Monitoring", "Value": value}],
-    )
+
+    if resource_type == "EC2":
+        ec2_client.create_tags(
+            Resources=[resource_id],
+            Tags=[{"Key": "Monitoring", "Value": value}],
+        )
+    elif resource_type in ("RDS", "AuroraRDS"):
+        arn = f"arn:aws:rds:{region}:{account_id}:db:{resource_id}"
+        rds_client.add_tags_to_resource(
+            ResourceName=arn,
+            Tags=[{"Key": "Monitoring", "Value": value}],
+        )
+    elif resource_type == "ALB":
+        elbv2_client.add_tags(
+            ResourceArns=[resource_id],
+            Tags=[{"Key": "Monitoring", "Value": value}],
+        )
+    elif resource_type == "Lambda":
+        arn = resource.get("arn")
+        if not arn:
+            arn = f"arn:aws:lambda:{region}:{account_id}:function:{resource_id}"
+        lambda_client.tag_resource(
+            Resource=arn,
+            Tags={"Monitoring": value},
+        )
+    elif resource_type == "S3":
+        tags = []
+        try:
+            resp = s3_client.get_bucket_tagging(Bucket=resource_id)
+            tags = resp.get("TagSet", [])
+        except ClientError as exc:
+            if exc.response.get("Error", {}).get("Code") != "NoSuchTagSet":
+                raise
+
+        updated_tags = [t for t in tags if t["Key"] != "Monitoring"]
+        updated_tags.append({"Key": "Monitoring", "Value": value})
+
+        s3_client.put_bucket_tagging(
+            Bucket=resource_id,
+            Tagging={"TagSet": updated_tags}
+        )
+    else:
+        raise ValueError(f"Unsupported resource type: {resource_type}")
 
 
 def _update_inventory_monitoring(resource: dict, monitoring: bool) -> None:

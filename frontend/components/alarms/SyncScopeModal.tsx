@@ -65,12 +65,12 @@ export function SyncScopeModal({
     return cleaned;
   }, [selectedCustomerId, selectedAccountId, accounts]);
 
-  // Set default selected regions when availableRegions changes
+  // Set default selected regions to all available regions when availableRegions changes
   useEffect(() => {
-    if (availableRegions.includes("ap-northeast-2")) {
-      setSelectedRegions(["ap-northeast-2"]);
+    if (availableRegions.length > 0) {
+      setSelectedRegions(availableRegions);
     } else {
-      setSelectedRegions([availableRegions[0]]);
+      setSelectedRegions([]);
     }
   }, [availableRegions]);
 

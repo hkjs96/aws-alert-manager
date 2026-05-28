@@ -317,11 +317,11 @@ class TestResourceInventoryLogic:
 
     @patch("api_handler.routes.resources.scan_all")
     def test_update_resource_monitoring_rejects_non_ec2(self, mock_scan, mock_db_env):
-        mock_scan.return_value = [{"resource_id": "bucket-01", "type": "S3", "entity_type": "resource"}]
+        mock_scan.return_value = [{"resource_id": "table-01", "type": "DynamoDB", "entity_type": "resource"}]
 
         from api_handler.routes.resources import update_resource_monitoring
         resp = update_resource_monitoring(
-            _event("PUT", "/resources/bucket-01/monitoring", body={"monitoring": True}, path_params={"id": "bucket-01"})
+            _event("PUT", "/resources/table-01/monitoring", body={"monitoring": True}, path_params={"id": "table-01"})
         )
 
         assert resp["statusCode"] == 400
