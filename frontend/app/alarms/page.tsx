@@ -13,7 +13,7 @@ export default async function AlarmsPage() {
   let alarms: Alarm[] = [];
   let summary: AlarmSummary = { total: 0, alarm_count: 0, ok_count: 0, insufficient_count: 0 };
   let customers: { id: string; name: string }[] = [];
-  let accounts: { id: string; name: string; customerId: string }[] = [];
+  let accounts: { id: string; name: string; customerId: string; regions?: string[] }[] = [];
   try {
     [alarms, summary, customers, accounts] = await Promise.all([
       fetchAlarms(),
