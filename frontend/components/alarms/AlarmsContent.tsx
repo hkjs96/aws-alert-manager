@@ -32,7 +32,7 @@ const TAB_LABEL: Record<AlarmStateFilter, string> = {
 const DEFAULT_PAGE_SIZE = 25;
 
 interface CustomerDto { id: string; name: string }
-interface AccountDto { id: string; name: string; customerId: string }
+interface AccountDto { id: string; name: string; customerId: string; regions?: string[] }
 
 interface AlarmsContentProps {
   alarms: Alarm[];

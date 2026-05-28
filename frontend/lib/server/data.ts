@@ -78,9 +78,9 @@ export async function fetchCustomerOptions(): Promise<{ id: string; name: string
   return customers.map((c) => ({ id: c.customer_id, name: c.name }));
 }
 
-export async function fetchAccountOptions(): Promise<{ id: string; name: string; customerId: string }[]> {
+export async function fetchAccountOptions(): Promise<{ id: string; name: string; customerId: string; regions?: string[] }[]> {
   const accounts = await fetchAccounts();
-  return accounts.map((a) => ({ id: a.account_id, name: a.name, customerId: a.customer_id }));
+  return accounts.map((a) => ({ id: a.account_id, name: a.name, customerId: a.customer_id, regions: a.regions }));
 }
 
 export async function fetchResource(idOrName: string): Promise<Resource | null> {
