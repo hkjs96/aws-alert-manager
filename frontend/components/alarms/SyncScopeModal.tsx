@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { X, Check } from "lucide-react";
 import { Button } from "@/components/shared/Button";
 
@@ -24,14 +24,6 @@ interface SyncScopeModalProps {
   onStartSync: (scope: { customer_id?: string; account_id?: string; regions?: string[] }) => void;
 }
 
-const AVAILABLE_REGIONS = [
-  { value: "ap-northeast-2", label: "ap-northeast-2 (Seoul)" },
-  { value: "ap-northeast-1", label: "ap-northeast-1 (Tokyo)" },
-  { value: "us-east-1", label: "us-east-1 (N. Virginia)" },
-  { value: "us-west-2", label: "us-west-2 (Oregon)" },
-  { value: "eu-west-1", label: "eu-west-1 (Ireland)" },
-];
-
 export function SyncScopeModal({
   isOpen,
   onClose,
@@ -48,19 +40,39 @@ export function SyncScopeModal({
     setSelectedAccountId("");
   }, [selectedCustomerId]);
 
-  // If selected account changes, set regions default or available ones
-  useEffect(() => {
+  // Dynamically calculate available regions based on selected customer / account metadata
+  const availableRegions = useMemo(() => {
+    let regs: string[] = [];
     if (selectedAccountId) {
       const acc = accounts.find((a) => a.id === selectedAccountId);
-      if (acc && acc.regions && acc.regions.length > 0) {
-        setSelectedRegions(acc.regions);
-      } else {
-        setSelectedRegions(["ap-northeast-2"]);
-      }
+      if (acc && acc.regions) regs = acc.regions;
     } else {
-      setSelectedRegions(["ap-northeast-2"]);
+      const targetAccounts = selectedCustomerId
+        ? accounts.filter((a) => a.customerId === selectedCustomerId)
+        : accounts;
+      const allRegs = new Set<string>();
+      targetAccounts.forEach((a) => {
+        if (a.regions) {
+          a.regions.forEach((r) => allRegs.add(r));
+        }
+      });
+      regs = Array.from(allRegs);
     }
-  }, [selectedAccountId, accounts]);
+    const cleaned = regs.map((r) => r.trim()).filter(Boolean);
+    if (cleaned.length === 0) {
+      return ["ap-northeast-2"];
+    }
+    return cleaned;
+  }, [selectedCustomerId, selectedAccountId, accounts]);
+
+  // Set default selected regions when availableRegions changes
+  useEffect(() => {
+    if (availableRegions.includes("ap-northeast-2")) {
+      setSelectedRegions(["ap-northeast-2"]);
+    } else {
+      setSelectedRegions([availableRegions[0]]);
+    }
+  }, [availableRegions]);
 
   if (!isOpen) return null;
 
@@ -147,13 +159,13 @@ export function SyncScopeModal({
           <div className="space-y-2">
             <label className="text-xs font-semibold text-slate-600 block">Target Regions</label>
             <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto p-1">
-              {AVAILABLE_REGIONS.map((r) => {
-                const isChecked = selectedRegions.includes(r.value);
+              {availableRegions.map((region) => {
+                const isChecked = selectedRegions.includes(region);
                 return (
                   <button
-                    key={r.value}
+                    key={region}
                     type="button"
-                    onClick={() => handleRegionToggle(r.value)}
+                    onClick={() => handleRegionToggle(region)}
                     className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-left text-xs font-semibold transition-all ${
                       isChecked
                         ? "border-indigo-500 bg-indigo-50/50 text-indigo-700"
@@ -167,7 +179,7 @@ export function SyncScopeModal({
                     >
                       {isChecked && <Check size={10} strokeWidth={3} />}
                     </div>
-                    {r.label}
+                    {region}
                   </button>
                 );
               })}
