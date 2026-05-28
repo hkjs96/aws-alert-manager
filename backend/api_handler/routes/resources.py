@@ -86,11 +86,31 @@ def _default_discovery_account() -> dict:
     return {"account_id": "self", "regions": [region]}
 
 
-def _accounts_for_resource_discovery() -> list[dict]:
-    accounts = scan_all(accounts_table())
-    if accounts:
-        return accounts
-    return [_default_discovery_account()]
+def _resolve_target_accounts_for_sync(scope: dict) -> list[dict]:
+    customer_id = scope.get("customer_id")
+    account_id = scope.get("account_id")
+    table_name = os.environ.get("ACCOUNTS_TABLE")
+    if not table_name:
+        return [_default_discovery_account()]
+
+    from boto3.dynamodb.conditions import Key
+    table = accounts_table()
+    try:
+        if customer_id and account_id:
+            res = table.get_item(Key={"customer_id": customer_id, "account_id": account_id})
+            return [res["Item"]] if res.get("Item") else []
+        if customer_id:
+            return table.query(KeyConditionExpression=Key("customer_id").eq(customer_id)).get("Items", [])
+        if account_id:
+            return table.query(IndexName="account_id-index", KeyConditionExpression=Key("account_id").eq(account_id)).get("Items", [])
+
+        items = scan_all(table)
+        if not items:
+            return [_default_discovery_account()]
+        return items
+    except ClientError as e:
+        logger.error("Failed to resolve target accounts for sync: %s", e)
+        raise
 
 
 def list_resources(event: dict) -> dict:
@@ -106,8 +126,23 @@ def sync_resources(event: dict) -> dict:
             "message": "Resource synchronization runs from the scheduled monitor",
         })
 
+    scope = {}
+    if event.get("body"):
+        try:
+            body = json.loads(event["body"])
+            scope = body.get("scope") or {}
+        except (json.JSONDecodeError, TypeError):
+            pass
+
     try:
-        accounts = _accounts_for_resource_discovery()
+        accounts = _resolve_target_accounts_for_sync(scope)
+        regions_override = scope.get("regions") or []
+        for acc in accounts:
+            if regions_override:
+                acc["regions"] = regions_override
+            else:
+                acc["regions"] = list(acc.get("regions") or ["ap-northeast-2"])
+
         discovered = discover_resources(accounts)
         table = resource_inventory_table()
         for resource in discovered:
@@ -130,6 +165,26 @@ def sync_resources(event: dict) -> dict:
                         resource[field] = existing[field]
 
             table.put_item(Item=resource)
+        # Cleanup stale resource inventory items for the target accounts
+        target_accounts = {acc["account_id"] for acc in accounts}
+        discovered_keys = {(r["resource_id"], r["account_id"]) for r in discovered}
+        removed_count = 0
+        try:
+            db_items = scan_all(table)
+            for item in db_items:
+                res_id = item.get("resource_id", "")
+                acc_id = item.get("account_id", "")
+                ent_type = item.get("entity_type", "resource")
+                if ent_type == "resource" and acc_id in target_accounts:
+                    if (res_id, acc_id) not in discovered_keys:
+                        try:
+                            table.delete_item(Key={"resource_id": res_id, "account_id": acc_id})
+                            removed_count += 1
+                        except ClientError as exc:
+                            logger.error("Failed to delete stale resource %s: %s", res_id, exc)
+        except ClientError as exc:
+            logger.error("Failed to scan table for stale resource cleanup: %s", exc)
+
     except ClientError as exc:
         return _err(500, "AWS_ERROR", str(exc))
 
@@ -137,8 +192,8 @@ def sync_resources(event: dict) -> dict:
     return _ok({
         "discovered": count,
         "updated": count,
-        "removed": 0,
-        "message": f"{count} resources synchronized",
+        "removed": removed_count,
+        "message": f"{count} resources synchronized, {removed_count} stale resources removed",
     })
 
 

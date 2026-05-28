@@ -528,6 +528,33 @@ def _sync_inventory(account_id_hint: str, role_arn: str) -> dict:
                 res_id, e,
             )
 
+    # Cleanup stale resource inventory items for the target accounts
+    target_accounts = {acc["account_id"] for acc in accounts}
+    discovered_keys = {(r["resource_id"], r["account_id"]) for r in discovered}
+    try:
+        db_items = []
+        scan_kwargs = {}
+        while True:
+            resp = inv_table.scan(**scan_kwargs)
+            db_items.extend(resp.get("Items", []))
+            last = resp.get("LastEvaluatedKey")
+            if not last:
+                break
+            scan_kwargs["ExclusiveStartKey"] = last
+
+        for item in db_items:
+            res_id = item.get("resource_id", "")
+            acc_id = item.get("account_id", "")
+            ent_type = item.get("entity_type", "resource")
+            if ent_type == "resource" and acc_id in target_accounts:
+                if (res_id, acc_id) not in discovered_keys:
+                    try:
+                        inv_table.delete_item(Key={"resource_id": res_id, "account_id": acc_id})
+                    except ClientError as e:
+                        logger.error("Failed to delete stale resource inventory item %s: %s", res_id, e)
+    except ClientError as e:
+        logger.error("Failed to scan table for stale resource inventory cleanup: %s", e)
+
     # Save alarm snapshot items
     synced_alarms = 0
     fresh_alarm_keys = set()

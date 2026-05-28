@@ -289,7 +289,8 @@ class TestResources:
         assert "prod" in body["items"][0]["id"]
 
     def test_sync_resources_returns_202_like_response(self):
-        with patch("api_handler.routes.resources._accounts_for_resource_discovery", return_value=[]), \
+        with patch("api_handler.routes.resources._resolve_target_accounts_for_sync", return_value=[]), \
+             patch("api_handler.routes.resources.scan_all", return_value=[]), \
              patch("api_handler.routes.resources.discover_resources", return_value=[]):
             from api_handler.lambda_handler import lambda_handler
             resp = lambda_handler(_event("POST", "/resources/sync"), None)
