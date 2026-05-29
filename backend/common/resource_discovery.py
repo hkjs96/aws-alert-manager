@@ -50,6 +50,51 @@ def _get_session_for_account(account: dict, region: str):
         return None
 
 
+def _discovered_keys(discovered: List[dict]) -> set:
+    """(resource_id, account_id) 키 집합. resource_id가 없으면 id로 폴백."""
+    keys = set()
+    for r in discovered:
+        rid = r.get("resource_id") or r.get("id")
+        acc = r.get("account_id")
+        if rid and acc:
+            keys.add((rid, acc))
+    return keys
+
+
+def cleanup_stale_inventory(table, db_items: List[dict], discovered: List[dict], *, log=logger) -> int:
+    """디스커버리 결과에 없는 인벤토리 항목을 삭제하고 삭제 개수를 반환한다.
+
+    안전 계약: 디스커버리가 리소스를 1개 이상 반환한 계정만 삭제 대상이다.
+    AssumeRole 실패·스로틀·일시 오류로 특정 계정의 디스커버리가 통째로 비면
+    그 계정의 인벤토리는 지우지 않고 보존한다(전멸 방지). 알람 스냅샷
+    항목(resource_id가 'alarm#'로 시작)과 entity_type이 resource가 아닌
+    항목은 절대 건드리지 않는다.
+    """
+    discovered_keys = _discovered_keys(discovered)
+    deletable_accounts = {acc for _, acc in discovered_keys}
+    if not deletable_accounts:
+        return 0
+
+    removed = 0
+    for item in db_items:
+        if item.get("entity_type", "resource") != "resource":
+            continue
+        res_id = item.get("resource_id", "")
+        acc_id = item.get("account_id", "")
+        if res_id.startswith("alarm#"):
+            continue
+        if acc_id not in deletable_accounts:
+            continue
+        if (res_id, acc_id) in discovered_keys:
+            continue
+        try:
+            table.delete_item(Key={"resource_id": res_id, "account_id": acc_id})
+            removed += 1
+        except ClientError as exc:
+            log.error("Failed to delete stale inventory item %s: %s", res_id, exc)
+    return removed
+
+
 def discover_resources(accounts: List[dict]) -> List[dict]:
     all_resources = []
     for account in accounts:

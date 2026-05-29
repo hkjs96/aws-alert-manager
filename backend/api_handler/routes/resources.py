@@ -19,7 +19,11 @@ from api_handler.cw_helper import (
 from api_handler.db import accounts_table, resource_inventory_table, scan_all
 from common import dimension_builder
 from common.tag_resolver import disk_path_to_tag_suffix
-from common.resource_discovery import discover_resources, _get_session_for_account
+from common.resource_discovery import (
+    discover_resources,
+    _get_session_for_account,
+    cleanup_stale_inventory,
+)
 from common.alarm_naming import _build_alarm_description, _pretty_alarm_name
 from common.alarm_registry import (
     _DIMENSION_KEY_MAP,
@@ -165,25 +169,14 @@ def sync_resources(event: dict) -> dict:
                         resource[field] = existing[field]
 
             table.put_item(Item=resource)
-        # Cleanup stale resource inventory items for the target accounts
-        target_accounts = {acc["account_id"] for acc in accounts}
-        discovered_keys = {(r["resource_id"], r["account_id"]) for r in discovered}
+
+        # 디스커버리에서 사라진 인벤토리 항목 정리. 정리 실패가 동기화 자체를
+        # 실패시키지 않도록 별도 try로 감싼다(put은 이미 성공).
         removed_count = 0
         try:
-            db_items = scan_all(table)
-            for item in db_items:
-                res_id = item.get("resource_id", "")
-                acc_id = item.get("account_id", "")
-                ent_type = item.get("entity_type", "resource")
-                if ent_type == "resource" and acc_id in target_accounts:
-                    if (res_id, acc_id) not in discovered_keys:
-                        try:
-                            table.delete_item(Key={"resource_id": res_id, "account_id": acc_id})
-                            removed_count += 1
-                        except ClientError as exc:
-                            logger.error("Failed to delete stale resource %s: %s", res_id, exc)
+            removed_count = cleanup_stale_inventory(table, scan_all(table), discovered, log=logger)
         except ClientError as exc:
-            logger.error("Failed to scan table for stale resource cleanup: %s", exc)
+            logger.error("Stale resource cleanup failed: %s", exc)
 
     except ClientError as exc:
         return _err(500, "AWS_ERROR", str(exc))

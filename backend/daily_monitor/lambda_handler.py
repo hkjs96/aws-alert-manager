@@ -26,7 +26,7 @@ logging.getLogger().setLevel(logging.INFO)
 logger = logging.getLogger(__name__)
 
 from common.alarm_manager import sync_alarms_for_resource
-from common.resource_discovery import discover_resources
+from common.resource_discovery import discover_resources, cleanup_stale_inventory
 from common.collectors import docdb as docdb_collector
 from common.collectors import ec2 as ec2_collector
 from common.collectors import elasticache as elasticache_collector
@@ -528,9 +528,8 @@ def _sync_inventory(account_id_hint: str, role_arn: str) -> dict:
                 res_id, e,
             )
 
-    # Cleanup stale resource inventory items for the target accounts
-    target_accounts = {acc["account_id"] for acc in accounts}
-    discovered_keys = {(r["resource_id"], r["account_id"]) for r in discovered}
+    # 디스커버리에서 사라진 인벤토리 항목 정리(공통 헬퍼). 정리 실패는
+    # 로깅만 하고 동기화는 계속 진행한다.
     try:
         db_items = []
         scan_kwargs = {}
@@ -542,16 +541,7 @@ def _sync_inventory(account_id_hint: str, role_arn: str) -> dict:
                 break
             scan_kwargs["ExclusiveStartKey"] = last
 
-        for item in db_items:
-            res_id = item.get("resource_id", "")
-            acc_id = item.get("account_id", "")
-            ent_type = item.get("entity_type", "resource")
-            if ent_type == "resource" and acc_id in target_accounts:
-                if (res_id, acc_id) not in discovered_keys:
-                    try:
-                        inv_table.delete_item(Key={"resource_id": res_id, "account_id": acc_id})
-                    except ClientError as e:
-                        logger.error("Failed to delete stale resource inventory item %s: %s", res_id, e)
+        cleanup_stale_inventory(inv_table, db_items, discovered, log=logger)
     except ClientError as e:
         logger.error("Failed to scan table for stale resource inventory cleanup: %s", e)
 
