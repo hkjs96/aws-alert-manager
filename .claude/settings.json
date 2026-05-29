@@ -195,7 +195,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python .claude/deploy-backend-stack.py",
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/deploy-backend-stack.py\"",
             "timeout": 360
           }
         ]
