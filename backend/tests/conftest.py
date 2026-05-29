@@ -19,6 +19,20 @@ from common import ResourceInfo
 from patch_helpers import patch_infra_stages, patch_all_collectors  # noqa: F401
 
 
+def pytest_collection_modifyitems(items):
+    """Hypothesis(property-based) 테스트를 자동으로 `pbt` 마커로 분류한다.
+
+    @given 테스트는 무겁고(경우의 수 생성) 메모리도 많이 쓴다. 파일명(test_pbt_*)
+    규칙은 test_collectors/test_daily_monitor 처럼 @given을 쓰지만 이름이 다른
+    파일을 놓치므로, 테스트의 *성격*으로 분류한다. 새 @given 테스트도 자동 편입된다.
+    빠른 게이트는 `-m "not pbt and not e2e"`로 이 tier를 제외한다.
+    """
+    for item in items:
+        fn = getattr(item, "obj", None)
+        if getattr(fn, "is_hypothesis_test", False) or getattr(fn, "hypothesis", None) is not None:
+            item.add_marker("pbt")
+
+
 # ──────────────────────────────────────────────
 # AWS 자격증명 픽스처
 # ──────────────────────────────────────────────

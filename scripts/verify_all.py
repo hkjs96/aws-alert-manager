@@ -1,4 +1,13 @@
-"""Run the full project regression suite and audit diffs.
+"""Run project regression verification.
+
+두 가지 모드:
+
+- 기본(게이트) 모드: 작업 트리의 변경을 보고 *관련 있는 것만, 빠른 tier만* 돌린다.
+  관련 변경이 없으면 즉시 건너뛴다. Claude Stop 훅이 매 턴 호출하므로 가볍고 빨라야
+  한다. 무거운 property-based(pbt)/e2e 테스트는 제외한다.
+- --full 모드: pbt/e2e 포함 전수 스위트. 수동(/test) 또는 push 전에만.
+
+각 단계는 wall-clock timeout으로 묶여, 폭주(메모리 무한 증식 등)해도 강제 종료된다.
 
 This script is intentionally cross-platform so Claude hooks and humans can run
 the same verification flow without depending on PowerShell.
@@ -6,6 +15,7 @@ the same verification flow without depending on PowerShell.
 
 from __future__ import annotations
 
+import argparse
 import shutil
 import subprocess
 import sys
@@ -15,6 +25,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 BACKEND = ROOT / "backend"
 FRONTEND = ROOT / "frontend"
+
+# 단계별 wall-clock 상한(초). 폭주 시 프로세스를 통째로 죽여 메모리 무한 증식을 막는다.
+BACKEND_TIMEOUT = 300
+FRONTEND_TIMEOUT = 300
 
 
 def executable(name: str) -> str:
@@ -28,42 +42,108 @@ def executable(name: str) -> str:
     return name
 
 
-def run_step(label: str, command: list[str], cwd: Path, report_only: bool = False) -> None:
+def changed_files() -> list[str]:
+    """git 작업 트리에서 변경(스테이징/미스테이징/미추적)된 경로 목록을 POSIX 형태로 반환."""
+    result = subprocess.run(
+        ["git", "status", "--porcelain"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    files: list[str] = []
+    for line in result.stdout.splitlines():
+        path = line[3:].strip()  # 'XY <path>' — 상태 2글자 + 공백 다음이 경로
+        if "->" in path:  # 이름 변경: 'old -> new'
+            path = path.split("->")[-1].strip()
+        if path:
+            files.append(path.replace("\\", "/"))
+    return files
+
+
+def run_step(label: str, command: list[str], cwd: Path, timeout: int, *, report_only: bool = False) -> None:
     print(f"\n==> {label}", flush=True)
-    result = subprocess.run(command, cwd=cwd, check=False)
+    try:
+        result = subprocess.run(command, cwd=cwd, check=False, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        print(f"\nTIMEOUT: {label} exceeded {timeout}s — killed (폭주 의심)", file=sys.stderr)
+        raise SystemExit(1)
     if result.returncode != 0 and not report_only:
         print(f"\nFAILED: {label} exited with {result.returncode}", file=sys.stderr)
         raise SystemExit(result.returncode)
 
 
-def main() -> int:
-    print("Starting full project regression verification...", flush=True)
-
-    # 1. Diff Audit (Report only, do not fail)
-    print("\n--- Regression Prevention: Diff Audit ---", flush=True)
-    run_step("Changed Files (--name-only)", ["git", "diff", "--name-only"], ROOT, report_only=True)
-    run_step("Diff Summary (--stat)", ["git", "diff", "--stat"], ROOT, report_only=True)
-    print("------------------------------------------", flush=True)
-
-    # 2. Test Suites (Must pass)
+def _run_full() -> int:
+    print("Running FULL regression suite (incl. pbt/e2e)...", flush=True)
     run_step(
-        "Backend tests (pytest)",
-        [sys.executable, "-m", "pytest", "tests", "-x", "-q", "--tb=short"],
+        "Backend full (pytest)",
+        [sys.executable, "-m", "pytest", "tests", "-q", "--tb=short"],
         BACKEND,
+        BACKEND_TIMEOUT,
     )
     run_step(
         "Frontend type check (tsc)",
         [executable("npx"), "tsc", "--noEmit"],
         FRONTEND,
+        FRONTEND_TIMEOUT,
     )
     run_step(
         "Frontend unit tests (vitest)",
         [executable("npx"), "vitest", "run"],
         FRONTEND,
+        FRONTEND_TIMEOUT,
     )
-
-    print("\nAll verification steps passed.", flush=True)
+    print("\nFull verification passed.", flush=True)
     return 0
+
+
+def _run_gate() -> int:
+    files = changed_files()
+    backend_changed = any(f.startswith("backend/") and f.endswith(".py") for f in files)
+    frontend_changed = any(f.startswith("frontend/") and f.endswith((".ts", ".tsx")) for f in files)
+
+    if not backend_changed and not frontend_changed:
+        print("verify_all (gate): 관련 소스 변경 없음 — 건너뜀.", flush=True)
+        return 0
+
+    # Diff 감사(리포트 전용, 실패시키지 않음)
+    run_step("Diff Summary (--stat)", ["git", "diff", "--stat"], ROOT, 30, report_only=True)
+
+    if backend_changed:
+        # 빠른 단위 tier만: 무거운 pbt/e2e 제외
+        run_step(
+            "Backend unit tests (pytest -m 'not pbt and not e2e')",
+            [sys.executable, "-m", "pytest", "tests", "-q", "--tb=short", "-m", "not pbt and not e2e"],
+            BACKEND,
+            BACKEND_TIMEOUT,
+        )
+    if frontend_changed:
+        run_step(
+            "Frontend type check (tsc)",
+            [executable("npx"), "tsc", "--noEmit"],
+            FRONTEND,
+            FRONTEND_TIMEOUT,
+        )
+        run_step(
+            "Frontend unit tests (vitest)",
+            [executable("npx"), "vitest", "run"],
+            FRONTEND,
+            FRONTEND_TIMEOUT,
+        )
+
+    print("\nGate verification passed.", flush=True)
+    return 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="프로젝트 회귀 검증")
+    parser.add_argument(
+        "--full",
+        action="store_true",
+        help="pbt/e2e 포함 전수 스위트 실행 (수동/push 전). 미지정 시 변경 인지 게이트 모드.",
+    )
+    args = parser.parse_args()
+    return _run_full() if args.full else _run_gate()
 
 
 if __name__ == "__main__":

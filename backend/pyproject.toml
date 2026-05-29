@@ -1,6 +1,10 @@
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q --tb=short"
+markers = [
+    "pbt: property-based (Hypothesis) test — 무겁고 경우의 수 생성형. 전수 tier에서만. conftest가 자동 부여.",
+    "e2e: end-to-end/통합 테스트 — 전수 tier에서만.",
+]
 
 [tool.coverage.run]
 source = ["common", "daily_monitor", "remediation_handler"]
