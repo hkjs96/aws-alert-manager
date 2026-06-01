@@ -53,6 +53,7 @@ frontend/test-results/
 .~lock.*
 *.xlsx
 .claude/settings.local.json
+.claude/verify.off
 
 # Tool caches / temp
 .lazyweb/

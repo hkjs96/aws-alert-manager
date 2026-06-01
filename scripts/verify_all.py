@@ -1,13 +1,18 @@
 """Run project regression verification.
 
-두 가지 모드:
+Two modes:
 
-- 기본(게이트) 모드: 작업 트리의 변경을 보고 *관련 있는 것만, 빠른 tier만* 돌린다.
-  관련 변경이 없으면 즉시 건너뛴다. Claude Stop 훅이 매 턴 호출하므로 가볍고 빨라야
-  한다. 무거운 property-based(pbt)/e2e 테스트는 제외한다.
-- --full 모드: pbt/e2e 포함 전수 스위트. 수동(/test) 또는 push 전에만.
+- Gate mode (default): inspect the working tree and run only the relevant,
+  fast tier. Skips immediately when nothing relevant changed. The Claude Stop
+  hook calls this every turn, so it must stay light and fast. Heavy
+  property-based (pbt) / e2e tests are excluded.
+- --full mode: the entire suite incl. pbt/e2e. Manual (/test) or pre-push only.
 
-각 단계는 wall-clock timeout으로 묶여, 폭주(메모리 무한 증식 등)해도 강제 종료된다.
+Each step is bounded by a wall-clock timeout, so a runaway (e.g. unbounded
+memory growth) is force-killed.
+
+Output is intentionally ASCII/English: this runs as a hook and Windows consoles
+default to cp949, which cannot encode characters like the em dash.
 
 This script is intentionally cross-platform so Claude hooks and humans can run
 the same verification flow without depending on PowerShell.
@@ -30,19 +35,21 @@ ROOT = Path(__file__).resolve().parents[1]
 BACKEND = ROOT / "backend"
 FRONTEND = ROOT / "frontend"
 
-# 단계별 wall-clock 상한(초). 폭주 시 프로세스를 통째로 죽여 메모리 무한 증식을 막는다.
+# Per-step wall-clock cap (seconds). On a runaway, kill the whole process so
+# memory cannot grow without bound.
 BACKEND_TIMEOUT = 300
 FRONTEND_TIMEOUT = 300
 
-# 단일 인스턴스 락. Stop 훅이 매 턴 호출하는데 검증이 길어지면 이전 실행이 끝나기 전에
-# 새 실행이 쌓여 프로세스가 누적된다(메모리/CPU 폭주). 이미 도는 게 있으면 새 호출은
-# 즉시 건너뛴다. 죽은 프로세스가 남긴 stale 락은 일정 시간 후 무시한다.
+# Single-instance lock. The Stop hook calls this every turn; if verification is
+# slow, a new run can start before the previous one finishes and processes pile
+# up (memory/CPU blowup). If one is already running, a new call exits at once.
+# A stale lock left by a dead process is ignored after a timeout.
 _LOCK = Path(tempfile.gettempdir()) / "aam_verify_all.lock"
 _LOCK_STALE_SECONDS = 1800
 
 
 def acquire_lock() -> bool:
-    """다른 verify_all이 실행 중이 아니면 락을 잡고 True, 이미 실행 중이면 False."""
+    """Grab the lock and return True; return False if another run holds it."""
     if _LOCK.exists() and (time.time() - _LOCK.stat().st_mtime) > _LOCK_STALE_SECONDS:
         _LOCK.unlink(missing_ok=True)
     try:
@@ -67,7 +74,7 @@ def executable(name: str) -> str:
 
 
 def changed_files() -> list[str]:
-    """git 작업 트리에서 변경(스테이징/미스테이징/미추적)된 경로 목록을 POSIX 형태로 반환."""
+    """Return changed (staged/unstaged/untracked) paths from git, POSIX form."""
     result = subprocess.run(
         ["git", "status", "--porcelain"],
         cwd=ROOT,
@@ -77,8 +84,8 @@ def changed_files() -> list[str]:
     )
     files: list[str] = []
     for line in result.stdout.splitlines():
-        path = line[3:].strip()  # 'XY <path>' — 상태 2글자 + 공백 다음이 경로
-        if "->" in path:  # 이름 변경: 'old -> new'
+        path = line[3:].strip()  # 'XY <path>': 2 status chars + space, then path
+        if "->" in path:  # rename: 'old -> new'
             path = path.split("->")[-1].strip()
         if path:
             files.append(path.replace("\\", "/"))
@@ -90,7 +97,7 @@ def run_step(label: str, command: list[str], cwd: Path, timeout: int, *, report_
     try:
         result = subprocess.run(command, cwd=cwd, check=False, timeout=timeout)
     except subprocess.TimeoutExpired:
-        print(f"\nTIMEOUT: {label} exceeded {timeout}s — killed (폭주 의심)", file=sys.stderr)
+        print(f"\nTIMEOUT: {label} exceeded {timeout}s - killed (possible runaway)", file=sys.stderr)
         raise SystemExit(1)
     if result.returncode != 0 and not report_only:
         print(f"\nFAILED: {label} exited with {result.returncode}", file=sys.stderr)
@@ -127,14 +134,14 @@ def _run_gate() -> int:
     frontend_changed = any(f.startswith("frontend/") and f.endswith((".ts", ".tsx")) for f in files)
 
     if not backend_changed and not frontend_changed:
-        print("verify_all (gate): 관련 소스 변경 없음 — 건너뜀.", flush=True)
+        print("verify_all (gate): no relevant source changes - skipping.", flush=True)
         return 0
 
-    # Diff 감사(리포트 전용, 실패시키지 않음)
+    # Diff audit (report only, never fails the gate).
     run_step("Diff Summary (--stat)", ["git", "diff", "--stat"], ROOT, 30, report_only=True)
 
     if backend_changed:
-        # 빠른 단위 tier만: 무거운 pbt/e2e 제외
+        # Fast unit tier only: exclude the heavy pbt/e2e tests.
         run_step(
             "Backend unit tests (pytest -m 'not pbt and not e2e')",
             [sys.executable, "-m", "pytest", "tests", "-q", "--tb=short", "-m", "not pbt and not e2e"],
@@ -160,16 +167,28 @@ def _run_gate() -> int:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="프로젝트 회귀 검증")
+    parser = argparse.ArgumentParser(description="Project regression verification")
     parser.add_argument(
         "--full",
         action="store_true",
-        help="pbt/e2e 포함 전수 스위트 실행 (수동/push 전). 미지정 시 변경 인지 게이트 모드.",
+        help="Run the entire suite incl. pbt/e2e (manual/pre-push). Default is change-aware gate mode.",
     )
     args = parser.parse_args()
 
+    # Local opt-out: if .claude/verify.off exists, skip the automatic (gate)
+    # verification. The Stop hook may call this every turn, but it returns here
+    # immediately so no tests run (prevents the memory spike). Manual --full is
+    # unaffected. Delete that file to re-enable.
+    if not args.full and (ROOT / ".claude" / "verify.off").exists():
+        print(
+            "verify_all: gate disabled by .claude/verify.off - skipping. "
+            "(full manual run: python scripts/verify_all.py --full)",
+            flush=True,
+        )
+        return 0
+
     if not acquire_lock():
-        print("verify_all: 다른 검증이 이미 실행 중 — 건너뜀(중복 누적 방지).", flush=True)
+        print("verify_all: another verification already running - skipping (prevents pile-up).", flush=True)
         return 0
 
     return _run_full() if args.full else _run_gate()
