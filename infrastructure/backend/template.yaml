@@ -223,6 +223,12 @@ Resources:
               KeyType: HASH
           Projection:
             ProjectionType: ALL
+        - IndexName: account_id-index
+          KeySchema:
+            - AttributeName: account_id
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
       Tags:
         - Key: ManagedBy
           Value: AlarmManager
@@ -1031,9 +1037,12 @@ Resources:
                   - dynamodb:PutItem
                   - dynamodb:UpdateItem
                   - dynamodb:BatchWriteItem
+                  - dynamodb:Query
                   - dynamodb:Scan
                   - dynamodb:DeleteItem
-                Resource: !GetAtt ResourceInventoryTable.Arn
+                Resource:
+                  - !GetAtt ResourceInventoryTable.Arn
+                  - !Sub "${ResourceInventoryTable.Arn}/index/*"
               - Effect: Allow
                 Action:
                   - dynamodb:PutItem

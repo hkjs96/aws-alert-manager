@@ -26,7 +26,11 @@ logging.getLogger().setLevel(logging.INFO)
 logger = logging.getLogger(__name__)
 
 from common.alarm_manager import sync_alarms_for_resource
-from common.resource_discovery import discover_resources, cleanup_stale_inventory
+from common.resource_discovery import (
+    discover_resources,
+    cleanup_stale_inventory,
+    query_inventory_by_accounts,
+)
 from common.collectors import docdb as docdb_collector
 from common.collectors import ec2 as ec2_collector
 from common.collectors import elasticache as elasticache_collector
@@ -528,22 +532,14 @@ def _sync_inventory(account_id_hint: str, role_arn: str) -> dict:
                 res_id, e,
             )
 
-    # 디스커버리에서 사라진 인벤토리 항목 정리(공통 헬퍼). 정리 실패는
-    # 로깅만 하고 동기화는 계속 진행한다.
+    # 디스커버리에서 사라진 인벤토리 항목 정리(공통 헬퍼). account_id-index GSI로
+    # 대상 계정만 조회한다. 정리 실패는 로깅만 하고 동기화는 계속 진행한다.
     try:
-        db_items = []
-        scan_kwargs = {}
-        while True:
-            resp = inv_table.scan(**scan_kwargs)
-            db_items.extend(resp.get("Items", []))
-            last = resp.get("LastEvaluatedKey")
-            if not last:
-                break
-            scan_kwargs["ExclusiveStartKey"] = last
-
+        account_ids = [a["account_id"] for a in accounts]
+        db_items = query_inventory_by_accounts(inv_table, account_ids)
         cleanup_stale_inventory(inv_table, db_items, discovered, log=logger)
     except ClientError as e:
-        logger.error("Failed to scan table for stale resource inventory cleanup: %s", e)
+        logger.error("Failed to query inventory for stale resource cleanup: %s", e)
 
     # Save alarm snapshot items
     synced_alarms = 0

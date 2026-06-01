@@ -23,6 +23,7 @@ from common.resource_discovery import (
     discover_resources,
     _get_session_for_account,
     cleanup_stale_inventory,
+    query_inventory_by_accounts,
 )
 from common.alarm_naming import _build_alarm_description, _pretty_alarm_name
 from common.alarm_registry import (
@@ -174,7 +175,9 @@ def sync_resources(event: dict) -> dict:
         # 실패시키지 않도록 별도 try로 감싼다(put은 이미 성공).
         removed_count = 0
         try:
-            removed_count = cleanup_stale_inventory(table, scan_all(table), discovered, log=logger)
+            account_ids = [a["account_id"] for a in accounts]
+            db_items = query_inventory_by_accounts(table, account_ids)
+            removed_count = cleanup_stale_inventory(table, db_items, discovered, log=logger)
         except ClientError as exc:
             logger.error("Stale resource cleanup failed: %s", exc)
 

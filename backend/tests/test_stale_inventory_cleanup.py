@@ -9,7 +9,7 @@ common.resource_discovery.cleanup_stale_inventory 단위 테스트.
 
 from unittest.mock import MagicMock
 
-from common.resource_discovery import cleanup_stale_inventory
+from common.resource_discovery import cleanup_stale_inventory, query_inventory_by_accounts
 
 
 def _item(resource_id, account_id, entity_type="resource"):
@@ -92,3 +92,32 @@ def test_id_fallback_when_resource_id_missing():
 
     assert removed == 1
     table.delete_item.assert_called_once_with(Key={"resource_id": "i-stale", "account_id": "111"})
+
+
+# ──────────────────────────────────────────────
+# query_inventory_by_accounts (#5b: Scan → GSI Query)
+# ──────────────────────────────────────────────
+
+
+def test_query_uses_account_id_index_and_paginates():
+    table = MagicMock()
+    table.query.side_effect = [
+        {"Items": [_item("i-1", "111")], "LastEvaluatedKey": {"k": 1}},
+        {"Items": [_item("i-2", "111")]},
+    ]
+
+    items = query_inventory_by_accounts(table, ["111"])
+
+    assert [i["resource_id"] for i in items] == ["i-1", "i-2"]
+    assert table.query.call_count == 2
+    assert table.query.call_args_list[0].kwargs["IndexName"] == "account_id-index"
+
+
+def test_query_skips_empty_account_ids_and_dedupes():
+    table = MagicMock()
+    table.query.return_value = {"Items": []}
+
+    query_inventory_by_accounts(table, ["111", "111", "", None])
+
+    # "111" 한 번만 질의, 빈/None 계정은 건너뜀
+    assert table.query.call_count == 1

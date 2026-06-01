@@ -11,11 +11,34 @@ import os
 from typing import List
 
 import boto3
+from boto3.dynamodb.conditions import Key
 from botocore.exceptions import ClientError
 
 from common.tag_resolver import has_monitoring_tag
 
 logger = logging.getLogger(__name__)
+
+
+def query_inventory_by_accounts(table, account_ids) -> List[dict]:
+    """account_id-index GSI로 대상 계정의 인벤토리 항목만 조회한다.
+
+    전체 테이블 Scan을 피하기 위함. 정리(cleanup) 대상은 동기화 중인 계정뿐이므로
+    그 계정들만 조회하면 충분하다.
+    """
+    items: List[dict] = []
+    for acc in {a for a in account_ids if a}:
+        kwargs = {
+            "IndexName": "account_id-index",
+            "KeyConditionExpression": Key("account_id").eq(acc),
+        }
+        while True:
+            resp = table.query(**kwargs)
+            items.extend(resp.get("Items", []))
+            last = resp.get("LastEvaluatedKey")
+            if not last:
+                break
+            kwargs["ExclusiveStartKey"] = last
+    return items
 
 
 def _get_current_account_id() -> str:
