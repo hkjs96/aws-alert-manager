@@ -16,9 +16,13 @@ the same verification flow without depending on PowerShell.
 from __future__ import annotations
 
 import argparse
+import atexit
+import os
 import shutil
 import subprocess
 import sys
+import tempfile
+import time
 from pathlib import Path
 
 
@@ -29,6 +33,26 @@ FRONTEND = ROOT / "frontend"
 # 단계별 wall-clock 상한(초). 폭주 시 프로세스를 통째로 죽여 메모리 무한 증식을 막는다.
 BACKEND_TIMEOUT = 300
 FRONTEND_TIMEOUT = 300
+
+# 단일 인스턴스 락. Stop 훅이 매 턴 호출하는데 검증이 길어지면 이전 실행이 끝나기 전에
+# 새 실행이 쌓여 프로세스가 누적된다(메모리/CPU 폭주). 이미 도는 게 있으면 새 호출은
+# 즉시 건너뛴다. 죽은 프로세스가 남긴 stale 락은 일정 시간 후 무시한다.
+_LOCK = Path(tempfile.gettempdir()) / "aam_verify_all.lock"
+_LOCK_STALE_SECONDS = 1800
+
+
+def acquire_lock() -> bool:
+    """다른 verify_all이 실행 중이 아니면 락을 잡고 True, 이미 실행 중이면 False."""
+    if _LOCK.exists() and (time.time() - _LOCK.stat().st_mtime) > _LOCK_STALE_SECONDS:
+        _LOCK.unlink(missing_ok=True)
+    try:
+        fd = os.open(str(_LOCK), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError:
+        return False
+    os.write(fd, str(os.getpid()).encode())
+    os.close(fd)
+    atexit.register(lambda: _LOCK.unlink(missing_ok=True))
+    return True
 
 
 def executable(name: str) -> str:
@@ -143,6 +167,11 @@ def main() -> int:
         help="pbt/e2e 포함 전수 스위트 실행 (수동/push 전). 미지정 시 변경 인지 게이트 모드.",
     )
     args = parser.parse_args()
+
+    if not acquire_lock():
+        print("verify_all: 다른 검증이 이미 실행 중 — 건너뜀(중복 누적 방지).", flush=True)
+        return 0
+
     return _run_full() if args.full else _run_gate()
 
 
