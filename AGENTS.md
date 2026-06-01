@@ -30,6 +30,7 @@
 - **AP-2:** 모듈 레벨 global 변수로 AWS 클라이언트 관리 (반드시 `lru_cache` 싱글턴 사용)
 - **AP-3:** 예외 처리 시 `except Exception` 남용 (구체적인 에러 캐치 권장)
 - **AP-4:** 로깅 시 f-string 사용 (Lazy formatting `logger.info("%s", var)` 사용)
+- **AP-5:** 페이지네이션(`while True` + `table.query/scan`)을 bare `MagicMock` 테이블로 테스트 (무한 루프·수 GB RSS — mock 메서드를 종료 페이지로 stub: `table.query.return_value = {"Items": []}`. 상세: `backend/AGENTS.md` §3, `.kiro/steering/anti-patterns.md` AP-15)
 
 ## 6. Codex 작업 워크플로 (필수)
 
