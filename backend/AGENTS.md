@@ -26,6 +26,12 @@
 ## 3. 테스트 및 검증 (TDD)
 - **Framework:** `pytest`
 - **모킹:** AWS 서비스는 `moto`를 사용하고, 내부 함수는 `unittest.mock`을 사용하십시오.
+- **모킹 페이지네이션(무한 루프 주의):** `while True`로 페이지네이션하는 코드(`table.query`/`scan`)를
+  mock 테이블로 테스트할 땐 그 메서드를 **반드시 종료 페이지로 stub**하십시오 —
+  `table.query.return_value = {"Items": []}`. bare `MagicMock`은 `LastEvaluatedKey`가 항상 truthy라
+  루프가 안 끝나고 호출 누적으로 RSS가 수 GB까지 치솟아 테스트가 멈춥니다("느린 테스트"로 오인됨).
+  페이지네이션 헬퍼를 바꾸면(예: `scan` → `query`) 관련 테스트 mock도 함께 갱신하십시오.
+  (상세: `.kiro/steering/anti-patterns.md` AP-15)
 - **PBT:** 복잡한 로직은 `hypothesis`를 사용한 Property-Based Testing을 작성하십시오.
 - **필수 실행:** 코드 수정 후 `cd backend && pytest`를 실행하여 회귀 테스트를 완료하십시오.
 
