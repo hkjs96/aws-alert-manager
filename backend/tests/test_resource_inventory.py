@@ -245,6 +245,7 @@ class TestResourceInventoryLogic:
         }]
         mock_scan.return_value = []
         mock_table = MagicMock()
+        mock_table.query.return_value = {"Items": []}
         mock_table_func.return_value = mock_table
 
         from api_handler.routes.resources import sync_resources
@@ -272,6 +273,7 @@ class TestResourceInventoryLogic:
         }]
         mock_scan.return_value = [{"account_id": "123", "customer_id": "cust-01"}]
         mock_table = MagicMock()
+        mock_table.query.return_value = {"Items": []}
         mock_table_func.return_value = mock_table
         
         from api_handler.routes.resources import sync_resources

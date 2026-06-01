@@ -231,7 +231,7 @@ class TestSyncInventory:
         ]
 
         inv_table = MagicMock()
-        inv_table.scan.return_value = {"Items": []}
+        inv_table.query.return_value = {"Items": []}
         ddb_resource = MagicMock()
         ddb_resource.Table.return_value = inv_table
 
@@ -295,7 +295,7 @@ class TestSyncInventory:
         ]
 
         inv_table = MagicMock()
-        inv_table.scan.return_value = {"Items": []}
+        inv_table.query.return_value = {"Items": []}
         ddb_resource = MagicMock()
         ddb_resource.Table.return_value = inv_table
 
