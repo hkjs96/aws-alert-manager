@@ -99,6 +99,33 @@ if resource_type == "EC2":
 alive_ids = collector.resolve_alive_ids(tag_names)
 ```
 
+## 테스트 (pytest / unittest.mock)
+
+### AP-15. 페이지네이션 코드를 bare MagicMock 테이블로 호출 (무한 루프 → 수 GB)
+`while True: resp = table.query(...); if not resp.get("LastEvaluatedKey"): break`
+같은 DynamoDB 페이지네이션은, mock 테이블의 해당 메서드를 설정하지 않으면 **무한 루프**에 빠진다.
+`MagicMock().query().get("LastEvaluatedKey")`는 None이 아니라 **항상 truthy한 자식 MagicMock**을
+반환하므로 `if not last`가 영원히 거짓 → 루프가 안 끝나고, 매 반복의 `table.query(...)` 호출이
+`mock_calls`에 무한 누적되어 RSS가 수 GB까지 치솟고 테스트가 멈춘다(겉보기엔 "느린 테스트").
+
+```python
+# ❌ 금지: query/scan을 설정하지 않은 bare mock 테이블을 페이지네이션 코드에 전달
+table = MagicMock()
+query_inventory_by_accounts(table, ["123"])   # while True 무한 루프 → 수 GB RSS
+
+# ✅ 올바른 방법: 종료 페이지를 stub (진짜 dict → .get가 None 반환 → 루프 종료)
+table = MagicMock()
+table.query.return_value = {"Items": []}       # LastEvaluatedKey 없음 → 1회 후 종료
+# 여러 페이지를 검증하려면 side_effect의 마지막 페이지에서 LastEvaluatedKey를 빼라
+table.query.side_effect = [
+    {"Items": [...], "LastEvaluatedKey": {"k": 1}},
+    {"Items": [...]},                          # 종료 페이지
+]
+```
+> 교훈: 페이지네이션 헬퍼를 바꾸면(예: `scan` → `query`) 그 테이블 메서드를 stub하던
+> **모든 테스트의 mock 설정도 함께 갱신**한다. 이번 사례는 `query_inventory_by_accounts`
+> 도입 시 `.scan`만 stub하던 테스트가 `.query`를 안 채워 발생했다.
+
 ## TypeScript / Next.js (Frontend)
 
 ### AP-9. any 타입 사용
