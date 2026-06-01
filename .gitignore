@@ -13,6 +13,7 @@ pytest-cache-files-*/
 
 # Build artifacts
 dist/
+.dist/
 build/
 *.zip
 *.tar.gz
@@ -33,6 +34,8 @@ output.json
 test_out.json
 test_payload.json
 pytest_out.txt
+scratch/
+instruction.txt
 
 # Frontend
 node_modules/
