@@ -282,6 +282,7 @@ Resources:
           RESOURCE_INVENTORY_TABLE: !Ref ResourceInventoryTable
           BULK_OPERATION_QUEUE_URL: !Ref BulkOperationQueue
           API_STAGE: !FindInMap [EnvShortName, !Ref Environment, short]
+          DAILY_MONITOR_FUNCTION_NAME: !Ref DailyMonitorFunction
 
   ApiHandlerRole:
     Type: AWS::IAM::Role
@@ -353,6 +354,10 @@ Resources:
                 Action:
                   - sts:AssumeRole
                 Resource: "arn:aws:iam::*:role/AlarmManagerRole"
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource: !GetAtt DailyMonitorFunction.Arn
 
   SqsWorkerFunction:
     Type: AWS::Lambda::Function
