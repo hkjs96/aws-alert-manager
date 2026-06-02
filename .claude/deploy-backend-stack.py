@@ -173,6 +173,11 @@ def _deploy(version: str) -> None:
             STACK,
             "--template-file",
             str(TEMPLATE),
+            # 템플릿이 51,200 bytes를 넘으면 S3 경유 배포가 필수다.
+            "--s3-bucket",
+            BUCKET,
+            "--s3-prefix",
+            "cfn-templates",
             "--parameter-overrides",
             f"DeploymentBucket={BUCKET}",
             f"CodeVersion={version}",
