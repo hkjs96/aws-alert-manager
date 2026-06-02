@@ -411,3 +411,23 @@ class TestLambdaHandlerCallsInventory:
 
         assert result["status"] == "ok"
         assert "error" in result["inventory_synced"]
+
+
+class TestAlarmSyncJobOrphanCleanup:
+    def test_alarm_sync_job_runs_orphan_cleanup(self, monkeypatch):
+        """알람 싱크 잡(sync_target=alarms)도 고아 알람 정리를 실행해야 한다."""
+        for k, v in _ENV.items():
+            monkeypatch.setenv(k, v)
+
+        from daily_monitor import lambda_handler as lh
+
+        with (
+            patch("daily_monitor.lambda_handler._cleanup_orphan_alarms", return_value=["x"]) as mock_orphan,
+            patch("daily_monitor.lambda_handler._resolve_target_accounts", return_value=[]),
+            patch("daily_monitor.lambda_handler._update_job_status"),
+        ):
+            lh.lambda_handler(
+                {"sync_target": "alarms", "sync_job_id": "j1", "scope": {}}, None,
+            )
+
+        mock_orphan.assert_called_once()

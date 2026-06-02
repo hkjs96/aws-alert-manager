@@ -18,9 +18,14 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import NameOID
 from moto import mock_aws
 
+from unittest.mock import MagicMock
+
+from botocore.exceptions import ClientError
+
 from common.collectors import acm as acm_collector
 from common.collectors import apigw as apigw_collector
 from common.collectors import mq as mq_collector
+from common.collectors import rds as rds_collector
 
 
 # ──────────────────────────────────────────────
@@ -339,3 +344,61 @@ class TestACMResolveAliveIds:
         """
         result = acm_collector.resolve_alive_ids(set())
         assert result == set()
+
+
+# ──────────────────────────────────────────────
+# RDS / Aurora resolve_alive_ids tests (cluster vs instance, conservative errors)
+# ──────────────────────────────────────────────
+
+
+def _client_error(code: str) -> ClientError:
+    return ClientError({"Error": {"Code": code, "Message": code}}, "Describe")
+
+
+class TestRDSResolveAliveIds:
+    """RDS resolve_alive_ids: ARN cluster vs instance, conservative on uncertain errors."""
+
+    def _mock_rds(self, monkeypatch, *, instance=None, cluster=None) -> MagicMock:
+        client = MagicMock()
+        if instance is not None:
+            client.describe_db_instances.side_effect = instance
+        if cluster is not None:
+            client.describe_db_clusters.side_effect = cluster
+        monkeypatch.setattr(rds_collector, "_get_rds_client", lambda: client)
+        return client
+
+    def test_cluster_arn_alive(self, monkeypatch):
+        self._mock_rds(monkeypatch)  # describe_db_clusters succeeds (default mock)
+        arn = "arn:aws:rds:us-east-1:123456789012:cluster:my-aurora"
+        assert rds_collector.resolve_alive_ids({arn}) == {arn}
+
+    def test_cluster_arn_deleted_is_orphan(self, monkeypatch):
+        self._mock_rds(monkeypatch, cluster=_client_error("DBClusterNotFoundFault"))
+        arn = "arn:aws:rds:us-east-1:123456789012:cluster:dead-aurora"
+        assert rds_collector.resolve_alive_ids({arn}) == set()
+
+    def test_instance_id_alive(self, monkeypatch):
+        self._mock_rds(monkeypatch)
+        assert rds_collector.resolve_alive_ids({"my-db"}) == {"my-db"}
+
+    def test_instance_notfound_falls_back_to_cluster(self, monkeypatch):
+        # Instance missing but a cluster with that id exists -> alive (Aurora id passed plain).
+        self._mock_rds(monkeypatch, instance=_client_error("DBInstanceNotFound"))
+        assert rds_collector.resolve_alive_ids({"aurora-id"}) == {"aurora-id"}
+
+    def test_both_notfound_is_orphan(self, monkeypatch):
+        self._mock_rds(
+            monkeypatch,
+            instance=_client_error("DBInstanceNotFound"),
+            cluster=_client_error("DBClusterNotFoundFault"),
+        )
+        assert rds_collector.resolve_alive_ids({"ghost"}) == set()
+
+    def test_uncertain_error_is_conservatively_alive(self, monkeypatch):
+        # Transient errors (throttling) must NOT be treated as orphan.
+        self._mock_rds(monkeypatch, instance=_client_error("ThrottlingException"))
+        assert rds_collector.resolve_alive_ids({"throttled-db"}) == {"throttled-db"}
+
+    def test_empty_input(self, monkeypatch):
+        self._mock_rds(monkeypatch)
+        assert rds_collector.resolve_alive_ids(set()) == set()

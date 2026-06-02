@@ -423,24 +423,49 @@ def get_aurora_metrics(db_instance_id: str, resource_tags: dict | None = None) -
 
 
 def resolve_alive_ids(tag_names: set[str]) -> set[str]:
-    """RDS DB 인스턴스 존재 여부 확인."""
+    """RDS 인스턴스/Aurora 클러스터 존재 여부 확인.
+
+    tag_names 원소는 식별자이거나 ARN일 수 있다. ARN이 ``:cluster:`` 를 포함하면
+    Aurora 클러스터로 보고 describe_db_clusters로, 그 외에는 describe_db_instances로
+    조회하되 인스턴스로 못 찾으면 클러스터로 한 번 더 확인한다. **확실히 NotFound인
+    것만 orphan(=제외)으로 보고, 스로틀 등 불확실한 오류는 보수적으로 alive로 취급해**
+    일시 오류로 라이브 리소스의 알람이 삭제되는 것을 막는다.
+    """
     rds = _get_rds_client()
     alive: set[str] = set()
-
-    for db_id in tag_names:
-        try:
-            rds.describe_db_instances(DBInstanceIdentifier=db_id)
-            alive.add(db_id)
-        except ClientError as e:
-            code = e.response["Error"]["Code"]
-            if code == "DBInstanceNotFound":
-                logger.info("RDS instance not found (orphan): %s", db_id)
-            else:
-                logger.error(
-                    "describe_db_instances failed for %s: %s", db_id, e,
-                )
-
+    for tag in tag_names:
+        identifier = tag.rsplit(":", 1)[-1] if tag.startswith("arn:") else tag
+        if ":cluster:" in tag:
+            if _rds_cluster_exists(rds, identifier, tag):
+                alive.add(tag)
+        elif _rds_instance_exists(rds, identifier, tag) or _rds_cluster_exists(rds, identifier, tag):
+            alive.add(tag)
     return alive
+
+
+def _rds_instance_exists(rds, identifier: str, tag: str) -> bool:
+    """인스턴스 존재 시 True, 확실히 NotFound면 False, 불확실하면 보수적으로 True."""
+    try:
+        rds.describe_db_instances(DBInstanceIdentifier=identifier)
+        return True
+    except ClientError as e:
+        if e.response.get("Error", {}).get("Code") == "DBInstanceNotFound":
+            return False
+        logger.error("RDS instance check uncertain for %s: %s", tag, e)
+        return True
+
+
+def _rds_cluster_exists(rds, identifier: str, tag: str) -> bool:
+    """클러스터 존재 시 True, 확실히 NotFound면 False, 불확실하면 보수적으로 True."""
+    try:
+        rds.describe_db_clusters(DBClusterIdentifier=identifier)
+        return True
+    except ClientError as e:
+        if e.response.get("Error", {}).get("Code") == "DBClusterNotFoundFault":
+            logger.info("RDS cluster not found (orphan): %s", tag)
+            return False
+        logger.error("RDS cluster check uncertain for %s: %s", tag, e)
+        return True
 
 
 def _get_tags(rds_client, db_arn: str) -> dict:

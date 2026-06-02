@@ -1059,6 +1059,16 @@ def _handle_alarms_sync_job(event: dict, context) -> dict:
     
     _update_job_status(job_id, "in_progress")
 
+    # 고아 알람 정리: 존재하지 않는 리소스의 CloudWatch 알람을 삭제한다.
+    # 현재/기본 계정(단일 계정 모드) 대상이며, AssumeRole 대상 계정은 스케줄
+    # daily flow가 처리한다. 실패해도 알람 동기화는 계속 진행한다.
+    try:
+        orphaned = _cleanup_orphan_alarms()
+        if orphaned:
+            logger.info("Alarm sync removed %d orphan alarms", len(orphaned))
+    except ClientError as e:
+        logger.error("Orphan alarm cleanup failed during alarm sync: %s", e)
+
     try:
         accounts = _resolve_target_accounts(scope)
     except ClientError as e:
