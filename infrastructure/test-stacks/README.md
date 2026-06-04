@@ -12,7 +12,7 @@ CloudFormation 테스트 스택 모음입니다.
 | 디렉터리 | 용도 | 주요 리소스 |
 |----------|------|-------------|
 | `e2e-db-resources/` | DB 계열 디스커버리/알람 E2E | RDS, Aurora, DocDB, ElastiCache |
-| `e2e-web-resources/` | 웹/트래픽 계열 E2E | EC2, ALB, NLB, TargetGroup |
+| `e2e-web-resources/` | 웹/트래픽 계열 E2E (+ ElastiCache) | EC2, ALB, NLB, TargetGroup, NAT, ElastiCache(Redis) |
 | `e2e-all-resources/` | 전체 리소스 통합 | 다수 |
 | `ec2-cwagent-test/` | CWAgent 메트릭(디스크/메모리) | EC2 |
 | `extended-resources-test/` | 확장 리소스군 | 다수 |

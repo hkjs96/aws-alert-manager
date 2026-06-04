@@ -1,8 +1,8 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >-
   E2E Web and Load Balancer Resources Test Infra.
-  EC2 Instance (Target + Bastion) + ALB + NLB + Target Groups + NAT Gateway.
-  All resources tagged Monitoring=on for alarm auto-creation.
+  EC2 Instance (Target + Bastion) + ALB + NLB + Target Groups + NAT Gateway
+  + ElastiCache (Redis). All resources tagged Monitoring=on for alarm auto-creation.
 
 Parameters:
   Environment:
@@ -289,6 +289,49 @@ Resources:
           Value: !Sub '${Environment}-e2e-natgw'
         - Key: Threshold_PacketsDropCount
           Value: '5'
+
+  # ============================================================
+  # ElastiCache (Redis) - verified together with the LB test stack
+  # ============================================================
+  RedisSg:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Sub '${Environment}-e2e-web-redis-sg'
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 6379
+          ToPort: 6379
+          CidrIp: 0.0.0.0/0
+
+  RedisSubnetGroup:
+    Type: AWS::ElastiCache::SubnetGroup
+    Properties:
+      CacheSubnetGroupName: !Sub '${Environment}-e2e-web-redis-subnets'
+      Description: Redis test subnet group (web stack)
+      SubnetIds:
+        - !Ref SubnetId1
+        - !Ref SubnetId2
+
+  RedisCluster:
+    Type: AWS::ElastiCache::CacheCluster
+    Properties:
+      ClusterName: !Sub '${Environment}-e2e-web-redis'
+      Engine: redis
+      CacheNodeType: cache.t3.micro
+      NumCacheNodes: 1
+      CacheSubnetGroupName: !Ref RedisSubnetGroup
+      VpcSecurityGroupIds:
+        - !Ref RedisSg
+      Tags:
+        - Key: Monitoring
+          Value: 'on'
+        - Key: Name
+          Value: !Sub '${Environment}-e2e-web-redis'
+        - Key: Threshold_CurrConnections
+          Value: '300'
+        - Key: Threshold_StringGetLatency
+          Value: '0.005'
 
 Outputs:
   Ec2TargetId:
