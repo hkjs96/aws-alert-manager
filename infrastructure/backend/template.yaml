@@ -340,6 +340,7 @@ Resources:
                   - ec2:DescribeInstances
                   - ec2:DescribeTags
                   - ec2:CreateTags
+                  - ec2:DescribeNatGateways
                   - rds:DescribeDBInstances
                   - rds:ListTagsForResource
                   - elasticloadbalancing:DescribeLoadBalancers
@@ -537,6 +538,7 @@ Resources:
           ACCOUNTS_TABLE: !Ref AccountsTable
           RESOURCE_INVENTORY_TABLE: !Ref ResourceInventoryTable
           MONITOR_RUN_HISTORY_TABLE: !Ref MonitorRunHistoryTable
+          JOB_STATUS_TABLE: !Ref JobStatusTable
 
   # -- Dead Letter Queue: Remediation Handler (RISK-08) --
   RemediationDLQ:
@@ -1056,6 +1058,12 @@ Resources:
                   - dynamodb:PutItem
                   - dynamodb:UpdateItem
                 Resource: !GetAtt MonitorRunHistoryTable.Arn
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:GetItem
+                Resource: !GetAtt JobStatusTable.Arn
               # -- 멀티 어카운트: 대상 계정 Role AssumeRole --
               - Effect: Allow
                 Action:

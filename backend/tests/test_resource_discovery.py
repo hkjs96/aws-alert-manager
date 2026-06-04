@@ -9,6 +9,7 @@ from common.resource_discovery import (
     _discover_load_balancers,
     _discover_target_groups,
     _discover_elasticache,
+    _discover_nat,
 )
 
 
@@ -86,3 +87,25 @@ def test_discover_elasticache_redis_only_with_tags():
     assert out[0]["resource_id"] == "redis-1"
     assert out[0]["monitoring"] is True
     ec.list_tags_for_resource.assert_called_once_with(ResourceName="arn:redis-1")
+
+
+# ──────────────────────────────────────────────
+# _discover_nat: deleting/deleted 제외, 응답 태그 사용
+# ──────────────────────────────────────────────
+
+
+def test_discover_nat_excludes_deleting():
+    ec2 = MagicMock()
+    _paginated(ec2, [{"NatGateways": [
+        {"NatGatewayId": "nat-1", "State": "available",
+         "Tags": [{"Key": "Monitoring", "Value": "on"}, {"Key": "Name", "Value": "my-nat"}]},
+        {"NatGatewayId": "nat-2", "State": "deleting", "Tags": []},
+    ]}])
+
+    out = _discover_nat(_session_returning(ec2), "123", "us-east-1", "cust")
+
+    assert len(out) == 1  # deleting 제외
+    assert out[0]["type"] == "NAT"
+    assert out[0]["resource_id"] == "nat-1"
+    assert out[0]["name"] == "my-nat"
+    assert out[0]["monitoring"] is True

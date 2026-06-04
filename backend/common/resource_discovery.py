@@ -135,6 +135,7 @@ def discover_resources(accounts: List[dict]) -> List[dict]:
             all_resources.extend(_discover_load_balancers(session, account_id, region, customer_id))
             all_resources.extend(_discover_target_groups(session, account_id, region, customer_id))
             all_resources.extend(_discover_elasticache(session, account_id, region, customer_id))
+            all_resources.extend(_discover_nat(session, account_id, region, customer_id))
             all_resources.extend(_discover_lambda(session, account_id, region, customer_id))
 
         session = _get_session_for_account(account, regions[0])
@@ -305,6 +306,34 @@ def _discover_elasticache(session, account_id, region, customer_id):
                 })
     except ClientError as e:
         logger.error("ElastiCache discovery failed in %s/%s: %s", account_id, region, e)
+    return resources
+
+
+def _discover_nat(session, account_id, region, customer_id):
+    """NAT Gateway를 인벤토리로 수집한다. (삭제 중/삭제된 것은 제외, 태그는 응답에 포함)"""
+    resources = []
+    try:
+        ec2 = session.client("ec2")
+        paginator = ec2.get_paginator("describe_nat_gateways")
+        for page in paginator.paginate():
+            for nat in page.get("NatGateways", []):
+                if nat.get("State") in ("deleting", "deleted", "failed"):
+                    continue
+                nat_id = nat["NatGatewayId"]
+                tags = {t["Key"]: t["Value"] for t in nat.get("Tags", [])}
+                resources.append({
+                    "resource_id": nat_id,
+                    "name": tags.get("Name", nat_id),
+                    "type": "NAT",
+                    "account_id": account_id,
+                    "region": region,
+                    "customer_id": customer_id,
+                    "monitoring": has_monitoring_tag(tags),
+                    "status": "active",
+                    "tags": tags
+                })
+    except ClientError as e:
+        logger.error("NAT discovery failed in %s/%s: %s", account_id, region, e)
     return resources
 
 
