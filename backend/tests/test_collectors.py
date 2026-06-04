@@ -1781,7 +1781,7 @@ class TestElastiCacheCollector:
         data = {
             "CPUUtilization": 75.0,
             "EngineCPUUtilization": 60.0,
-            "SwapUsage": 0.5,
+            "DatabaseMemoryUsagePercentage": 65.0,
             "Evictions": 2.0,
             "CurrConnections": 150.0,
         }
@@ -1803,11 +1803,11 @@ class TestElastiCacheCollector:
             result = elasticache_collector.get_metrics("redis-1")
 
         assert result is not None
-        expected_keys = {"CPU", "EngineCPU", "SwapUsage", "Evictions", "CurrConnections"}
+        expected_keys = {"CPU", "EngineCPU", "DatabaseMemoryUsagePercentage", "Evictions", "CurrConnections"}
         assert set(result.keys()) == expected_keys
         assert result["CPU"] == pytest.approx(75.0)
         assert result["EngineCPU"] == pytest.approx(60.0)
-        assert result["SwapUsage"] == pytest.approx(0.5)
+        assert result["DatabaseMemoryUsagePercentage"] == pytest.approx(65.0)
         assert result["Evictions"] == pytest.approx(2.0)
         assert result["CurrConnections"] == pytest.approx(150.0)
 

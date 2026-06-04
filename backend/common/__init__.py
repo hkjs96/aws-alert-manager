@@ -57,7 +57,7 @@ HARDCODED_DEFAULTS: dict[str, float] = {
     "FreeLocalStoragePct": 20.0,
     "ConnectionAttempts": 500.0,
     "EngineCPU": 90.0,
-    "SwapUsage": 1.0,
+    "DatabaseMemoryUsagePercentage": 80.0,
     "Evictions": 5.0,
     "CurrConnections": 200.0,
     "PacketsDropCount": 1.0,

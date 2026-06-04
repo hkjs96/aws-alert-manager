@@ -56,7 +56,7 @@ _METRIC_DISPLAY = {
     "ServerlessDatabaseCapacity": ("ServerlessDatabaseCapacity", ">", "ACU"),
     "ConnectionAttempts": ("ConnectionAttempts", ">", ""),
     "EngineCPU": ("EngineCPUUtilization", ">=", "%"),
-    "SwapUsage": ("SwapUsage", ">=", ""),
+    "DatabaseMemoryUsagePercentage": ("DatabaseMemoryUsagePercentage", ">=", "%"),
     "Evictions": ("Evictions", ">=", ""),
     "CurrConnections": ("CurrConnections", ">=", ""),
     "PacketsDropCount": ("PacketsDropCount", ">", ""),
@@ -619,15 +619,15 @@ _ELASTICACHE_ALARMS = [
         "treat_missing_data": "breaching",
     },
     {
-        "metric": "SwapUsage",
+        "metric": "DatabaseMemoryUsagePercentage",
         "namespace": "AWS/ElastiCache",
-        "metric_name": "SwapUsage",
+        "metric_name": "DatabaseMemoryUsagePercentage",
         "dimension_key": "CacheClusterId",
         "stat": "Average",
         "comparison": "GreaterThanOrEqualToThreshold",
         "period": 300,
         "evaluation_periods": 1,
-        "treat_missing_data": "breaching",
+        "treat_missing_data": "notBreaching",
     },
     {
         "metric": "Evictions",
@@ -1562,7 +1562,7 @@ _HARDCODED_METRIC_KEYS: dict[str, set[str]] = {
     "TG": {"HealthyHostCount", "UnHealthyHostCount", "RequestCountPerTarget", "TargetResponseTime"},
     "AuroraRDS": {"CPUUtilization", "FreeableMemory", "DatabaseConnections", "FreeLocalStorage", "ReplicaLag", "ReaderReplicaLag", "ACUUtilization", "ServerlessDatabaseCapacity"},
     "DocDB": {"CPUUtilization", "FreeableMemory", "DatabaseConnections"},
-    "ElastiCache": {"CPUUtilization", "EngineCPU", "SwapUsage", "Evictions", "CurrConnections"},
+    "ElastiCache": {"CPUUtilization", "EngineCPU", "DatabaseMemoryUsagePercentage", "Evictions", "CurrConnections"},
     "NAT": {"PacketsDropCount", "ErrorPortAllocation"},
     "Lambda": {"Duration", "Errors"},
     "VPN": {"TunnelState"},
@@ -1780,7 +1780,7 @@ _DEFAULT_SEVERITY: dict[str, str] = {
     "ConnectionAttempts":     "SEV-5",
     "RequestCountPerTarget":  "SEV-5",
     "ServerlessDatabaseCapacity": "SEV-5",
-    "SwapUsage":              "SEV-5",
+    "DatabaseMemoryUsagePercentage": "SEV-2",
 }
 
 

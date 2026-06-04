@@ -85,7 +85,7 @@ def get_metrics(
     수집 메트릭 (네임스페이스: AWS/ElastiCache):
     - CPUUtilization → 'CPU'
     - EngineCPUUtilization → 'EngineCPU'
-    - SwapUsage → 'SwapUsage'
+    - DatabaseMemoryUsagePercentage → 'DatabaseMemoryUsagePercentage'
     - Evictions → 'Evictions'
     - CurrConnections → 'CurrConnections'
 
@@ -104,8 +104,8 @@ def get_metrics(
                    "CPU", metrics, stat=CW_STAT_AVG, resource_label="ElastiCache")
     collect_metric("AWS/ElastiCache", "EngineCPUUtilization", dim, start_time, end_time,
                    "EngineCPU", metrics, stat=CW_STAT_AVG, resource_label="ElastiCache")
-    collect_metric("AWS/ElastiCache", "SwapUsage", dim, start_time, end_time,
-                   "SwapUsage", metrics, stat=CW_STAT_AVG, resource_label="ElastiCache")
+    collect_metric("AWS/ElastiCache", "DatabaseMemoryUsagePercentage", dim, start_time, end_time,
+                   "DatabaseMemoryUsagePercentage", metrics, stat=CW_STAT_AVG, resource_label="ElastiCache")
     collect_metric("AWS/ElastiCache", "Evictions", dim, start_time, end_time,
                    "Evictions", metrics, stat=CW_STAT_AVG, resource_label="ElastiCache")
     collect_metric("AWS/ElastiCache", "CurrConnections", dim, start_time, end_time,
