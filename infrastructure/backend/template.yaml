@@ -349,6 +349,9 @@ Resources:
                   - s3:ListAllMyBuckets
                   - s3:GetBucketTagging
                   - s3:GetBucketLocation
+                  - elasticloadbalancing:DescribeTargetGroups
+                  - elasticache:DescribeCacheClusters
+                  - elasticache:ListTagsForResource
                 Resource: "*"
               - Effect: Allow
                 Action:
