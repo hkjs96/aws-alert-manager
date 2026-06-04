@@ -132,7 +132,9 @@ def discover_resources(accounts: List[dict]) -> List[dict]:
 
             all_resources.extend(_discover_ec2(session, account_id, region, customer_id))
             all_resources.extend(_discover_rds(session, account_id, region, customer_id))
-            all_resources.extend(_discover_alb(session, account_id, region, customer_id))
+            all_resources.extend(_discover_load_balancers(session, account_id, region, customer_id))
+            all_resources.extend(_discover_target_groups(session, account_id, region, customer_id))
+            all_resources.extend(_discover_elasticache(session, account_id, region, customer_id))
             all_resources.extend(_discover_lambda(session, account_id, region, customer_id))
 
         session = _get_session_for_account(account, regions[0])
@@ -201,7 +203,8 @@ def _discover_rds(session, account_id, region, customer_id):
     return resources
 
 
-def _discover_alb(session, account_id, region, customer_id):
+def _discover_load_balancers(session, account_id, region, customer_id):
+    """ALB(application) + NLB(network)를 인벤토리로 수집한다. gateway 등은 제외."""
     resources = []
     try:
         elbv2 = session.client("elbv2")
@@ -210,7 +213,11 @@ def _discover_alb(session, account_id, region, customer_id):
             for lb in page.get("LoadBalancers", []):
                 lb_arn = lb["LoadBalancerArn"]
                 lb_type = lb.get("Type", "application")
-                if lb_type != "application":
+                if lb_type == "application":
+                    res_type = "ALB"
+                elif lb_type == "network":
+                    res_type = "NLB"
+                else:
                     continue
 
                 tags_resp = elbv2.describe_tags(ResourceArns=[lb_arn])
@@ -221,7 +228,7 @@ def _discover_alb(session, account_id, region, customer_id):
                 resources.append({
                     "resource_id": lb_arn,
                     "name": lb.get("LoadBalancerName", lb_arn),
-                    "type": "ALB",
+                    "type": res_type,
                     "account_id": account_id,
                     "region": region,
                     "customer_id": customer_id,
@@ -230,7 +237,74 @@ def _discover_alb(session, account_id, region, customer_id):
                     "tags": tags
                 })
     except ClientError as e:
-        logger.error("ALB discovery failed in %s/%s: %s", account_id, region, e)
+        logger.error("LB discovery failed in %s/%s: %s", account_id, region, e)
+    return resources
+
+
+def _discover_target_groups(session, account_id, region, customer_id):
+    """ALB/NLB의 Target Group을 인벤토리로 수집한다."""
+    resources = []
+    try:
+        elbv2 = session.client("elbv2")
+        paginator = elbv2.get_paginator("describe_target_groups")
+        for page in paginator.paginate():
+            for tg in page.get("TargetGroups", []):
+                tg_arn = tg["TargetGroupArn"]
+                tags_resp = elbv2.describe_tags(ResourceArns=[tg_arn])
+                tags = {}
+                if tags_resp.get("TagDescriptions"):
+                    tags = {t["Key"]: t["Value"] for t in tags_resp["TagDescriptions"][0].get("Tags", [])}
+
+                resources.append({
+                    "resource_id": tg_arn,
+                    "name": tg.get("TargetGroupName", tg_arn),
+                    "type": "TG",
+                    "account_id": account_id,
+                    "region": region,
+                    "customer_id": customer_id,
+                    "monitoring": has_monitoring_tag(tags),
+                    "status": "active",
+                    "tags": tags
+                })
+    except ClientError as e:
+        logger.error("TargetGroup discovery failed in %s/%s: %s", account_id, region, e)
+    return resources
+
+
+def _discover_elasticache(session, account_id, region, customer_id):
+    """ElastiCache(Redis) 클러스터를 인벤토리로 수집한다."""
+    resources = []
+    try:
+        ec = session.client("elasticache")
+        paginator = ec.get_paginator("describe_cache_clusters")
+        for page in paginator.paginate():
+            for cluster in page.get("CacheClusters", []):
+                if cluster.get("Engine", "").lower() != "redis":
+                    continue
+                cluster_id = cluster["CacheClusterId"]
+
+                tags = {}
+                arn = cluster.get("ARN")
+                if arn:
+                    try:
+                        tags_resp = ec.list_tags_for_resource(ResourceName=arn)
+                        tags = {t["Key"]: t["Value"] for t in tags_resp.get("TagList", [])}
+                    except ClientError as e:
+                        logger.error("ElastiCache list_tags failed for %s: %s", cluster_id, e)
+
+                resources.append({
+                    "resource_id": cluster_id,
+                    "name": cluster_id,
+                    "type": "ElastiCache",
+                    "account_id": account_id,
+                    "region": region,
+                    "customer_id": customer_id,
+                    "monitoring": has_monitoring_tag(tags),
+                    "status": "active",
+                    "tags": tags
+                })
+    except ClientError as e:
+        logger.error("ElastiCache discovery failed in %s/%s: %s", account_id, region, e)
     return resources
 
 
