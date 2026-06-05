@@ -23,4 +23,6 @@ def get_job(event: dict) -> dict:
     if not item:
         return {"statusCode": 404, "body": json.dumps({"code": "NOT_FOUND", "message": "Job not found"})}
 
-    return {"statusCode": 200, "body": json.dumps(item)}
+    # DynamoDB returns Decimal for numeric attrs (counts, results); default=str
+    # keeps json.dumps from raising TypeError -> uncaught 500 (matches other routes).
+    return {"statusCode": 200, "body": json.dumps(item, default=str)}
