@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { ToastProvider } from "@/components/shared/Toast";
 import { ResourcesContent } from "../ResourcesContent";
+import { encodeResourceId } from "@/lib/resource-id";
 import type { Resource } from "@/types";
 
 const mockRouterPush = vi.hoisted(() => vi.fn());
@@ -84,11 +85,12 @@ describe("ResourcesContent monitoring toggle", () => {
     expect(toggleMonitoring).not.toHaveBeenCalled();
   });
 
-  it("navigates to resource detail by resource id", () => {
+  it("navigates to resource detail by encoded resource id", () => {
     renderContent();
 
     fireEvent.click(screen.getByText("web-01"));
 
-    expect(mockRouterPush).toHaveBeenCalledWith("/resources/i-001");
+    // resource_id는 base64url 토큰으로 인코딩되어 path에 실린다 (AGENTS.md AP-6).
+    expect(mockRouterPush).toHaveBeenCalledWith(`/resources/${encodeResourceId("i-001")}`);
   });
 });

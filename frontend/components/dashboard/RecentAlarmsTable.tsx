@@ -4,6 +4,7 @@ import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { Search, ChevronDown, ChevronRight, BellOff } from "lucide-react";
 import type { Alarm } from "@/types";
+import { encodeResourceId } from "@/lib/resource-id";
 
 type SortDir = "asc" | "desc";
 
@@ -239,7 +240,7 @@ export function RecentAlarmsTable({ alarms }: RecentAlarmsTableProps) {
                 alarms={grouped[bucket]}
                 defaultOpen={bucket !== "older"}
                 onRowClick={(alarm) =>
-                  router.push(`/resources/${encodeURIComponent(alarm.resource)}`)
+                  router.push(`/resources/${encodeResourceId(alarm.resource)}`)
                 }
               />
             ))

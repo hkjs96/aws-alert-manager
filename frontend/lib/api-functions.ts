@@ -19,6 +19,7 @@ import type {
 } from "@/types/api";
 import type { AlarmConfig, Resource, Customer, Account, RecentAlarm, Alarm } from "@/types/index";
 import { apiFetch, buildFilterParams, buildQueryString } from "./api";
+import { encodeResourceId } from "./resource-id";
 
 type ApiResource = Resource & { account_id?: string };
 
@@ -62,18 +63,18 @@ export function syncResources(filters: GlobalFilterParams): Promise<SyncResult> 
 }
 
 export function fetchResource(id: string): Promise<Resource> {
-  return apiFetch<ApiResource>(`/api/resources/${id}`).then(normalizeResource);
+  return apiFetch<ApiResource>(`/api/resources/${encodeResourceId(id)}`).then(normalizeResource);
 }
 
 export function fetchAlarmConfigs(id: string): Promise<AlarmConfig[]> {
-  return apiFetch(`/api/resources/${id}/alarms`);
+  return apiFetch(`/api/resources/${encodeResourceId(id)}/alarms`);
 }
 
 export function saveAlarmConfigs(
   id: string,
   configs: SaveAlarmConfigRequest,
 ): Promise<JobStatus> {
-  return apiFetch(`/api/resources/${id}/alarms`, {
+  return apiFetch(`/api/resources/${encodeResourceId(id)}/alarms`, {
     method: "PUT",
     body: JSON.stringify(configs),
   });
@@ -83,14 +84,14 @@ export function toggleMonitoring(
   id: string,
   enabled: boolean,
 ): Promise<JobStatus> {
-  return apiFetch(`/api/resources/${id}/monitoring`, {
+  return apiFetch(`/api/resources/${encodeResourceId(id)}/monitoring`, {
     method: "PUT",
     body: JSON.stringify({ monitoring: enabled }),
   });
 }
 
 export function fetchAvailableMetrics(id: string): Promise<AvailableMetric[]> {
-  return apiFetch(`/api/resources/${id}/metrics`);
+  return apiFetch(`/api/resources/${encodeResourceId(id)}/metrics`);
 }
 
 // --- Bulk ---

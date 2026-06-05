@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { ChevronUp, ChevronDown } from "lucide-react";
 import type { Alarm } from "@/types";
 import { formatRelativeTime } from "@/lib/time-utils";
+import { encodeResourceId } from "@/lib/resource-id";
 
 type SortDir = "asc" | "desc";
 
@@ -109,7 +110,7 @@ export function AlarmTable({ alarms }: AlarmTableProps) {
             {sorted.map((alarm) => (
               <tr
                 key={alarm.id}
-                onClick={() => router.push(`/resources/${encodeURIComponent(alarm.resource)}`)}
+                onClick={() => router.push(`/resources/${encodeResourceId(alarm.resource)}`)}
                 className={`cursor-pointer transition-colors ${alarm.state === "ALARM" ? "bg-red-50 border-l-2 border-l-red-500 hover:bg-red-100/60" : "hover:bg-slate-50"}`}
               >
                 <td className="px-4 py-3 font-mono text-xs text-slate-500">

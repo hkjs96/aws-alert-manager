@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { X, Check, AlertTriangle, HardDrive } from "lucide-react";
 import { Button } from "@/components/shared/Button";
 import { fetchAvailableMetrics } from "@/lib/api-functions";
+import { encodeResourceId } from "@/lib/resource-id";
 import type { AvailableMetric } from "@/types/api";
 import type { AlarmConfig, SeverityLevel } from "@/types";
 
@@ -47,7 +48,7 @@ export function AlarmForm({ resourceId, open, onClose, onAdd }: AlarmFormProps) 
       return;
     }
     setLoadingPaths(true);
-    fetch(`/api/resources/${encodeURIComponent(resourceId)}/disk-paths`)
+    fetch(`/api/resources/${encodeResourceId(resourceId)}/disk-paths`)
       .then((r) => r.json() as Promise<string[]>)
       .then((data) => {
         setPaths(data);
@@ -78,7 +79,7 @@ export function AlarmForm({ resourceId, open, onClose, onAdd }: AlarmFormProps) 
       if (selected.needs_mount_path) body.mount_path = mountPath;
 
       const res = await fetch(
-        `/api/resources/${encodeURIComponent(resourceId)}/alarms`,
+        `/api/resources/${encodeResourceId(resourceId)}/alarms`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },

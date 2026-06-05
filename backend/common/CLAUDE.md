@@ -25,6 +25,12 @@ When adding a resource type:
 7. Update `infrastructure/backend/template.yaml` if CloudTrail event patterns change.
 8. Add tests under `backend/tests/`.
 
+> **URL 식별자(중요):** 새 리소스의 `resource_id`가 ARN처럼 `/`·`:`를 포함해도
+> **추가 작업은 필요 없다.** 프론트 `encodeResourceId`/백엔드 `_decode_resource_token`
+> (`_path_id` 자동 적용)이 base64url 토큰으로 처리하며 **타입 무관**이다.
+> 단, `resource_id`를 URL/API path에 raw로 넣는 코드를 새로 만들지 말 것
+> (루트 `AGENTS.md` AP-6, `backend/AGENTS.md` §5).
+
 ## Test Command
 
 ```bash

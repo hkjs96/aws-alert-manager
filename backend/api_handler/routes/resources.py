@@ -2,6 +2,7 @@
 /resources endpoints.
 """
 
+import base64
 import functools
 import json
 import logging
@@ -602,8 +603,35 @@ def _alarm_info_from_resource(resource: dict) -> dict:
     }
 
 
+_RESOURCE_TOKEN_PREFIX = "r."
+
+
+def _decode_resource_token(raw: str) -> str:
+    """URL 토큰(base64url)을 원본 resource_id로 복원한다.
+
+    프론트엔드(`encodeResourceId`)는 ARN처럼 슬래시·콜론을 포함한 resource_id를
+    URL/API path에 안전하게 싣기 위해 base64url로 인코딩해 `r.<payload>` 토큰으로
+    전달한다. 가역 토큰이라 매핑 테이블 없이 복원되며, 레거시 raw id(EC2 `i-...`)나
+    리소스 name은 접두사가 없어 그대로 통과한다(상세: 루트 AGENTS.md AP-6).
+    """
+    if not raw.startswith(_RESOURCE_TOKEN_PREFIX):
+        return raw
+    payload = raw[len(_RESOURCE_TOKEN_PREFIX):]
+    pad = "=" * (-len(payload) % 4)
+    try:
+        decoded = base64.urlsafe_b64decode(payload + pad).decode("utf-8")
+    except (ValueError, UnicodeDecodeError):
+        return raw
+    # round-trip 가드: 정상 토큰만 복원하고 우연히 접두사가 겹친 raw 값은 보존한다.
+    reencoded = base64.urlsafe_b64encode(decoded.encode("utf-8")).decode("ascii").rstrip("=")
+    if reencoded != payload:
+        return raw
+    return decoded
+
+
 def _path_id(event: dict) -> str:
-    return (event.get("pathParameters") or {}).get("id", "")
+    raw = (event.get("pathParameters") or {}).get("id", "")
+    return _decode_resource_token(raw)
 
 
 def _find_resource_detail(resource_id_or_name: str) -> dict | None:

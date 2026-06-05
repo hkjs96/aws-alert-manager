@@ -4,6 +4,7 @@ import { useState, useCallback, useEffect } from "react";
 import { X } from "lucide-react";
 import { useToast } from "@/components/shared/Toast";
 import { fetchResources } from "@/lib/api-functions";
+import { encodeResourceId } from "@/lib/resource-id";
 import { isSubmitEnabled, type Track } from "@/lib/alarm-modal-utils";
 import type { Resource } from "@/types";
 import { METRICS_BY_TYPE, type MetricRow } from "@/components/resources/MetricConfigSection";
@@ -147,7 +148,7 @@ export function CreateAlarmModal({ open, onClose, onSuccess }: CreateAlarmModalP
       }
 
       for (const metric of activeMetrics) {
-        const res = await fetch(`/api/resources/${encodeURIComponent(resourceId)}/alarms`, {
+        const res = await fetch(`/api/resources/${encodeResourceId(resourceId)}/alarms`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({

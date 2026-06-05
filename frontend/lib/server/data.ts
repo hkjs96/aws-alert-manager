@@ -12,6 +12,7 @@ import type {
   Resource,
 } from "@/types";
 import type { AlarmSummary, DashboardStats } from "@/types/api";
+import { encodeResourceId } from "@/lib/resource-id";
 
 const API_BASE_URL =
   process.env.API_GATEWAY_URL ??
@@ -85,7 +86,7 @@ export async function fetchAccountOptions(): Promise<{ id: string; name: string;
 
 export async function fetchResource(idOrName: string): Promise<Resource | null> {
   try {
-    const resource = await apiFetch<ApiResource>(`/api/resources/${encodeURIComponent(idOrName)}`);
+    const resource = await apiFetch<ApiResource>(`/api/resources/${encodeResourceId(idOrName)}`);
     return normalizeResource(resource);
   } catch {
     return null;
@@ -124,7 +125,7 @@ function parseMountPath(metricName: string): { metricName: string; mountPath?: s
 
 export async function fetchResourceAlarms(resourceId: string): Promise<AlarmConfig[]> {
   try {
-    const items = await apiFetch<ApiAlarm[]>(`/api/resources/${encodeURIComponent(resourceId)}/alarms`);
+    const items = await apiFetch<ApiAlarm[]>(`/api/resources/${encodeResourceId(resourceId)}/alarms`);
     return items.map((a) => {
       const parsed = parseMountPath(a.metric_name);
       const metricName = parsed.metricName;

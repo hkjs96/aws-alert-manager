@@ -26,3 +26,17 @@
 ## 5. API 연통
 - 백엔드와의 통신은 `frontend/lib/api/` (또는 유사 경로)에 정의된 공통 클라이언트를 사용하십시오.
 - 환경 변수는 `.env.local`을 참조하되, 브라우저 노출이 필요한 경우 `NEXT_PUBLIC_` 접두사를 사용하십시오.
+
+## 6. 리소스 URL 식별자 (토큰)
+`resource_id`를 URL path(`/resources/[id]`)나 API path(`/api/resources/{id}/...`)에 넣을 때는
+**절대 raw로 넣지 말고** `frontend/lib/resource-id.ts`의 `encodeResourceId()`를 경유하십시오.
+ALB/NLB/TG의 `resource_id`는 풀 ARN(`/`·`:` 포함)이라 raw로 넣으면 CloudFront/Next 프록시/
+API Gateway가 `%2F`를 `/`로 풀면서 라우팅이 깨집니다(루트 `AGENTS.md` AP-6).
+
+- **링크/네비게이션:** `router.push(\`/resources/${encodeResourceId(res.id)}\`)`.
+- **API 호출:** `lib/api-functions.ts`·`lib/server/data.ts`의 resource path 빌더는 이미
+  `encodeResourceId`를 적용한다. 새 호출을 추가할 때도 동일하게 경유하십시오.
+  직접 `fetch()`를 쓸 때도 path의 `resource_id`는 반드시 `encodeResourceId`로 감싸십시오.
+- **상세 페이지:** `params.id`(토큰)를 화면 표시/필터용 원본 id로 복원할 땐
+  `decodeResourceId()`를 쓰십시오. `encodeURIComponent`/`decodeURIComponent`로 대체하지 마십시오.
+- 토큰은 가역·타입 무관이라 **신규 리소스 타입을 추가해도 별도 처리가 필요 없습니다.**

@@ -4,6 +4,7 @@ import { ResourceDetailClient } from "@/components/resources/ResourceDetailClien
 import { ResourceEvents } from "@/components/resources/ResourceEvents";
 import type { Metadata } from "next";
 import type { AlarmConfig, RecentAlarm, Resource } from "@/types";
+import { decodeResourceId } from "@/lib/resource-id";
 
 interface ResourceDetailPageProps {
   params: Promise<{ id: string }>;
@@ -11,7 +12,7 @@ interface ResourceDetailPageProps {
 
 export async function generateMetadata({ params }: ResourceDetailPageProps): Promise<Metadata> {
   const { id } = await params;
-  const decodedId = decodeURIComponent(id);
+  const decodedId = decodeResourceId(id);
   let resource: Resource | null = null;
   try {
     resource = await fetchResource(decodedId);
@@ -28,7 +29,7 @@ export async function generateMetadata({ params }: ResourceDetailPageProps): Pro
 
 export default async function ResourceDetailPage({ params }: ResourceDetailPageProps) {
   const { id } = await params;
-  const decodedId = decodeURIComponent(id);
+  const decodedId = decodeResourceId(id);
 
   let resource: Resource | null = null;
   try {

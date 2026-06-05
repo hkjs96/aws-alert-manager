@@ -31,6 +31,15 @@
 - **AP-3:** 예외 처리 시 `except Exception` 남용 (구체적인 에러 캐치 권장)
 - **AP-4:** 로깅 시 f-string 사용 (Lazy formatting `logger.info("%s", var)` 사용)
 - **AP-5:** 페이지네이션(`while True` + `table.query/scan`)을 bare `MagicMock` 테이블로 테스트 (무한 루프·수 GB RSS — mock 메서드를 종료 페이지로 stub: `table.query.return_value = {"Items": []}`. 상세: `backend/AGENTS.md` §3, `.kiro/steering/anti-patterns.md` AP-15)
+- **AP-6:** 리소스 식별자(`resource_id`)를 URL path나 API path 세그먼트에 **raw로 삽입**.
+  EC2 `i-...`는 슬래시가 없어 우연히 동작하지만 ALB/NLB/TG는 풀 ARN
+  (`arn:...:targetgroup/name/hash`)이라 `/`·`:`를 포함한다. 브라우저/CloudFront/
+  Next 프록시(`app/api/[...path]`)/API Gateway가 `%2F`를 다시 `/`로 디코딩하면서
+  라우터 `[^/]+`가 매칭에 실패해 404가 된다. 반드시 **base64url 토큰**으로 인코딩해
+  실어야 한다: 프론트는 `frontend/lib/resource-id.ts`의 `encodeResourceId()`/
+  `decodeResourceId()`를, 백엔드는 `_decode_resource_token`(`_path_id`가 자동 적용)을
+  사용한다. 토큰은 **가역·타입 무관(type-agnostic)**이라 신규 리소스 타입을 추가해도
+  식별자 관련 추가 작업이 없다. (상세: `frontend/AGENTS.md` §5, `backend/AGENTS.md` §5)
 
 ## 6. Codex 작업 워크플로 (필수)
 
