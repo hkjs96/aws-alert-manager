@@ -1038,6 +1038,7 @@ Resources:
                 Action:
                   - dynamodb:Query
                   - dynamodb:GetItem
+                  - dynamodb:Scan
                 Resource:
                   - !GetAtt AccountsTable.Arn
                   - !Sub "${AccountsTable.Arn}/index/*"
