@@ -99,6 +99,21 @@ if resource_type == "EC2":
 alive_ids = collector.resolve_alive_ids(tag_names)
 ```
 
+### AP-17. DynamoDB 아이템을 default=str 없이 json.dumps (Decimal → 500)
+DynamoDB는 숫자 속성을 **Decimal**로 돌려준다. 이를 그대로 `json.dumps`하면 `TypeError`가
+나고 최상위 핸들러가 잡아 **제네릭 500**을 던진다. 모든 API 라우트는 `default=str`로 직렬화한다.
+
+```python
+# ❌ 금지: Decimal(count/results 등)이 섞인 DynamoDB 아이템 직접 직렬화 → TypeError → 500
+return {"statusCode": 200, "body": json.dumps(item)}
+
+# ✅ 올바른 방법: 프로젝트 전 라우트 공통 컨벤션
+return {"statusCode": 200, "body": json.dumps(item, default=str)}
+```
+> 교훈: 새 라우트가 DynamoDB 아이템을 반환하면 반드시 `default=str`. 이번 사례는
+> `GET /jobs/{id}`만 누락돼 백엔드 job은 완료됐는데도 UI가 "Failed to connect"(AP-16)로
+> 표시됐다. 짝이 되는 프론트 규칙은 AP-16 참조.
+
 ## 테스트 (pytest / unittest.mock)
 
 ### AP-15. 페이지네이션 코드를 bare MagicMock 테이블로 호출 (무한 루프 → 수 GB)
@@ -168,6 +183,30 @@ NEXT_PUBLIC_DB_URL=postgresql://...
 // ✅ 올바른 방법: 서버 전용은 접두사 없이
 DB_URL=postgresql://...
 ```
+
+### AP-16. 모든 요청 실패를 단일 "연결 실패" 메시지로 뭉뚱그리기 (백엔드 에러 은폐)
+폴링/조회 `catch` 블록이 네트워크 에러와 HTTP 4xx/5xx를 **같은 메시지·같은 status=failed**로
+처리하면, 진짜 백엔드 버그(예: 500)가 "Failed to connect"로 가려진다. 또한 "상태 조회 요청
+실패"와 "job.status === 'failed'"는 서로 다른 사건인데 한데 묶인다.
+
+```typescript
+// ❌ 금지: 모든 예외를 같은 메시지/상태로 처리
+catch (err) {
+  setErrorMsg("Failed to connect to monitoring job tracker."); // 500도 이걸로 은폐
+  setStatus("failed");
+}
+
+// ✅ 올바른 방법: HTTP 상태/백엔드 code로 분기, 실제 에러를 노출
+catch (err) {
+  if (err instanceof HttpError)
+    setErrorMsg(`Job tracker error (${err.status}): ${err.body?.message ?? ""}`);
+  else
+    setErrorMsg("Failed to reach job tracker (network).");
+  setStatus("failed");
+}
+```
+> 교훈: 폴링 에러 메시지는 HTTP 상태/백엔드 `code`를 그대로 노출해 백엔드 버그가 UI에
+> 묻히지 않게 한다. 짝이 되는 백엔드 직렬화 규칙은 AP-17 참조.
 
 ## 인프라 (CloudFormation)
 

@@ -38,6 +38,11 @@ When a frontend change touches API data:
 - Parallelize independent page data with `Promise.all()`.
 - Keep API failure handling explicit. SSR pages should not crash for routine
   backend failures.
+- Do not collapse every fetch failure into one "connection failed" message.
+  Distinguish HTTP error responses (surface the status/backend `code`) from
+  network failures, and keep "request failed" separate from a job/resource whose
+  own status is `failed`. See anti-patterns AP-16. A generic message here hid a
+  real backend 500 (`GET /jobs/{id}` Decimal serialization, AP-17).
 
 ## TypeScript Rules
 
