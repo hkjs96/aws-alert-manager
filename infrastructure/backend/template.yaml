@@ -1239,6 +1239,11 @@ Resources:
                   - cloudwatch:DeleteAlarms
                   - cloudwatch:DescribeAlarms
                   - cloudwatch:ListMetrics
+                  # TagResource 필수: 알람 생성 직후 ManagedBy=AlarmManager 태그를 부여한다.
+                  # 누락 시 알람이 태그 없이 생성되어, daily monitor의 조건부 DeleteAlarms
+                  # (aws:ResourceTag/ManagedBy=AlarmManager)가 막혀 임계치 갱신/정리가 영구 고착된다.
+                  - cloudwatch:TagResource
+                  - cloudwatch:ListTagsForResource
                 Resource: "*"
               - Effect: Allow
                 Action:

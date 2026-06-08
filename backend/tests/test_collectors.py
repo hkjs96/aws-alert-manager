@@ -1216,6 +1216,28 @@ class TestAuroraMetadataEnrichment:
         assert _INSTANCE_CLASS_MEMORY_MAP["db.t3.micro"] == 1 * gib
         assert _INSTANCE_CLASS_MEMORY_MAP["db.t4g.large"] == 8 * gib
 
+    def test_instance_class_local_storage_map_entries(self):
+        """_INSTANCE_CLASS_LOCAL_STORAGE_MAP 주요 엔트리 검증 (Aurora 로컬 스토리지)."""
+        from common.collectors.rds import _INSTANCE_CLASS_LOCAL_STORAGE_MAP
+
+        gib = 1073741824
+        assert _INSTANCE_CLASS_LOCAL_STORAGE_MAP["db.t3.medium"] == 32 * gib
+        assert _INSTANCE_CLASS_LOCAL_STORAGE_MAP["db.r6g.large"] == 32 * gib
+        assert _INSTANCE_CLASS_LOCAL_STORAGE_MAP["db.r6g.xlarge"] == 80 * gib
+
+    def test_local_storage_lookup_uses_static_map_without_api(self):
+        """정적 맵에 있는 클래스는 describe_db_instance_classes API 없이도 조회된다.
+
+        배포된 boto3가 구버전이라 describe_db_instance_classes가 AttributeError로
+        실패하는 환경에서도 FreeLocalStorage 임계치가 인스턴스형으로 계산되도록 보장.
+        """
+        from common.collectors.rds import _lookup_instance_class_local_storage
+
+        mock_rds = MagicMock()
+        del mock_rds.describe_db_instance_classes  # 구버전 boto3 흉내(메서드 부재)
+        with patch("common.collectors.rds._get_rds_client", return_value=mock_rds):
+            assert _lookup_instance_class_local_storage("db.t3.medium") == 32 * 1073741824
+
     def test_describe_db_clusters_failure_graceful_degradation(self):
         """describe_db_clusters 실패 시 graceful degradation — Req 8.3"""
         from common.collectors.rds import collect_monitored_resources

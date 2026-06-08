@@ -63,6 +63,34 @@ _INSTANCE_CLASS_MEMORY_MAP: dict[str, int] = {
     "db.r7g.16xlarge": 512 * _BYTES_PER_GB,
 }
 
+# 인스턴스 클래스 → Aurora 로컬(임시) 스토리지 bytes 매핑 (AWS Aurora temp storage 표).
+# describe_db_instance_classes API가 없는 boto3 버전에서도 동작하도록 정적 매핑을 우선한다.
+# 값은 이론적 최대치이며 Aurora 관리 프로세스가 일부 사용해 실제 가용량은 약간 낮다.
+# (Serverless v2에는 적용되지 않음 — ACU에 비례해 동적 변동하므로 ACUUtilization으로 감지.)
+_INSTANCE_CLASS_LOCAL_STORAGE_MAP: dict[str, int] = {
+    # T 계열: 전부 32 GiB 고정
+    "db.t3.medium": 32 * _BYTES_PER_GB,
+    "db.t3.large": 32 * _BYTES_PER_GB,
+    "db.t4g.medium": 32 * _BYTES_PER_GB,
+    "db.t4g.large": 32 * _BYTES_PER_GB,
+    # R6g
+    "db.r6g.large": 32 * _BYTES_PER_GB,
+    "db.r6g.xlarge": 80 * _BYTES_PER_GB,
+    "db.r6g.2xlarge": 160 * _BYTES_PER_GB,
+    "db.r6g.4xlarge": 320 * _BYTES_PER_GB,
+    "db.r6g.8xlarge": 480 * _BYTES_PER_GB,
+    "db.r6g.12xlarge": 960 * _BYTES_PER_GB,
+    "db.r6g.16xlarge": 960 * _BYTES_PER_GB,
+    # R7g
+    "db.r7g.large": 32 * _BYTES_PER_GB,
+    "db.r7g.xlarge": 80 * _BYTES_PER_GB,
+    "db.r7g.2xlarge": 160 * _BYTES_PER_GB,
+    "db.r7g.4xlarge": 320 * _BYTES_PER_GB,
+    "db.r7g.8xlarge": 480 * _BYTES_PER_GB,
+    "db.r7g.12xlarge": 960 * _BYTES_PER_GB,
+    "db.r7g.16xlarge": 960 * _BYTES_PER_GB,
+}
+
 
 # ──────────────────────────────────────────────
 # boto3 클라이언트 싱글턴 (코딩 거버넌스 §1)
@@ -109,7 +137,8 @@ def _lookup_instance_class_memory(instance_class: str) -> int | None:
             return memory_bytes
         _instance_class_memory_cache[instance_class] = None
         return None
-    except ClientError as e:
+    except (ClientError, AttributeError) as e:
+        # AttributeError: 구버전 boto3는 describe_db_instance_classes 메서드가 없다.
         logger.warning(
             "describe_db_instance_classes failed for %s: %s",
             instance_class, e,
@@ -122,14 +151,21 @@ def _lookup_instance_class_local_storage(instance_class: str) -> int | None:
     """인스턴스 클래스의 로컬 스토리지 용량(bytes) 조회.
 
     조회 우선순위:
-    1. _instance_class_local_storage_cache 캐시 (API 실패 None 포함)
-    2. describe_db_instance_classes API → StorageInfo.StorageSizeRange.Maximum (GiB → bytes)
+    1. _INSTANCE_CLASS_LOCAL_STORAGE_MAP 정적 매핑 (boto3에 describe_db_instance_classes가
+       없는 버전에서도 동작 — Lambda 배포 boto3가 구버전이면 API가 AttributeError로 실패한다)
+    2. _instance_class_local_storage_cache 캐시 (API 실패 None 포함)
+    3. describe_db_instance_classes API → StorageInfo.StorageSizeRange.Maximum (GiB → bytes)
     """
-    # 1순위: 캐시 (None도 캐시됨 → API 실패 반복 방지)
+    # 1순위: 정적 매핑
+    static = _INSTANCE_CLASS_LOCAL_STORAGE_MAP.get(instance_class)
+    if static is not None:
+        return static
+
+    # 2순위: 캐시 (None도 캐시됨 → API 실패 반복 방지)
     if instance_class in _instance_class_local_storage_cache:
         return _instance_class_local_storage_cache[instance_class]
 
-    # 2순위: describe_db_instance_classes API
+    # 3순위: describe_db_instance_classes API
     try:
         rds = _get_rds_client()
         resp = rds.describe_db_instance_classes(
