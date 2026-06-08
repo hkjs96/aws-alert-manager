@@ -52,7 +52,7 @@ describe("CustomerSection — 담당 체크박스", () => {
     });
     render(<CustomerSection customers={mockCustomers} />);
     const checkboxes = screen.getAllByRole("checkbox", { name: /담당/i });
-    fireEvent.click(checkboxes[1]); // cust-b
+    fireEvent.click(checkboxes[1]!); // cust-b
     expect(toggleOwned).toHaveBeenCalledWith("cust-b");
   });
 

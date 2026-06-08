@@ -58,7 +58,7 @@ describe("1.2 API 타입 속성", () => {
           const clampedCount = Math.min(itemCount, pageSize);
           const response: PaginatedResponse<string> = {
             items: Array.from({ length: clampedCount }, (_, i) => `item-${i}`),
-            total: itemCount + fc.sample(fc.integer({ min: 0, max: 50 }), 1)[0],
+            total: itemCount + (fc.sample(fc.integer({ min: 0, max: 50 }), 1)[0] ?? 0),
             page: 1,
             page_size: pageSize,
           };
@@ -92,8 +92,8 @@ describe("1.2 API 타입 속성", () => {
       fc.property(
         fc.integer({ min: 1, max: 100 }),
         (total) => {
-          const completed = fc.sample(fc.integer({ min: 0, max: total }), 1)[0];
-          const failed = fc.sample(fc.integer({ min: 0, max: total - completed }), 1)[0];
+          const completed = fc.sample(fc.integer({ min: 0, max: total }), 1)[0] ?? 0;
+          const failed = fc.sample(fc.integer({ min: 0, max: total - completed }), 1)[0] ?? 0;
           const status: JobStatusValue =
             completed + failed < total
               ? "in_progress"
@@ -284,8 +284,8 @@ describe("1.11 공통 UI 속성", () => {
         fc.constantFrom(...SEVERITY_LEVELS),
         fc.constantFrom(...SEVERITY_LEVELS),
         (a, b) => {
-          const numA = parseInt(a.split("-")[1], 10);
-          const numB = parseInt(b.split("-")[1], 10);
+          const numA = parseInt(a.split("-")[1]!, 10);
+          const numB = parseInt(b.split("-")[1]!, 10);
           if (numA < numB) expect(numA).toBeLessThan(numB);
           if (numA > numB) expect(numA).toBeGreaterThan(numB);
         },

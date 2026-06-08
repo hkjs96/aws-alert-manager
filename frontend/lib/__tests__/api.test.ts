@@ -31,7 +31,7 @@ describe("apiFetch", () => {
 
     await apiFetch("/api/test");
 
-    const [, options] = vi.mocked(globalThis.fetch).mock.calls[0];
+    const [, options] = vi.mocked(globalThis.fetch).mock.calls[0]!;
     const headers = new Headers(options?.headers);
     expect(headers.get("Content-Type")).toBe("application/json");
   });
@@ -43,7 +43,7 @@ describe("apiFetch", () => {
 
     await apiFetch("/api/test");
 
-    const [url] = vi.mocked(globalThis.fetch).mock.calls[0];
+    const [url] = vi.mocked(globalThis.fetch).mock.calls[0]!;
     expect(url).toBe("/api/test");
   });
 
@@ -99,7 +99,7 @@ describe("apiFetch", () => {
 
     await apiFetch("/api/test", { method: "POST", body: JSON.stringify({ a: 1 }) });
 
-    const [, options] = vi.mocked(globalThis.fetch).mock.calls[0];
+    const [, options] = vi.mocked(globalThis.fetch).mock.calls[0]!;
     expect(options?.method).toBe("POST");
   });
 });

@@ -106,9 +106,15 @@ export type JobStatusValue =
   | "failed";
 
 export interface JobResult {
-  resource_id: string;
   status: "success" | "failed";
+  // 리소스 단위 작업(예: bulk monitoring toggle)에서 채워짐
+  resource_id?: string;
   error?: string;
+  // 알람 동기화 작업(_handle_alarms_sync_job)에서 채워짐
+  account_id?: string;
+  regions?: string[];
+  imported?: number;
+  deleted?: number;
 }
 
 export interface JobStatus {

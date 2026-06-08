@@ -39,8 +39,6 @@ export function SyncProgressModal({
     setErrorMsg("");
     setJobData(null);
 
-    let intervalId: NodeJS.Timeout;
-
     const poll = async () => {
       try {
         const data = await fetchJobStatus(jobId);
@@ -57,7 +55,7 @@ export function SyncProgressModal({
             onSuccessRef.current();
           }
         }
-      } catch (err: any) {
+      } catch (err: unknown) {
         console.error("Failed to fetch job status:", err);
         setErrorMsg("Failed to connect to monitoring job tracker.");
         setStatus("failed");
@@ -65,15 +63,12 @@ export function SyncProgressModal({
       }
     };
 
-    // First fetch immediately
+    // Schedule polling first so the interval id is available to poll()'s
+    // self-clear before the immediate first fetch runs.
+    const intervalId = setInterval(poll, 3000);
     poll();
 
-    // Then poll every 3 seconds
-    intervalId = setInterval(poll, 3000);
-
-    return () => {
-      if (intervalId) clearInterval(intervalId);
-    };
+    return () => clearInterval(intervalId);
   }, [isOpen, jobId]);
 
   if (!isOpen) return null;
@@ -84,9 +79,9 @@ export function SyncProgressModal({
   let totalImported = 0;
   let totalDeleted = 0;
   if (jobData && jobData.results) {
-    jobData.results.forEach((r: any) => {
-      totalImported += r.imported || 0;
-      totalDeleted += r.deleted || 0;
+    jobData.results.forEach((r) => {
+      totalImported += r.imported ?? 0;
+      totalDeleted += r.deleted ?? 0;
     });
   }
 

@@ -7,7 +7,7 @@
  * 7.6: 트랙 변경 시 하위 상태 초기화
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
 import * as fc from "fast-check";
 import { ToastProvider } from "@/components/shared/Toast";

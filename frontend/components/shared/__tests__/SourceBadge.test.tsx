@@ -1,7 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import { describe, it, expect } from 'vitest';
 import { SourceBadge } from '../SourceBadge';
-import type { SourceType } from '@/types';
 
 describe('SourceBadge', () => {
   it('System 뱃지에 회색 배경을 렌더링한다', () => {

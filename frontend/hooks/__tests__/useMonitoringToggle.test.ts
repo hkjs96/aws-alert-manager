@@ -50,9 +50,9 @@ describe("useMonitoringToggle", () => {
   });
 
   it("토글 진행 중 loadingIds에 리소스 ID가 포함된다", async () => {
-    let resolveToggle: () => void;
+    // 토글이 진행 중(pending) 상태로 머무르도록 resolve 하지 않는 Promise 반환
     vi.mocked(toggleMonitoring).mockImplementation(
-      () => new Promise<never>((resolve) => { resolveToggle = resolve as () => void; }),
+      () => new Promise<never>(() => {}),
     );
 
     const { result } = renderHook(() => useMonitoringToggle(), { wrapper });

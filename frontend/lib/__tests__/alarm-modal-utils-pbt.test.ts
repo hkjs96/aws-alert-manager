@@ -6,7 +6,7 @@
  * Property 9: isSubmitEnabled Submit 버튼 활성화 조건 정합성
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, it } from "vitest";
 import * as fc from "fast-check";
 import { filterAccounts, filterResources, isSubmitEnabled, type Track } from "../alarm-modal-utils";
 import type { Account, Resource } from "@/types";

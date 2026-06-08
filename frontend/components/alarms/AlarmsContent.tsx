@@ -64,7 +64,7 @@ export function AlarmsContent({ alarms, summary, customers, accounts }: AlarmsCo
       const res = await syncAlarms(scope);
       setActiveJobId(res.job_id);
       setIsSyncProgressOpen(true);
-    } catch (err) {
+    } catch {
       showToast("error", "Failed to start alarm sync job.");
     }
   };
@@ -88,8 +88,8 @@ export function AlarmsContent({ alarms, summary, customers, accounts }: AlarmsCo
   const stateCounts = useMemo(() => {
     const counts: Record<string, number> = { ALL: 0, ALARM: 0, INSUFFICIENT_DATA: 0, OK: 0, OFF: 0 };
     alarms.forEach((a) => {
-      counts.ALL++;
-      if (a.state in counts) counts[a.state]++;
+      counts.ALL = (counts.ALL ?? 0) + 1;
+      if (a.state in counts) counts[a.state] = (counts[a.state] ?? 0) + 1;
     });
     return counts;
   }, [alarms]);
@@ -196,7 +196,7 @@ export function AlarmsContent({ alarms, summary, customers, accounts }: AlarmsCo
       {/* State filter tabs */}
       <div className="flex gap-2 p-1 bg-slate-100 rounded-xl w-max">
         {FILTER_TABS.map((f) => {
-          const count = stateCounts[f];
+          const count = stateCounts[f] ?? 0;
           const badgeColor = f === "ALL" ? "bg-slate-400 text-white" : f === "ALARM" ? "bg-red-500 text-white" : f === "INSUFFICIENT_DATA" ? "bg-amber-500 text-white" : f === "OK" ? "bg-green-500 text-white" : "bg-slate-400 text-white";
           return (
             <button key={f} onClick={() => { setStateFilter(f); setPage(1); }}

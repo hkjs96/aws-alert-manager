@@ -114,7 +114,7 @@ describe("GlobalFilterBar", () => {
     fireEvent.change(screen.getByLabelText("Customer filter"), {
       target: { value: "cust-002" },
     });
-    const pushArg = mockPush.mock.calls[0][0] as string;
+    const pushArg = mockPush.mock.calls[0]![0] as string;
     expect(pushArg).toContain("customer_id=cust-002");
     expect(pushArg).not.toContain("account_id=");
     expect(pushArg).not.toContain("service=");
@@ -129,7 +129,7 @@ describe("GlobalFilterBar", () => {
     fireEvent.change(screen.getByLabelText("Account filter"), {
       target: { value: "acc-001" },
     });
-    const pushArg = mockPush.mock.calls[0][0] as string;
+    const pushArg = mockPush.mock.calls[0]![0] as string;
     expect(pushArg).toContain("account_id=acc-001");
     expect(pushArg).not.toContain("service=");
   });

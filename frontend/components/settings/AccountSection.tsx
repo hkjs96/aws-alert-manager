@@ -4,7 +4,6 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { CheckCircle2, Cloud, Link as LinkIcon, XCircle } from "lucide-react";
 import type { Account, Customer } from "@/types";
-import { Button } from "@/components/shared/Button";
 import { useToast } from "@/components/shared/Toast";
 import { LoadingButton } from "@/components/shared/LoadingButton";
 import { createAccount, testConnection } from "@/lib/api-functions";
@@ -95,10 +94,11 @@ function FormField({ label, children }: { label: string; children: React.ReactNo
   );
 }
 
+const DEFAULT_STATUS_STYLE = { dot: "bg-slate-400", text: "text-slate-500" };
 const STATUS_STYLES: Record<string, { dot: string; text: string }> = {
   connected: { dot: "bg-emerald-500 animate-pulse", text: "text-emerald-600" },
   failed: { dot: "bg-red-500", text: "text-red-600" },
-  untested: { dot: "bg-slate-400", text: "text-slate-500" },
+  untested: DEFAULT_STATUS_STYLE,
 };
 
 export function AccountSection({ accounts, customers }: AccountSectionProps) {
@@ -214,7 +214,7 @@ export function AccountSection({ accounts, customers }: AccountSectionProps) {
             <tbody className="divide-y divide-slate-100">
               {accounts.map((acc) => {
                 const status = getStatus(acc);
-                const style = STATUS_STYLES[status] ?? STATUS_STYLES.untested;
+                const style = STATUS_STYLES[status] ?? DEFAULT_STATUS_STYLE;
                 const details = testDetails[acc.account_id];
                 return (
                   <tr key={acc.account_id} className="hover:bg-slate-50 transition-colors">

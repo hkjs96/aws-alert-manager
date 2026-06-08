@@ -119,7 +119,7 @@ function comparisonToDirection(comparison: string): DirectionSimple {
 
 function parseMountPath(metricName: string): { metricName: string; mountPath?: string } {
   const match = metricName.match(/^(.+?)\((.+)\)$/);
-  if (match) return { metricName: match[1], mountPath: match[2] };
+  if (match) return { metricName: match[1] ?? metricName, mountPath: match[2] };
   return { metricName };
 }
 

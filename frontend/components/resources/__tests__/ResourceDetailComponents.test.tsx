@@ -164,7 +164,7 @@ describe("AlarmConfigTable", () => {
 
     // Change a threshold
     const inputs = screen.getAllByRole("spinbutton");
-    fireEvent.change(inputs[0], { target: { value: "90" } });
+    fireEvent.change(inputs[0]!, { target: { value: "90" } });
 
     // Now unsaved indicator should appear
     expect(screen.getByTitle("Unsaved changes")).toBeInTheDocument();
@@ -195,7 +195,7 @@ describe("AlarmConfigTable", () => {
 
     // Make a change
     const inputs = screen.getAllByRole("spinbutton");
-    fireEvent.change(inputs[0], { target: { value: "90" } });
+    fireEvent.change(inputs[0]!, { target: { value: "90" } });
 
     // Click save
     fireEvent.click(screen.getByText("Save Changes"));
@@ -217,7 +217,7 @@ describe("AlarmConfigTable", () => {
 
     // Change a threshold
     const inputs = screen.getAllByRole("spinbutton");
-    fireEvent.change(inputs[0], { target: { value: "90" } });
+    fireEvent.change(inputs[0]!, { target: { value: "90" } });
     expect((inputs[0] as HTMLInputElement).value).toBe("90");
 
     // Reset

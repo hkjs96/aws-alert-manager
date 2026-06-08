@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
-import { createElement, type ReactNode } from "react";
+import { createElement } from "react";
 import { ToastProvider } from "@/components/shared/Toast";
 import { AlarmConfigTable } from "../AlarmConfigTable";
 import type { AlarmConfig } from "@/types";
@@ -157,7 +157,7 @@ describe("AlarmConfigTable — Unit/Direction/Severity 편집", () => {
   it("Unit 드롭다운 변경 시 dirty 상태가 된다", () => {
     renderTable();
     const selects = screen.getAllByRole("combobox");
-    const unitSelect = selects[0];
+    const unitSelect = selects[0]!;
     fireEvent.change(unitSelect, { target: { value: "Count" } });
     expect(screen.getByTitle("Unsaved changes")).toBeInTheDocument();
   });
@@ -165,7 +165,7 @@ describe("AlarmConfigTable — Unit/Direction/Severity 편집", () => {
   it("Direction 드롭다운 변경 시 dirty 상태가 된다", () => {
     renderTable();
     const selects = screen.getAllByRole("combobox");
-    const dirSelect = selects[1];
+    const dirSelect = selects[1]!;
     fireEvent.change(dirSelect, { target: { value: "<" } });
     expect(screen.getByTitle("Unsaved changes")).toBeInTheDocument();
   });
@@ -173,7 +173,7 @@ describe("AlarmConfigTable — Unit/Direction/Severity 편집", () => {
   it("Severity 드롭다운 변경 시 dirty 상태가 된다", () => {
     renderTable();
     const selects = screen.getAllByRole("combobox");
-    const sevSelect = selects[2];
+    const sevSelect = selects[2]!;
     fireEvent.change(sevSelect, { target: { value: "SEV-1" } });
     expect(screen.getByTitle("Unsaved changes")).toBeInTheDocument();
   });

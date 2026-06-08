@@ -45,7 +45,7 @@ describe("MetricConfigStep 컴포넌트", () => {
     });
 
     it("기본 메트릭 테이블(MetricConfigSection)을 렌더링하지 않는다", () => {
-      const { container } = render(
+      render(
         <MetricConfigStep {...defaultProps} track={1} resourceType="EC2"
           metrics={[makeMetric("CPUUtilization")]}
         />,
