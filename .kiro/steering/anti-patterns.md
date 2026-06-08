@@ -251,6 +251,24 @@ catch (err) {
 > 교훈: 폴링 에러 메시지는 HTTP 상태/백엔드 `code`를 그대로 노출해 백엔드 버그가 UI에
 > 묻히지 않게 한다. 짝이 되는 백엔드 직렬화 규칙은 AP-17 참조.
 
+### AP-21. 폴링/구독 useEffect 의존성에 불안정한 콜백(인라인 함수) 포함 → 재구독 무한 루프
+부모가 매 렌더마다 새로 만드는 인라인 콜백(`onSuccess={() => router.refresh()}`)을 자식의
+폴링 `useEffect` 의존성에 넣으면, 그 콜백이 부모 리렌더를 유발할 때마다 effect가 cleanup+재실행되어
+폴링/구독이 재시작된다. **완료 → onSuccess → 부모 리렌더 → 새 onSuccess 참조 → 재구독 → 재폴링
+→ 완료 → …** 무한 루프가 된다. 콜백은 ref로 보관하고 의존성에서 제외한다.
+
+```typescript
+// ❌ 금지: 불안정한 콜백을 폴링 effect 의존성에 포함
+useEffect(() => { /* poll; 완료 시 onSuccess() */ }, [isOpen, jobId, onSuccess]);
+
+// ✅ 올바른 방법: ref로 최신 콜백 보관 + 의존성에서 제외 (latest-callback 패턴)
+const onSuccessRef = useRef(onSuccess);
+useEffect(() => { onSuccessRef.current = onSuccess; }, [onSuccess]);
+useEffect(() => { /* poll; 완료 시 onSuccessRef.current() */ }, [isOpen, jobId]);
+```
+> 교훈: `SyncProgressModal`이 완료 후에도 `router.refresh`+토스트를 무한 반복했다. 짝이 되는
+> 폴링 에러 처리 규칙은 AP-16.
+
 ## 인프라 (CloudFormation)
 
 ### AP-13. 하드코딩된 리전/계정 ID
