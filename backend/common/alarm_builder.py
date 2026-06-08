@@ -514,6 +514,7 @@ def _recreate_disk_alarm(
             TreatMissingData="notBreaching",
         )
         logger.info("Recreated disk alarm: %s (path=%s, threshold=%.2f)", name, path, threshold)
+        _tag_alarm_with_severity(name, f"Disk_{suffix}", cw)
     except ClientError as e:
         logger.error("Failed to recreate disk alarm %s: %s", name, e)
 
@@ -567,5 +568,9 @@ def _recreate_standard_alarm(
             TreatMissingData=alarm_def.get("treat_missing_data", "notBreaching"),
         )
         logger.info("Recreated alarm: %s (threshold=%.2f)", name, threshold)
+        # 재생성 시에도 ManagedBy/Severity 태그를 다시 부여해야 한다. 누락 시 임계치
+        # 변경으로 새 이름의 알람이 태그 없이 생성되어, 이후 daily가 조건부 DeleteAlarms로
+        # 정리하지 못하고 고착된다(생성 경로와 동일하게 태깅 필수).
+        _tag_alarm_with_severity(name, metric_key, cw)
     except ClientError as e:
         logger.error("Failed to recreate alarm %s: %s", name, e)

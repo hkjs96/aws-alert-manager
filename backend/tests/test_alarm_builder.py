@@ -353,6 +353,36 @@ class Test_RecreateStandardAlarm:
         alarm = resp["MetricAlarms"][0]
         assert alarm["Threshold"] == 75.0  # 태그로 오버라이드된 임계치
 
+    def test_재생성_시_ManagedBy_태그_부여(self):
+        """임계치 변경 재생성 시에도 ManagedBy=AlarmManager 태그를 부여해야 한다.
+
+        누락 시 새 이름의 알람이 태그 없이 생성되어, daily의 조건부 DeleteAlarms
+        (aws:ResourceTag/ManagedBy=AlarmManager)가 막혀 이후 정리/갱신이 고착된다.
+        """
+        from common.alarm_builder import _recreate_standard_alarm
+        from common.alarm_registry import _get_alarm_defs
+
+        alarm_def = next(d for d in _get_alarm_defs("EC2", {}) if d["metric"] == "CPUUtilization")
+        mock_cw = MagicMock()
+        mock_cw.meta.region_name = "us-east-1"
+
+        with patch("common.alarm_builder._get_aws_account_id", return_value="123456789012"):
+            _recreate_standard_alarm(
+                alarm_def=alarm_def,
+                metric_key="CPUUtilization",
+                resource_id="i-0abcdef1234567890",
+                resource_type="EC2",
+                resource_name="web-01",
+                resource_tags={"Threshold_CPU": "75"},
+                cw=mock_cw,
+                sns_arn="arn:aws:sns:us-east-1:123456789012:t",
+            )
+
+        mock_cw.put_metric_alarm.assert_called_once()
+        mock_cw.tag_resource.assert_called_once()
+        tags = {t["Key"]: t["Value"] for t in mock_cw.tag_resource.call_args.kwargs["Tags"]}
+        assert tags.get("ManagedBy") == "AlarmManager"
+
     def test_글로벌_서비스_재생성_시_us_east_1_클라이언트_사용(self, aws_credentials):
         """alarm_def에 region 필드가 있으면 해당 리전 클라이언트를 사용해야 한다."""
         from common.alarm_builder import _recreate_standard_alarm
