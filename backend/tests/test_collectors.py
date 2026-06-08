@@ -1221,9 +1221,15 @@ class TestAuroraMetadataEnrichment:
         from common.collectors.rds import _INSTANCE_CLASS_LOCAL_STORAGE_MAP
 
         gib = 1073741824
+        # AWS "Temporary storage limits for Aurora MySQL" 공식 표 기준
         assert _INSTANCE_CLASS_LOCAL_STORAGE_MAP["db.t3.medium"] == 32 * gib
         assert _INSTANCE_CLASS_LOCAL_STORAGE_MAP["db.r6g.large"] == 32 * gib
         assert _INSTANCE_CLASS_LOCAL_STORAGE_MAP["db.r6g.xlarge"] == 80 * gib
+        assert _INSTANCE_CLASS_LOCAL_STORAGE_MAP["db.r6g.8xlarge"] == 640 * gib
+        assert _INSTANCE_CLASS_LOCAL_STORAGE_MAP["db.r6g.12xlarge"] == 960 * gib
+        # 12xlarge(960) != 16xlarge(1280) — 두 값이 같으면 안 된다(복붙 오류 회귀 방지)
+        assert _INSTANCE_CLASS_LOCAL_STORAGE_MAP["db.r6g.16xlarge"] == 1280 * gib
+        assert _INSTANCE_CLASS_LOCAL_STORAGE_MAP["db.r7g.16xlarge"] == 1280 * gib
 
     def test_local_storage_lookup_uses_static_map_without_api(self):
         """정적 맵에 있는 클래스는 describe_db_instance_classes API 없이도 조회된다.

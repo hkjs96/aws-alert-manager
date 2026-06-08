@@ -17,7 +17,7 @@ from api_handler.cw_helper import (
     extract_resource_from_alarm,
     list_alarms,
 )
-from api_handler.db import accounts_table, resource_inventory_table, scan_all
+from api_handler.db import accounts_table, resource_inventory_table, scan_all, query_by_pk
 from common import dimension_builder
 from common.tag_resolver import disk_path_to_tag_suffix
 from common.resource_discovery import (
@@ -353,11 +353,7 @@ def get_disk_paths(event: dict) -> dict:
 
     # EC2가 api_handler와 다른 리전이면 default 리전 CW에는 disk 메트릭이 없어
     # 빈 배열이 된다. 인벤토리에서 리소스 리전을 찾아 해당 리전 CW를 사용한다.
-    try:
-        resource = _find_inventory_resource(resource_id)
-    except ClientError as exc:
-        return _err(500, "AWS_ERROR", str(exc))
-    region = resource.get("region") if resource else None
+    region = _resource_region(resource_id)
     cw = _get_cw_client_for_region(region) if region else _get_cw_client()
 
     try:
@@ -671,6 +667,23 @@ def _find_inventory_resource(resource_id: str) -> dict | None:
         if (resource.get("resource_id") or resource.get("id")) == resource_id:
             return resource
     return None
+
+
+def _resource_region(resource_id: str) -> str | None:
+    """인벤토리에서 리소스의 리전을 조회한다.
+
+    resource_id가 파티션 키이므로 풀스캔 대신 Query 단건으로 찾는다. 조회 실패 시
+    None을 반환해 호출부가 기본 리전 CW로 폴백하도록 한다(disk-paths가 깨지지 않게).
+    """
+    if not os.environ.get("RESOURCE_INVENTORY_TABLE"):
+        return None
+    try:
+        items = query_by_pk(resource_inventory_table(), "resource_id", resource_id)
+    except ClientError as exc:
+        logger.warning("Region lookup failed for %s: %s", resource_id, exc)
+        return None
+    snapshot = next((item for item in items if _is_resource_snapshot(item)), None)
+    return snapshot.get("region") if snapshot else None
 
 
 def _find_account(account_id: str) -> dict | None:

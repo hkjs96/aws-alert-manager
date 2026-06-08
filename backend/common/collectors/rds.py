@@ -63,32 +63,30 @@ _INSTANCE_CLASS_MEMORY_MAP: dict[str, int] = {
     "db.r7g.16xlarge": 512 * _BYTES_PER_GB,
 }
 
-# 인스턴스 클래스 → Aurora 로컬(임시) 스토리지 bytes 매핑 (AWS Aurora temp storage 표).
+# 인스턴스 클래스 → Aurora 로컬(임시) 스토리지 bytes 매핑.
+# 출처: AWS "Temporary storage limits for Aurora MySQL" 공식 표(이론적 최대치).
+#   https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/AuroraMySQL.Managing.Performance.html
 # describe_db_instance_classes API가 없는 boto3 버전에서도 동작하도록 정적 매핑을 우선한다.
-# 값은 이론적 최대치이며 Aurora 관리 프로세스가 일부 사용해 실제 가용량은 약간 낮다.
-# (Serverless v2에는 적용되지 않음 — ACU에 비례해 동적 변동하므로 ACUUtilization으로 감지.)
+# 주의:
+#  - Aurora PostgreSQL은 값이 다르다(예: t3.medium MySQL=32 vs PostgreSQL≈7.5). 이 맵은
+#    MySQL 기준이며, 이 값은 FreeLocalStorage 퍼센트 임계치의 폴백 추정에만 쓰여 비치명적이다.
+#  - Serverless v2에는 적용되지 않음(ACU에 비례해 동적 변동 → ACUUtilization으로 감지).
 _INSTANCE_CLASS_LOCAL_STORAGE_MAP: dict[str, int] = {
     # T 계열: 전부 32 GiB 고정
+    "db.t3.small": 32 * _BYTES_PER_GB,
     "db.t3.medium": 32 * _BYTES_PER_GB,
     "db.t3.large": 32 * _BYTES_PER_GB,
     "db.t4g.medium": 32 * _BYTES_PER_GB,
     "db.t4g.large": 32 * _BYTES_PER_GB,
-    # R6g
-    "db.r6g.large": 32 * _BYTES_PER_GB,
-    "db.r6g.xlarge": 80 * _BYTES_PER_GB,
-    "db.r6g.2xlarge": 160 * _BYTES_PER_GB,
-    "db.r6g.4xlarge": 320 * _BYTES_PER_GB,
-    "db.r6g.8xlarge": 480 * _BYTES_PER_GB,
-    "db.r6g.12xlarge": 960 * _BYTES_PER_GB,
-    "db.r6g.16xlarge": 960 * _BYTES_PER_GB,
-    # R7g
-    "db.r7g.large": 32 * _BYTES_PER_GB,
-    "db.r7g.xlarge": 80 * _BYTES_PER_GB,
-    "db.r7g.2xlarge": 160 * _BYTES_PER_GB,
-    "db.r7g.4xlarge": 320 * _BYTES_PER_GB,
-    "db.r7g.8xlarge": 480 * _BYTES_PER_GB,
-    "db.r7g.12xlarge": 960 * _BYTES_PER_GB,
-    "db.r7g.16xlarge": 960 * _BYTES_PER_GB,
+    # R 계열(r5/r6g/r6i/r7g/r7i): large=32, 이후 xlarge부터 80→2배씩, 16xlarge=1280
+    **{
+        f"db.{fam}.{size}": gib * _BYTES_PER_GB
+        for fam in ("r5", "r6g", "r6i", "r7g", "r7i")
+        for size, gib in (
+            ("large", 32), ("xlarge", 80), ("2xlarge", 160), ("4xlarge", 320),
+            ("8xlarge", 640), ("12xlarge", 960), ("16xlarge", 1280),
+        )
+    },
 }
 
 
