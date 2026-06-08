@@ -101,12 +101,24 @@ Resources:
   # ============================================================
   # EC2 Instances (target + bastion)
   # ============================================================
+  # Multi-EBS instance: root + 2 data volumes (/data, /logs) -> 3 disk paths.
   Ec2Target:
     Type: AWS::EC2::Instance
     Properties:
       InstanceType: t3.micro
       ImageId: !Ref AmiId
       IamInstanceProfile: !Ref Ec2InstanceProfile
+      BlockDeviceMappings:
+        - DeviceName: /dev/sdf
+          Ebs:
+            VolumeSize: 5
+            VolumeType: gp3
+            DeleteOnTermination: true
+        - DeviceName: /dev/sdg
+          Ebs:
+            VolumeSize: 5
+            VolumeType: gp3
+            DeleteOnTermination: true
       NetworkInterfaces:
         - DeviceIndex: '0'
           SubnetId: !Ref SubnetId1
@@ -124,6 +136,23 @@ Resources:
           mkdir -p /var/www/html/ip
           cp /var/www/html/index.html /var/www/html/ip/index.html
           systemctl enable httpd && systemctl start httpd
+          # --- extra EBS volumes (multi-disk: /data, /logs) ---
+          # NVMe enumeration order is not guaranteed (root is not always nvme0n1),
+          # so pick the blank data disks (no partitions, no mountpoint) instead of
+          # hardcoding device names.
+          idx=0
+          for dev in $(lsblk -dpno NAME,TYPE | awk '$2=="disk"{print $1}'); do
+            has_child=$(lsblk -no NAME "$dev" | tail -n +2 | wc -l)
+            mp=$(lsblk -no MOUNTPOINT "$dev" | tr -d ' \n')
+            if [ "$has_child" -eq 0 ] && [ -z "$mp" ]; then
+              if [ "$idx" -eq 0 ]; then m=/data; else m=/logs; fi
+              mkfs -t xfs -f "$dev"
+              mkdir -p "$m"
+              mount "$dev" "$m"
+              grep -q " $m " /etc/fstab || echo "$dev $m xfs defaults,nofail 0 2" >> /etc/fstab
+              idx=$((idx+1))
+            fi
+          done
           dnf install -y amazon-cloudwatch-agent
           cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json <<'CWCFG'
           {
@@ -131,7 +160,7 @@ Resources:
               "namespace": "CWAgent",
               "metrics_collected": {
                 "mem": { "measurement": ["mem_used_percent"], "metrics_collection_interval": 60 },
-                "disk": { "measurement": ["disk_used_percent"], "metrics_collection_interval": 60, "resources": ["/"] }
+                "disk": { "measurement": ["disk_used_percent"], "metrics_collection_interval": 60, "resources": ["/", "/data", "/logs"] }
               },
               "append_dimensions": { "InstanceId": "${!aws:InstanceId}" }
             }
@@ -144,6 +173,7 @@ Resources:
         - Key: Name
           Value: !Sub '${Environment}-e2e-ec2-target'
 
+  # Single-EBS instance: root volume only -> 1 disk path (/).
   Ec2Bastion:
     Type: AWS::EC2::Instance
     Properties:
@@ -167,6 +197,20 @@ Resources:
           mkdir -p /var/www/html/ip
           cp /var/www/html/index.html /var/www/html/ip/index.html
           systemctl enable httpd && systemctl start httpd
+          dnf install -y amazon-cloudwatch-agent
+          cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json <<'CWCFG'
+          {
+            "metrics": {
+              "namespace": "CWAgent",
+              "metrics_collected": {
+                "mem": { "measurement": ["mem_used_percent"], "metrics_collection_interval": 60 },
+                "disk": { "measurement": ["disk_used_percent"], "metrics_collection_interval": 60, "resources": ["/"] }
+              },
+              "append_dimensions": { "InstanceId": "${!aws:InstanceId}" }
+            }
+          }
+          CWCFG
+          /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json -s
       Tags:
         - Key: Monitoring
           Value: 'on'
