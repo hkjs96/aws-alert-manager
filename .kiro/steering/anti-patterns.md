@@ -114,6 +114,49 @@ return {"statusCode": 200, "body": json.dumps(item, default=str)}
 > `GET /jobs/{id}`만 누락돼 백엔드 job은 완료됐는데도 UI가 "Failed to connect"(AP-16)로
 > 표시됐다. 짝이 되는 프론트 규칙은 AP-16 참조.
 
+### AP-18. 관리 알람을 태그 없이 생성/재생성 (조건부 DeleteAlarms로 정리 불가 → 고착)
+daily monitor의 `cloudwatch:DeleteAlarms`는 수동 알람 실수 삭제 방지를 위해
+`aws:ResourceTag/ManagedBy=AlarmManager` **조건부**다. 따라서 **알람을 만드는 모든 경로**
+(`_create_standard_alarm`/`_create_single_alarm`/`_recreate_standard_alarm`/`_recreate_disk_alarm`)는
+put 직후 `_tag_alarm_with_severity`로 ManagedBy/Severity 태그를 반드시 부여해야 한다. 한 경로라도
+빠지면 그 알람은 태그가 없어, 이후 **임계치 변경(삭제+재생성)·prune·orphan 정리가 AccessDenied로
+영구 고착**된다. 태깅 실패를 **조용히 흡수하지 말 것**(권한 누락이 묻힌다).
+
+```python
+# ❌ 금지: put 후 태깅 누락 (특히 재생성 경로만 빠뜨리기 쉬움)
+cw.put_metric_alarm(AlarmName=name, ...)
+# ... _tag_alarm_with_severity 호출 없음 → untagged → 이후 DeleteAlarms AccessDenied
+
+# ✅ 생성·재생성 모든 경로에서 동일하게 태깅
+cw.put_metric_alarm(AlarmName=name, ...)
+_tag_alarm_with_severity(name, metric_key, cw)
+```
+> 교훈: 이번 사례는 (a) `_recreate_standard_alarm`/`_recreate_disk_alarm`가 태깅을 빠뜨려
+> 임계치 변경 시 untagged 알람을 양산했고, (b) remediation 롤에 TagResource가 없어(AP-19)
+> 생성 알람이 전부 untagged였다. 두 갭 모두 임계치가 flat 값에 고착되는 증상으로 나타났다.
+> 짝이 되는 IAM 규칙은 AP-19.
+
+### AP-20. 배포 Lambda의 boto3에 없는 최신 API에 정적 폴백 없이 의존
+Lambda 런타임 내장 boto3는 로컬보다 **구버전**일 수 있어, 최신 API 호출이
+`AttributeError: 'X' object has no attribute '...'`로 깨진다. 새 boto3 API를 쓸 땐 정적 매핑 등
+폴백을 두고, `ClientError`뿐 아니라 **`AttributeError`도 함께 catch**한다.
+
+```python
+# ❌ 금지: 배포 boto3에 없을 수 있는 API에만 의존 (+ ClientError만 catch)
+resp = rds.describe_db_instance_classes(DBInstanceClass=cls)  # 구버전 → AttributeError 전파
+
+# ✅ 정적 매핑 우선 + AttributeError 포함 catch
+val = _STATIC_MAP.get(cls)
+if val is None:
+    try:
+        val = _via(rds.describe_db_instance_classes(DBInstanceClass=cls))
+    except (ClientError, AttributeError):
+        val = None
+```
+> 교훈: Aurora 로컬스토리지 조회가 배포 boto3의 `describe_db_instance_classes` 부재로 깨져
+> FreeLocalStorage 임계치가 flat 폴백으로 떨어졌다. 정적 맵 우선으로 해결. (참고: Aurora
+> temp-storage 값은 엔진별로 다르다 — MySQL/PostgreSQL이 같은 클래스라도 값이 다름.)
+
 ## 테스트 (pytest / unittest.mock)
 
 ### AP-15. 페이지네이션 코드를 bare MagicMock 테이블로 호출 (무한 루프 → 수 GB)
@@ -230,3 +273,28 @@ Runtime: python3.12
 # ✅ 올바른 방법: Mappings에서 단일 관리
 Runtime: !FindInMap [LambdaConfig, Settings, Runtime]
 ```
+
+### AP-19. 알람 생성 IAM 롤에 cloudwatch:TagResource 누락
+알람을 생성하는 **모든** Lambda 롤(daily monitor, remediation handler, sqs worker, api handler)은
+`cloudwatch:PutMetricAlarm`과 함께 **`cloudwatch:TagResource`를 반드시 가져야** 한다. 없으면
+생성 직후 태깅(`tag_resource`)이 AccessDenied로 실패하고(코드가 조용히 흡수, AP-18), 알람이 태그
+없이 남아 daily의 조건부 DeleteAlarms(`aws:ResourceTag/ManagedBy=AlarmManager`)로 **영구 정리 불가**가
+된다. 새 알람 생성 경로/롤을 추가할 때 이 권한을 빠뜨리지 말 것.
+
+```yaml
+# ❌ 금지: 알람 생성 롤인데 TagResource 없음
+- Effect: Allow
+  Action:
+    - cloudwatch:PutMetricAlarm
+    - cloudwatch:DeleteAlarms
+
+# ✅ 올바른 방법: TagResource(+ListTagsForResource) 포함
+- Effect: Allow
+  Action:
+    - cloudwatch:PutMetricAlarm
+    - cloudwatch:DeleteAlarms
+    - cloudwatch:TagResource
+    - cloudwatch:ListTagsForResource
+```
+> 교훈: 이번 사례는 RemediationHandlerRole에 TagResource가 없어 리소스 생성 이벤트로 만든
+> 알람이 전부 untagged → 임계치가 flat 값에 고착됐다. 짝이 되는 코드 규칙은 AP-18.

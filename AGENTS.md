@@ -40,6 +40,14 @@
   `decodeResourceId()`를, 백엔드는 `_decode_resource_token`(`_path_id`가 자동 적용)을
   사용한다. 토큰은 **가역·타입 무관(type-agnostic)**이라 신규 리소스 타입을 추가해도
   식별자 관련 추가 작업이 없다. (상세: `frontend/AGENTS.md` §5, `backend/AGENTS.md` §5)
+- **AP-7:** 관리 알람을 **태그 없이 생성/재생성**. daily monitor의 `cloudwatch:DeleteAlarms`는
+  `aws:ResourceTag/ManagedBy=AlarmManager` 조건부라, 알람 생성/재생성 경로가 태깅을 빠뜨리거나
+  생성 롤에 `cloudwatch:TagResource`가 없으면 알람이 untagged로 남아 임계치 갱신·prune·orphan
+  정리가 AccessDenied로 영구 고착된다. **모든 생성·재생성 경로에서 `_tag_alarm_with_severity`
+  호출 + 모든 알람 생성 롤에 `TagResource` 부여** 필수. (상세: `.kiro/steering/anti-patterns.md`
+  AP-18/AP-19)
+- **AP-8:** 배포 Lambda의 boto3에 없는 **최신 API에 정적 폴백 없이 의존** (구버전 → `AttributeError`).
+  새 boto3 API는 정적 매핑 폴백 + `(ClientError, AttributeError)` catch. (상세: 동 문서 AP-20)
 
 ## 6. Codex 작업 워크플로 (필수)
 
