@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { X, Loader2, CheckCircle2, AlertCircle, Info } from "lucide-react";
 import { Button } from "@/components/shared/Button";
 import { fetchJobStatus } from "@/lib/api-functions";
@@ -22,6 +22,15 @@ export function SyncProgressModal({
   const [status, setStatus] = useState<JobStatusValue>("pending");
   const [jobData, setJobData] = useState<JobStatus | null>(null);
   const [errorMsg, setErrorMsg] = useState("");
+
+  // onSuccess를 ref로 보관해 폴링 effect 의존성에서 제외한다. 부모가 매 렌더마다
+  // 인라인 onSuccess(=router.refresh)를 새로 만들기 때문에, 의존성에 두면 완료 →
+  // onSuccess → 부모 리렌더 → effect 재구독 → status 리셋 → 재폴링 → 다시 완료
+  // 로 이어지는 무한 루프가 발생한다.
+  const onSuccessRef = useRef(onSuccess);
+  useEffect(() => {
+    onSuccessRef.current = onSuccess;
+  }, [onSuccess]);
 
   useEffect(() => {
     if (!isOpen || !jobId) return;
@@ -45,7 +54,7 @@ export function SyncProgressModal({
         ) {
           clearInterval(intervalId);
           if (data.status === "completed") {
-            onSuccess();
+            onSuccessRef.current();
           }
         }
       } catch (err: any) {
@@ -65,7 +74,7 @@ export function SyncProgressModal({
     return () => {
       if (intervalId) clearInterval(intervalId);
     };
-  }, [isOpen, jobId, onSuccess]);
+  }, [isOpen, jobId]);
 
   if (!isOpen) return null;
 
