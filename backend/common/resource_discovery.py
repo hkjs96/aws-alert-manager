@@ -273,14 +273,15 @@ def _discover_target_groups(session, account_id, region, customer_id):
 
 
 def _discover_elasticache(session, account_id, region, customer_id):
-    """ElastiCache(Redis) 클러스터를 인벤토리로 수집한다."""
+    """ElastiCache(Redis/Valkey) 클러스터를 인벤토리로 수집한다."""
     resources = []
     try:
         ec = session.client("elasticache")
         paginator = ec.get_paginator("describe_cache_clusters")
         for page in paginator.paginate():
             for cluster in page.get("CacheClusters", []):
-                if cluster.get("Engine", "").lower() != "redis":
+                # Redis와 Valkey(Redis 호환)는 동일 메트릭 → 함께 수집. Memcached 제외.
+                if cluster.get("Engine", "").lower() not in ("redis", "valkey"):
                     continue
                 cluster_id = cluster["CacheClusterId"]
 

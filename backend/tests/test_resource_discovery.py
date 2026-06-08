@@ -72,21 +72,21 @@ def test_discover_target_groups():
 # ──────────────────────────────────────────────
 
 
-def test_discover_elasticache_redis_only_with_tags():
+def test_discover_elasticache_redis_and_valkey_excludes_memcached():
     ec = MagicMock()
     _paginated(ec, [{"CacheClusters": [
         {"CacheClusterId": "redis-1", "Engine": "redis", "ARN": "arn:redis-1"},
+        {"CacheClusterId": "valkey-1", "Engine": "valkey", "ARN": "arn:valkey-1"},
         {"CacheClusterId": "mc-1", "Engine": "memcached", "ARN": "arn:mc-1"},
     ]}])
     ec.list_tags_for_resource.return_value = {"TagList": [{"Key": "Monitoring", "Value": "on"}]}
 
     out = _discover_elasticache(_session_returning(ec), "123", "us-east-1", "cust")
 
-    assert len(out) == 1  # memcached 제외
-    assert out[0]["type"] == "ElastiCache"
-    assert out[0]["resource_id"] == "redis-1"
-    assert out[0]["monitoring"] is True
-    ec.list_tags_for_resource.assert_called_once_with(ResourceName="arn:redis-1")
+    # Redis + Valkey 수집, Memcached 제외
+    assert sorted(r["resource_id"] for r in out) == ["redis-1", "valkey-1"]
+    assert all(r["type"] == "ElastiCache" for r in out)
+    assert all(r["monitoring"] is True for r in out)
 
 
 # ──────────────────────────────────────────────

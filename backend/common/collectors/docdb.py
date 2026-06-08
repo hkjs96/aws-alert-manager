@@ -15,6 +15,7 @@ from botocore.exceptions import ClientError
 
 from common import ResourceInfo
 from common.collectors.base import query_metric, CW_LOOKBACK_MINUTES, CW_STAT_AVG, collect_metric
+from common.collectors.rds import _enrich_rds_memory
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +67,11 @@ def collect_monitored_resources() -> list[ResourceInfo]:
 
             if tags.get("Monitoring", "").lower() != "on":
                 continue
+
+            # 인스턴스 클래스 메모리 태그(_total_memory_bytes) 추가 — RDS와 동일한
+            # 클래스 체계라 헬퍼를 재사용한다. 누락 시 FreeableMemory 임계치가
+            # 인스턴스형(기본 20%) 대신 flat 절대값 폴백으로 떨어진다.
+            _enrich_rds_memory(db, tags)
 
             region = boto3.session.Session().region_name or "us-east-1"
             resources.append(

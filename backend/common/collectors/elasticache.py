@@ -49,7 +49,9 @@ def collect_monitored_resources() -> list[ResourceInfo]:
             cluster_id = cluster["CacheClusterId"]
             engine = cluster.get("Engine", "")
 
-            if engine.lower() != "redis":
+            # Redis와 Valkey(Redis 호환 신형 엔진)는 동일한 AWS/ElastiCache 메트릭을
+            # 쓰므로 같이 수집한다. Memcached는 메트릭 체계가 달라 제외.
+            if engine.lower() not in ("redis", "valkey"):
                 continue
 
             status = cluster.get("CacheClusterStatus", "")

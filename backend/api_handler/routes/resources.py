@@ -321,7 +321,9 @@ def get_resource_metrics(event: dict) -> dict:
         return _ok([])
 
     dim_value = _dimension_value(resource_type, resource_id)
-    region = _GLOBAL_SERVICE_REGION.get(resource_type)
+    # 글로벌 서비스(CloudFront/Route53)는 us-east-1 고정, 그 외에는 리소스의 실제
+    # 리전 CW를 사용한다(다른 리전 리소스의 메트릭이 빈 배열로 누락되지 않도록).
+    region = _GLOBAL_SERVICE_REGION.get(resource_type) or (resource.get("region") if resource else None)
     cw = _get_cw_client_for_region(region) if region else _get_cw_client()
 
     seen = set()
@@ -349,8 +351,17 @@ def get_disk_paths(event: dict) -> dict:
     if not resource_id:
         return _err(400, "MISSING_PARAM", "resource_id is required")
 
+    # EC2가 api_handler와 다른 리전이면 default 리전 CW에는 disk 메트릭이 없어
+    # 빈 배열이 된다. 인벤토리에서 리소스 리전을 찾아 해당 리전 CW를 사용한다.
     try:
-        resp = _get_cw_client().list_metrics(
+        resource = _find_inventory_resource(resource_id)
+    except ClientError as exc:
+        return _err(500, "AWS_ERROR", str(exc))
+    region = resource.get("region") if resource else None
+    cw = _get_cw_client_for_region(region) if region else _get_cw_client()
+
+    try:
+        resp = cw.list_metrics(
             Namespace="CWAgent",
             MetricName="disk_used_percent",
             Dimensions=[{"Name": "InstanceId", "Value": resource_id}],

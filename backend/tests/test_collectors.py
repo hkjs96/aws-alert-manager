@@ -1379,6 +1379,24 @@ class TestDocDBCollector:
         assert result[0]["id"] == "docdb-inst-1"
         assert result[0]["type"] == "DocDB"
 
+    def test_collect_docdb_enriches_instance_memory(self):
+        """DocDB도 인스턴스 클래스 메모리 태그(_total_memory_bytes)를 부여한다 —
+        FreeableMemory가 flat 폴백이 아니라 인스턴스형(기본 20%) 임계치를 쓰도록."""
+        arn = "arn:aws:rds:us-east-1:123:db:docdb-mem-1"
+        inst = _make_docdb_instance("docdb-mem-1", arn, engine="docdb")
+        inst["DBInstanceClass"] = "db.t3.medium"
+        mock_rds = self._mock_rds_for_docdb([inst], {arn: {"Monitoring": "on"}})
+
+        with patch.object(docdb_collector, "_get_rds_client", return_value=mock_rds), \
+             patch("common.collectors.docdb.boto3.session.Session") as ms:
+            ms.return_value.region_name = "us-east-1"
+            result = docdb_collector.collect_monitored_resources()
+
+        assert len(result) == 1
+        tags = result[0]["tags"]
+        assert tags["_db_instance_class"] == "db.t3.medium"
+        assert tags["_total_memory_bytes"] == str(4 * 1073741824)
+
     def test_engine_filtering_excludes_non_docdb(self):
         """aurora-mysql, mysql, postgres 엔진 제외 — Req 1.5"""
         instances = [
@@ -1678,6 +1696,32 @@ class TestElastiCacheCollector:
         assert len(result) == 1
         assert result[0]["id"] == "redis-1"
         assert result[0]["type"] == "ElastiCache"
+
+    def test_collect_includes_valkey_excludes_memcached(self):
+        """Valkey(Redis 호환 신형 엔진)는 수집, Memcached는 제외."""
+        arn_redis = "arn:aws:elasticache:us-east-1:123:cluster:redis-1"
+        arn_valkey = "arn:aws:elasticache:us-east-1:123:cluster:valkey-1"
+        arn_mc = "arn:aws:elasticache:us-east-1:123:cluster:mc-1"
+
+        clusters = [
+            _make_elasticache_cluster("redis-1", arn_redis, engine="redis"),
+            _make_elasticache_cluster("valkey-1", arn_valkey, engine="valkey"),
+            _make_elasticache_cluster("mc-1", arn_mc, engine="memcached"),
+        ]
+        tag_map = {
+            arn_redis: {"Monitoring": "on"},
+            arn_valkey: {"Monitoring": "on"},
+            arn_mc: {"Monitoring": "on"},
+        }
+        mock_client = self._mock_elasticache_for_collection(clusters, tag_map)
+
+        with patch.object(elasticache_collector, "_get_elasticache_client",
+                          return_value=mock_client), \
+             patch("common.collectors.elasticache.boto3.session.Session") as ms:
+            ms.return_value.region_name = "us-east-1"
+            result = elasticache_collector.collect_monitored_resources()
+
+        assert sorted(r["id"] for r in result) == ["redis-1", "valkey-1"]
 
     def test_deleting_status_skipped(self):
         """CacheClusterStatus 'deleting'/'deleted' 클러스터 skip — Req 4.4"""
