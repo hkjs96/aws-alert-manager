@@ -11,16 +11,14 @@ export const SUPPORTED_RESOURCE_TYPES = [
 export type ResourceType = (typeof SUPPORTED_RESOURCE_TYPES)[number];
 
 /**
- * Frontend integration MVP scope.
+ * Frontend integration scope.
  *
- * The backend registry supports all `SUPPORTED_RESOURCE_TYPES`, but the current
- * frontend/backend integration path is intentionally narrowed to these types
- * until the workflows are complete end to end.
+ * Now at full parity with the backend registry: every backend-supported type is
+ * exposed in the UI filters, settings threshold tabs, and primary workflows.
+ * The threshold tabs are data-driven from the backend `/thresholds/{type}`
+ * endpoint (which already serves all types), and the alarm-creation metric
+ * catalog (`METRICS_BY_TYPE`) covers all types, so this list intentionally
+ * mirrors `SUPPORTED_RESOURCE_TYPES`. Keep it as a distinct named export so the
+ * UI vs backend-contract intent stays explicit at call sites.
  */
-export const FRONTEND_INTEGRATION_RESOURCE_TYPES = [
-  "EC2",
-  "RDS",
-  "S3",
-  "Lambda",
-  "ALB",
-] as const;
+export const FRONTEND_INTEGRATION_RESOURCE_TYPES = SUPPORTED_RESOURCE_TYPES;
