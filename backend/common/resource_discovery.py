@@ -7,7 +7,6 @@ AssumeRole을 건너뛰고 현재 세션을 그대로 사용한다.
 """
 
 import logging
-import os
 from typing import List
 
 import boto3
@@ -137,6 +136,13 @@ def discover_resources(accounts: List[dict]) -> List[dict]:
             all_resources.extend(_discover_elasticache(session, account_id, region, customer_id))
             all_resources.extend(_discover_nat(session, account_id, region, customer_id))
             all_resources.extend(_discover_lambda(session, account_id, region, customer_id))
+            all_resources.extend(_discover_docdb(session, account_id, region, customer_id))
+            all_resources.extend(_discover_clb(session, account_id, region, customer_id))
+            all_resources.extend(_discover_sqs(session, account_id, region, customer_id))
+            all_resources.extend(_discover_dynamodb(session, account_id, region, customer_id))
+            all_resources.extend(_discover_efs(session, account_id, region, customer_id))
+            all_resources.extend(_discover_opensearch(session, account_id, region, customer_id))
+            all_resources.extend(_discover_ecs(session, account_id, region, customer_id))
 
         session = _get_session_for_account(account, regions[0])
         if session:
@@ -154,11 +160,13 @@ def _discover_ec2(session, account_id, region, customer_id):
             for reservation in page.get("Reservations", []):
                 for instance in reservation.get("Instances", []):
                     tags = {t["Key"]: t["Value"] for t in instance.get("Tags", [])}
-                    name = tags.get("Name", instance["InstanceId"])
+                    instance_id = instance["InstanceId"]
+                    name = tags.get("Name", instance_id)
                     resources.append({
-                        "resource_id": instance["InstanceId"],
+                        "resource_id": instance_id,
                         "name": name,
                         "type": "EC2",
+                        "arn": f"arn:aws:ec2:{region}:{account_id}:instance/{instance_id}",
                         "account_id": account_id,
                         "region": region,
                         "customer_id": customer_id,
@@ -192,6 +200,7 @@ def _discover_rds(session, account_id, region, customer_id):
                     "resource_id": db_id,
                     "name": db_id,
                     "type": resource_type,
+                    "arn": db["DBInstanceArn"],
                     "account_id": account_id,
                     "region": region,
                     "customer_id": customer_id,
@@ -230,6 +239,7 @@ def _discover_load_balancers(session, account_id, region, customer_id):
                     "resource_id": lb_arn,
                     "name": lb.get("LoadBalancerName", lb_arn),
                     "type": res_type,
+                    "arn": lb_arn,
                     "account_id": account_id,
                     "region": region,
                     "customer_id": customer_id,
@@ -260,6 +270,7 @@ def _discover_target_groups(session, account_id, region, customer_id):
                     "resource_id": tg_arn,
                     "name": tg.get("TargetGroupName", tg_arn),
                     "type": "TG",
+                    "arn": tg_arn,
                     "account_id": account_id,
                     "region": region,
                     "customer_id": customer_id,
@@ -294,10 +305,12 @@ def _discover_elasticache(session, account_id, region, customer_id):
                     except ClientError as e:
                         logger.error("ElastiCache list_tags failed for %s: %s", cluster_id, e)
 
+                cluster_arn = arn or f"arn:aws:elasticache:{region}:{account_id}:cluster:{cluster_id}"
                 resources.append({
                     "resource_id": cluster_id,
                     "name": cluster_id,
                     "type": "ElastiCache",
+                    "arn": cluster_arn,
                     "account_id": account_id,
                     "region": region,
                     "customer_id": customer_id,
@@ -326,6 +339,7 @@ def _discover_nat(session, account_id, region, customer_id):
                     "resource_id": nat_id,
                     "name": tags.get("Name", nat_id),
                     "type": "NAT",
+                    "arn": f"arn:aws:ec2:{region}:{account_id}:natgateway/{nat_id}",
                     "account_id": account_id,
                     "region": region,
                     "customer_id": customer_id,
@@ -395,6 +409,7 @@ def _discover_s3(session, account_id, customer_id):
                 "resource_id": bucket_name,
                 "name": bucket_name,
                 "type": "S3",
+                "arn": f"arn:aws:s3:::{bucket_name}",
                 "account_id": account_id,
                 "region": region,
                 "customer_id": customer_id,
@@ -405,3 +420,286 @@ def _discover_s3(session, account_id, customer_id):
     except ClientError as e:
         logger.error("S3 discovery failed in %s: %s", account_id, e)
     return resources
+
+
+def _discover_docdb(session, account_id, region, customer_id):
+    """DocumentDB 인스턴스를 인벤토리로 수집한다 (RDS API, engine==docdb)."""
+    resources = []
+    try:
+        rds = session.client("rds")
+        paginator = rds.get_paginator("describe_db_instances")
+        for page in paginator.paginate():
+            for db in page.get("DBInstances", []):
+                if db.get("Engine", "").lower() != "docdb":
+                    continue
+                if db.get("DBInstanceStatus") in ("deleting", "deleted"):
+                    continue
+                db_id = db["DBInstanceIdentifier"]
+                arn = db.get("DBInstanceArn", "")
+                tags = {}
+                if arn:
+                    try:
+                        resp = rds.list_tags_for_resource(ResourceName=arn)
+                        tags = {t["Key"]: t["Value"] for t in resp.get("TagList", [])}
+                    except ClientError as e:
+                        logger.error("DocDB list_tags failed for %s: %s", db_id, e)
+                resources.append({
+                    "resource_id": db_id,
+                    "name": db_id,
+                    "type": "DocDB",
+                    "arn": arn,
+                    "account_id": account_id,
+                    "region": region,
+                    "customer_id": customer_id,
+                    "monitoring": has_monitoring_tag(tags),
+                    "status": "active",
+                    "tags": tags
+                })
+    except ClientError as e:
+        logger.error("DocDB discovery failed in %s/%s: %s", account_id, region, e)
+    return resources
+
+
+def _discover_clb(session, account_id, region, customer_id):
+    """Classic Load Balancer(ELB)를 인벤토리로 수집한다."""
+    resources = []
+    try:
+        elb = session.client("elb")
+        paginator = elb.get_paginator("describe_load_balancers")
+        for page in paginator.paginate():
+            for lb in page.get("LoadBalancerDescriptions", []):
+                lb_name = lb["LoadBalancerName"]
+                tags = {}
+                try:
+                    resp = elb.describe_tags(LoadBalancerNames=[lb_name])
+                    descs = resp.get("TagDescriptions", [])
+                    if descs:
+                        tags = {t["Key"]: t["Value"] for t in descs[0].get("Tags", [])}
+                except ClientError as e:
+                    logger.error("CLB describe_tags failed for %s: %s", lb_name, e)
+                arn = f"arn:aws:elasticloadbalancing:{region}:{account_id}:loadbalancer/{lb_name}"
+                resources.append({
+                    "resource_id": lb_name,
+                    "name": lb_name,
+                    "type": "CLB",
+                    "arn": arn,
+                    "account_id": account_id,
+                    "region": region,
+                    "customer_id": customer_id,
+                    "monitoring": has_monitoring_tag(tags),
+                    "status": "active",
+                    "tags": tags
+                })
+    except ClientError as e:
+        logger.error("CLB discovery failed in %s/%s: %s", account_id, region, e)
+    return resources
+
+
+def _discover_sqs(session, account_id, region, customer_id):
+    """SQS 큐를 인벤토리로 수집한다."""
+    resources = []
+    try:
+        sqs = session.client("sqs")
+        paginator = sqs.get_paginator("list_queues")
+        for page in paginator.paginate():
+            for url in page.get("QueueUrls", []):
+                queue_name = url.rsplit("/", 1)[-1]
+                tags = {}
+                try:
+                    resp = sqs.list_queue_tags(QueueUrl=url)
+                    tags = resp.get("Tags", {})
+                except ClientError as e:
+                    logger.error("SQS list_queue_tags failed for %s: %s", url, e)
+                arn = f"arn:aws:sqs:{region}:{account_id}:{queue_name}"
+                resources.append({
+                    "resource_id": queue_name,
+                    "name": queue_name,
+                    "type": "SQS",
+                    "arn": arn,
+                    "account_id": account_id,
+                    "region": region,
+                    "customer_id": customer_id,
+                    "monitoring": has_monitoring_tag(tags),
+                    "status": "active",
+                    "tags": tags
+                })
+    except ClientError as e:
+        logger.error("SQS discovery failed in %s/%s: %s", account_id, region, e)
+    return resources
+
+
+def _discover_dynamodb(session, account_id, region, customer_id):
+    """DynamoDB 테이블을 인벤토리로 수집한다."""
+    resources = []
+    try:
+        ddb = session.client("dynamodb")
+        paginator = ddb.get_paginator("list_tables")
+        for page in paginator.paginate():
+            for table_name in page.get("TableNames", []):
+                try:
+                    desc = ddb.describe_table(TableName=table_name)
+                    arn = desc["Table"]["TableArn"]
+                except ClientError as e:
+                    logger.error("DynamoDB describe_table failed for %s: %s", table_name, e)
+                    continue
+                tags = {}
+                try:
+                    resp = ddb.list_tags_of_resource(ResourceArn=arn)
+                    tags = {t["Key"]: t["Value"] for t in resp.get("Tags", [])}
+                except ClientError as e:
+                    logger.error("DynamoDB list_tags failed for %s: %s", table_name, e)
+                resources.append({
+                    "resource_id": table_name,
+                    "name": table_name,
+                    "type": "DynamoDB",
+                    "arn": arn,
+                    "account_id": account_id,
+                    "region": region,
+                    "customer_id": customer_id,
+                    "monitoring": has_monitoring_tag(tags),
+                    "status": "active",
+                    "tags": tags
+                })
+    except ClientError as e:
+        logger.error("DynamoDB discovery failed in %s/%s: %s", account_id, region, e)
+    return resources
+
+
+def _discover_efs(session, account_id, region, customer_id):
+    """EFS 파일시스템을 인벤토리로 수집한다."""
+    resources = []
+    try:
+        efs = session.client("efs")
+        paginator = efs.get_paginator("describe_file_systems")
+        for page in paginator.paginate():
+            for fs in page.get("FileSystems", []):
+                fs_id = fs["FileSystemId"]
+                tags = {t["Key"]: t["Value"] for t in fs.get("Tags", [])}
+                arn = fs.get("FileSystemArn") or \
+                    f"arn:aws:elasticfilesystem:{region}:{account_id}:file-system/{fs_id}"
+                resources.append({
+                    "resource_id": fs_id,
+                    "name": tags.get("Name", fs_id),
+                    "type": "EFS",
+                    "arn": arn,
+                    "account_id": account_id,
+                    "region": region,
+                    "customer_id": customer_id,
+                    "monitoring": has_monitoring_tag(tags),
+                    "status": "active",
+                    "tags": tags
+                })
+    except ClientError as e:
+        logger.error("EFS discovery failed in %s/%s: %s", account_id, region, e)
+    return resources
+
+
+def _discover_opensearch(session, account_id, region, customer_id):
+    """OpenSearch 도메인을 인벤토리로 수집한다. _client_id(account)를 tags에 저장."""
+    resources = []
+    try:
+        client = session.client("opensearch")
+        names_resp = client.list_domain_names()
+    except ClientError as e:
+        logger.error("OpenSearch discovery failed in %s/%s: %s", account_id, region, e)
+        return resources
+
+    domain_names = [d["DomainName"] for d in names_resp.get("DomainNames", [])]
+    for i in range(0, len(domain_names), 5):
+        batch = domain_names[i:i + 5]
+        try:
+            resp = client.describe_domains(DomainNames=batch)
+        except ClientError as e:
+            logger.error("OpenSearch describe_domains failed: %s", e)
+            continue
+        for domain in resp.get("DomainStatusList", []):
+            if domain.get("Deleted", False):
+                continue
+            domain_name = domain["DomainName"]
+            arn = domain.get("ARN", "")
+            tags = {}
+            if arn:
+                try:
+                    tags_resp = client.list_tags(ARN=arn)
+                    tags = {t["Key"]: t["Value"] for t in tags_resp.get("TagList", [])}
+                except ClientError as e:
+                    logger.error("OpenSearch list_tags failed for %s: %s", domain_name, e)
+            tags["_client_id"] = account_id
+            resources.append({
+                "resource_id": domain_name,
+                "name": domain_name,
+                "type": "OpenSearch",
+                "arn": arn,
+                "account_id": account_id,
+                "region": region,
+                "customer_id": customer_id,
+                "monitoring": has_monitoring_tag(tags),
+                "status": "active",
+                "tags": tags
+            })
+    return resources
+
+
+def _discover_ecs(session, account_id, region, customer_id):
+    """ECS 서비스를 인벤토리로 수집한다 (클러스터별 순회)."""
+    resources = []
+    try:
+        ecs = session.client("ecs")
+        cluster_paginator = ecs.get_paginator("list_clusters")
+        cluster_pages = list(cluster_paginator.paginate())
+    except ClientError as e:
+        logger.error("ECS discovery failed in %s/%s: %s", account_id, region, e)
+        return resources
+
+    for cluster_page in cluster_pages:
+        for cluster_arn in cluster_page.get("clusterArns", []):
+            cluster_name = cluster_arn.rsplit("/", 1)[-1]
+            _discover_ecs_services(
+                ecs, cluster_arn, cluster_name,
+                account_id, region, customer_id, resources,
+            )
+    return resources
+
+
+def _discover_ecs_services(ecs, cluster_arn, cluster_name, account_id, region,
+                           customer_id, resources):
+    """단일 ECS 클러스터의 서비스를 수집한다. _cluster_name을 tags에 저장(compound dim)."""
+    try:
+        svc_paginator = ecs.get_paginator("list_services")
+        svc_pages = svc_paginator.paginate(cluster=cluster_arn)
+    except ClientError as e:
+        logger.error("ECS list_services failed for %s: %s", cluster_arn, e)
+        return
+
+    for svc_page in svc_pages:
+        svc_arns = svc_page.get("serviceArns", [])
+        if not svc_arns:
+            continue
+        try:
+            desc = ecs.describe_services(cluster=cluster_arn, services=svc_arns)
+        except ClientError as e:
+            logger.error("ECS describe_services failed for %s: %s", cluster_arn, e)
+            continue
+        for svc in desc.get("services", []):
+            svc_arn = svc.get("serviceArn", "")
+            svc_name = svc.get("serviceName", "")
+            tags = {}
+            try:
+                tags_resp = ecs.list_tags_for_resource(resourceArn=svc_arn)
+                tags = {t["key"]: t["value"] for t in tags_resp.get("tags", [])}
+            except ClientError as e:
+                logger.error("ECS list_tags failed for %s: %s", svc_arn, e)
+            tags["_cluster_name"] = cluster_name
+            tags["_ecs_launch_type"] = svc.get("launchType", "")
+            resources.append({
+                "resource_id": svc_name,
+                "name": svc_name,
+                "type": "ECS",
+                "arn": svc_arn,
+                "account_id": account_id,
+                "region": region,
+                "customer_id": customer_id,
+                "monitoring": has_monitoring_tag(tags),
+                "status": "active",
+                "tags": tags
+            })

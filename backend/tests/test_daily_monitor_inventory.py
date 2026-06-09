@@ -27,7 +27,7 @@ _ENV = {
 
 
 class TestSanitizeInventoryItem:
-    def test_strips_tags_and_arn(self):
+    def test_strips_tags_keeps_arn(self):
         from daily_monitor.lambda_handler import _sanitize_inventory_item
 
         item = _sanitize_inventory_item({
@@ -43,11 +43,19 @@ class TestSanitizeInventoryItem:
             "arn": "arn:aws:lambda:...",
         })
 
+        # 변동성 큰 tags는 제외하되, arn은 모니터링 토글(RGT)용으로 영속화한다.
         assert "tags" not in item
-        assert "arn" not in item
+        assert item["arn"] == "arn:aws:lambda:..."
         assert item["resource_id"] == "i-001"
         assert item["customer_id"] == "cust-01"
         assert item["monitoring"] is True
+
+    def test_arn_omitted_when_absent(self):
+        from daily_monitor.lambda_handler import _sanitize_inventory_item
+
+        item = _sanitize_inventory_item({"resource_id": "i-001", "account_id": "123"})
+
+        assert "arn" not in item
 
     def test_empty_customer_id_excluded(self):
         from daily_monitor.lambda_handler import _sanitize_inventory_item

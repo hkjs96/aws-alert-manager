@@ -707,6 +707,10 @@ def _sanitize_inventory_item(resource: dict) -> dict:
     customer_id = resource.get("customer_id")
     if customer_id:
         item["customer_id"] = customer_id
+    # ARN은 모니터링 토글(Resource Groups Tagging API)에서 사용하므로 영속화한다.
+    arn = resource.get("arn")
+    if arn:
+        item["arn"] = arn
     return item
 
 
