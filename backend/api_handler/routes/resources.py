@@ -723,6 +723,14 @@ _ARN_TEMPLATES: dict[str, str] = {
     "EFS": "arn:aws:elasticfilesystem:{region}:{account}:file-system/{id}",
     "CLB": "arn:aws:elasticloadbalancing:{region}:{account}:loadbalancer/{id}",
     "OpenSearch": "arn:aws:es:{region}:{account}:domain/{id}",
+    "Backup": "arn:aws:backup:{region}:{account}:backup-vault:{id}",
+    "DX": "arn:aws:directconnect:{region}:{account}:dxcon/{id}",
+    "SageMaker": "arn:aws:sagemaker:{region}:{account}:endpoint/{id}",
+    "SNS": "arn:aws:sns:{region}:{account}:{id}",
+    "VPN": "arn:aws:ec2:{region}:{account}:vpn-connection/{id}",
+    "CloudFront": "arn:aws:cloudfront::{account}:distribution/{id}",
+    "Route53": "arn:aws:route53:::healthcheck/{id}",
+    # ACM: resource_id가 곧 ARN. APIGW/MQ/MSK/WAF: 저장된 arn 사용(템플릿 재구성 불가).
 }
 
 

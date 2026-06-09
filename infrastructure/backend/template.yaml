@@ -386,6 +386,44 @@ Resources:
                   - es:DescribeDomains
                   - es:ListTags
                 Resource: "*"
+              # Batch 2 확장 디스커버리(read) + 모니터링 토글(RGT 위임 태그 write).
+              - Effect: Allow
+                Action:
+                  # read (api_handler sync_resources 디스커버리)
+                  - apigateway:GET
+                  - acm:ListCertificates
+                  - acm:DescribeCertificate
+                  - backup:ListBackupVaults
+                  - backup:ListTags
+                  - mq:ListBrokers
+                  - mq:DescribeBroker
+                  - kafka:ListClustersV2
+                  - wafv2:ListWebACLs
+                  - wafv2:ListTagsForResource
+                  - directconnect:DescribeConnections
+                  - directconnect:DescribeTags
+                  - sagemaker:ListEndpoints
+                  - sagemaker:ListTags
+                  - sns:ListTopics
+                  - sns:ListTagsForResource
+                  - ec2:DescribeVpnConnections
+                  - cloudfront:ListDistributions
+                  - cloudfront:ListTagsForResource
+                  - route53:ListHealthChecks
+                  - route53:ListTagsForResource
+                  # tag write (RGT가 위임; ec2:CreateTags는 위에 이미 있어 VPN 커버)
+                  - apigateway:PUT
+                  - acm:AddTagsToCertificate
+                  - backup:TagResource
+                  - mq:CreateTags
+                  - kafka:TagResource
+                  - wafv2:TagResource
+                  - directconnect:TagResource
+                  - sagemaker:AddTags
+                  - sns:TagResource
+                  - cloudfront:TagResource
+                  - route53:ChangeTagsForResource
+                Resource: "*"
               - Effect: Allow
                 Action:
                   - sts:AssumeRole

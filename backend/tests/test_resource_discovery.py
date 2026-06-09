@@ -17,12 +17,31 @@ from common.resource_discovery import (
     _discover_efs,
     _discover_opensearch,
     _discover_ecs,
+    _discover_apigw,
+    _discover_acm,
+    _discover_backup,
+    _discover_mq,
+    _discover_msk,
+    _discover_waf,
+    _discover_dx,
+    _discover_sagemaker,
+    _discover_sns,
+    _discover_vpn,
+    _discover_cloudfront,
+    _discover_route53,
 )
 
 
 def _session_returning(client) -> MagicMock:
     session = MagicMock()
     session.client.return_value = client
+    return session
+
+
+def _session_with(mapping: dict) -> MagicMock:
+    """서비스명 → 클라이언트 매핑 세션 (여러 클라이언트를 쓰는 타입용, 예: APIGW)."""
+    session = MagicMock()
+    session.client.side_effect = lambda svc, *a, **k: mapping[svc]
     return session
 
 
@@ -279,4 +298,189 @@ def test_discover_ecs_captures_service_arn_and_cluster():
     assert out[0]["type"] == "ECS"
     assert out[0]["arn"] == "arn:aws:ecs:us-east-1:123:service/prod/web"
     assert out[0]["tags"]["_cluster_name"] == "prod"
+    assert out[0]["monitoring"] is True
+
+
+# ──────────────────────────────────────────────
+# Batch 2 신규 디스커버리
+# ──────────────────────────────────────────────
+
+
+def test_discover_apigw_rest_and_v2():
+    rest = MagicMock()
+    _paginated(rest, [{"items": [{"id": "r1", "name": "rest-api"}]}])
+    rest.get_tags.return_value = {"tags": {"Monitoring": "on"}}
+    v2 = MagicMock()
+    _paginated(v2, [{"Items": [
+        {"ApiId": "h1", "Name": "http-api", "ProtocolType": "HTTP", "Tags": {"Monitoring": "off"}},
+    ]}])
+
+    out = _discover_apigw(_session_with({"apigateway": rest, "apigatewayv2": v2}),
+                          "123", "us-east-1", "cust")
+
+    by_id = {r["resource_id"]: r for r in out}
+    assert by_id["rest-api"]["arn"] == "arn:aws:apigateway:us-east-1::/restapis/r1"
+    assert by_id["rest-api"]["monitoring"] is True
+    assert by_id["rest-api"]["tags"]["_api_type"] == "REST"
+    assert by_id["h1"]["arn"] == "arn:aws:apigateway:us-east-1::/apis/h1"
+    assert by_id["h1"]["monitoring"] is False
+    assert by_id["h1"]["tags"]["_api_type"] == "HTTP"
+
+
+def test_discover_acm_full_collection_monitoring_on():
+    acm = MagicMock()
+    _paginated(acm, [{"CertificateSummaryList": [
+        {"CertificateArn": "arn:acm:c1", "DomainName": "ex.com"},
+    ]}])
+    acm.describe_certificate.return_value = {"Certificate": {"DomainName": "ex.com"}}
+
+    out = _discover_acm(_session_returning(acm), "123", "us-east-1", "cust")
+
+    assert out[0]["type"] == "ACM"
+    assert out[0]["resource_id"] == "arn:acm:c1"
+    assert out[0]["arn"] == "arn:acm:c1"
+    assert out[0]["name"] == "ex.com"
+    assert out[0]["monitoring"] is True
+
+
+def test_discover_backup_vault_arn():
+    backup = MagicMock()
+    _paginated(backup, [{"BackupVaultList": [
+        {"BackupVaultName": "v1", "BackupVaultArn": "arn:backup:v1"},
+    ]}])
+    backup.list_tags.return_value = {"Tags": {"Monitoring": "on"}}
+
+    out = _discover_backup(_session_returning(backup), "123", "us-east-1", "cust")
+
+    assert out[0]["type"] == "Backup"
+    assert out[0]["resource_id"] == "v1"
+    assert out[0]["arn"] == "arn:backup:v1"
+    assert out[0]["monitoring"] is True
+
+
+def test_discover_mq_broker_level():
+    mq = MagicMock()
+    _paginated(mq, [{"BrokerSummaries": [{"BrokerId": "b-1", "BrokerName": "broker1"}]}])
+    mq.describe_broker.return_value = {"BrokerArn": "arn:mq:broker1", "Tags": {"Monitoring": "on"}}
+
+    out = _discover_mq(_session_returning(mq), "123", "us-east-1", "cust")
+
+    assert out[0]["type"] == "MQ"
+    assert out[0]["resource_id"] == "broker1"
+    assert out[0]["arn"] == "arn:mq:broker1"
+    assert out[0]["monitoring"] is True
+
+
+def test_discover_msk_cluster_arn():
+    kafka = MagicMock()
+    _paginated(kafka, [{"ClusterInfoList": [
+        {"ClusterName": "msk1", "ClusterArn": "arn:kafka:msk1", "Tags": {"Monitoring": "on"}},
+    ]}])
+
+    out = _discover_msk(_session_returning(kafka), "123", "us-east-1", "cust")
+
+    assert out[0]["type"] == "MSK"
+    assert out[0]["resource_id"] == "msk1"
+    assert out[0]["arn"] == "arn:kafka:msk1"
+
+
+def test_discover_waf_regional():
+    waf = MagicMock()
+    waf.list_web_acls.return_value = {"WebACLs": [{"Name": "acl1", "ARN": "arn:waf:acl1"}]}
+    waf.list_tags_for_resource.return_value = {
+        "TagInfoForResource": {"TagList": [{"Key": "Monitoring", "Value": "on"}]}
+    }
+
+    out = _discover_waf(_session_returning(waf), "123", "us-east-1", "cust")
+
+    assert out[0]["type"] == "WAF"
+    assert out[0]["resource_id"] == "acl1"
+    assert out[0]["arn"] == "arn:waf:acl1"
+    assert out[0]["tags"]["_waf_rule"] == "ALL"
+    assert out[0]["monitoring"] is True
+
+
+def test_discover_dx_available_only():
+    dx = MagicMock()
+    dx.describe_connections.return_value = {"connections": [
+        {"connectionId": "dxcon-1", "connectionState": "available"},
+        {"connectionId": "dxcon-2", "connectionState": "down"},
+    ]}
+    dx.describe_tags.return_value = {"resourceTags": [
+        {"tags": [{"key": "Monitoring", "value": "on"}]},
+    ]}
+
+    out = _discover_dx(_session_returning(dx), "123", "ap-northeast-2", "cust")
+
+    assert [r["resource_id"] for r in out] == ["dxcon-1"]
+    assert out[0]["arn"] == "arn:aws:directconnect:ap-northeast-2:123:dxcon/dxcon-1"
+    assert out[0]["monitoring"] is True
+
+
+def test_discover_sagemaker_endpoint():
+    sm = MagicMock()
+    _paginated(sm, [{"Endpoints": [{"EndpointName": "ep1", "EndpointArn": "arn:sm:ep1"}]}])
+    sm.list_tags.return_value = {"Tags": [{"Key": "Monitoring", "Value": "on"}]}
+
+    out = _discover_sagemaker(_session_returning(sm), "123", "us-east-1", "cust")
+
+    assert out[0]["type"] == "SageMaker"
+    assert out[0]["resource_id"] == "ep1"
+    assert out[0]["arn"] == "arn:sm:ep1"
+
+
+def test_discover_sns_topic_name_from_arn():
+    sns = MagicMock()
+    _paginated(sns, [{"Topics": [{"TopicArn": "arn:aws:sns:us-east-1:123:my-topic"}]}])
+    sns.list_tags_for_resource.return_value = {"Tags": [{"Key": "Monitoring", "Value": "on"}]}
+
+    out = _discover_sns(_session_returning(sns), "123", "us-east-1", "cust")
+
+    assert out[0]["resource_id"] == "my-topic"
+    assert out[0]["arn"] == "arn:aws:sns:us-east-1:123:my-topic"
+    assert out[0]["monitoring"] is True
+
+
+def test_discover_vpn_excludes_deleted():
+    ec2 = MagicMock()
+    ec2.describe_vpn_connections.return_value = {"VpnConnections": [
+        {"VpnConnectionId": "vpn-1", "State": "available",
+         "Tags": [{"Key": "Monitoring", "Value": "on"}]},
+        {"VpnConnectionId": "vpn-2", "State": "deleted", "Tags": []},
+    ]}
+
+    out = _discover_vpn(_session_returning(ec2), "123456789012", "ap-northeast-2", "cust")
+
+    assert [r["resource_id"] for r in out] == ["vpn-1"]
+    assert out[0]["arn"] == "arn:aws:ec2:ap-northeast-2:123456789012:vpn-connection/vpn-1"
+    assert out[0]["monitoring"] is True
+
+
+def test_discover_cloudfront_global():
+    cf = MagicMock()
+    _paginated(cf, [{"DistributionList": {"Items": [{"Id": "E123", "ARN": "arn:cf:E123"}]}}])
+    cf.list_tags_for_resource.return_value = {"Tags": {"Items": [{"Key": "Monitoring", "Value": "on"}]}}
+
+    out = _discover_cloudfront(_session_returning(cf), "123", "cust")
+
+    assert out[0]["type"] == "CloudFront"
+    assert out[0]["resource_id"] == "E123"
+    assert out[0]["arn"] == "arn:cf:E123"
+    assert out[0]["region"] == "us-east-1"
+    assert out[0]["monitoring"] is True
+
+
+def test_discover_route53_global():
+    r53 = MagicMock()
+    _paginated(r53, [{"HealthChecks": [{"Id": "hc-1"}]}])
+    r53.list_tags_for_resource.return_value = {
+        "ResourceTagSet": {"Tags": [{"Key": "Monitoring", "Value": "on"}]}
+    }
+
+    out = _discover_route53(_session_returning(r53), "123", "cust")
+
+    assert out[0]["type"] == "Route53"
+    assert out[0]["resource_id"] == "hc-1"
+    assert out[0]["arn"] == "arn:aws:route53:::healthcheck/hc-1"
+    assert out[0]["region"] == "us-east-1"
     assert out[0]["monitoring"] is True

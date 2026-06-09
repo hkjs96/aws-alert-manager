@@ -7,6 +7,7 @@ AssumeRole을 건너뛰고 현재 세션을 그대로 사용한다.
 """
 
 import logging
+from datetime import datetime, timezone
 from typing import List
 
 import boto3
@@ -143,10 +144,23 @@ def discover_resources(accounts: List[dict]) -> List[dict]:
             all_resources.extend(_discover_efs(session, account_id, region, customer_id))
             all_resources.extend(_discover_opensearch(session, account_id, region, customer_id))
             all_resources.extend(_discover_ecs(session, account_id, region, customer_id))
+            all_resources.extend(_discover_apigw(session, account_id, region, customer_id))
+            all_resources.extend(_discover_acm(session, account_id, region, customer_id))
+            all_resources.extend(_discover_backup(session, account_id, region, customer_id))
+            all_resources.extend(_discover_mq(session, account_id, region, customer_id))
+            all_resources.extend(_discover_msk(session, account_id, region, customer_id))
+            all_resources.extend(_discover_waf(session, account_id, region, customer_id))
+            all_resources.extend(_discover_dx(session, account_id, region, customer_id))
+            all_resources.extend(_discover_sagemaker(session, account_id, region, customer_id))
+            all_resources.extend(_discover_sns(session, account_id, region, customer_id))
+            all_resources.extend(_discover_vpn(session, account_id, region, customer_id))
 
+        # 글로벌 서비스(계정당 1회): S3 + CloudFront + Route53
         session = _get_session_for_account(account, regions[0])
         if session:
             all_resources.extend(_discover_s3(session, account_id, customer_id))
+            all_resources.extend(_discover_cloudfront(session, account_id, customer_id))
+            all_resources.extend(_discover_route53(session, account_id, customer_id))
 
     return all_resources
 
@@ -703,3 +717,342 @@ def _discover_ecs_services(ecs, cluster_arn, cluster_name, account_id, region,
                 "status": "active",
                 "tags": tags
             })
+
+
+# ──────────────────────────────────────────────
+# Batch 2 디스커버리 (APIGW/ACM/Backup/MQ/MSK/WAF/DX/SageMaker/SNS/VPN
+#   + 글로벌: CloudFront/Route53)
+# ──────────────────────────────────────────────
+
+
+def _inv_item(rid, name, rtype, arn, account_id, region, customer_id, tags, monitoring=None):
+    """인벤토리 리소스 dict 헬퍼 (Batch 2 타입 공통)."""
+    return {
+        "resource_id": rid,
+        "name": name,
+        "type": rtype,
+        "arn": arn,
+        "account_id": account_id,
+        "region": region,
+        "customer_id": customer_id,
+        "monitoring": has_monitoring_tag(tags) if monitoring is None else monitoring,
+        "status": "active",
+        "tags": tags,
+    }
+
+
+def _discover_apigw(session, account_id, region, customer_id):
+    """API Gateway(REST/HTTP/WebSocket)를 인벤토리로 수집한다."""
+    resources = []
+    try:
+        client = session.client("apigateway")
+        for page in client.get_paginator("get_rest_apis").paginate():
+            for api in page.get("items", []):
+                api_id = api["id"]
+                api_name = api.get("name", api_id)
+                arn = f"arn:aws:apigateway:{region}::/restapis/{api_id}"
+                tags = {}
+                try:
+                    tags = client.get_tags(resourceArn=arn).get("tags", {})
+                except ClientError as e:
+                    logger.error("APIGW REST get_tags failed for %s: %s", api_id, e)
+                t = dict(tags)
+                t["_api_type"] = "REST"
+                resources.append(_inv_item(api_name, api_name, "APIGW", arn,
+                                           account_id, region, customer_id, t,
+                                           has_monitoring_tag(tags)))
+    except ClientError as e:
+        logger.error("APIGW REST discovery failed in %s/%s: %s", account_id, region, e)
+
+    try:
+        v2 = session.client("apigatewayv2")
+        for page in v2.get_paginator("get_apis").paginate():
+            for api in page.get("Items", []):
+                api_id = api["ApiId"]
+                api_name = api.get("Name", api_id)
+                tags = api.get("Tags", {})
+                protocol = api.get("ProtocolType", "HTTP")
+                t = dict(tags)
+                t["_api_type"] = "WEBSOCKET" if protocol == "WEBSOCKET" else "HTTP"
+                arn = f"arn:aws:apigateway:{region}::/apis/{api_id}"
+                resources.append(_inv_item(api_id, api_name, "APIGW", arn,
+                                           account_id, region, customer_id, t,
+                                           has_monitoring_tag(tags)))
+    except ClientError as e:
+        logger.error("APIGW v2 discovery failed in %s/%s: %s", account_id, region, e)
+    return resources
+
+
+def _discover_acm(session, account_id, region, customer_id):
+    """ACM 인증서를 인벤토리로 수집한다 (ISSUED 전수, 만료 제외).
+
+    collector가 full-collection으로 모든 ISSUED 인증서를 모니터링하므로
+    monitoring=True 고정. id/arn은 인증서 ARN.
+    """
+    resources = []
+    try:
+        client = session.client("acm")
+        pages = client.get_paginator("list_certificates").paginate(
+            CertificateStatuses=["ISSUED"])
+    except ClientError as e:
+        logger.error("ACM discovery failed in %s/%s: %s", account_id, region, e)
+        return resources
+
+    now = datetime.now(timezone.utc)
+    for page in pages:
+        for cert in page.get("CertificateSummaryList", []):
+            cert_arn = cert["CertificateArn"]
+            domain = cert.get("DomainName", "")
+            try:
+                detail = client.describe_certificate(CertificateArn=cert_arn)
+                cert_detail = detail.get("Certificate", {})
+                not_after = cert_detail.get("NotAfter")
+                if not_after and not_after < now:
+                    continue
+                domain = cert_detail.get("DomainName", domain)
+            except ClientError as e:
+                logger.error("ACM describe_certificate failed for %s: %s", cert_arn, e)
+            resources.append(_inv_item(cert_arn, domain or cert_arn, "ACM", cert_arn,
+                                       account_id, region, customer_id,
+                                       {"Monitoring": "on"}, True))
+    return resources
+
+
+def _discover_backup(session, account_id, region, customer_id):
+    """AWS Backup Vault를 인벤토리로 수집한다."""
+    resources = []
+    try:
+        client = session.client("backup")
+        for page in client.get_paginator("list_backup_vaults").paginate():
+            for vault in page.get("BackupVaultList", []):
+                name = vault["BackupVaultName"]
+                arn = vault.get("BackupVaultArn", "")
+                tags = {}
+                if arn:
+                    try:
+                        tags = client.list_tags(ResourceArn=arn).get("Tags", {})
+                    except ClientError as e:
+                        logger.error("Backup list_tags failed for %s: %s", name, e)
+                resources.append(_inv_item(name, name, "Backup", arn,
+                                           account_id, region, customer_id, tags))
+    except ClientError as e:
+        logger.error("Backup discovery failed in %s/%s: %s", account_id, region, e)
+    return resources
+
+
+def _discover_mq(session, account_id, region, customer_id):
+    """Amazon MQ 브로커를 인벤토리로 수집한다 (브로커 단위)."""
+    resources = []
+    try:
+        client = session.client("mq")
+        broker_pages = client.get_paginator("list_brokers").paginate()
+    except ClientError as e:
+        logger.error("MQ discovery failed in %s/%s: %s", account_id, region, e)
+        return resources
+
+    for page in broker_pages:
+        for summary in page.get("BrokerSummaries", []):
+            broker_id = summary["BrokerId"]
+            broker_name = summary["BrokerName"]
+            tags, arn = {}, ""
+            try:
+                desc = client.describe_broker(BrokerId=broker_id)
+                tags = desc.get("Tags", {})
+                arn = desc.get("BrokerArn", "")
+            except ClientError as e:
+                logger.error("MQ describe_broker failed for %s: %s", broker_id, e)
+            resources.append(_inv_item(broker_name, broker_name, "MQ", arn,
+                                       account_id, region, customer_id, tags))
+    return resources
+
+
+def _discover_msk(session, account_id, region, customer_id):
+    """MSK 클러스터를 인벤토리로 수집한다."""
+    resources = []
+    try:
+        client = session.client("kafka")
+        for page in client.get_paginator("list_clusters_v2").paginate():
+            for cluster in page.get("ClusterInfoList", []):
+                name = cluster["ClusterName"]
+                arn = cluster.get("ClusterArn", "")
+                tags = cluster.get("Tags", {})
+                resources.append(_inv_item(name, name, "MSK", arn,
+                                           account_id, region, customer_id, tags))
+    except ClientError as e:
+        logger.error("MSK discovery failed in %s/%s: %s", account_id, region, e)
+    return resources
+
+
+def _discover_waf(session, account_id, region, customer_id):
+    """WAFv2 WebACL(REGIONAL scope)을 인벤토리로 수집한다."""
+    resources = []
+    try:
+        client = session.client("wafv2")
+        response = client.list_web_acls(Scope="REGIONAL")
+    except ClientError as e:
+        logger.error("WAF discovery failed in %s/%s: %s", account_id, region, e)
+        return resources
+
+    for acl in response.get("WebACLs", []):
+        name = acl.get("Name", "")
+        arn = acl.get("ARN", "")
+        tags = {}
+        if arn:
+            try:
+                resp = client.list_tags_for_resource(ResourceARN=arn)
+                tag_list = resp.get("TagInfoForResource", {}).get("TagList", [])
+                tags = {t["Key"]: t["Value"] for t in tag_list}
+            except ClientError as e:
+                logger.error("WAF list_tags failed for %s: %s", name, e)
+        t = dict(tags)
+        t["_waf_rule"] = "ALL"
+        resources.append(_inv_item(name, name, "WAF", arn,
+                                   account_id, region, customer_id, t,
+                                   has_monitoring_tag(tags)))
+    return resources
+
+
+def _discover_dx(session, account_id, region, customer_id):
+    """Direct Connect 연결을 인벤토리로 수집한다 (available 상태만)."""
+    resources = []
+    try:
+        client = session.client("directconnect")
+        response = client.describe_connections()
+    except ClientError as e:
+        logger.error("DX discovery failed in %s/%s: %s", account_id, region, e)
+        return resources
+
+    for conn in response.get("connections", []):
+        if conn.get("connectionState") != "available":
+            continue
+        conn_id = conn["connectionId"]
+        arn = f"arn:aws:directconnect:{region}:{account_id}:dxcon/{conn_id}"
+        tags = {}
+        try:
+            resp = client.describe_tags(resourceArns=[arn])
+            for rt in resp.get("resourceTags", []):
+                for tag in rt.get("tags", []):
+                    tags[tag.get("key", "")] = tag.get("value", "")
+        except ClientError as e:
+            logger.error("DX describe_tags failed for %s: %s", conn_id, e)
+        resources.append(_inv_item(conn_id, conn_id, "DX", arn,
+                                   account_id, region, customer_id, tags))
+    return resources
+
+
+def _discover_sagemaker(session, account_id, region, customer_id):
+    """SageMaker InService 엔드포인트를 인벤토리로 수집한다."""
+    resources = []
+    try:
+        client = session.client("sagemaker")
+        pages = client.get_paginator("list_endpoints").paginate(
+            StatusEquals="InService")
+    except ClientError as e:
+        logger.error("SageMaker discovery failed in %s/%s: %s", account_id, region, e)
+        return resources
+
+    for page in pages:
+        for ep in page.get("Endpoints", []):
+            name = ep.get("EndpointName", "")
+            arn = ep.get("EndpointArn", "")
+            tags = {}
+            if arn:
+                try:
+                    tags = {t["Key"]: t["Value"]
+                            for t in client.list_tags(ResourceArn=arn).get("Tags", [])}
+                except ClientError as e:
+                    logger.error("SageMaker list_tags failed for %s: %s", name, e)
+            resources.append(_inv_item(name, name, "SageMaker", arn,
+                                       account_id, region, customer_id, tags))
+    return resources
+
+
+def _discover_sns(session, account_id, region, customer_id):
+    """SNS 토픽을 인벤토리로 수집한다."""
+    resources = []
+    try:
+        client = session.client("sns")
+        for page in client.get_paginator("list_topics").paginate():
+            for topic in page.get("Topics", []):
+                arn = topic["TopicArn"]
+                name = arn.rsplit(":", 1)[-1]
+                tags = {}
+                try:
+                    resp = client.list_tags_for_resource(ResourceArn=arn)
+                    tags = {t["Key"]: t["Value"] for t in resp.get("Tags", [])}
+                except ClientError as e:
+                    logger.error("SNS list_tags failed for %s: %s", name, e)
+                resources.append(_inv_item(name, name, "SNS", arn,
+                                           account_id, region, customer_id, tags))
+    except ClientError as e:
+        logger.error("SNS discovery failed in %s/%s: %s", account_id, region, e)
+    return resources
+
+
+def _discover_vpn(session, account_id, region, customer_id):
+    """VPN Connection을 인벤토리로 수집한다 (deleting/deleted 제외)."""
+    resources = []
+    try:
+        client = session.client("ec2")
+        response = client.describe_vpn_connections()
+    except ClientError as e:
+        logger.error("VPN discovery failed in %s/%s: %s", account_id, region, e)
+        return resources
+
+    for vpn in response.get("VpnConnections", []):
+        if vpn.get("State") in ("deleting", "deleted"):
+            continue
+        vpn_id = vpn["VpnConnectionId"]
+        tags = {t["Key"]: t["Value"] for t in vpn.get("Tags", [])}
+        arn = f"arn:aws:ec2:{region}:{account_id}:vpn-connection/{vpn_id}"
+        resources.append(_inv_item(vpn_id, tags.get("Name", vpn_id), "VPN", arn,
+                                   account_id, region, customer_id, tags))
+    return resources
+
+
+def _discover_cloudfront(session, account_id, customer_id):
+    """CloudFront 배포를 인벤토리로 수집한다 (글로벌 — 계정당 1회)."""
+    resources = []
+    try:
+        client = session.client("cloudfront")
+        for page in client.get_paginator("list_distributions").paginate():
+            for dist in page.get("DistributionList", {}).get("Items", []):
+                dist_id = dist["Id"]
+                arn = dist.get("ARN", "")
+                tags = {}
+                if arn:
+                    try:
+                        resp = client.list_tags_for_resource(Resource=arn)
+                        items = resp.get("Tags", {}).get("Items", [])
+                        tags = {t["Key"]: t["Value"] for t in items}
+                    except ClientError as e:
+                        logger.error("CloudFront list_tags failed for %s: %s", dist_id, e)
+                resources.append(_inv_item(dist_id, dist_id, "CloudFront", arn,
+                                           account_id, "us-east-1", customer_id, tags))
+    except ClientError as e:
+        logger.error("CloudFront discovery failed in %s: %s", account_id, e)
+    return resources
+
+
+def _discover_route53(session, account_id, customer_id):
+    """Route53 Health Check를 인벤토리로 수집한다 (글로벌 — 계정당 1회)."""
+    resources = []
+    try:
+        client = session.client("route53")
+        for page in client.get_paginator("list_health_checks").paginate():
+            for hc in page.get("HealthChecks", []):
+                hc_id = hc["Id"]
+                arn = f"arn:aws:route53:::healthcheck/{hc_id}"
+                tags = {}
+                try:
+                    resp = client.list_tags_for_resource(
+                        ResourceType="healthcheck", ResourceId=hc_id)
+                    tag_set = resp.get("ResourceTagSet", {})
+                    tags = {t["Key"]: t["Value"] for t in tag_set.get("Tags", [])}
+                except ClientError as e:
+                    logger.error("Route53 list_tags failed for %s: %s", hc_id, e)
+                resources.append(_inv_item(hc_id, tags.get("Name", hc_id), "Route53",
+                                           arn, account_id, "us-east-1", customer_id, tags))
+    except ClientError as e:
+        logger.error("Route53 discovery failed in %s: %s", account_id, e)
+    return resources
