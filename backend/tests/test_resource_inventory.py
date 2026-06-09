@@ -283,10 +283,10 @@ class TestResourceInventoryLogic:
         assert mock_table.put_item.called
         assert json.loads(resp["body"])["discovered"] == 1
 
-    @patch("api_handler.routes.resources._get_ec2_client_for_region")
+    @patch("api_handler.routes.resources._get_tagging_client_for_region")
     @patch("api_handler.routes.resources.resource_inventory_table")
     @patch("api_handler.routes.resources.scan_all")
-    def test_update_resource_monitoring_sets_ec2_tag_and_inventory(self, mock_scan, mock_table_func, mock_ec2_func, mock_db_env):
+    def test_update_resource_monitoring_tags_via_rgt_and_updates_inventory(self, mock_scan, mock_table_func, mock_tagging_func, mock_db_env):
         mock_scan.return_value = [{
             "resource_id": "i-01",
             "account_id": "123",
@@ -297,8 +297,9 @@ class TestResourceInventoryLogic:
         }]
         mock_table = MagicMock()
         mock_table_func.return_value = mock_table
-        mock_ec2 = MagicMock()
-        mock_ec2_func.return_value = mock_ec2
+        mock_tagging = MagicMock()
+        mock_tagging.tag_resources.return_value = {"FailedResourcesMap": {}}
+        mock_tagging_func.return_value = mock_tagging
 
         from api_handler.routes.resources import update_resource_monitoring
         resp = update_resource_monitoring(
@@ -307,9 +308,10 @@ class TestResourceInventoryLogic:
 
         assert resp["statusCode"] == 200
         assert json.loads(resp["body"])["monitoring"] is True
-        mock_ec2.create_tags.assert_called_once_with(
-            Resources=["i-01"],
-            Tags=[{"Key": "Monitoring", "Value": "on"}],
+        # 인벤토리 항목에 arn이 없으므로 타입별 템플릿으로 ARN을 구성해 RGT로 태깅한다.
+        mock_tagging.tag_resources.assert_called_once_with(
+            ResourceARNList=["arn:aws:ec2:us-east-1:123:instance/i-01"],
+            Tags={"Monitoring": "on"},
         )
         mock_table.update_item.assert_called_once_with(
             Key={"resource_id": "i-01", "account_id": "123"},
@@ -317,13 +319,43 @@ class TestResourceInventoryLogic:
             ExpressionAttributeValues={":monitoring": True},
         )
 
+    @patch("api_handler.routes.resources._get_tagging_client_for_region")
+    @patch("api_handler.routes.resources.resource_inventory_table")
     @patch("api_handler.routes.resources.scan_all")
-    def test_update_resource_monitoring_rejects_non_ec2(self, mock_scan, mock_db_env):
-        mock_scan.return_value = [{"resource_id": "table-01", "type": "DynamoDB", "entity_type": "resource"}]
+    def test_update_resource_monitoring_uses_stored_arn(self, mock_scan, mock_table_func, mock_tagging_func, mock_db_env):
+        # 인벤토리에 arn이 저장된 경우(NLB/TG/신규 7종) 저장값을 그대로 사용한다.
+        nlb_arn = "arn:aws:elasticloadbalancing:us-east-1:123:loadbalancer/net/nlb/abc"
+        mock_scan.return_value = [{
+            "resource_id": nlb_arn,
+            "account_id": "123",
+            "type": "NLB",
+            "region": "us-east-1",
+            "arn": nlb_arn,
+            "entity_type": "resource",
+        }]
+        mock_table_func.return_value = MagicMock()
+        mock_tagging = MagicMock()
+        mock_tagging.tag_resources.return_value = {"FailedResourcesMap": {}}
+        mock_tagging_func.return_value = mock_tagging
 
         from api_handler.routes.resources import update_resource_monitoring
         resp = update_resource_monitoring(
-            _event("PUT", "/resources/table-01/monitoring", body={"monitoring": True}, path_params={"id": "table-01"})
+            _event("PUT", "/resources/x/monitoring", body={"monitoring": False}, path_params={"id": nlb_arn})
+        )
+
+        assert resp["statusCode"] == 200
+        mock_tagging.tag_resources.assert_called_once_with(
+            ResourceARNList=[nlb_arn],
+            Tags={"Monitoring": "off"},
+        )
+
+    @patch("api_handler.routes.resources.scan_all")
+    def test_update_resource_monitoring_rejects_unsupported_type(self, mock_scan, mock_db_env):
+        mock_scan.return_value = [{"resource_id": "x-01", "type": "NotARealType", "entity_type": "resource"}]
+
+        from api_handler.routes.resources import update_resource_monitoring
+        resp = update_resource_monitoring(
+            _event("PUT", "/resources/x-01/monitoring", body={"monitoring": True}, path_params={"id": "x-01"})
         )
 
         assert resp["statusCode"] == 400

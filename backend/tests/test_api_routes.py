@@ -300,13 +300,15 @@ class TestResources:
         assert "message" in body
 
     @patch.dict(os.environ, {"RESOURCE_INVENTORY_TABLE": "test-inventory"})
-    @patch("api_handler.routes.resources._get_ec2_client_for_region")
+    @patch("api_handler.routes.resources._get_tagging_client_for_region")
     @patch("api_handler.routes.resources.resource_inventory_table")
     @patch("api_handler.routes.resources.scan_all")
-    def test_update_resource_monitoring_route(self, mock_scan, mock_table_func, mock_ec2_func):
+    def test_update_resource_monitoring_route(self, mock_scan, mock_table_func, mock_tagging_func):
         mock_scan.return_value = [{"resource_id": "i-001", "account_id": "123", "type": "EC2", "region": "us-east-1"}]
         mock_table_func.return_value = MagicMock()
-        mock_ec2_func.return_value = MagicMock()
+        mock_tagging = MagicMock()
+        mock_tagging.tag_resources.return_value = {"FailedResourcesMap": {}}
+        mock_tagging_func.return_value = mock_tagging
 
         from api_handler.lambda_handler import lambda_handler
         resp = lambda_handler(

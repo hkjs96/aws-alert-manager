@@ -18,7 +18,7 @@ from api_handler.cw_helper import (
     list_alarms,
 )
 from api_handler.db import accounts_table, resource_inventory_table, scan_all, query_by_pk
-from common import dimension_builder
+from common import SUPPORTED_RESOURCE_TYPES, dimension_builder
 from common.tag_resolver import disk_path_to_tag_suffix
 from common.resource_discovery import (
     discover_resources,
@@ -81,6 +81,12 @@ def _get_lambda_client_for_region(region: str):
 @functools.lru_cache(maxsize=None)
 def _get_s3_client_for_region(region: str):
     return boto3.client("s3", region_name=region)
+
+
+@functools.lru_cache(maxsize=None)
+def _get_tagging_client_for_region(region: str):
+    """Resource Groups Tagging API 클라이언트 싱글턴 (모니터링 토글 태깅용)."""
+    return boto3.client("resourcegroupstaggingapi", region_name=region)
 
 
 def _default_discovery_account() -> dict:
@@ -226,10 +232,9 @@ def update_resource_monitoring(event: dict) -> dict:
         if not resource:
             return _err(404, "NOT_FOUND", f"Resource '{resource_id}' was not found")
 
-        supported_types = ("EC2", "RDS", "AuroraRDS", "ALB", "Lambda", "S3")
         res_type = resource.get("type")
-        if res_type not in supported_types:
-            return _err(400, "UNSUPPORTED_RESOURCE_TYPE", f"Only {', '.join(supported_types)} monitoring toggle is supported")
+        if res_type not in SUPPORTED_RESOURCE_TYPES:
+            return _err(400, "UNSUPPORTED_RESOURCE_TYPE", f"Unsupported resource type: {res_type}")
 
         monitoring = bool(body["monitoring"])
         _set_resource_monitoring_tag(resource, monitoring)
@@ -701,7 +706,54 @@ def _find_account(account_id: str) -> dict | None:
         return None
 
 
+# resource_type → ARN 템플릿. {id}=resource_id, {region}/{account} 치환.
+# resource_id가 이미 ARN(arn:로 시작)이면 그대로 사용한다(ALB/NLB/TG).
+# ECS는 인벤토리에 저장된 serviceArn(클러스터 포함)을 사용하므로 템플릿이 없다.
+_ARN_TEMPLATES: dict[str, str] = {
+    "EC2": "arn:aws:ec2:{region}:{account}:instance/{id}",
+    "RDS": "arn:aws:rds:{region}:{account}:db:{id}",
+    "AuroraRDS": "arn:aws:rds:{region}:{account}:db:{id}",
+    "DocDB": "arn:aws:rds:{region}:{account}:db:{id}",
+    "ElastiCache": "arn:aws:elasticache:{region}:{account}:cluster:{id}",
+    "NAT": "arn:aws:ec2:{region}:{account}:natgateway/{id}",
+    "Lambda": "arn:aws:lambda:{region}:{account}:function:{id}",
+    "S3": "arn:aws:s3:::{id}",
+    "SQS": "arn:aws:sqs:{region}:{account}:{id}",
+    "DynamoDB": "arn:aws:dynamodb:{region}:{account}:table/{id}",
+    "EFS": "arn:aws:elasticfilesystem:{region}:{account}:file-system/{id}",
+    "CLB": "arn:aws:elasticloadbalancing:{region}:{account}:loadbalancer/{id}",
+    "OpenSearch": "arn:aws:es:{region}:{account}:domain/{id}",
+}
+
+
+def _resource_arn_for_tagging(resource: dict) -> str:
+    """모니터링 토글 태깅 대상 ARN을 해석한다.
+
+    우선순위: 인벤토리에 저장된 arn → resource_id가 이미 ARN → 타입별 템플릿 구성.
+    (기존 인벤토리 항목은 다음 daily run 전까지 arn이 없을 수 있어 템플릿 폴백이 필요.)
+    빈 문자열이면 ARN을 만들 수 없는 타입이다.
+    """
+    arn = resource.get("arn")
+    if arn:
+        return arn
+    rid = resource.get("resource_id") or resource.get("id") or ""
+    if rid.startswith("arn:"):
+        return rid
+    template = _ARN_TEMPLATES.get(resource.get("type", ""))
+    if not template:
+        return ""
+    region = resource.get("region") or os.environ.get("AWS_REGION") or "ap-northeast-2"
+    account_id = resource.get("account_id") or ""
+    return template.format(region=region, account=account_id, id=rid)
+
+
 def _set_resource_monitoring_tag(resource: dict, monitoring: bool) -> None:
+    """Resource Groups Tagging API로 Monitoring=on/off 태그를 설정한다.
+
+    타입별 네이티브 태깅 API 대신 단일 tag_resources 경로를 사용한다(타입 무관).
+    대상 ARN은 _resource_arn_for_tagging로 해석한다. RGT tag_resources는 기존 태그를
+    보존하며 지정한 키만 갱신하므로 S3도 read-modify-write가 필요 없다.
+    """
     resource_id = resource.get("resource_id") or resource.get("id")
     resource_type = resource.get("type")
     region = resource.get("region") or os.environ.get("AWS_REGION") or "ap-northeast-2"
@@ -709,6 +761,10 @@ def _set_resource_monitoring_tag(resource: dict, monitoring: bool) -> None:
 
     if not resource_id or not resource_type or not account_id:
         raise ValueError("Missing required resource attributes (id, type, account_id)")
+
+    arn = _resource_arn_for_tagging(resource)
+    if not arn:
+        raise ValueError(f"Cannot resolve tagging ARN for {resource_type} {resource_id}")
 
     account_meta = _find_account(account_id) if account_id else None
     role_arn = account_meta.get("role_arn") if account_meta else ""
@@ -726,62 +782,18 @@ def _set_resource_monitoring_tag(resource: dict, monitoring: bool) -> None:
         session = _get_session_for_account(account_meta, region)
         if not session:
             raise RuntimeError(f"Failed to obtain AWS Session for account {account_id} in {region}")
-        ec2_client = session.client("ec2")
-        rds_client = session.client("rds")
-        elbv2_client = session.client("elbv2")
-        lambda_client = session.client("lambda")
-        s3_client = session.client("s3")
+        tagging_client = session.client("resourcegroupstaggingapi", region_name=region)
     else:
-        ec2_client = _get_ec2_client_for_region(region)
-        rds_client = _get_rds_client_for_region(region)
-        elbv2_client = _get_elbv2_client_for_region(region)
-        lambda_client = _get_lambda_client_for_region(region)
-        s3_client = _get_s3_client_for_region(region)
+        tagging_client = _get_tagging_client_for_region(region)
 
     value = "on" if monitoring else "off"
-
-    if resource_type == "EC2":
-        ec2_client.create_tags(
-            Resources=[resource_id],
-            Tags=[{"Key": "Monitoring", "Value": value}],
-        )
-    elif resource_type in ("RDS", "AuroraRDS"):
-        arn = f"arn:aws:rds:{region}:{account_id}:db:{resource_id}"
-        rds_client.add_tags_to_resource(
-            ResourceName=arn,
-            Tags=[{"Key": "Monitoring", "Value": value}],
-        )
-    elif resource_type == "ALB":
-        elbv2_client.add_tags(
-            ResourceArns=[resource_id],
-            Tags=[{"Key": "Monitoring", "Value": value}],
-        )
-    elif resource_type == "Lambda":
-        arn = resource.get("arn")
-        if not arn:
-            arn = f"arn:aws:lambda:{region}:{account_id}:function:{resource_id}"
-        lambda_client.tag_resource(
-            Resource=arn,
-            Tags={"Monitoring": value},
-        )
-    elif resource_type == "S3":
-        tags = []
-        try:
-            resp = s3_client.get_bucket_tagging(Bucket=resource_id)
-            tags = resp.get("TagSet", [])
-        except ClientError as exc:
-            if exc.response.get("Error", {}).get("Code") != "NoSuchTagSet":
-                raise
-
-        updated_tags = [t for t in tags if t["Key"] != "Monitoring"]
-        updated_tags.append({"Key": "Monitoring", "Value": value})
-
-        s3_client.put_bucket_tagging(
-            Bucket=resource_id,
-            Tagging={"TagSet": updated_tags}
-        )
-    else:
-        raise ValueError(f"Unsupported resource type: {resource_type}")
+    resp = tagging_client.tag_resources(
+        ResourceARNList=[arn],
+        Tags={"Monitoring": value},
+    )
+    failed = resp.get("FailedResourcesMap") or {}
+    if failed:
+        raise RuntimeError(f"Failed to tag {arn}: {failed}")
 
 
 def _update_inventory_monitoring(resource: dict, monitoring: bool) -> None:

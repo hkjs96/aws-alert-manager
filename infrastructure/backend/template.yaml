@@ -354,6 +354,38 @@ Resources:
                   - elasticache:DescribeCacheClusters
                   - elasticache:ListTagsForResource
                 Resource: "*"
+              # 모니터링 토글(Resource Groups Tagging API) + 확장 리소스 디스커버리.
+              # RGT tag_resources는 tag:TagResources + 서비스별 태깅 권한을 위임 호출한다.
+              # (거버넌스 AP-19: 태깅 경로가 권한을 빠뜨리면 토글이 영구 AccessDenied로 고착.)
+              - Effect: Allow
+                Action:
+                  - tag:TagResources
+                  # RGT가 위임하는 서비스별 태그 쓰기 (ec2:CreateTags는 위에 이미 있음)
+                  - rds:AddTagsToResource
+                  - elasticache:AddTagsToResource
+                  - lambda:TagResource
+                  - s3:PutBucketTagging
+                  - elasticloadbalancing:AddTags
+                  - sqs:TagQueue
+                  - dynamodb:TagResource
+                  - elasticfilesystem:TagResource
+                  - es:AddTags
+                  - ecs:TagResource
+                  # 확장 리소스 디스커버리 read (api_handler sync_resources용)
+                  - sqs:ListQueues
+                  - sqs:ListQueueTags
+                  - dynamodb:ListTables
+                  - dynamodb:DescribeTable
+                  - dynamodb:ListTagsOfResource
+                  - elasticfilesystem:DescribeFileSystems
+                  - ecs:ListClusters
+                  - ecs:ListServices
+                  - ecs:DescribeServices
+                  - ecs:ListTagsForResource
+                  - es:ListDomainNames
+                  - es:DescribeDomains
+                  - es:ListTags
+                Resource: "*"
               - Effect: Allow
                 Action:
                   - sts:AssumeRole
