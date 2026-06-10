@@ -309,10 +309,11 @@ class TestResources:
         assert payload["sync_target"] == "resources"
 
     @patch.dict(os.environ, {"RESOURCE_INVENTORY_TABLE": "test-inventory"})
+    @patch("api_handler.routes.resources._apply_alarms_for_toggle")
     @patch("api_handler.routes.resources._get_tagging_client_for_region")
     @patch("api_handler.routes.resources.resource_inventory_table")
     @patch("api_handler.routes.resources.scan_all")
-    def test_update_resource_monitoring_route(self, mock_scan, mock_table_func, mock_tagging_func):
+    def test_update_resource_monitoring_route(self, mock_scan, mock_table_func, mock_tagging_func, mock_apply):
         mock_scan.return_value = [{"resource_id": "i-001", "account_id": "123", "type": "EC2", "region": "us-east-1"}]
         mock_table_func.return_value = MagicMock()
         mock_tagging = MagicMock()

@@ -26,6 +26,7 @@ from common.resource_discovery import (
     cleanup_stale_inventory,
     query_inventory_by_accounts,
 )
+from common.alarm_manager import sync_alarms_for_resource, delete_alarms_for_resource
 from common.alarm_naming import _build_alarm_description, _pretty_alarm_name
 from common.alarm_registry import (
     _DIMENSION_KEY_MAP,
@@ -239,6 +240,15 @@ def update_resource_monitoring(event: dict) -> dict:
         monitoring = bool(body["monitoring"])
         _set_resource_monitoring_tag(resource, monitoring)
         _update_inventory_monitoring(resource, monitoring)
+        # 갭 축소: 토글 즉시 알람 생성/삭제. 실패해도 토글 자체는 성공 처리하고
+        # 다음 daily monitor가 self-heal 하도록 한다(태그/인벤토리는 이미 반영됨).
+        try:
+            _apply_alarms_for_toggle(resource, monitoring)
+        except (ClientError, ValueError, RuntimeError) as exc:
+            logger.warning(
+                "Immediate alarm sync failed for %s (%s); will self-heal on next daily run: %s",
+                resource_id, res_type, exc,
+            )
     except ClientError as exc:
         return _err(500, "AWS_ERROR", str(exc))
     except (ValueError, RuntimeError) as exc:
@@ -755,6 +765,29 @@ def _resource_arn_for_tagging(resource: dict) -> str:
     return template.format(region=region, account=account_id, id=rid)
 
 
+def _resource_aws_session(resource: dict):
+    """리소스 작업용 (session|None, region, account_id)을 반환한다.
+
+    크로스 계정이면 AssumeRole 세션, 동일 계정이면 session=None(로컬 리전 클라이언트 사용).
+    태깅 클라이언트와 CloudWatch 클라이언트가 같은 계정/리전 컨텍스트를 공유하도록 한다.
+    """
+    region = resource.get("region") or os.environ.get("AWS_REGION") or "ap-northeast-2"
+    account_id = resource.get("account_id")
+    account_meta = _find_account(account_id) if account_id else None
+    role_arn = account_meta.get("role_arn") if account_meta else ""
+    if role_arn and account_meta:
+        try:
+            current_account = boto3.client("sts").get_caller_identity().get("Account", "")
+        except ClientError:
+            current_account = ""
+        if account_id and account_id != current_account:
+            session = _get_session_for_account(account_meta, region)
+            if not session:
+                raise RuntimeError(f"Failed to obtain AWS Session for account {account_id} in {region}")
+            return session, region, account_id
+    return None, region, account_id
+
+
 def _set_resource_monitoring_tag(resource: dict, monitoring: bool) -> None:
     """Resource Groups Tagging API로 Monitoring=on/off 태그를 설정한다.
 
@@ -764,7 +797,6 @@ def _set_resource_monitoring_tag(resource: dict, monitoring: bool) -> None:
     """
     resource_id = resource.get("resource_id") or resource.get("id")
     resource_type = resource.get("type")
-    region = resource.get("region") or os.environ.get("AWS_REGION") or "ap-northeast-2"
     account_id = resource.get("account_id")
 
     if not resource_id or not resource_type or not account_id:
@@ -774,22 +806,8 @@ def _set_resource_monitoring_tag(resource: dict, monitoring: bool) -> None:
     if not arn:
         raise ValueError(f"Cannot resolve tagging ARN for {resource_type} {resource_id}")
 
-    account_meta = _find_account(account_id) if account_id else None
-    role_arn = account_meta.get("role_arn") if account_meta else ""
-
-    use_assume_role = False
-    if role_arn:
-        try:
-            current_account = boto3.client("sts").get_caller_identity().get("Account", "")
-            if account_id != current_account:
-                use_assume_role = True
-        except ClientError:
-            pass
-
-    if use_assume_role and account_meta:
-        session = _get_session_for_account(account_meta, region)
-        if not session:
-            raise RuntimeError(f"Failed to obtain AWS Session for account {account_id} in {region}")
+    session, region, _ = _resource_aws_session(resource)
+    if session is not None:
         tagging_client = session.client("resourcegroupstaggingapi", region_name=region)
     else:
         tagging_client = _get_tagging_client_for_region(region)
@@ -802,6 +820,24 @@ def _set_resource_monitoring_tag(resource: dict, monitoring: bool) -> None:
     failed = resp.get("FailedResourcesMap") or {}
     if failed:
         raise RuntimeError(f"Failed to tag {arn}: {failed}")
+
+
+def _apply_alarms_for_toggle(resource: dict, monitoring: bool) -> None:
+    """토글 즉시 알람 생성/삭제 — 다음 daily monitor 실행을 기다리지 않고 갭을 줄인다.
+
+    인벤토리엔 태그가 없으므로 ON 시 {Monitoring: on} 최소 태그로 기본 임계치 알람을
+    생성한다. 실제 Threshold_* 태그·타입별 디멘션 힌트(_api_type 등) 기반 정밀화는
+    다음 daily monitor가 self-heal 한다(근사 생성 → 정밀화).
+    """
+    resource_id = resource.get("resource_id") or resource.get("id")
+    resource_type = resource.get("type")
+    session, region, _ = _resource_aws_session(resource)
+    cw = (session.client("cloudwatch", region_name=region)
+          if session is not None else _get_cw_client_for_region(region))
+    if monitoring:
+        sync_alarms_for_resource(resource_id, resource_type, {"Monitoring": "on"}, cw=cw)
+    else:
+        delete_alarms_for_resource(resource_id, resource_type, cw=cw)
 
 
 def _update_inventory_monitoring(resource: dict, monitoring: bool) -> None:

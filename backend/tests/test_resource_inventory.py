@@ -283,10 +283,11 @@ class TestResourceInventoryLogic:
         assert mock_table.put_item.called
         assert json.loads(resp["body"])["discovered"] == 1
 
+    @patch("api_handler.routes.resources._apply_alarms_for_toggle")
     @patch("api_handler.routes.resources._get_tagging_client_for_region")
     @patch("api_handler.routes.resources.resource_inventory_table")
     @patch("api_handler.routes.resources.scan_all")
-    def test_update_resource_monitoring_tags_via_rgt_and_updates_inventory(self, mock_scan, mock_table_func, mock_tagging_func, mock_db_env):
+    def test_update_resource_monitoring_tags_via_rgt_and_updates_inventory(self, mock_scan, mock_table_func, mock_tagging_func, mock_apply, mock_db_env):
         mock_scan.return_value = [{
             "resource_id": "i-01",
             "account_id": "123",
@@ -319,10 +320,11 @@ class TestResourceInventoryLogic:
             ExpressionAttributeValues={":monitoring": True},
         )
 
+    @patch("api_handler.routes.resources._apply_alarms_for_toggle")
     @patch("api_handler.routes.resources._get_tagging_client_for_region")
     @patch("api_handler.routes.resources.resource_inventory_table")
     @patch("api_handler.routes.resources.scan_all")
-    def test_update_resource_monitoring_uses_stored_arn(self, mock_scan, mock_table_func, mock_tagging_func, mock_db_env):
+    def test_update_resource_monitoring_uses_stored_arn(self, mock_scan, mock_table_func, mock_tagging_func, mock_apply, mock_db_env):
         # 인벤토리에 arn이 저장된 경우(NLB/TG/신규 7종) 저장값을 그대로 사용한다.
         nlb_arn = "arn:aws:elasticloadbalancing:us-east-1:123:loadbalancer/net/nlb/abc"
         mock_scan.return_value = [{
@@ -360,3 +362,22 @@ class TestResourceInventoryLogic:
 
         assert resp["statusCode"] == 400
         assert json.loads(resp["body"])["code"] == "UNSUPPORTED_RESOURCE_TYPE"
+
+    @patch("api_handler.routes.resources.delete_alarms_for_resource")
+    @patch("api_handler.routes.resources.sync_alarms_for_resource")
+    @patch("api_handler.routes.resources._get_cw_client_for_region")
+    @patch("api_handler.routes.resources._find_account", return_value=None)
+    def test_apply_alarms_for_toggle_creates_on_deletes_off(self, mock_find, mock_cw, mock_sync, mock_delete, mock_db_env):
+        # 갭 축소: 토글 ON은 알람 즉시 생성, OFF는 즉시 삭제 (다음 daily run을 안 기다림).
+        from api_handler.routes.resources import _apply_alarms_for_toggle
+        res = {"resource_id": "i-9", "type": "EC2", "region": "us-east-1", "account_id": "123"}
+
+        _apply_alarms_for_toggle(res, True)
+        mock_sync.assert_called_once()
+        assert mock_sync.call_args.args[0] == "i-9"
+        assert mock_sync.call_args.args[2] == {"Monitoring": "on"}
+        mock_delete.assert_not_called()
+
+        _apply_alarms_for_toggle(res, False)
+        mock_delete.assert_called_once()
+        assert mock_delete.call_args.args[0] == "i-9"
