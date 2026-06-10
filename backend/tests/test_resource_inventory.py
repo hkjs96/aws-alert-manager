@@ -333,3 +333,19 @@ class TestResourceInventoryLogic:
         _apply_alarms_for_toggle(res, False)
         mock_delete.assert_called_once()
         assert mock_delete.call_args.args[0] == "i-9"
+
+    @patch("api_handler.routes.resources._find_account", return_value=None)
+    def test_resource_aws_session_forces_us_east_1_for_global_services(self, mock_find, mock_db_env):
+        # CloudFront/Route53은 RGT 태깅·CW 알람 모두 us-east-1 전용 — 인벤토리
+        # region 값이 무엇이든 us-east-1로 강제해야 한다 (리뷰 지적 사항).
+        from api_handler.routes.resources import _resource_aws_session
+
+        for rtype in ("CloudFront", "Route53"):
+            _, region, _ = _resource_aws_session(
+                {"resource_id": "x", "type": rtype, "region": "ap-northeast-2", "account_id": "123"})
+            assert region == "us-east-1", rtype
+
+        # 일반 리전 서비스는 인벤토리 region 그대로.
+        _, region, _ = _resource_aws_session(
+            {"resource_id": "x", "type": "EC2", "region": "ap-northeast-2", "account_id": "123"})
+        assert region == "ap-northeast-2"

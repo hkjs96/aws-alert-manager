@@ -662,8 +662,18 @@ def _resource_aws_session(resource: dict):
 
     크로스 계정이면 AssumeRole 세션, 동일 계정이면 session=None(로컬 리전 클라이언트 사용).
     태깅 클라이언트와 CloudWatch 클라이언트가 같은 계정/리전 컨텍스트를 공유하도록 한다.
+
+    글로벌 서비스(CloudFront/Route53)는 RGT 태깅·CW 알람 모두 us-east-1에서만
+    동작하므로 인벤토리 region 값과 무관하게 us-east-1로 강제한다.
+    (sync_alarms_for_resource의 글로벌 오버라이드는 cw=None일 때만 작동하는데
+    토글 경로는 cw를 명시적으로 넘기므로 여기서 보정해야 한다.)
     """
-    region = resource.get("region") or os.environ.get("AWS_REGION") or "ap-northeast-2"
+    region = (
+        _GLOBAL_SERVICE_REGION.get(resource.get("type", ""))
+        or resource.get("region")
+        or os.environ.get("AWS_REGION")
+        or "ap-northeast-2"
+    )
     account_id = resource.get("account_id")
     account_meta = _find_account(account_id) if account_id else None
     role_arn = account_meta.get("role_arn") if account_meta else ""

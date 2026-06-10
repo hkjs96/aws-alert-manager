@@ -412,6 +412,9 @@ Resources:
                   - route53:ListHealthChecks
                   - route53:ListTagsForResource
                   # tag write (RGT가 위임; ec2:CreateTags는 위에 이미 있어 VPN 커버)
+                  # NOTE: apigateway:PUT은 태깅 외 구성 변경 동사도 포함하는 광역
+                  # 권한이다(APIGW IAM은 REST 동사 기반). RGT 태깅 위임에 필요해
+                  # 의식적으로 수용 — IAM 하드닝 트랙에서 Resource 조건 검토 대상.
                   - apigateway:PUT
                   - acm:AddTagsToCertificate
                   - backup:TagResource
