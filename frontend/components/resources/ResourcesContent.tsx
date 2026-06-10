@@ -5,12 +5,16 @@ import { useRouter } from "next/navigation";
 import { Download, RefreshCw } from "lucide-react";
 import type { Resource } from "@/types";
 import { useToast } from "@/components/shared/Toast";
+import { Button } from "@/components/shared/Button";
 import { LoadingButton } from "@/components/shared/LoadingButton";
 import { Pagination } from "@/components/shared/Pagination";
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { useMonitoringToggle } from "@/hooks/useMonitoringToggle";
 import { useOwnedCustomers } from "@/hooks/useOwnedCustomers";
 import { OwnedEmptyState } from "@/components/shared/OwnedEmptyState";
+import { SyncScopeModal } from "@/components/shared/SyncScopeModal";
+import { SyncProgressModal } from "@/components/shared/SyncProgressModal";
+import { syncResources } from "@/lib/api-functions";
 import { downloadCsv } from "@/lib/exportCsv";
 import { ResourceTable } from "./ResourceTable";
 import { BulkActionBar } from "./BulkActionBar";
@@ -76,8 +80,10 @@ export function ResourcesContent({
   const [sortDir, setSortDir] = useState<SortDir>("asc");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
-  const [isSyncing, setIsSyncing] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [isSyncScopeOpen, setIsSyncScopeOpen] = useState(false);
+  const [isSyncProgressOpen, setIsSyncProgressOpen] = useState(false);
+  const [activeJobId, setActiveJobId] = useState("");
   const [pendingToggle, setPendingToggle] = useState<PendingToggle | null>(null);
 
   // Customer 선택 시 해당 Customer의 Account만 표시
@@ -203,18 +209,14 @@ export function ResourcesContent({
     [pendingToggle, toggle],
   );
 
-  const handleSync = async () => {
-    setIsSyncing(true);
+  const handleStartSync = async (scope: { customer_id?: string; account_id?: string; regions?: string[] }) => {
+    setIsSyncScopeOpen(false);
     try {
-      const res = await fetch("/api/resources/sync", { method: "POST" });
-      if (!res.ok) throw new Error("sync failed");
-      const result = await res.json() as { discovered: number; updated: number; removed: number };
-      showToast("success", `동기화 완료: ${result.discovered}개 발견, ${result.updated}개 업데이트, ${result.removed}개 제거`);
-      router.refresh();
+      const res = await syncResources(scope);
+      setActiveJobId(res.job_id);
+      setIsSyncProgressOpen(true);
     } catch {
-      showToast("error", "리소스 동기화에 실패했습니다.");
-    } finally {
-      setIsSyncing(false);
+      showToast("error", "Failed to start resource sync job.");
     }
   };
 
@@ -287,13 +289,12 @@ export function ResourcesContent({
           >
             <Download size={16} /> Export CSV
           </LoadingButton>
-          <LoadingButton
-            isLoading={isSyncing}
-            onClick={handleSync}
+          <Button
+            onClick={() => setIsSyncScopeOpen(true)}
             className="bg-primary text-white px-5 py-2 rounded-xl text-sm font-bold flex items-center gap-2 shadow-lg shadow-primary/20"
           >
             <RefreshCw size={16} /> Sync Resources
-          </LoadingButton>
+          </Button>
         </div>
       </div>
 
@@ -373,6 +374,26 @@ export function ResourcesContent({
         variant={pendingToggle?.currentState ? "danger" : "default"}
         onConfirm={confirmToggleMonitoring}
         onCancel={() => setPendingToggle(null)}
+      />
+
+      {/* Resource inventory sync (알람 싱크와 동일한 비동기 흐름) */}
+      <SyncScopeModal
+        isOpen={isSyncScopeOpen}
+        onClose={() => setIsSyncScopeOpen(false)}
+        customers={customers}
+        accounts={accounts}
+        onStartSync={handleStartSync}
+        target="resources"
+      />
+      <SyncProgressModal
+        isOpen={isSyncProgressOpen}
+        jobId={activeJobId}
+        target="resources"
+        onClose={() => setIsSyncProgressOpen(false)}
+        onSuccess={() => {
+          showToast("success", "Resource inventory updated successfully.");
+          router.refresh();
+        }}
       />
     </div>
   );

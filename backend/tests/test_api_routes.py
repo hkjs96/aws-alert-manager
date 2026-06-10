@@ -288,16 +288,25 @@ class TestResources:
         assert body["total"] == 1
         assert "prod" in body["items"][0]["id"]
 
-    def test_sync_resources_returns_202_like_response(self):
-        with patch("api_handler.routes.resources._resolve_target_accounts_for_sync", return_value=[]), \
-             patch("api_handler.routes.resources.scan_all", return_value=[]), \
-             patch("api_handler.routes.resources.discover_resources", return_value=[]):
+    def test_sync_resources_starts_async_job(self):
+        # /resources/sync는 이제 알람 싱크처럼 비동기 job(202 + job_id)을 시작한다.
+        with patch("api_handler.routes.sync.accounts_table", return_value=MagicMock()), \
+             patch("api_handler.routes.sync.scan_all", return_value=[]), \
+             patch("api_handler.routes.sync.job_status_table", return_value=MagicMock()), \
+             patch("api_handler.routes.sync._lambda_client") as mock_lambda, \
+             patch.dict(os.environ, {"DAILY_MONITOR_FUNCTION_NAME": "dm-fn"}):
+            mock_lambda.return_value = MagicMock()
             from api_handler.lambda_handler import lambda_handler
-            resp = lambda_handler(_event("POST", "/resources/sync"), None)
+            resp = lambda_handler(_event("POST", "/resources/sync", body={"scope": {}}), None)
 
-        assert resp["statusCode"] == 200
+        assert resp["statusCode"] == 202
         body = json.loads(resp["body"])
-        assert "message" in body
+        assert body["status"] == "pending"
+        assert "job_id" in body
+        # daily_monitor가 sync_target=resources로 invoke됐는지 확인
+        invoke_kwargs = mock_lambda.return_value.invoke.call_args.kwargs
+        payload = json.loads(invoke_kwargs["Payload"])
+        assert payload["sync_target"] == "resources"
 
     @patch.dict(os.environ, {"RESOURCE_INVENTORY_TABLE": "test-inventory"})
     @patch("api_handler.routes.resources._get_tagging_client_for_region")

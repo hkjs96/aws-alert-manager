@@ -11,7 +11,6 @@ import type {
   CreateAccountRequest,
   ConnectionTestResult,
   ThresholdOverride,
-  SyncResult,
   AvailableMetric,
   AlarmSummary,
   DashboardStats,
@@ -57,9 +56,15 @@ export function fetchResources(
   }));
 }
 
-export function syncResources(filters: GlobalFilterParams): Promise<SyncResult> {
-  const qs = buildFilterParams(filters).toString();
-  return apiFetch(`/api/resources/sync${qs ? `?${qs}` : ""}`, { method: "POST" });
+export function syncResources(scope: {
+  customer_id?: string;
+  account_id?: string;
+  regions?: string[];
+}): Promise<{ job_id: string; status: string; total_count: number }> {
+  return apiFetch("/api/resources/sync", {
+    method: "POST",
+    body: JSON.stringify({ scope }),
+  });
 }
 
 export function fetchResource(id: string): Promise<Resource> {

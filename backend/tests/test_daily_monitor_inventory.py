@@ -439,3 +439,60 @@ class TestAlarmSyncJobOrphanCleanup:
             )
 
         mock_orphan.assert_called_once()
+
+
+class TestResourcesSyncJob:
+    def test_resources_sync_job_writes_inventory_and_completes(self, monkeypatch):
+        """sync_target=resources 잡: discover → 인벤토리 upsert → completed."""
+        for k, v in _ENV.items():
+            monkeypatch.setenv(k, v)
+        monkeypatch.setenv("RESOURCE_INVENTORY_TABLE", "test-inventory")
+
+        discovered = [{
+            "resource_id": "i-01", "account_id": "123", "type": "EC2", "name": "s",
+            "region": "us-east-1", "monitoring": True, "status": "active",
+            "arn": "arn:aws:ec2:us-east-1:123:instance/i-01", "tags": {},
+        }]
+        inv_table = MagicMock()
+        inv_table.get_item.return_value = {}
+        inv_table.query.return_value = {"Items": []}
+        ddb = MagicMock()
+        ddb.Table.return_value = inv_table
+
+        from daily_monitor import lambda_handler as lh
+
+        with (
+            patch("daily_monitor.lambda_handler._resolve_target_accounts",
+                  return_value=[{"account_id": "123", "role_arn": "", "regions": ["us-east-1"]}]),
+            patch("daily_monitor.lambda_handler.discover_resources", return_value=discovered),
+            patch("daily_monitor.lambda_handler._update_job_status") as mock_status,
+            patch("daily_monitor.lambda_handler._get_ddb_resource", return_value=ddb),
+        ):
+            result = lh.lambda_handler(
+                {"sync_target": "resources", "sync_job_id": "j1",
+                 "scope": {"account_id": "123"}}, None,
+            )
+
+        assert result["status"] == "ok"
+        assert result["discovered"] == 1
+        assert result["synced"] == 1
+        assert inv_table.put_item.called
+        # 마지막 job status가 completed
+        assert mock_status.call_args.args[1] == "completed"
+
+    def test_resources_sync_job_no_accounts_fails(self, monkeypatch):
+        for k, v in _ENV.items():
+            monkeypatch.setenv(k, v)
+
+        from daily_monitor import lambda_handler as lh
+
+        with (
+            patch("daily_monitor.lambda_handler._resolve_target_accounts", return_value=[]),
+            patch("daily_monitor.lambda_handler._update_job_status") as mock_status,
+        ):
+            result = lh.lambda_handler(
+                {"sync_target": "resources", "sync_job_id": "j2", "scope": {}}, None,
+            )
+
+        assert "No matching accounts" in result["message"]
+        assert mock_status.call_args.args[1] == "failed"

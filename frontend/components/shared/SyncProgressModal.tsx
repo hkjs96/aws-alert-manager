@@ -4,20 +4,33 @@ import { useState, useEffect, useRef } from "react";
 import { X, Loader2, CheckCircle2, AlertCircle, Info } from "lucide-react";
 import { Button } from "@/components/shared/Button";
 import { fetchJobStatus } from "@/lib/api-functions";
-import type { JobStatus, JobStatusValue } from "@/types/api";
+import type { JobStatus, JobStatusValue, SyncTarget } from "@/types/api";
 
 interface SyncProgressModalProps {
   isOpen: boolean;
   jobId: string;
   onClose: () => void;
   onSuccess: () => void;
+  /** 동기화 대상: alarms | resources. 제목/통계 라벨만 분기. */
+  target?: SyncTarget;
 }
+
+const TITLE: Record<SyncTarget, string> = {
+  alarms: "Syncing AWS Alarms...",
+  resources: "Syncing Resources...",
+};
+
+const PROGRESS_HINT: Record<SyncTarget, string> = {
+  alarms: "Fetching current describe_alarms metrics from CloudWatch...",
+  resources: "Discovering resources from AWS...",
+};
 
 export function SyncProgressModal({
   isOpen,
   jobId,
   onClose,
   onSuccess,
+  target = "alarms",
 }: SyncProgressModalProps) {
   const [status, setStatus] = useState<JobStatusValue>("pending");
   const [jobData, setJobData] = useState<JobStatus | null>(null);
@@ -26,7 +39,7 @@ export function SyncProgressModal({
   // onSuccess를 ref로 보관해 폴링 effect 의존성에서 제외한다. 부모가 매 렌더마다
   // 인라인 onSuccess(=router.refresh)를 새로 만들기 때문에, 의존성에 두면 완료 →
   // onSuccess → 부모 리렌더 → effect 재구독 → status 리셋 → 재폴링 → 다시 완료
-  // 로 이어지는 무한 루프가 발생한다.
+  // 로 이어지는 무한 루프가 발생한다. (AP-21)
   const onSuccessRef = useRef(onSuccess);
   useEffect(() => {
     onSuccessRef.current = onSuccess;
@@ -74,15 +87,36 @@ export function SyncProgressModal({
   if (!isOpen) return null;
 
   const isFinished = status === "completed" || status === "failed" || status === "partial_failure";
-  
-  // Calculate aggregate stats
-  let totalImported = 0;
-  let totalDeleted = 0;
+
+  // Aggregate stats — target에 따라 표시 항목이 다르다.
+  const stats: { label: string; value: number }[] = [];
   if (jobData && jobData.results) {
-    jobData.results.forEach((r) => {
-      totalImported += r.imported ?? 0;
-      totalDeleted += r.deleted ?? 0;
-    });
+    if (target === "resources") {
+      let discovered = 0;
+      let synced = 0;
+      let removed = 0;
+      jobData.results.forEach((r) => {
+        discovered += r.discovered ?? 0;
+        synced += r.synced ?? 0;
+        removed += r.removed ?? 0;
+      });
+      stats.push(
+        { label: "Discovered", value: discovered },
+        { label: "Synced", value: synced },
+        { label: "Removed", value: removed },
+      );
+    } else {
+      let imported = 0;
+      let deleted = 0;
+      jobData.results.forEach((r) => {
+        imported += r.imported ?? 0;
+        deleted += r.deleted ?? 0;
+      });
+      stats.push(
+        { label: "Imported Alarm Snapshots", value: imported },
+        { label: "Deleted Stale Alarms", value: deleted },
+      );
+    }
   }
 
   return (
@@ -118,12 +152,12 @@ export function SyncProgressModal({
 
             <h3 className="text-lg font-bold text-slate-800">
               {status === "pending" && "Preparing Sync..."}
-              {status === "in_progress" && "Syncing AWS Alarms..."}
+              {status === "in_progress" && TITLE[target]}
               {status === "completed" && "Sync Completed!"}
               {status === "partial_failure" && "Partial Sync Success"}
               {status === "failed" && "Sync Failed"}
             </h3>
-            
+
             <p className="text-xs text-slate-400 font-mono">Job ID: {jobId}</p>
           </div>
 
@@ -147,22 +181,18 @@ export function SyncProgressModal({
                 <div className="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden">
                   <div className="bg-indigo-600 h-1.5 rounded-full animate-pulse w-full" />
                 </div>
-                <p className="text-[10px] text-slate-400 text-center">
-                  Fetching current describe_alarms metrics from CloudWatch...
-                </p>
+                <p className="text-[10px] text-slate-400 text-center">{PROGRESS_HINT[target]}</p>
               </div>
             )}
 
             {isFinished && jobData && (
               <div className="space-y-2 pt-1 border-t border-slate-100 text-xs">
-                <div className="flex justify-between text-slate-500">
-                  <span>Imported Alarm Snapshots</span>
-                  <span className="font-semibold text-slate-800">{totalImported}</span>
-                </div>
-                <div className="flex justify-between text-slate-500">
-                  <span>Deleted Stale Alarms</span>
-                  <span className="font-semibold text-slate-800">{totalDeleted}</span>
-                </div>
+                {stats.map((s) => (
+                  <div key={s.label} className="flex justify-between text-slate-500">
+                    <span>{s.label}</span>
+                    <span className="font-semibold text-slate-800">{s.value}</span>
+                  </div>
+                ))}
                 {jobData.failed_count > 0 && (
                   <div className="flex justify-between text-rose-600 font-semibold">
                     <span>Failed Accounts</span>

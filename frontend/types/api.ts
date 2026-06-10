@@ -115,7 +115,13 @@ export interface JobResult {
   regions?: string[];
   imported?: number;
   deleted?: number;
+  // 리소스 인벤토리 동기화 작업(_handle_resources_sync_job)에서 채워짐
+  discovered?: number;
+  synced?: number;
+  removed?: number;
 }
+
+export type SyncTarget = "alarms" | "resources";
 
 export interface JobStatus {
   job_id: string;

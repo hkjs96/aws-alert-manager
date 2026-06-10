@@ -22,6 +22,20 @@ def _lambda_client():
 
 
 def import_alarms(event: dict) -> dict:
+    """알람 스냅샷 동기화 잡 시작 (비동기)."""
+    return _start_sync_job(event, "alarms")
+
+
+def import_resources(event: dict) -> dict:
+    """리소스 인벤토리 동기화 잡 시작 (비동기). 알람 싱크와 동일한 job 흐름."""
+    return _start_sync_job(event, "resources")
+
+
+def _start_sync_job(event: dict, target: str) -> dict:
+    """scope를 받아 job을 생성하고 daily_monitor를 sync_target으로 Event invoke한다.
+
+    alarms/resources 양쪽이 동일한 비동기 흐름(job + SyncProgressModal 폴링)을 공유한다.
+    """
     try:
         body = json.loads(event.get("body") or "{}")
     except json.JSONDecodeError:
@@ -39,7 +53,7 @@ def import_alarms(event: dict) -> dict:
         job_status_table().put_item(Item={
             "job_id": job_id,
             "status": "pending",
-            "target": "alarms",
+            "target": target,
             "scope": scope,
             "total_count": target_count,
             "completed_count": 0,
@@ -52,7 +66,7 @@ def import_alarms(event: dict) -> dict:
             FunctionName=os.environ["DAILY_MONITOR_FUNCTION_NAME"],
             InvocationType="Event",
             Payload=json.dumps({
-                "sync_target": "alarms",
+                "sync_target": target,
                 "sync_job_id": job_id,
                 "scope": scope,
             }).encode("utf-8"),

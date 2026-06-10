@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { X, Check } from "lucide-react";
 import { Button } from "@/components/shared/Button";
+import type { SyncTarget } from "@/types/api";
 
 interface Customer {
   id: string;
@@ -22,7 +23,22 @@ interface SyncScopeModalProps {
   customers: Customer[];
   accounts: Account[];
   onStartSync: (scope: { customer_id?: string; account_id?: string; regions?: string[] }) => void;
+  /** 동기화 대상: alarms(CloudWatch 알람) | resources(리소스 인벤토리). 헤더 문구만 분기. */
+  target?: SyncTarget;
 }
+
+const COPY: Record<SyncTarget, { title: string; desc: string; hint: string }> = {
+  alarms: {
+    title: "Sync CloudWatch Alarms",
+    desc: "Select scope to fetch current alarm states from AWS.",
+    hint: "* AWS CloudWatch will be scanned for the selected regions only. Default is ap-northeast-2.",
+  },
+  resources: {
+    title: "Sync Resources",
+    desc: "Select scope to re-discover resource inventory from AWS.",
+    hint: "* AWS resources will be discovered for the selected regions only. Default is ap-northeast-2.",
+  },
+};
 
 export function SyncScopeModal({
   isOpen,
@@ -30,10 +46,13 @@ export function SyncScopeModal({
   customers,
   accounts,
   onStartSync,
+  target = "alarms",
 }: SyncScopeModalProps) {
   const [selectedCustomerId, setSelectedCustomerId] = useState("");
   const [selectedAccountId, setSelectedAccountId] = useState("");
   const [selectedRegions, setSelectedRegions] = useState<string[]>(["ap-northeast-2"]);
+
+  const copy = COPY[target];
 
   // Reset when selected customer changes
   useEffect(() => {
@@ -108,8 +127,8 @@ export function SyncScopeModal({
         {/* Header */}
         <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between bg-slate-50">
           <div>
-            <h3 className="text-lg font-bold text-slate-800 font-headline">Sync CloudWatch Alarms</h3>
-            <p className="text-xs text-slate-500 mt-0.5">Select scope to fetch current alarm states from AWS.</p>
+            <h3 className="text-lg font-bold text-slate-800 font-headline">{copy.title}</h3>
+            <p className="text-xs text-slate-500 mt-0.5">{copy.desc}</p>
           </div>
           <button
             onClick={onClose}
@@ -184,9 +203,7 @@ export function SyncScopeModal({
                 );
               })}
             </div>
-            <p className="text-[10px] text-slate-400">
-              * AWS CloudWatch will be scanned for the selected regions only. Default is ap-northeast-2.
-            </p>
+            <p className="text-[10px] text-slate-400">{copy.hint}</p>
           </div>
         </div>
 

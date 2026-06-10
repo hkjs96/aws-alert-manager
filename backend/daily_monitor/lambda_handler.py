@@ -186,9 +186,11 @@ def _clear_all_client_caches() -> None:
 
 
 def lambda_handler(event, context):
-    # 수동 알람 동기화 요청(Event) 분기
+    # 수동 동기화 요청(Event) 분기 — 알람/리소스 둘 다 동일한 job 흐름
     if isinstance(event, dict) and event.get("sync_target") == "alarms":
         return _handle_alarms_sync_job(event, context)
+    if isinstance(event, dict) and event.get("sync_target") == "resources":
+        return _handle_resources_sync_job(event, context)
     """
     Lambda 핸들러 진입점 (Worker).
 
@@ -1116,3 +1118,92 @@ def _handle_alarms_sync_job(event: dict, context) -> dict:
     })
 
     return {"status": "ok", "imported": synced, "deleted": deleted}
+
+
+def _write_resources_to_inventory(inv_table, discovered: list[dict]) -> int:
+    """디스커버리 결과를 인벤토리에 upsert. 기존 알람 집계 필드는 보존한다."""
+    synced = 0
+    for resource in discovered:
+        item = _sanitize_inventory_item(resource)
+        if not item.get("resource_id") or not item.get("account_id"):
+            continue
+        item["entity_type"] = "resource"
+        try:
+            resp = inv_table.get_item(
+                Key={"resource_id": item["resource_id"], "account_id": item["account_id"]})
+            existing = resp.get("Item")
+        except ClientError:
+            existing = None
+        if existing:
+            for field in ("alarm_count", "critical_count", "warning_count",
+                          "alarm_names", "alarm_state", "last_alarm_synced_at"):
+                if field in existing:
+                    item[field] = existing[field]
+        try:
+            inv_table.put_item(Item=item)
+            synced += 1
+        except ClientError as e:
+            logger.error("Resource sync put_item failed for %s: %s", item["resource_id"], e)
+    return synced
+
+
+def _handle_resources_sync_job(event: dict, context) -> dict:
+    """리소스 인벤토리 동기화 잡 (sync_target=resources). 알람 잡과 동일한 흐름.
+
+    scope로 대상 계정을 해석 → discover_resources → 인벤토리 upsert + stale 정리 →
+    job status를 discovered/synced/removed로 갱신한다.
+    """
+    job_id = event.get("sync_job_id", "")
+    scope = event.get("scope", {})
+    regions_override = scope.get("regions") or []
+
+    _update_job_status(job_id, "in_progress")
+
+    try:
+        accounts = _resolve_target_accounts(scope)
+    except ClientError as e:
+        _update_job_status(job_id, "failed", {"error_message": f"DB_ERROR: {e}"})
+        return {"status": "error", "message": str(e)}
+
+    if not accounts:
+        _update_job_status(job_id, "failed", {"error_message": "No matching accounts found"})
+        return {"status": "ok", "message": "No matching accounts found"}
+
+    for acc in accounts:
+        acc["regions"] = regions_override if regions_override else list(acc.get("regions") or ["ap-northeast-2"])
+
+    inv_table_name = os.environ.get("RESOURCE_INVENTORY_TABLE")
+    discovered_count, synced, removed = 0, 0, 0
+    if inv_table_name:
+        try:
+            discovered = discover_resources(accounts)
+        except ClientError as e:
+            _update_job_status(job_id, "failed", {"error_message": f"AWS_ERROR: {e}"})
+            return {"status": "error", "message": str(e)}
+
+        inv_table = _get_ddb_resource().Table(inv_table_name)
+        discovered_count = len(discovered)
+        synced = _write_resources_to_inventory(inv_table, discovered)
+        try:
+            account_ids = [a["account_id"] for a in accounts]
+            db_items = query_inventory_by_accounts(inv_table, account_ids)
+            removed = cleanup_stale_inventory(inv_table, db_items, discovered, log=logger)
+        except ClientError as e:
+            logger.error("Resource sync stale cleanup failed: %s", e)
+
+    results = [{
+        "account_id": acc["account_id"],
+        "regions": acc["regions"],
+        "status": "success",
+        "discovered": discovered_count,
+        "synced": synced,
+        "removed": removed,
+    } for acc in accounts]
+
+    _update_job_status(job_id, "completed", {
+        "completed_count": len(accounts),
+        "failed_count": 0,
+        "results": results,
+    })
+
+    return {"status": "ok", "discovered": discovered_count, "synced": synced, "removed": removed}

@@ -16,8 +16,8 @@ import { AlarmTable } from "./AlarmTable";
 import { useOwnedCustomers } from "@/hooks/useOwnedCustomers";
 import { OwnedEmptyState } from "@/components/shared/OwnedEmptyState";
 import { syncAlarms } from "@/lib/api-functions";
-import { SyncScopeModal } from "./SyncScopeModal";
-import { SyncProgressModal } from "./SyncProgressModal";
+import { SyncScopeModal } from "@/components/shared/SyncScopeModal";
+import { SyncProgressModal } from "@/components/shared/SyncProgressModal";
 
 const FILTER_TABS: AlarmStateFilter[] = ["ALL", "ALARM", "INSUFFICIENT_DATA", "OK", "OFF"];
 
