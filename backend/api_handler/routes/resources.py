@@ -20,12 +20,7 @@ from api_handler.cw_helper import (
 from api_handler.db import accounts_table, resource_inventory_table, scan_all, query_by_pk
 from common import SUPPORTED_RESOURCE_TYPES, dimension_builder
 from common.tag_resolver import disk_path_to_tag_suffix
-from common.resource_discovery import (
-    discover_resources,
-    _get_session_for_account,
-    cleanup_stale_inventory,
-    query_inventory_by_accounts,
-)
+from common.resource_discovery import _get_session_for_account
 from common.alarm_manager import sync_alarms_for_resource, delete_alarms_for_resource
 from common.alarm_naming import _build_alarm_description, _pretty_alarm_name
 from common.alarm_registry import (
@@ -90,115 +85,12 @@ def _get_tagging_client_for_region(region: str):
     return boto3.client("resourcegroupstaggingapi", region_name=region)
 
 
-def _default_discovery_account() -> dict:
-    region = (
-        os.environ.get("AWS_REGION")
-        or os.environ.get("AWS_DEFAULT_REGION")
-        or "ap-northeast-2"
-    )
-    return {"account_id": "self", "regions": [region]}
-
-
-def _resolve_target_accounts_for_sync(scope: dict) -> list[dict]:
-    customer_id = scope.get("customer_id")
-    account_id = scope.get("account_id")
-    table_name = os.environ.get("ACCOUNTS_TABLE")
-    if not table_name:
-        return [_default_discovery_account()]
-
-    from boto3.dynamodb.conditions import Key
-    table = accounts_table()
-    try:
-        if customer_id and account_id:
-            res = table.get_item(Key={"customer_id": customer_id, "account_id": account_id})
-            return [res["Item"]] if res.get("Item") else []
-        if customer_id:
-            return table.query(KeyConditionExpression=Key("customer_id").eq(customer_id)).get("Items", [])
-        if account_id:
-            return table.query(IndexName="account_id-index", KeyConditionExpression=Key("account_id").eq(account_id)).get("Items", [])
-
-        items = scan_all(table)
-        if not items:
-            return [_default_discovery_account()]
-        return items
-    except ClientError as e:
-        logger.error("Failed to resolve target accounts for sync: %s", e)
-        raise
-
-
 def list_resources(event: dict) -> dict:
     return _list_inventory_resources(event)
 
 
-def sync_resources(event: dict) -> dict:
-    if not os.environ.get("RESOURCE_INVENTORY_TABLE") or not os.environ.get("ACCOUNTS_TABLE"):
-        return _ok({
-            "discovered": 0,
-            "updated": 0,
-            "removed": 0,
-            "message": "Resource synchronization runs from the scheduled monitor",
-        })
-
-    scope = {}
-    if event.get("body"):
-        try:
-            body = json.loads(event["body"])
-            scope = body.get("scope") or {}
-        except (json.JSONDecodeError, TypeError):
-            pass
-
-    try:
-        accounts = _resolve_target_accounts_for_sync(scope)
-        regions_override = scope.get("regions") or []
-        for acc in accounts:
-            if regions_override:
-                acc["regions"] = regions_override
-            else:
-                acc["regions"] = list(acc.get("regions") or ["ap-northeast-2"])
-
-        discovered = discover_resources(accounts)
-        table = resource_inventory_table()
-        for resource in discovered:
-            resource_id = resource.get("resource_id") or resource.get("id")
-            account_id = resource.get("account_id")
-            if not resource_id or not account_id:
-                continue
-
-            existing = None
-            try:
-                resp = table.get_item(Key={"resource_id": resource_id, "account_id": account_id})
-                existing = resp.get("Item")
-            except ClientError as exc:
-                logger.warning("Failed to read existing inventory snapshot for %s: %s", resource_id, exc)
-
-            resource["entity_type"] = "resource"
-            if existing:
-                for field in ["alarm_count", "critical_count", "warning_count", "alarm_names", "alarm_state", "last_alarm_synced_at"]:
-                    if field in existing:
-                        resource[field] = existing[field]
-
-            table.put_item(Item=resource)
-
-        # 디스커버리에서 사라진 인벤토리 항목 정리. 정리 실패가 동기화 자체를
-        # 실패시키지 않도록 별도 try로 감싼다(put은 이미 성공).
-        removed_count = 0
-        try:
-            account_ids = [a["account_id"] for a in accounts]
-            db_items = query_inventory_by_accounts(table, account_ids)
-            removed_count = cleanup_stale_inventory(table, db_items, discovered, log=logger)
-        except ClientError as exc:
-            logger.error("Stale resource cleanup failed: %s", exc)
-
-    except ClientError as exc:
-        return _err(500, "AWS_ERROR", str(exc))
-
-    count = len(discovered)
-    return _ok({
-        "discovered": count,
-        "updated": count,
-        "removed": removed_count,
-        "message": f"{count} resources synchronized, {removed_count} stale resources removed",
-    })
+# NOTE: 동기 sync_resources는 제거됨 — POST /resources/sync는 sync.import_resources
+# (비동기 job, daily_monitor의 _handle_resources_sync_job)가 처리한다.
 
 
 def get_resource(event: dict) -> dict:

@@ -197,14 +197,6 @@ export interface ThresholdOverride {
   direction: ">" | "<";
 }
 
-// --- 동기화 ---
-
-export interface SyncResult {
-  discovered: number;
-  updated: number;
-  removed: number;
-}
-
 // --- CloudWatch 메트릭 목록 ---
 
 export interface AvailableMetric {

@@ -231,57 +231,9 @@ class TestResourceInventoryLogic:
         assert body["inventory_source"] == "db"
         assert body["monitoring"] is False
 
-    @patch("api_handler.routes.resources.discover_resources")
-    @patch("api_handler.routes.resources.resource_inventory_table")
-    @patch("api_handler.routes.resources.scan_all")
-    def test_sync_resources_discovers_current_account_when_accounts_empty(self, mock_scan, mock_table_func, mock_discover, mock_db_env):
-        mock_discover.return_value = [{
-            "resource_id": "i-live-01",
-            "account_id": "self",
-            "name": "live-instance",
-            "type": "EC2",
-            "region": "us-east-1",
-            "monitoring": True,
-        }]
-        mock_scan.return_value = []
-        mock_table = MagicMock()
-        mock_table.query.return_value = {"Items": []}
-        mock_table_func.return_value = mock_table
-
-        from api_handler.routes.resources import sync_resources
-        resp = sync_resources(_event("POST", "/resources/sync"))
-
-        assert resp["statusCode"] == 200
-        assert mock_table.put_item.called
-        mock_discover.assert_called_once_with([{
-            "account_id": "self",
-            "regions": ["us-east-1"],
-        }])
-
-    @patch("api_handler.routes.resources.discover_resources")
-    @patch("api_handler.routes.resources.resource_inventory_table")
-    @patch("api_handler.routes.resources.scan_all")
-    def test_sync_resources_updates_db(self, mock_scan, mock_table_func, mock_discover, mock_db_env):
-        mock_discover.return_value = [{
-            "resource_id": "i-01",
-            "account_id": "123",
-            "customer_id": "cust-01",
-            "name": "res-01",
-            "type": "EC2",
-            "region": "ap-ne2",
-            "monitoring": True
-        }]
-        mock_scan.return_value = [{"account_id": "123", "customer_id": "cust-01"}]
-        mock_table = MagicMock()
-        mock_table.query.return_value = {"Items": []}
-        mock_table_func.return_value = mock_table
-        
-        from api_handler.routes.resources import sync_resources
-        resp = sync_resources(_event("POST", "/resources/sync"))
-        
-        assert resp["statusCode"] == 200
-        assert mock_table.put_item.called
-        assert json.loads(resp["body"])["discovered"] == 1
+    # NOTE: 동기 sync_resources 테스트는 제거됨 — 비동기 잡 흐름은
+    # test_api_routes.test_sync_resources_starts_async_job(202+job)와
+    # test_daily_monitor_inventory.TestResourcesSyncJob이 커버한다.
 
     @patch("api_handler.routes.resources._apply_alarms_for_toggle")
     @patch("api_handler.routes.resources._get_tagging_client_for_region")
