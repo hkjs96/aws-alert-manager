@@ -334,6 +334,32 @@ class TestResourceInventoryLogic:
         mock_delete.assert_called_once()
         assert mock_delete.call_args.args[0] == "i-9"
 
+    @patch("api_handler.routes.resources._apply_alarms_for_toggle",
+           side_effect=KeyError("_lb_arn"))
+    @patch("api_handler.routes.resources._get_tagging_client_for_region")
+    @patch("api_handler.routes.resources.resource_inventory_table")
+    @patch("api_handler.routes.resources.scan_all")
+    def test_toggle_succeeds_when_immediate_alarms_need_collector_hints(self, mock_scan, mock_table_func, mock_tagging_func, mock_apply, mock_db_env):
+        # TG처럼 collector 내부 태그(_lb_arn) 없이는 즉시 알람 디멘션을 못 만드는
+        # 타입은 KeyError가 난다 — 토글은 성공(200)하고 daily가 self-heal 해야 한다.
+        tg_arn = "arn:aws:elasticloadbalancing:us-east-1:123:targetgroup/tg/abc"
+        mock_scan.return_value = [{
+            "resource_id": tg_arn, "account_id": "123", "type": "TG",
+            "region": "us-east-1", "arn": tg_arn, "entity_type": "resource",
+        }]
+        mock_table_func.return_value = MagicMock()
+        mock_tagging = MagicMock()
+        mock_tagging.tag_resources.return_value = {"FailedResourcesMap": {}}
+        mock_tagging_func.return_value = mock_tagging
+
+        from api_handler.routes.resources import update_resource_monitoring
+        resp = update_resource_monitoring(
+            _event("PUT", "/resources/x/monitoring", body={"monitoring": True}, path_params={"id": tg_arn})
+        )
+
+        assert resp["statusCode"] == 200
+        assert json.loads(resp["body"])["monitoring"] is True
+
     @patch("api_handler.routes.resources._find_account", return_value=None)
     def test_resource_aws_session_forces_us_east_1_for_global_services(self, mock_find, mock_db_env):
         # CloudFront/Route53은 RGT 태깅·CW 알람 모두 us-east-1 전용 — 인벤토리

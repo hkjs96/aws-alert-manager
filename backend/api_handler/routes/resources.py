@@ -134,9 +134,11 @@ def update_resource_monitoring(event: dict) -> dict:
         _update_inventory_monitoring(resource, monitoring)
         # 갭 축소: 토글 즉시 알람 생성/삭제. 실패해도 토글 자체는 성공 처리하고
         # 다음 daily monitor가 self-heal 하도록 한다(태그/인벤토리는 이미 반영됨).
+        # KeyError: TG 등 힌트 의존 타입은 collector 내부 태그(_lb_arn 등) 없이는
+        # 디멘션을 만들 수 없어 KeyError가 난다 — 즉시 생성은 스킵하고 daily에 위임.
         try:
             _apply_alarms_for_toggle(resource, monitoring)
-        except (ClientError, ValueError, RuntimeError) as exc:
+        except (ClientError, ValueError, RuntimeError, KeyError) as exc:
             logger.warning(
                 "Immediate alarm sync failed for %s (%s); will self-heal on next daily run: %s",
                 resource_id, res_type, exc,
