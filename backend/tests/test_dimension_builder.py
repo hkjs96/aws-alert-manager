@@ -48,6 +48,56 @@ class TestExtractElbDimension:
 # _build_dimensions
 # ──────────────────────────────────────────────
 
+class TestBuildDimensionsAPIGW:
+    def test_APIGW_REST는_ApiName_디멘션(self):
+        from common.dimension_builder import _build_dimensions
+
+        alarm_def = {"dimension_key": "ApiName"}
+        dims = _build_dimensions(alarm_def, "my-rest-api", "APIGW", {"_api_type": "REST"})
+
+        assert dims == [{"Name": "ApiName", "Value": "my-rest-api"}]
+
+    def test_APIGW_v2는_ApiId_디멘션(self):
+        # HTTP/WebSocket API는 CW가 ApiId로 발행 (resource_id=ApiId)
+        from common.dimension_builder import _build_dimensions
+
+        alarm_def = {"dimension_key": "ApiName"}
+        for api_type in ("HTTP", "WEBSOCKET"):
+            dims = _build_dimensions(alarm_def, "30atme9kk0", "APIGW", {"_api_type": api_type})
+            assert dims == [{"Name": "ApiId", "Value": "30atme9kk0"}], api_type
+
+    def test_APIGW_힌트없으면_REST로_간주(self):
+        from common.dimension_builder import _build_dimensions
+
+        alarm_def = {"dimension_key": "ApiName"}
+        dims = _build_dimensions(alarm_def, "legacy-api", "APIGW", {})
+
+        assert dims == [{"Name": "ApiName", "Value": "legacy-api"}]
+
+
+class TestResolveMetricDimensionsAPIGW:
+    def test_v2_힌트로_ApiId_키_사용(self):
+        from common.dimension_builder import _resolve_metric_dimensions
+
+        cw = MagicMock()
+        cw.list_metrics.return_value = {"Metrics": [
+            {"MetricName": "Count",
+             "Dimensions": [{"Name": "ApiId", "Value": "30atme9kk0"}]},
+        ]}
+
+        resolved = _resolve_metric_dimensions(
+            "30atme9kk0", "Count", "APIGW", cw=cw,
+            resource_tags={"_api_type": "HTTP"},
+        )
+
+        assert resolved is not None
+        _, dims = resolved
+        assert dims == [{"Name": "ApiId", "Value": "30atme9kk0"}]
+        assert cw.list_metrics.call_args.kwargs["Dimensions"] == [
+            {"Name": "ApiId", "Value": "30atme9kk0"},
+        ]
+
+
 class TestBuildDimensionsEC2:
     def test_EC2_단일_InstanceId_디멘션(self):
         from common.dimension_builder import _build_dimensions

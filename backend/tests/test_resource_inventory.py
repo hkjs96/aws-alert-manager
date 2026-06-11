@@ -330,6 +330,14 @@ class TestResourceInventoryLogic:
         assert mock_sync.call_args.args[2] == {"Monitoring": "on"}
         mock_delete.assert_not_called()
 
+        # 인벤토리 dim_hints가 있으면 알람 생성 태그에 병합된다
+        # (APIGW v2 ApiId, TG _lb_arn 복합 디멘션 등 즉시 생성 정확도 확보).
+        mock_sync.reset_mock()
+        res_hints = {"resource_id": "30atme9kk0", "type": "APIGW", "region": "us-east-1",
+                     "account_id": "123", "dim_hints": {"_api_type": "HTTP"}}
+        _apply_alarms_for_toggle(res_hints, True)
+        assert mock_sync.call_args.args[2] == {"Monitoring": "on", "_api_type": "HTTP"}
+
         _apply_alarms_for_toggle(res, False)
         mock_delete.assert_called_once()
         assert mock_delete.call_args.args[0] == "i-9"

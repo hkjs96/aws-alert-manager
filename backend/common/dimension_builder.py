@@ -85,6 +85,13 @@ def _build_dimensions(
             dimensions.append({"Name": "VariantName", "Value": variant_name})
         else:
             logger.warning("SageMaker _variant_name missing for %s", resource_id)
+    elif resource_type == "APIGW":
+        # v2(HTTP/WebSocket)는 메트릭이 ApiId 디멘션으로 발행된다(resource_id=ApiId).
+        # REST는 ApiName(resource_id=api 이름). 구분은 collector/dim_hints의 _api_type.
+        if resource_tags.get("_api_type") in ("HTTP", "WEBSOCKET"):
+            dimensions = [{"Name": "ApiId", "Value": resource_id}]
+        else:
+            dimensions = [{"Name": "ApiName", "Value": resource_id}]
     elif resource_type == "CloudFront":
         dimensions = [
             {"Name": dim_key, "Value": resource_id},
@@ -151,6 +158,7 @@ def _resolve_metric_dimensions(
     resource_type: str,
     *,
     cw=None,
+    resource_tags: dict | None = None,
 ) -> tuple[str, list[dict]] | None:
     """list_metrics API로 네임스페이스/디멘션 자동 해석.
 
@@ -158,13 +166,19 @@ def _resolve_metric_dimensions(
         resource_id: 리소스 ID
         metric_name: CloudWatch 메트릭 이름
         resource_type: EC2 / RDS / ELB
+        resource_tags: 디멘션 힌트(_api_type 등). 인벤토리 dim_hints도 가능.
 
     Returns:
         (namespace, dimensions) 튜플 또는 None (미발견 시)
     """
     cw = cw or _clients._get_cw_client()
+    resource_tags = resource_tags or {}
     namespaces = _NAMESPACE_MAP.get(resource_type, [])
     dim_key = _DIMENSION_KEY_MAP.get(resource_type, "")
+
+    # APIGW v2(HTTP/WS)는 ApiName이 아닌 ApiId로 발행 (resource_id=ApiId)
+    if resource_type == "APIGW" and resource_tags.get("_api_type") in ("HTTP", "WEBSOCKET"):
+        dim_key = "ApiId"
 
     # ALB/NLB/TG는 ARN suffix를 디멘션 값으로 사용
     if resource_type in ("ALB", "NLB", "TG"):

@@ -333,7 +333,8 @@ def create_resource_alarm(event: dict) -> dict:
         metric_key = f"disk_used_percent_{mount_path.lstrip('/') or 'root'}"
     else:
         resolved = dimension_builder._resolve_metric_dimensions(
-            resource_id, metric_name, resource_type, cw=cw
+            resource_id, metric_name, resource_type, cw=cw,
+            resource_tags=_resource_dim_hints(resource_id),
         )
         if not resolved:
             return _err(404, "NO_METRIC", f"Metric '{metric_name}' was not found")
@@ -603,6 +604,19 @@ def _resource_region(resource_id: str) -> str | None:
     return snapshot.get("region") if snapshot else None
 
 
+def _resource_dim_hints(resource_id: str) -> dict:
+    """인벤토리에서 리소스의 디멘션 힌트(dim_hints)를 조회한다. 실패 시 빈 dict."""
+    if not os.environ.get("RESOURCE_INVENTORY_TABLE"):
+        return {}
+    try:
+        items = query_by_pk(resource_inventory_table(), "resource_id", resource_id)
+    except ClientError as exc:
+        logger.warning("dim_hints lookup failed for %s: %s", resource_id, exc)
+        return {}
+    snapshot = next((item for item in items if _is_resource_snapshot(item)), None)
+    return (snapshot.get("dim_hints") or {}) if snapshot else {}
+
+
 def _find_account(account_id: str) -> dict | None:
     from boto3.dynamodb.conditions import Key
     table = accounts_table()
@@ -737,9 +751,11 @@ def _set_resource_monitoring_tag(resource: dict, monitoring: bool) -> None:
 def _apply_alarms_for_toggle(resource: dict, monitoring: bool) -> None:
     """토글 즉시 알람 생성/삭제 — 다음 daily monitor 실행을 기다리지 않고 갭을 줄인다.
 
-    인벤토리엔 태그가 없으므로 ON 시 {Monitoring: on} 최소 태그로 기본 임계치 알람을
-    생성한다. 실제 Threshold_* 태그·타입별 디멘션 힌트(_api_type 등) 기반 정밀화는
-    다음 daily monitor가 self-heal 한다(근사 생성 → 정밀화).
+    ON 시 {Monitoring: on} + 인벤토리에 영속화된 디멘션 힌트(dim_hints —
+    _api_type/_lb_arn/_cluster_name 등)를 합쳐 알람을 생성한다. 힌트 덕에
+    APIGW v2(ApiId)·TG(LoadBalancer 복합 디멘션) 같은 타입도 즉시 생성이
+    정확하다. Threshold_* 등 실제 리소스 태그 기반 정밀화는 알람 빌더가
+    재조회하며, 잔여 차이는 다음 daily monitor가 self-heal 한다.
     """
     resource_id = resource.get("resource_id") or resource.get("id")
     resource_type = resource.get("type")
@@ -747,7 +763,8 @@ def _apply_alarms_for_toggle(resource: dict, monitoring: bool) -> None:
     cw = (session.client("cloudwatch", region_name=region)
           if session is not None else _get_cw_client_for_region(region))
     if monitoring:
-        sync_alarms_for_resource(resource_id, resource_type, {"Monitoring": "on"}, cw=cw)
+        tags = {"Monitoring": "on", **(resource.get("dim_hints") or {})}
+        sync_alarms_for_resource(resource_id, resource_type, tags, cw=cw)
     else:
         delete_alarms_for_resource(resource_id, resource_type, cw=cw)
 
