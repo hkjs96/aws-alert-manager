@@ -229,6 +229,14 @@ def get_resource_metrics(event: dict) -> dict:
     if not namespaces or not dim_key:
         return _ok([])
 
+    # compound-dimension 보정: APIGW v2(HTTP/WebSocket)는 메트릭을 ApiName이 아닌
+    # ApiId 디멘션으로 발행한다(resource_id가 곧 ApiId). 힌트는 discovery가
+    # dim_hints로 영속화한다. 다른 compound 타입(ECS/WAF/SageMaker/OpenSearch)은
+    # list_metrics 디멘션 필터가 contains 매칭이라 per-resource 키 하나로 충분하다.
+    dim_hints = (resource.get("dim_hints") or {}) if resource else {}
+    if resource_type == "APIGW" and dim_hints.get("_api_type") in ("HTTP", "WEBSOCKET"):
+        dim_key = "ApiId"
+
     dim_value = _dimension_value(resource_type, resource_id)
     # 글로벌 서비스(CloudFront/Route53)는 us-east-1 고정, 그 외에는 리소스의 실제
     # 리전 CW를 사용한다(다른 리전 리소스의 메트릭이 빈 배열로 누락되지 않도록).

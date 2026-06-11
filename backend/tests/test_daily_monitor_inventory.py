@@ -57,6 +57,30 @@ class TestSanitizeInventoryItem:
 
         assert "arn" not in item
 
+    def test_persists_dimension_hints_from_tags(self):
+        # compound-dimension 타입의 디멘션 힌트는 화이트리스트로 영속화하되
+        # tags 전체는 여전히 제외한다.
+        from daily_monitor.lambda_handler import _sanitize_inventory_item
+
+        item = _sanitize_inventory_item({
+            "resource_id": "h1", "account_id": "123", "type": "APIGW",
+            "tags": {"Monitoring": "on", "Name": "my-api",
+                     "_api_type": "HTTP", "_cluster_name": "prod"},
+        })
+
+        assert item["dim_hints"] == {"_api_type": "HTTP", "_cluster_name": "prod"}
+        assert "tags" not in item
+
+    def test_dim_hints_omitted_when_no_hint_tags(self):
+        from daily_monitor.lambda_handler import _sanitize_inventory_item
+
+        item = _sanitize_inventory_item({
+            "resource_id": "i-001", "account_id": "123",
+            "tags": {"Monitoring": "on"},
+        })
+
+        assert "dim_hints" not in item
+
     def test_empty_customer_id_excluded(self):
         from daily_monitor.lambda_handler import _sanitize_inventory_item
 

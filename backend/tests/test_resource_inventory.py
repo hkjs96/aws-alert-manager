@@ -360,6 +360,32 @@ class TestResourceInventoryLogic:
         assert resp["statusCode"] == 200
         assert json.loads(resp["body"])["monitoring"] is True
 
+    @patch("api_handler.routes.resources._get_cw_client_for_region")
+    @patch("api_handler.routes.resources.scan_all")
+    def test_apigw_v2_metrics_use_apiid_dimension(self, mock_scan, mock_cw_func, mock_db_env):
+        # APIGW v2(HTTP/WS)는 메트릭을 ApiId 디멘션으로 발행 — dim_hints._api_type으로
+        # 정적 맵(ApiName) 대신 ApiId 키를 써야 한다 (compound-dim 보정).
+        mock_scan.return_value = [{
+            "resource_id": "30atme9kk0", "account_id": "123", "type": "APIGW",
+            "region": "us-east-1", "entity_type": "resource",
+            "dim_hints": {"_api_type": "HTTP"},
+        }]
+        cw = MagicMock()
+        cw.list_metrics.return_value = {"Metrics": [
+            {"MetricName": "Count", "Namespace": "AWS/ApiGateway"},
+        ]}
+        mock_cw_func.return_value = cw
+
+        from api_handler.routes.resources import get_resource_metrics
+        resp = get_resource_metrics(
+            _event("GET", "/resources/x/metrics", path_params={"id": "30atme9kk0"})
+        )
+
+        assert resp["statusCode"] == 200
+        dims = cw.list_metrics.call_args.kwargs["Dimensions"]
+        assert dims == [{"Name": "ApiId", "Value": "30atme9kk0"}]
+        assert json.loads(resp["body"])[0]["metric_name"] == "Count"
+
     @patch("api_handler.routes.resources._find_account", return_value=None)
     def test_resource_aws_session_forces_us_east_1_for_global_services(self, mock_find, mock_db_env):
         # CloudFront/Route53은 RGT 태깅·CW 알람 모두 us-east-1 전용 — 인벤토리

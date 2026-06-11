@@ -691,6 +691,16 @@ def _resolve_accounts_for_inventory(account_id_hint: str, role_arn: str) -> list
     }]
 
 
+# 인벤토리에 영속화할 collector 내부 디멘션 힌트 키.
+# APIGW(_api_type: REST는 ApiName, HTTP/WS는 ApiId), ECS(_cluster_name),
+# SageMaker(_variant_name), OpenSearch(_client_id), WAF(_waf_rule),
+# ELB 계열(_lb_arn/_lb_type/_target_type — TG 알람 디멘션·정책 분기용).
+_DIM_HINT_KEYS = (
+    "_api_type", "_cluster_name", "_variant_name", "_client_id",
+    "_waf_rule", "_lb_arn", "_lb_type", "_target_type",
+)
+
+
 def _sanitize_inventory_item(resource: dict) -> dict:
     """DDB 저장용으로 정규화. tags/arn 등 변동성 큰 필드는 제외.
 
@@ -713,6 +723,13 @@ def _sanitize_inventory_item(resource: dict) -> dict:
     arn = resource.get("arn")
     if arn:
         item["arn"] = arn
+    # 디멘션 힌트: compound-dimension 타입(APIGW v2의 ApiId, ECS의 ClusterName 등)의
+    # 상세 메트릭 조회/알람 생성에 필요한 collector 내부 태그만 화이트리스트 영속화.
+    # tags 전체는 변동성이 커서 여전히 제외한다.
+    tags = resource.get("tags") or {}
+    hints = {k: tags[k] for k in _DIM_HINT_KEYS if tags.get(k)}
+    if hints:
+        item["dim_hints"] = hints
     return item
 
 
