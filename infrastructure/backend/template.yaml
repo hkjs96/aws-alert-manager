@@ -425,19 +425,17 @@ Resources:
                 Resource: "*"
               # APIGW 태깅 하드닝(별도 statement): RGT가 API Gateway 태깅을 REST
               # 동사로 위임한다 — v2(HTTP/WS)는 PATCH /apis/{id}, v1(REST)은 /tags·
-              # /restapis 경로. PATCH/POST/PUT은 관리플레인 변경 동사라 ① Resource를
-              # API Gateway 경로로 한정하고 ② aws:TagKeys 조건으로 'Monitoring 태그가
-              # 포함된 요청'만 허용한다(태그 키 없는 순수 config 변경 요청은 차단).
+              # /restapis 경로. PATCH/PUT은 관리플레인 변경 동사라 ① Resource를 개별
+              # API 리소스 경로로만 한정(컬렉션 /apis·/restapis 및 POST=API 생성 제외)
+              # ② aws:TagKeys 조건으로 'Monitoring 태그가 포함된 요청'만 허용한다
+              # (태그 키 없는 순수 config 변경 요청은 차단).
               - Effect: Allow
                 Action:
                   - apigateway:PUT
                   - apigateway:PATCH
-                  - apigateway:POST
                   - apigateway:TagResource
                 Resource:
-                  - "arn:aws:apigateway:*::/apis"
                   - "arn:aws:apigateway:*::/apis/*"
-                  - "arn:aws:apigateway:*::/restapis"
                   - "arn:aws:apigateway:*::/restapis/*"
                   - "arn:aws:apigateway:*::/tags/*"
                 Condition:
