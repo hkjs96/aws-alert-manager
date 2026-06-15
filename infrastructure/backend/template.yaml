@@ -412,14 +412,6 @@ Resources:
                   - route53:ListHealthChecks
                   - route53:ListTagsForResource
                   # tag write (RGT가 위임; ec2:CreateTags는 위에 이미 있어 VPN 커버)
-                  # NOTE: APIGW 태깅은 RGT가 REST 동사로 위임한다 — v1(REST)은
-                  # PATCH(/tags 부분수정), v2(HTTP/WS)는 TagResource. PUT/PATCH는
-                  # 태깅 외 구성 변경 동사도 포함하는 광역 권한이라 의식적으로 수용
-                  # (IAM 하드닝 트랙에서 Resource 조건 검토 대상).
-                  - apigateway:PUT
-                  - apigateway:PATCH
-                  - apigateway:POST
-                  - apigateway:TagResource
                   - acm:AddTagsToCertificate
                   - backup:TagResource
                   - mq:CreateTags
@@ -431,6 +423,29 @@ Resources:
                   - cloudfront:TagResource
                   - route53:ChangeTagsForResource
                 Resource: "*"
+              # APIGW 태깅 하드닝(별도 statement): RGT가 API Gateway 태깅을 REST
+              # 동사로 위임한다 — v2(HTTP/WS)는 PATCH /apis/{id}, v1(REST)은 /tags·
+              # /restapis 경로. PATCH/POST/PUT은 관리플레인 변경 동사라 ① Resource를
+              # API Gateway 경로로 한정하고 ② aws:TagKeys 조건으로 'Monitoring 태그가
+              # 포함된 요청'만 허용한다(태그 키 없는 순수 config 변경 요청은 차단).
+              - Effect: Allow
+                Action:
+                  - apigateway:PUT
+                  - apigateway:PATCH
+                  - apigateway:POST
+                  - apigateway:TagResource
+                Resource:
+                  - "arn:aws:apigateway:*::/apis"
+                  - "arn:aws:apigateway:*::/apis/*"
+                  - "arn:aws:apigateway:*::/restapis"
+                  - "arn:aws:apigateway:*::/restapis/*"
+                  - "arn:aws:apigateway:*::/tags/*"
+                Condition:
+                  "Null":
+                    "aws:TagKeys": "false"
+                  "ForAllValues:StringEquals":
+                    "aws:TagKeys":
+                      - "Monitoring"
               - Effect: Allow
                 Action:
                   - sts:AssumeRole
