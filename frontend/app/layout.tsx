@@ -23,7 +23,8 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     alarms = [];
   }
 
-  const session = await auth();
+  // Only resolve a session when auth is configured (auth() requires AUTH_SECRET).
+  const session = process.env.AUTH_SECRET ? await auth() : null;
 
   return (
     <html lang="ko">

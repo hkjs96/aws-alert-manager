@@ -571,6 +571,7 @@ Resources:
           - "*"
         AllowHeaders:
           - Content-Type
+          - Authorization
           - x-api-key
         AllowMethods:
           - GET
