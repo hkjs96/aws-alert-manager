@@ -53,6 +53,28 @@ Parameters:
     AllowedValues: [development, staging, production]
     Description: Deployment environment (development / staging / production)
 
+  GoogleClientId:
+    Type: String
+    Default: ""
+    Description: >
+      Google OAuth client ID (audience) for the HTTP API JWT authorizer.
+      Leave empty to keep the API public (no authorizer); set it to enforce
+      Google-issued ID token validation at API Gateway.
+
+  AllowedEmails:
+    Type: String
+    Default: ""
+    Description: >
+      Comma-separated allowlist of individual Google account emails permitted
+      to call the API. Empty means no per-email restriction.
+
+  AllowedEmailDomains:
+    Type: String
+    Default: ""
+    Description: >
+      Comma-separated allowlist of email/Workspace domains (e.g. company.com)
+      permitted to call the API. Empty means no domain restriction.
+
 Mappings:
   LambdaConfig:
     Settings:
@@ -67,6 +89,12 @@ Mappings:
       short: stg
     production:
       short: prod
+
+Conditions:
+  # Auth is enabled only when a Google OAuth client ID is supplied.
+  # Empty GoogleClientId keeps the HTTP API public (current behavior),
+  # allowing code to be deployed first and auth flipped on later.
+  AuthEnabled: !Not [!Equals [!Ref GoogleClientId, ""]]
 
 Resources:
 
@@ -283,6 +311,8 @@ Resources:
           BULK_OPERATION_QUEUE_URL: !Ref BulkOperationQueue
           API_STAGE: !FindInMap [EnvShortName, !Ref Environment, short]
           DAILY_MONITOR_FUNCTION_NAME: !Ref DailyMonitorFunction
+          ALLOWED_EMAILS: !Ref AllowedEmails
+          ALLOWED_EMAIL_DOMAINS: !Ref AllowedEmailDomains
 
   ApiHandlerRole:
     Type: AWS::IAM::Role
@@ -557,12 +587,31 @@ Resources:
       IntegrationUri: !GetAtt ApiHandlerFunction.Arn
       PayloadFormatVersion: "2.0"
 
+  # JWT authorizer validating Google-issued ID tokens (created only when
+  # GoogleClientId is provided). Verifies signature/issuer/audience/expiry
+  # against Google's OIDC discovery — no Cognito, no custom Lambda.
+  AlarmManagerJwtAuthorizer:
+    Type: AWS::ApiGatewayV2::Authorizer
+    Condition: AuthEnabled
+    Properties:
+      ApiId: !Ref AlarmManagerHttpApi
+      AuthorizerType: JWT
+      Name: google-jwt
+      IdentitySource:
+        - "$request.header.Authorization"
+      JwtConfiguration:
+        Issuer: "https://accounts.google.com"
+        Audience:
+          - !Ref GoogleClientId
+
   AlarmManagerApiRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref AlarmManagerHttpApi
       RouteKey: "$default"
       Target: !Sub "integrations/${AlarmManagerApiIntegration}"
+      AuthorizationType: !If [AuthEnabled, JWT, NONE]
+      AuthorizerId: !If [AuthEnabled, !Ref AlarmManagerJwtAuthorizer, !Ref "AWS::NoValue"]
 
   AlarmManagerApiStage:
     Type: AWS::ApiGatewayV2::Stage

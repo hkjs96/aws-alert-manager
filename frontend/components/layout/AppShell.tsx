@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { usePathname } from "next/navigation";
 import { TopBar } from "./TopBar";
 import { Sidebar } from "./Sidebar";
 import type { Alarm } from "@/types";
@@ -10,9 +11,11 @@ const SIDEBAR_KEY = "alarm-mgr:sidebar-open";
 interface AppShellProps {
   children: React.ReactNode;
   alarms?: Alarm[];
+  userEmail?: string | null;
 }
 
-export function AppShell({ children, alarms = [] }: AppShellProps) {
+export function AppShell({ children, alarms = [], userEmail = null }: AppShellProps) {
+  const pathname = usePathname();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   // 마운트 시 localStorage에서 상태 복원
@@ -39,11 +42,17 @@ export function AppShell({ children, alarms = [] }: AppShellProps) {
     [alarms],
   );
 
+  // 로그인 페이지는 셸(사이드바/탑바) 없이 단독 렌더한다.
+  if (pathname === "/login") {
+    return <>{children}</>;
+  }
+
   return (
     <div className="min-h-screen bg-surface">
       <TopBar
         alarmCount={alarmCount}
         onMenuToggle={toggle}
+        userEmail={userEmail}
       />
       <Sidebar isOpen={sidebarOpen} onClose={close} />
       <main className="pt-16 min-h-screen lg:ml-52">

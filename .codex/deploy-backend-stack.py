@@ -201,6 +201,23 @@ def _deploy(
     environment: str,
     version: str,
 ) -> None:
+    overrides = [
+        f"DeploymentBucket={bucket}",
+        f"CodeVersion={version}",
+        f"Environment={environment}",
+    ]
+    # Auth params are passed only when provided via env. Omitted params keep
+    # their previous stack value (CFN UsePreviousValue), so auth, once set,
+    # persists across code-only deploys.
+    for env_name, param_name in (
+        ("GOOGLE_CLIENT_ID", "GoogleClientId"),
+        ("ALLOWED_EMAILS", "AllowedEmails"),
+        ("ALLOWED_EMAIL_DOMAINS", "AllowedEmailDomains"),
+    ):
+        value = os.environ.get(env_name)
+        if value is not None:
+            overrides.append(f"{param_name}={value}")
+
     _run(
         _aws(profile, region)
         + [
@@ -213,9 +230,7 @@ def _deploy(
             "--s3-bucket",
             bucket,
             "--parameter-overrides",
-            f"DeploymentBucket={bucket}",
-            f"CodeVersion={version}",
-            f"Environment={environment}",
+            *overrides,
             "--capabilities",
             "CAPABILITY_IAM",
             "CAPABILITY_NAMED_IAM",

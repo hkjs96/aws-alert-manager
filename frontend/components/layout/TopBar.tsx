@@ -1,14 +1,16 @@
 "use client";
 
-import { Search, Bell, HelpCircle, Menu, AlertTriangle, CheckCircle2 } from "lucide-react";
+import { Search, Bell, HelpCircle, Menu, AlertTriangle, CheckCircle2, LogOut } from "lucide-react";
+import { signOut } from "next-auth/react";
 import { GlobalFilterBar } from "./GlobalFilterBar";
 
 interface TopBarProps {
   alarmCount?: number;
   onMenuToggle?: () => void;
+  userEmail?: string | null;
 }
 
-export function TopBar({ alarmCount = 0, onMenuToggle }: TopBarProps) {
+export function TopBar({ alarmCount = 0, onMenuToggle, userEmail = null }: TopBarProps) {
   const hasAlarms = alarmCount > 0;
 
   return (
@@ -60,7 +62,23 @@ export function TopBar({ alarmCount = 0, onMenuToggle }: TopBarProps) {
           )}
         </button>
         <button className="p-2 text-slate-500 hover:bg-slate-100 rounded-full transition-colors"><HelpCircle size={20} /></button>
-        <div className="h-8 w-8 rounded-full bg-slate-300 border border-slate-300" />
+        {userEmail ? (
+          <div className="flex items-center gap-2">
+            <span className="hidden md:inline text-xs text-slate-600 max-w-[180px] truncate" title={userEmail}>
+              {userEmail}
+            </span>
+            <button
+              onClick={() => signOut({ callbackUrl: "/login" })}
+              className="p-2 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-full transition-colors"
+              aria-label="로그아웃"
+              title="로그아웃"
+            >
+              <LogOut size={18} />
+            </button>
+          </div>
+        ) : (
+          <div className="h-8 w-8 rounded-full bg-slate-300 border border-slate-300" />
+        )}
       </div>
     </header>
   );

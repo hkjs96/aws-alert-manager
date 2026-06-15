@@ -4,6 +4,7 @@ import { AppShell } from "@/components/layout/AppShell";
 import { ToastProvider } from "@/components/shared/Toast";
 import { fetchAlarms } from "@/lib/server/data";
 import type { Alarm } from "@/types";
+import { auth } from "@/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -22,11 +23,15 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     alarms = [];
   }
 
+  const session = await auth();
+
   return (
     <html lang="ko">
       <body>
         <ToastProvider>
-          <AppShell alarms={alarms}>{children}</AppShell>
+          <AppShell alarms={alarms} userEmail={session?.user?.email ?? null}>
+            {children}
+          </AppShell>
         </ToastProvider>
       </body>
     </html>

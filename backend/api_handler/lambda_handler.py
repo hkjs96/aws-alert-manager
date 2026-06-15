@@ -7,7 +7,8 @@ API Gateway HTTP API (payload format v2.0) 이벤트를 수신하여
 라우팅 규칙:
   METHOD /path  →  handler(event) → {"statusCode": N, "body": "..."}
 
-인증: API Key (x-api-key 헤더). Phase 2에서 Cognito로 교체 예정.
+인증: API Gateway 네이티브 JWT authorizer가 Google ID 토큰을 검증하고,
+     여기서 email/도메인 allowlist(_authorize)로 접근을 강제한다. docs/AUTH.md 참고.
 CORS: 모든 오리진 허용 (내부 MSP 도구 기준).
 """
 
@@ -27,6 +28,56 @@ from api_handler.routes import (
 
 def _health(event: dict) -> dict:
     return {"statusCode": 200, "body": json.dumps({"status": "ok"})}
+
+
+def _csv_set(value: str) -> set[str]:
+    return {p.strip().lower().lstrip("@") for p in value.split(",") if p.strip()}
+
+
+def _authorize(event: dict) -> dict | None:
+    """Email/domain allowlist guard.
+
+    Identity comes from the API Gateway JWT authorizer, which has already
+    verified the Google ID token signature/issuer/audience/expiry. We only
+    enforce *which* verified identities are allowed.
+
+    Returns None when the request may proceed, or a 403 response dict.
+    When neither allowlist env var is set, no restriction is applied
+    (auth is either disabled at API Gateway or intentionally open).
+    """
+    allowed_emails = _csv_set(os.environ.get("ALLOWED_EMAILS", ""))
+    allowed_domains = _csv_set(os.environ.get("ALLOWED_EMAIL_DOMAINS", ""))
+    if not allowed_emails and not allowed_domains:
+        return None
+
+    claims = (
+        event.get("requestContext", {})
+        .get("authorizer", {})
+        .get("jwt", {})
+        .get("claims", {})
+    ) or {}
+
+    email = str(claims.get("email", "")).strip().lower()
+    if not email or str(claims.get("email_verified", "true")).lower() == "false":
+        return _forbidden("unverified or missing identity")
+
+    if email in allowed_emails:
+        return None
+
+    domain = email.rsplit("@", 1)[-1] if "@" in email else ""
+    hd = str(claims.get("hd", "")).strip().lower()
+    if (domain and domain in allowed_domains) or (hd and hd in allowed_domains):
+        return None
+
+    return _forbidden(email)
+
+
+def _forbidden(who: str) -> dict:
+    logger.warning("Authorization denied: %s", who)
+    return {
+        "statusCode": 403,
+        "body": json.dumps({"code": "FORBIDDEN", "message": "접근 권한이 없습니다"}),
+    }
 
 
 # ──────────────────────────────────────────────
@@ -100,6 +151,13 @@ def lambda_handler(event, context):
         raw_path = raw_path[4:] or "/"
 
     logger.info("%s %s", method, raw_path)
+
+    # Email/domain allowlist guard (identity verified by API GW JWT authorizer).
+    # /health stays open for uptime checks.
+    if raw_path != "/health":
+        denied = _authorize(event)
+        if denied is not None:
+            return _with_cors(denied)
 
     for route_method, pattern, handler in _ROUTES:
         if route_method != method:
