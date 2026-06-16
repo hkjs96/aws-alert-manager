@@ -13,6 +13,8 @@ import type {
 } from "@/types";
 import type { AlarmSummary, DashboardStats } from "@/types/api";
 import { encodeResourceId } from "@/lib/resource-id";
+import { cookies } from "next/headers";
+import { getToken } from "next-auth/jwt";
 
 const API_BASE_URL =
   process.env.API_GATEWAY_URL ??
@@ -22,13 +24,33 @@ const API_BASE_URL =
 
 type ApiResource = Resource & { account_id?: string };
 
+// Server components fetch API Gateway directly (no proxy hop), so they must
+// attach the Google ID token themselves when auth is enabled. The token is
+// read from the request cookies server-side and never exposed to the browser.
+async function authHeaders(): Promise<Record<string, string>> {
+  if (!process.env.AUTH_SECRET) {
+    return {};
+  }
+  const cookieStore = await cookies();
+  const req = new Request("http://localhost", {
+    headers: { cookie: cookieStore.toString() },
+  });
+  const token = await getToken({
+    req,
+    secret: process.env.AUTH_SECRET,
+    secureCookie: process.env.NODE_ENV === "production",
+  });
+  const idToken = typeof token?.id_token === "string" ? token.id_token : undefined;
+  return idToken ? { Authorization: `Bearer ${idToken}` } : {};
+}
+
 async function apiFetch<T>(path: string): Promise<T> {
   if (!API_BASE_URL) {
     throw new Error("API Gateway URL is not configured");
   }
   const res = await fetch(`${API_BASE_URL}${path}`, {
     cache: "no-store",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...(await authHeaders()) },
   });
   if (!res.ok) {
     throw new Error(`API ${path} failed: ${res.status}`);
