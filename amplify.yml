@@ -7,6 +7,22 @@ applications:
             - npm ci
         build:
           commands:
+            # Amplify injects console env vars at BUILD time only. Next.js SSR
+            # reads process.env at RUNTIME, so write the server-side vars into
+            # .env.production (loaded by the Next server at runtime). Without
+            # this the SSR compute can't see API_GATEWAY_URL/AUTH_* and auth
+            # silently disables. Non-NEXT_PUBLIC values stay server-only.
+            - |
+              {
+                echo "API_GATEWAY_URL=$API_GATEWAY_URL"
+                echo "AUTH_GOOGLE_ID=$AUTH_GOOGLE_ID"
+                echo "AUTH_GOOGLE_SECRET=$AUTH_GOOGLE_SECRET"
+                echo "AUTH_SECRET=$AUTH_SECRET"
+                echo "AUTH_URL=$AUTH_URL"
+                echo "AUTH_TRUST_HOST=$AUTH_TRUST_HOST"
+                echo "ALLOWED_EMAILS=$ALLOWED_EMAILS"
+                echo "ALLOWED_EMAIL_DOMAINS=$ALLOWED_EMAIL_DOMAINS"
+              } > .env.production
             - npm run build
       artifacts:
         baseDirectory: .next
