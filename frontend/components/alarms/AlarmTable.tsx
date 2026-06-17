@@ -4,6 +4,7 @@ import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronUp, ChevronDown } from "lucide-react";
 import type { Alarm } from "@/types";
+import { ResourceTypeIcon } from "@/components/shared/ResourceTypeIcon";
 import { formatRelativeTime } from "@/lib/time-utils";
 import { encodeResourceId } from "@/lib/resource-id";
 
@@ -118,9 +119,7 @@ export function AlarmTable({ alarms }: AlarmTableProps) {
                 </td>
                 <td className="px-4 py-3" title={alarm.arn}>
                   <span className="font-bold text-slate-900">{alarm.resource}</span>
-                  <span className="ml-2 text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded font-semibold">
-                    {alarm.type}
-                  </span>
+                  <ResourceTypeIcon type={alarm.type} size={11} showLabel className="ml-2 align-middle" />
                 </td>
                 <td className="px-4 py-3">
                   <div className="font-medium text-slate-700">{alarm.metric}</div>
