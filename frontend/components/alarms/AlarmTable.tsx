@@ -119,7 +119,7 @@ export function AlarmTable({ alarms }: AlarmTableProps) {
                 </td>
                 <td className="px-4 py-3" title={alarm.arn}>
                   <span className="font-bold text-slate-900">{alarm.resource}</span>
-                  <ResourceTypeIcon type={alarm.type} size={11} showLabel className="ml-2 align-middle" />
+                  <ResourceTypeIcon type={alarm.type} className="ml-2 align-middle" />
                 </td>
                 <td className="px-4 py-3">
                   <div className="font-medium text-slate-700">{alarm.metric}</div>

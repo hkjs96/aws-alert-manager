@@ -132,12 +132,10 @@ export function ResourceTable({
                 <StatusDot monitoring={res.monitoring} alarms={res.alarms} />
               </td>
               <td className="px-4 py-3">
-                <div className="flex items-center gap-2.5">
-                  <ResourceTypeIcon type={res.type} size={16} />
-                  <div>
-                    <div className="font-semibold text-slate-800 text-sm">{res.name}</div>
-                    <div className="text-xs text-slate-400">{res.type} · {res.account}</div>
-                  </div>
+                <div className="font-semibold text-slate-800 text-sm">{res.name}</div>
+                <div className="mt-1 flex items-center gap-2 text-xs text-slate-400">
+                  <ResourceTypeIcon type={res.type} />
+                  <span>{res.account}</span>
                 </div>
               </td>
               <td className="px-4 py-3 text-sm font-medium text-slate-700">
