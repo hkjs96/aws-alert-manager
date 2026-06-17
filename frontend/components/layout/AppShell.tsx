@@ -53,6 +53,7 @@ export function AppShell({ children, alarms = [], userEmail = null }: AppShellPr
         alarmCount={alarmCount}
         onMenuToggle={toggle}
         userEmail={userEmail}
+        alarms={alarms}
       />
       <Sidebar isOpen={sidebarOpen} onClose={close} />
       <main className="pt-16 min-h-screen lg:ml-52">

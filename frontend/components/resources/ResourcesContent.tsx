@@ -67,6 +67,12 @@ export function ResourcesContent({
     setLocalResources(resources);
   }, [resources]);
 
+  // 상단바 전역 검색(/resources?search=)에서 넘어온 쿼리를 초기 적용
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search).get("search");
+    if (q) setSearch(q);
+  }, []);
+
   const { loadingIds, toggle } = useMonitoringToggle();
   const { ownedCustomerIds, isLoading: isOwnedLoading } = useOwnedCustomers();
 
