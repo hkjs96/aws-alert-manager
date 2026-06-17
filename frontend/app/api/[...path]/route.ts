@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { getToken } from "next-auth/jwt";
+import { auth } from "@/auth";
 
 const API_BASE_URL =
   process.env.API_GATEWAY_URL ??
@@ -25,13 +25,13 @@ async function proxy(request: NextRequest, { params }: RouteContext) {
     "Content-Type": request.headers.get("Content-Type") ?? "application/json",
   };
 
-  // Forward the Google ID token (server-side session) as a Bearer token so
-  // API Gateway's JWT authorizer can validate it. Read server-side only — the
-  // token is never exposed to the browser. When auth is not configured this is
-  // simply absent and the backend stays open (staged rollout).
+  // Forward the Google ID token as a Bearer token so API Gateway's JWT
+  // authorizer can validate it. Read via auth() (same path as the working
+  // session endpoint) — robust against getToken cookie/salt/chunking issues.
+  // When auth is not configured this is simply absent (staged rollout).
   if (process.env.AUTH_SECRET) {
-    const token = await getToken({ req: request, secret: process.env.AUTH_SECRET });
-    const idToken = typeof token?.id_token === "string" ? token.id_token : undefined;
+    const session = await auth();
+    const idToken = session?.id_token;
     if (idToken) {
       headers["Authorization"] = `Bearer ${idToken}`;
     }

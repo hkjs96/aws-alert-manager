@@ -118,5 +118,13 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     authorized({ auth: session }) {
       return Boolean(session?.user);
     },
+    session({ session, token }) {
+      // Expose the ID token + error to server-side callers (proxy/SSR) via auth().
+      session.id_token = token.id_token;
+      if (token.error) {
+        session.error = token.error;
+      }
+      return session;
+    },
   },
 });

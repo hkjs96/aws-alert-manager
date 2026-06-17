@@ -13,8 +13,7 @@ import type {
 } from "@/types";
 import type { AlarmSummary, DashboardStats } from "@/types/api";
 import { encodeResourceId } from "@/lib/resource-id";
-import { cookies } from "next/headers";
-import { getToken } from "next-auth/jwt";
+import { auth } from "@/auth";
 
 const API_BASE_URL =
   process.env.API_GATEWAY_URL ??
@@ -31,16 +30,8 @@ async function authHeaders(): Promise<Record<string, string>> {
   if (!process.env.AUTH_SECRET) {
     return {};
   }
-  const cookieStore = await cookies();
-  const req = new Request("http://localhost", {
-    headers: { cookie: cookieStore.toString() },
-  });
-  const token = await getToken({
-    req,
-    secret: process.env.AUTH_SECRET,
-    secureCookie: process.env.NODE_ENV === "production",
-  });
-  const idToken = typeof token?.id_token === "string" ? token.id_token : undefined;
+  const session = await auth();
+  const idToken = session?.id_token;
   return idToken ? { Authorization: `Bearer ${idToken}` } : {};
 }
 
