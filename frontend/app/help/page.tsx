@@ -1,103 +1,283 @@
+import type { ReactNode } from "react";
 import {
-  LogIn, Users, Server, Bell, Search, Trash2, ShieldCheck,
+  LogIn, Users, Server, Bell, Search, ShieldCheck, Boxes, SlidersHorizontal,
+  Rocket, KeyRound, Cloud, Wrench, ListChecks,
 } from "lucide-react";
 
 export const metadata = {
   title: "사용 가이드 · Alarm Manager",
 };
 
-interface GuideStep {
-  icon: typeof LogIn;
+type Icon = typeof LogIn;
+
+interface Item {
+  icon: Icon;
   title: string;
-  body: React.ReactNode;
+  body: ReactNode;
 }
 
-const STEPS: GuideStep[] = [
+interface Section {
+  id: string;
+  label: string;
+  intro?: string;
+  items: Item[];
+}
+
+function Code({ children }: { children: ReactNode }) {
+  return (
+    <code className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[12px] text-slate-700">
+      {children}
+    </code>
+  );
+}
+
+function Block({ children }: { children: ReactNode }) {
+  return (
+    <pre className="mt-2 overflow-x-auto rounded-lg bg-slate-900 px-4 py-3 text-[12px] leading-relaxed text-slate-100">
+      {children}
+    </pre>
+  );
+}
+
+const SECTIONS: Section[] = [
   {
-    icon: LogIn,
-    title: "1. 로그인",
-    body: (
-      <>회사 Google 계정으로 로그인합니다. 허용된 계정/도메인만 접근할 수 있으며,
-      로그인하면 우상단에 본인 이메일과 로그아웃 버튼이 표시됩니다.</>
-    ),
+    id: "user",
+    label: "사용자 가이드",
+    intro: "처음 사용하는 팀원이 알아야 할 기본 흐름입니다.",
+    items: [
+      {
+        icon: LogIn,
+        title: "로그인",
+        body: (
+          <>회사 Google 계정으로 로그인합니다. 허용된 이메일/도메인만 접근할 수 있습니다.
+          로그인하면 우상단에 본인 이메일과 로그아웃 버튼이 보입니다. 세션이 만료되면 다시
+          로그인 화면으로 이동합니다.</>
+        ),
+      },
+      {
+        icon: Users,
+        title: "담당 고객사 선택 (가장 먼저!)",
+        body: (
+          <>
+            <b>Settings → Customer List</b>에서 각 고객사의 <b>“담당” 체크박스</b>를 켭니다.
+            <ul className="ml-4 mt-1.5 list-disc space-y-0.5">
+              <li>체크한 고객사만 <b>대시보드·리소스·알람</b>에 표시됩니다.</li>
+              <li><b>아무것도 체크하지 않으면 모든 화면이 비어 있습니다</b> (의도된 동작).</li>
+              <li>이 선택은 <b>계정(DB)에 저장</b>되어 다른 PC/브라우저에서도 유지됩니다.</li>
+            </ul>
+          </>
+        ),
+      },
+      {
+        icon: Server,
+        title: "리소스 & 모니터링",
+        body: (
+          <>
+            <b>Resources</b> 화면에서 등록된 AWS 리소스를 봅니다. 타입은 색상 배지(EC2·RDS·S3…)로
+            구분됩니다.
+            <ul className="ml-4 mt-1.5 list-disc space-y-0.5">
+              <li>각 행의 <b>토글</b>로 모니터링을 켜고 끕니다. 켜면 해당 리소스에 알람이 생성됩니다.</li>
+              <li>여러 개를 선택해 <b>일괄(Bulk)</b>로 켜고 끌 수 있습니다.</li>
+              <li><b>Sync</b> 버튼으로 계정/리전 범위를 정해 최신 리소스를 다시 수집합니다.</li>
+            </ul>
+          </>
+        ),
+      },
+      {
+        icon: Bell,
+        title: "알람 보기",
+        body: (
+          <>
+            <b>Alarms</b> 화면에서 전체 알람을 상태별로 봅니다. 상태는 <Code>OK</Code> /{" "}
+            <Code>ALARM</Code> / <Code>INSUFFICIENT_DATA</Code> / <Code>OFF</Code> 이고, 심각도는{" "}
+            <Code>SEV-1</Code>~<Code>SEV-5</Code>로 표시됩니다. 상단바 <b>벨 아이콘</b>을 누르면
+            현재 ALARM 항목이 드롭다운으로 떠 바로 해당 리소스로 이동합니다.
+          </>
+        ),
+      },
+      {
+        icon: Search,
+        title: "검색 & 필터",
+        body: (
+          <>
+            상단바 <b>검색창</b>에 리소스 이름을 입력하고 Enter → Resources 화면에서 이름으로
+            필터링됩니다. 상단바 <b>고객사/계정/서비스 드롭다운</b>으로 더 좁힐 수 있습니다.
+            (드롭다운 고객사 목록은 담당으로 선택한 고객사만 나옵니다.)
+          </>
+        ),
+      },
+      {
+        icon: Boxes,
+        title: "고객사 & 계정 관리",
+        body: (
+          <>
+            <b>Settings</b>에서 고객사를 <b>생성·편집</b>할 수 있습니다(모든 사용자). 고객사 아래에
+            AWS 계정을 등록하면 그 계정의 리소스가 수집됩니다. 고객사 <b>삭제는 관리자만</b>
+            가능합니다(아래 권한 참고).
+          </>
+        ),
+      },
+    ],
   },
   {
-    icon: Users,
-    title: "2. 담당 고객사 선택 (중요)",
-    body: (
-      <><b>Settings → Customer List</b>에서 각 고객사의 <b>“담당” 체크박스</b>를 켜세요.
-      체크한 고객사만 대시보드·리소스·알람 화면에 표시됩니다. <b>아무것도 체크하지 않으면
-      화면이 비어 있습니다.</b> 이 선택은 계정에 저장되어 다른 기기에서도 유지됩니다.</>
-    ),
+    id: "deploy",
+    label: "배포 & 설정 (운영자)",
+    intro: "스택을 처음 올리거나 인증을 켜는 사람을 위한 단계입니다.",
+    items: [
+      {
+        icon: ListChecks,
+        title: "0. 사전 준비",
+        body: (
+          <>
+            <ul className="ml-4 list-disc space-y-0.5">
+              <li>대상 AWS 계정 자격증명(SSO 프로파일) + 배포용 S3 버킷</li>
+              <li>Google Cloud 프로젝트(OAuth 동의 화면 구성)</li>
+              <li>프론트엔드 호스팅: AWS Amplify(Next.js SSR)</li>
+            </ul>
+          </>
+        ),
+      },
+      {
+        icon: Rocket,
+        title: "1. 백엔드 스택 배포",
+        body: (
+          <>
+            CloudFormation 스택(Lambda·DynamoDB·API Gateway)을 배포합니다. 코드 변경 후엔 항상{" "}
+            <Code>--all-artifacts</Code>로 전체 아티팩트를 올립니다.
+            <Block>{`python .codex/deploy-backend-stack.py --all-artifacts`}</Block>
+            인증/관리자 값은 환경변수로 전달하며, 미전달 시 이전 값이 유지됩니다.
+            <Block>{`GOOGLE_CLIENT_ID=...        # JWT authorizer audience
+ALLOWED_EMAILS=a@x.com,b@y.com
+ALLOWED_EMAIL_DOMAINS=mz.co.kr
+ADMIN_EMAILS=admin@mz.co.kr`}</Block>
+          </>
+        ),
+      },
+      {
+        icon: KeyRound,
+        title: "2. Google OAuth & 인증",
+        body: (
+          <>
+            <ol className="ml-4 list-decimal space-y-0.5">
+              <li>Google Cloud Console → OAuth 클라이언트(웹) 생성</li>
+              <li>
+                승인된 리디렉션 URI에 <b>실제 서빙 도메인</b>(브랜치 접두사 포함) 추가:
+                <Block>{`https://<branch>.<appId>.amplifyapp.com/api/auth/callback/google`}</Block>
+              </li>
+              <li>발급된 Client ID는 백엔드 <Code>GOOGLE_CLIENT_ID</Code>(audience)로 동일하게 사용</li>
+              <li>인증은 단계적: <Code>GOOGLE_CLIENT_ID</Code>가 비면 공개, 값이 있으면 강제</li>
+            </ol>
+          </>
+        ),
+      },
+      {
+        icon: Cloud,
+        title: "3. 프론트엔드(Amplify) 환경변수",
+        body: (
+          <>
+            Amplify 콘솔 환경변수에 설정합니다. <b>주의:</b> 인증을 켜면{" "}
+            <Code>NEXT_PUBLIC_API_BASE_URL</Code>은 <b>비워야</b> 합니다(브라우저가 프록시를
+            경유하도록). 서버 전용 <Code>API_GATEWAY_URL</Code>만 둡니다.
+            <Block>{`API_GATEWAY_URL=https://<api>.execute-api.<region>.amazonaws.com/<stage>
+AUTH_GOOGLE_ID=...        AUTH_GOOGLE_SECRET=...
+AUTH_SECRET=$(openssl rand -base64 32)
+AUTH_URL=https://<branch>.<appId>.amplifyapp.com
+AUTH_TRUST_HOST=true
+ALLOWED_EMAILS=...  ALLOWED_EMAIL_DOMAINS=...`}</Block>
+            서버 런타임이 값을 읽도록 빌드에서 <Code>.env.production</Code>에 기록합니다
+            (<Code>amplify.yml</Code>). 환경변수 변경 후엔 재빌드해야 반영됩니다.
+          </>
+        ),
+      },
+      {
+        icon: ShieldCheck,
+        title: "4. 관리자 권한",
+        body: (
+          <>
+            <Code>ADMIN_EMAILS</Code>(콤마 구분)에 포함된 이메일이 관리자입니다. 관리자만 고객사{" "}
+            <b>삭제</b> 버튼이 보이고 실제 삭제가 가능합니다. 비워두면 아무도 삭제할 수 없습니다.
+            생성·편집은 모든 로그인 사용자에게 허용됩니다.
+          </>
+        ),
+      },
+    ],
   },
   {
-    icon: Server,
-    title: "3. 리소스 모니터링",
-    body: (
-      <><b>Resources</b> 화면에서 AWS 리소스를 확인하고, 토글로 모니터링을 켜고 끕니다.
-      타입은 색상 배지(EC2·RDS·S3 등)로 구분됩니다. 모니터링을 켜면 해당 리소스에
-      알람이 생성됩니다.</>
-    ),
-  },
-  {
-    icon: Bell,
-    title: "4. 알람 확인",
-    body: (
-      <><b>Alarms</b> 화면에서 전체 알람 상태를 봅니다. 상단바 <b>벨 아이콘</b>을 누르면
-      현재 ALARM 상태인 항목이 드롭다운으로 떠서 바로 해당 리소스로 이동할 수 있습니다.</>
-    ),
-  },
-  {
-    icon: Search,
-    title: "5. 검색",
-    body: (
-      <>상단바 <b>검색창</b>에 리소스 이름을 입력하고 Enter를 누르면 Resources 화면에서
-      해당 이름으로 필터링됩니다.</>
-    ),
-  },
-  {
-    icon: ShieldCheck,
-    title: "6. 권한 (관리자)",
-    body: (
-      <>고객사 <b>생성·편집</b>은 모든 사용자가 할 수 있습니다. 고객사 <b>삭제</b>는
-      관리자(admin)만 가능하며, 관리자에게만 삭제 버튼이 보입니다.</>
-    ),
+    id: "trouble",
+    label: "문제 해결 (FAQ)",
+    items: [
+      {
+        icon: SlidersHorizontal,
+        title: "화면이 비어 있어요",
+        body: <><b>Settings에서 담당 고객사를 체크</b>했는지 확인하세요. 선택이 없으면 모든 화면이 비어 있는 게 정상입니다.</>,
+      },
+      {
+        icon: KeyRound,
+        title: "Unauthorized / 로그인이 풀려요",
+        body: <>세션 만료일 수 있습니다. 다시 로그인하세요. 그래도 계속되면 운영자에게 인증 설정(도메인/redirect URI)을 문의하세요.</>,
+      },
+      {
+        icon: Wrench,
+        title: "첫 응답이 느려요",
+        body: <>트래픽이 적으면 서버리스(Lambda) 콜드 스타트로 첫 요청이 1~2초 느릴 수 있습니다. 이후 요청은 빠릅니다.</>,
+      },
+      {
+        icon: Cloud,
+        title: "페이지를 찾을 수 없음(404)",
+        body: <>접속 주소에 <b>브랜치 접두사</b>(예: <Code>main.</Code>)가 포함됐는지 확인하세요. 접두사 없는 도메인은 서빙되지 않습니다.</>,
+      },
+    ],
   },
 ];
 
 export default function HelpPage() {
   return (
-    <div className="max-w-3xl space-y-8">
+    <div className="max-w-3xl space-y-10">
       <div>
         <h1 className="text-3xl font-headline font-extrabold tracking-tight text-slate-900">
           사용 가이드
         </h1>
-        <p className="text-slate-500 text-sm mt-1">
-          팀원이 Alarm Manager를 사용하는 데 필요한 기본 흐름입니다.
+        <p className="mt-1 text-sm text-slate-500">
+          Alarm Manager 사용·배포·문제해결을 한 곳에 정리했습니다.
         </p>
+        {/* 목차 */}
+        <nav className="mt-4 flex flex-wrap gap-2">
+          {SECTIONS.map((s) => (
+            <a
+              key={s.id}
+              href={`#${s.id}`}
+              className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+            >
+              {s.label}
+            </a>
+          ))}
+        </nav>
       </div>
 
-      <div className="space-y-4">
-        {STEPS.map((step) => (
-          <div
-            key={step.title}
-            className="flex gap-4 rounded-xl border border-slate-200 bg-white p-5 shadow-soft"
-          >
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-              <step.icon size={20} />
-            </span>
-            <div>
-              <h2 className="text-base font-semibold text-slate-800">{step.title}</h2>
-              <p className="mt-1 text-sm leading-relaxed text-slate-600">{step.body}</p>
-            </div>
+      {SECTIONS.map((section) => (
+        <section key={section.id} id={section.id} className="scroll-mt-20 space-y-4">
+          <div>
+            <h2 className="text-xl font-bold text-slate-900">{section.label}</h2>
+            {section.intro && <p className="mt-0.5 text-sm text-slate-500">{section.intro}</p>}
           </div>
-        ))}
-      </div>
-
-      <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-        <Trash2 size={15} className="mr-1 inline align-text-bottom" />
-        <b>팁:</b> 화면이 비어 보이면 먼저 <b>Settings에서 담당 고객사를 체크</b>했는지 확인하세요.
-      </div>
+          <div className="space-y-3">
+            {section.items.map((item) => (
+              <div
+                key={item.title}
+                className="flex gap-4 rounded-xl border border-slate-200 bg-white p-5 shadow-soft"
+              >
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                  <item.icon size={20} />
+                </span>
+                <div className="min-w-0">
+                  <h3 className="text-base font-semibold text-slate-800">{item.title}</h3>
+                  <div className="mt-1 text-sm leading-relaxed text-slate-600">{item.body}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      ))}
     </div>
   );
 }

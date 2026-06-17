@@ -8,7 +8,12 @@ export const metadata: Metadata = {
   description: "Manage and monitor AWS entities across all registered accounts.",
 };
 
-export default async function ResourcesPage() {
+export default async function ResourcesPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ search?: string }>;
+}) {
+  const { search } = await searchParams;
   let resources: Resource[] = [];
   let customers: { id: string; name: string }[] = [];
   let accounts: { id: string; name: string; customerId: string }[] = [];
@@ -27,6 +32,7 @@ export default async function ResourcesPage() {
       resources={resources}
       customers={customers}
       accounts={accounts}
+      initialSearch={search ?? ""}
     />
   );
 }

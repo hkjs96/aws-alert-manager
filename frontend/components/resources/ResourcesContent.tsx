@@ -44,6 +44,7 @@ interface ResourcesContentProps {
   resources: Resource[];
   customers: CustomerDto[];
   accounts: AccountDto[];
+  initialSearch?: string;
 }
 
 const DEFAULT_PAGE_SIZE = 25;
@@ -58,6 +59,7 @@ export function ResourcesContent({
   resources,
   customers,
   accounts,
+  initialSearch = "",
 }: ResourcesContentProps) {
   const router = useRouter();
   const { showToast } = useToast();
@@ -67,11 +69,11 @@ export function ResourcesContent({
     setLocalResources(resources);
   }, [resources]);
 
-  // 상단바 전역 검색(/resources?search=)에서 넘어온 쿼리를 초기 적용
+  // 상단바 전역 검색(/resources?search=)에서 넘어온 쿼리를 반영 (네비게이션마다)
   useEffect(() => {
-    const q = new URLSearchParams(window.location.search).get("search");
-    if (q) setSearch(q);
-  }, []);
+    setSearch(initialSearch);
+    setPage(1);
+  }, [initialSearch]);
 
   const { loadingIds, toggle } = useMonitoringToggle();
   const { ownedCustomerIds, isLoading: isOwnedLoading } = useOwnedCustomers();
