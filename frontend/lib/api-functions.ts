@@ -124,6 +124,18 @@ export function fetchAlarmSummary(filters: GlobalFilterParams): Promise<AlarmSum
   return apiFetch(`/api/alarms/summary${qs ? `?${qs}` : ""}`);
 }
 
+// --- Current user ---
+
+export interface MeResponse {
+  email: string;
+  is_admin: boolean;
+  owned_customer_ids: string[];
+}
+
+export function fetchMe(): Promise<MeResponse> {
+  return apiFetch("/api/me");
+}
+
 // --- Customers ---
 
 export function fetchCustomers(): Promise<Customer[]> {

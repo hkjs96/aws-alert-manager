@@ -69,10 +69,24 @@ def create_customer(event: dict) -> dict:
     except ClientError as e:
         return _err(500, "DB_ERROR", str(e))
 
+    # 생성자가 만든 고객사를 자기 뷰에 자동 포함 (best-effort)
+    from api_handler.identity import current_email
+    from api_handler.routes.preferences import add_owned_customer
+    email = current_email(event)
+    if email:
+        try:
+            add_owned_customer(email, code)
+        except ClientError:
+            pass  # 선택 추가 실패해도 생성 자체는 성공
+
     return _ok(item, status=201)
 
 
 def delete_customer(event: dict) -> dict:
+    from api_handler.identity import current_email, is_admin, admin_enforced
+    if admin_enforced() and not is_admin(current_email(event)):
+        return _err(403, "FORBIDDEN", "고객사 삭제 권한이 없습니다 (관리자 전용)")
+
     customer_id = (event.get("pathParameters") or {}).get("id", "")
     if not customer_id:
         return _err(400, "MISSING_PARAM", "customer_id가 필요합니다")

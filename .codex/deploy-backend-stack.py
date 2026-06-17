@@ -213,6 +213,7 @@ def _deploy(
         ("GOOGLE_CLIENT_ID", "GoogleClientId"),
         ("ALLOWED_EMAILS", "AllowedEmails"),
         ("ALLOWED_EMAIL_DOMAINS", "AllowedEmailDomains"),
+        ("ADMIN_EMAILS", "AdminEmails"),
     ):
         value = os.environ.get(env_name)
         if value is not None:

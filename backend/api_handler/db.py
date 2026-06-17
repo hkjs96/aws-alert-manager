@@ -45,6 +45,10 @@ def resource_inventory_table():
     return _get_dynamodb().Table(os.environ["RESOURCE_INVENTORY_TABLE"])
 
 
+def user_preferences_table():
+    return _get_dynamodb().Table(os.environ["USER_PREFERENCES_TABLE"])
+
+
 def scan_all(table) -> list[dict]:
     """페이지네이션 처리한 전체 스캔. 소규모 테이블(고객사/어카운트)용."""
     items = []

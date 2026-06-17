@@ -1,5 +1,6 @@
 import type { UserCustomerStore } from "./store";
 import { STORAGE_KEY_PREFIX, GUEST_USER_ID } from "./constants";
+import { ApiUserCustomerStore } from "./apiStore";
 
 export class LocalStorageUserCustomerStore implements UserCustomerStore {
   private readonly key = `${STORAGE_KEY_PREFIX}${GUEST_USER_ID}`;
@@ -75,6 +76,6 @@ export class LocalStorageUserCustomerStore implements UserCustomerStore {
 }
 
 export function createUserCustomerStore(): UserCustomerStore {
-  // Phase2 전환 시: if (process.env.NEXT_PUBLIC_AUTH_ENABLED === "true") return new ApiUserCustomerStore();
-  return new LocalStorageUserCustomerStore();
+  // 담당 고객사 선택을 DB(백엔드)에 저장 — 계정 단위로 기기 간 동기화.
+  return new ApiUserCustomerStore();
 }

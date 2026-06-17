@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 from api_handler.routes import (
     customers, accounts, dashboard, resources, alarms, thresholds, jobs, bulk,
-    monitor_runs, sync,
+    monitor_runs, sync, preferences,
 )
 
 
@@ -89,6 +89,9 @@ def _forbidden(who: str) -> dict:
 _ROUTES: list[tuple[str, re.Pattern, object]] = [
     # Health
     ("GET",    re.compile(r"^/health$"),                              _health),
+    # Current user (identity + personal view selection)
+    ("GET",    re.compile(r"^/me$"),                                  preferences.get_me),
+    ("PUT",    re.compile(r"^/me/preferences$"),                      preferences.put_preferences),
     # Dashboard
     ("GET",    re.compile(r"^/dashboard/stats$"),                     dashboard.get_stats),
     ("GET",    re.compile(r"^/dashboard/recent-alarms$"),             dashboard.get_recent_alarms),

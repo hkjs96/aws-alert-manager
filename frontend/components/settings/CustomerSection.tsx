@@ -9,6 +9,7 @@ import { useToast } from "@/components/shared/Toast";
 import { LoadingButton } from "@/components/shared/LoadingButton";
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { useOwnedCustomers } from "@/hooks/useOwnedCustomers";
+import { useMe } from "@/hooks/useMe";
 import { createCustomer as apiCreateCustomer, deleteCustomer as apiDeleteCustomer } from "@/lib/api-functions";
 
 interface CustomerSectionProps {
@@ -19,6 +20,7 @@ export function CustomerSection({ customers }: CustomerSectionProps) {
   const router = useRouter();
   const { showToast } = useToast();
   const { ownedCustomerIds, toggleOwned, isOwned } = useOwnedCustomers();
+  const { isAdmin } = useMe();
   const [name, setName] = useState("");
   const [code, setCode] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -118,12 +120,14 @@ export function CustomerSection({ customers }: CustomerSectionProps) {
                   <td className="px-4 py-3 font-mono text-[11px] text-slate-600">{c.customer_id}</td>
                   <td className="px-4 py-3 text-right text-slate-600">{c.account_count}</td>
                   <td className="px-4 py-3">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setDeleteTarget(c)}
-                      icon={<Trash2 size={14} />}
-                    />
+                    {isAdmin && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setDeleteTarget(c)}
+                        icon={<Trash2 size={14} />}
+                      />
+                    )}
                   </td>
                 </tr>
               ))}

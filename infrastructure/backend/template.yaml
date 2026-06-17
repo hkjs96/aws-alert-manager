@@ -75,6 +75,13 @@ Parameters:
       Comma-separated allowlist of email/Workspace domains (e.g. company.com)
       permitted to call the API. Empty means no domain restriction.
 
+  AdminEmails:
+    Type: String
+    Default: ""
+    Description: >
+      Comma-separated list of admin emails. Admins may delete customers.
+      Empty means no admins (delete disabled for everyone).
+
 Mappings:
   LambdaConfig:
     Settings:
@@ -114,6 +121,23 @@ Resources:
           AttributeType: S
       KeySchema:
         - AttributeName: customer_id
+          KeyType: HASH
+      Tags:
+        - Key: ManagedBy
+          Value: AlarmManager
+
+  UserPreferencesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub
+        - aws-monitoring-user-prefs-${EnvShort}
+        - EnvShort: !FindInMap [EnvShortName, !Ref Environment, short]
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: user_email
+          AttributeType: S
+      KeySchema:
+        - AttributeName: user_email
           KeyType: HASH
       Tags:
         - Key: ManagedBy
@@ -313,6 +337,8 @@ Resources:
           DAILY_MONITOR_FUNCTION_NAME: !Ref DailyMonitorFunction
           ALLOWED_EMAILS: !Ref AllowedEmails
           ALLOWED_EMAIL_DOMAINS: !Ref AllowedEmailDomains
+          ADMIN_EMAILS: !Ref AdminEmails
+          USER_PREFERENCES_TABLE: !Ref UserPreferencesTable
 
   ApiHandlerRole:
     Type: AWS::IAM::Role
@@ -344,6 +370,7 @@ Resources:
                   - dynamodb:Scan
                 Resource:
                   - !GetAtt CustomersTable.Arn
+                  - !GetAtt UserPreferencesTable.Arn
                   - !GetAtt AccountsTable.Arn
                   - !Sub "${AccountsTable.Arn}/index/*"
                   - !GetAtt ThresholdOverridesTable.Arn
