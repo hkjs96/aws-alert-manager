@@ -184,12 +184,12 @@ CloudWatch 알람 발생 ─▶ SNS Topic ─▶ 알림(Slack·이메일·운영
               <b>고객사 온보딩 (콘솔)</b>
               <div className="mt-2 flex flex-wrap gap-2">
                 <a
-                  href="https://console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacks/create"
+                  href="https://console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacks/create/review?templateURL=https%3A%2F%2Falarm-manager-onboarding-949501913924.s3.amazonaws.com%2Fcustomer-onboarding.yaml&stackName=alarm-manager-onboarding&param_CentralAccountId=949501913924"
                   target="_blank"
                   rel="noreferrer"
                   className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white transition hover:brightness-110"
                 >
-                  <ExternalLink size={13} /> CloudFormation 콘솔 열기
+                  <ExternalLink size={13} /> CloudFormation 스택 생성 (원클릭)
                 </a>
                 <a
                   href="/customer-onboarding.yaml"
@@ -200,10 +200,8 @@ CloudWatch 알람 발생 ─▶ SNS Topic ─▶ 알림(Slack·이메일·운영
                 </a>
               </div>
               <ol className="ml-4 mt-3 list-decimal space-y-1">
-                <li>위 <b>템플릿 다운로드</b>로 YAML을 받습니다.</li>
-                <li><b>CloudFormation 콘솔 열기</b> → “템플릿 파일 업로드”에서 받은 YAML을 선택.</li>
-                <li>파라미터 <Code>CentralAccountId</Code>에 <b>중앙(모니터링) 계정 ID 12자리</b>를 입력. (이 계정만 AssumeRole 가능 — IAM은 글로벌이라 리전 무관)</li>
-                <li><b>IAM 리소스 생성 승인</b>(CAPABILITY_NAMED_IAM) 체크 → 스택 생성.</li>
+                <li><b>CloudFormation 스택 생성 (원클릭)</b> 클릭 — 콘솔에 템플릿과 파라미터(<Code>CentralAccountId</Code>=중앙 계정)가 <b>자동으로 채워져</b> 열립니다.</li>
+                <li>하단 <b>“IAM 리소스 생성 승인”</b>(CAPABILITY_NAMED_IAM) 체크 → <b>스택 생성</b>. (IAM은 글로벌이라 리전 무관)</li>
                 <li>생성 후 <b>Outputs의 <Code>RoleArn</Code></b> 복사 → 앱 <b>Settings → 계정 등록</b>(account_id, role_arn, 고객사).</li>
               </ol>
               <details className="mt-2">
