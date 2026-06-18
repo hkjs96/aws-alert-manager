@@ -3,7 +3,7 @@ import Link from "next/link";
 import {
   LogIn, Users, Server, Bell, Search, Boxes, SlidersHorizontal,
   KeyRound, Cloud, Wrench, ArrowLeft,
-  Lightbulb, Network, Share2, Workflow,
+  Lightbulb, Network, Share2, Workflow, ExternalLink, Download,
 } from "lucide-react";
 
 export const metadata = {
@@ -181,22 +181,46 @@ CloudWatch 알람 발생 ─▶ SNS Topic ─▶ 알림(Slack·이메일·운영
 └────────────────────┘           └──────────────────────────┘
   ※ 고객 계정엔 Lambda/DB 없음 — IAM Role만(경량 온보딩).`}</Block>
             <div className="mt-3">
-              <b>고객사 온보딩 — 3단계</b>
-              <ol className="ml-4 mt-1 list-decimal space-y-0.5">
-                <li>고객 계정에 <b>IAM Role 스택(CloudFormation)</b> 배포</li>
-                <li>스택 Output의 <Code>RoleArn</Code> 확보</li>
-                <li>앱(Settings)에서 <b>계정 등록</b>: <Code>account_id</Code> + <Code>role_arn</Code> + 고객사</li>
+              <b>고객사 온보딩 (콘솔)</b>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <a
+                  href="https://console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacks/create"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white transition hover:brightness-110"
+                >
+                  <ExternalLink size={13} /> CloudFormation 콘솔 열기
+                </a>
+                <a
+                  href="/customer-onboarding.yaml"
+                  download
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+                >
+                  <Download size={13} /> 템플릿(YAML) 다운로드
+                </a>
+              </div>
+              <ol className="ml-4 mt-3 list-decimal space-y-1">
+                <li>위 <b>템플릿 다운로드</b>로 YAML을 받습니다.</li>
+                <li><b>CloudFormation 콘솔 열기</b> → “템플릿 파일 업로드”에서 받은 YAML을 선택.</li>
+                <li>파라미터 <Code>CentralAccountId</Code>에 <b>중앙(모니터링) 계정 ID 12자리</b>를 입력. (이 계정만 AssumeRole 가능 — IAM은 글로벌이라 리전 무관)</li>
+                <li><b>IAM 리소스 생성 승인</b>(CAPABILITY_NAMED_IAM) 체크 → 스택 생성.</li>
+                <li>생성 후 <b>Outputs의 <Code>RoleArn</Code></b> 복사 → 앱 <b>Settings → 계정 등록</b>(account_id, role_arn, 고객사).</li>
               </ol>
-              <Block>{`# 고객 계정 자격증명으로 배포
+              <details className="mt-2">
+                <summary className="cursor-pointer text-xs font-medium text-slate-500 hover:text-slate-700">CLI로 배포 (대안)</summary>
+                <Block>{`# 위에서 받은 customer-onboarding.yaml 로 배포 (고객 계정 자격증명)
 aws cloudformation deploy \\
-  --template-file infrastructure/customer-onboarding/template.yaml \\
+  --template-file customer-onboarding.yaml \\
   --stack-name alarm-manager-onboarding \\
   --capabilities CAPABILITY_NAMED_IAM \\
   --parameter-overrides CentralAccountId=<중앙 계정 ID>`}</Block>
-              생성물은 IAM Role 하나뿐(리소스 read + CloudWatch 알람 CRUD + 태그 write),
-              신뢰는 중앙 계정만. 이후 중앙 Lambda가 등록된 <Code>role_arn</Code>을{" "}
-              <Code>AssumeRole</Code>(세션명 <Code>MonitoringEngine</Code>)해 그 계정의 리소스를
-              조회·알람합니다.
+              </details>
+              <p className="mt-2">
+                생성물은 IAM Role 하나뿐(리소스 read + CloudWatch 알람 CRUD + 태그 write),
+                신뢰는 중앙 계정만. 이후 중앙 Lambda가 등록된 <Code>role_arn</Code>을{" "}
+                <Code>AssumeRole</Code>(세션명 <Code>MonitoringEngine</Code>)해 그 계정의
+                리소스를 조회·알람합니다.
+              </p>
             </div>
           </>
         ),
