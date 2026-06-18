@@ -3,9 +3,9 @@ import { HelpCircle, Bell, Check } from "lucide-react";
 import { LoginButton } from "./LoginButton";
 
 const FEATURES = [
-  "29종 AWS 리소스 자동 수집·동기화",
-  "리소스별 실시간 임계값 알람",
-  "고객사·팀 단위 운영 관리",
+  "리소스 모니터링 on/off",
+  "CloudWatch 임계값 알람 관리",
+  "고객사·계정 단위 정리",
 ];
 
 export default async function LoginPage({
@@ -35,11 +35,11 @@ export default async function LoginPage({
 
         <div className="relative">
           <h2 className="font-headline text-4xl font-extrabold leading-tight">
-            AWS 리소스를<br />한눈에 모니터링
+            사내 AWS<br />알람 관리 콘솔
           </h2>
           <p className="mt-4 max-w-md text-sm leading-relaxed text-white/70">
-            29종 AWS 리소스를 자동 수집하고, 임계값 기반 알람을 관리하세요.
-            고객사별로 정리된 운영 대시보드를 제공합니다.
+            운영팀이 AWS CloudWatch 알람과 리소스 모니터링을 한 곳에서 관리하는
+            내부 도구입니다.
           </p>
           <ul className="mt-8 space-y-3 text-sm text-white/90">
             {FEATURES.map((f) => (
@@ -90,7 +90,7 @@ export default async function LoginPage({
           </Link>
 
           <p className="mt-10 text-center text-[11px] text-slate-400">
-            로그인하면 접근 정책에 동의하는 것으로 간주됩니다.
+            허용된 계정만 접근할 수 있습니다.
           </p>
         </div>
       </div>
