@@ -198,6 +198,16 @@ CloudWatch 알람 발생 ─▶ SNS Topic ─▶ 알림(Slack·이메일·운영
 │   Lambda           │           │   · CloudWatch 알람 CRUD  │
 └────────────────────┘           └──────────────────────────┘
   ※ 고객 계정엔 Lambda/DB 없음 — IAM Role만(경량 온보딩).`}</Block>
+            <div className="mt-2">
+              <b>온보딩 3단계</b>
+              <ol className="ml-4 mt-1 list-decimal space-y-0.5">
+                <li>고객 계정에 <b>IAM Role 스택 배포</b>(아래 “배포 &amp; 설정 → 고객사 계정 온보딩” 참고)</li>
+                <li>스택 Output의 <Code>RoleArn</Code> 확보</li>
+                <li>앱(Settings)에서 <b>계정 등록</b>: <Code>account_id</Code> + <Code>role_arn</Code> + 고객사</li>
+              </ol>
+              이후 중앙 Lambda가 등록된 <Code>role_arn</Code>을 <Code>AssumeRole</Code>(세션명{" "}
+              <Code>MonitoringEngine</Code>)해 그 계정의 리소스를 조회·알람합니다.
+            </div>
           </>
         ),
       },
@@ -320,6 +330,28 @@ ALLOWED_EMAILS=...  ALLOWED_EMAIL_DOMAINS=...`}</Block>
             <Code>ADMIN_EMAILS</Code>(콤마 구분)에 포함된 이메일이 관리자입니다. 관리자만 고객사{" "}
             <b>삭제</b> 버튼이 보이고 실제 삭제가 가능합니다. 비워두면 아무도 삭제할 수 없습니다.
             생성·편집은 모든 로그인 사용자에게 허용됩니다.
+          </>
+        ),
+      },
+      {
+        icon: Share2,
+        title: "5. 고객사 계정 온보딩 (IAM Role 배포)",
+        body: (
+          <>
+            모니터링할 고객 AWS 계정마다 <b>IAM Role 스택</b>을 그 계정에 배포합니다. 중앙
+            계정이 이 Role을 AssumeRole해 리소스 조회·알람을 관리합니다(고객 계정엔 이 Role만
+            생성, Lambda/DB 없음).
+            <Block>{`# 고객 계정 자격증명으로 배포
+aws cloudformation deploy \\
+  --template-file infrastructure/customer-onboarding/template.yaml \\
+  --stack-name alarm-manager-onboarding \\
+  --capabilities CAPABILITY_NAMED_IAM \\
+  --parameter-overrides CentralAccountId=<중앙 계정 ID>`}</Block>
+            <ul className="ml-4 mt-1.5 list-disc space-y-0.5">
+              <li>생성물: IAM Role (리소스 read + CloudWatch 알람 CRUD + 태그 write). Lambda/DB 없음.</li>
+              <li>신뢰 관계: <b>중앙 계정만</b> AssumeRole 가능 (현재 ExternalId 미사용 — 중앙 코드와 일치).</li>
+              <li>배포 후 Output <Code>RoleArn</Code>을 <b>Settings → 계정 등록</b>(account_id, role_arn, 고객사)에 입력하면 연동 완료.</li>
+            </ul>
           </>
         ),
       },
