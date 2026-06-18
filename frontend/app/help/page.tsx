@@ -1,8 +1,8 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import {
-  LogIn, Users, Server, Bell, Search, ShieldCheck, Boxes, SlidersHorizontal,
-  Rocket, KeyRound, Cloud, Wrench, ListChecks, FolderGit2, ArrowLeft,
+  LogIn, Users, Server, Bell, Search, Boxes, SlidersHorizontal,
+  KeyRound, Cloud, Wrench, ArrowLeft,
   Lightbulb, Network, Database, Share2, Workflow,
 } from "lucide-react";
 
@@ -198,15 +198,23 @@ CloudWatch 알람 발생 ─▶ SNS Topic ─▶ 알림(Slack·이메일·운영
 │   Lambda           │           │   · CloudWatch 알람 CRUD  │
 └────────────────────┘           └──────────────────────────┘
   ※ 고객 계정엔 Lambda/DB 없음 — IAM Role만(경량 온보딩).`}</Block>
-            <div className="mt-2">
-              <b>온보딩 3단계</b>
+            <div className="mt-3">
+              <b>고객사 온보딩 — 3단계</b>
               <ol className="ml-4 mt-1 list-decimal space-y-0.5">
-                <li>고객 계정에 <b>IAM Role 스택 배포</b>(아래 “배포 &amp; 설정 → 고객사 계정 온보딩” 참고)</li>
+                <li>고객 계정에 <b>IAM Role 스택(CloudFormation)</b> 배포</li>
                 <li>스택 Output의 <Code>RoleArn</Code> 확보</li>
                 <li>앱(Settings)에서 <b>계정 등록</b>: <Code>account_id</Code> + <Code>role_arn</Code> + 고객사</li>
               </ol>
-              이후 중앙 Lambda가 등록된 <Code>role_arn</Code>을 <Code>AssumeRole</Code>(세션명{" "}
-              <Code>MonitoringEngine</Code>)해 그 계정의 리소스를 조회·알람합니다.
+              <Block>{`# 고객 계정 자격증명으로 배포
+aws cloudformation deploy \\
+  --template-file infrastructure/customer-onboarding/template.yaml \\
+  --stack-name alarm-manager-onboarding \\
+  --capabilities CAPABILITY_NAMED_IAM \\
+  --parameter-overrides CentralAccountId=<중앙 계정 ID>`}</Block>
+              생성물은 IAM Role 하나뿐(리소스 read + CloudWatch 알람 CRUD + 태그 write),
+              신뢰는 중앙 계정만. 이후 중앙 Lambda가 등록된 <Code>role_arn</Code>을{" "}
+              <Code>AssumeRole</Code>(세션명 <Code>MonitoringEngine</Code>)해 그 계정의 리소스를
+              조회·알람합니다.
             </div>
           </>
         ),
@@ -230,128 +238,6 @@ CloudWatch 알람 발생 ─▶ SNS Topic ─▶ 알림(Slack·이메일·운영
  메트릭 임계값 초과 → CloudWatch ALARM → SNS → 운영팀`}</Block>
             알람의 임계값·심각도·on/off가 모두 <b>리소스 태그</b>로 결정됩니다 — 그래서
             “태그 기반”입니다.
-          </>
-        ),
-      },
-    ],
-  },
-  {
-    id: "deploy",
-    label: "배포 & 설정 (운영자)",
-    intro: "스택을 처음 올리거나 인증을 켜는 사람을 위한 단계입니다.",
-    items: [
-      {
-        icon: FolderGit2,
-        title: "코드 받기 (저장소)",
-        body: (
-          <>
-            모든 코드(인프라·백엔드·프론트엔드)는 GitHub 저장소에 있습니다.
-            <Block>{`git clone https://github.com/hkjs96/aws-alert-manager.git`}</Block>
-            <ul className="ml-4 mt-1.5 list-disc space-y-0.5">
-              <li>CloudFormation 템플릿: <Code>infrastructure/backend/template.yaml</Code></li>
-              <li>백엔드 배포 스크립트: <Code>.codex/deploy-backend-stack.py</Code></li>
-              <li>백엔드 Lambda 코드: <Code>backend/</Code></li>
-              <li>프론트엔드(Next.js): <Code>frontend/</Code> — Amplify가 이 저장소 <Code>main</Code> 브랜치에 연결돼 자동 빌드</li>
-              <li>운영 문서: <Code>docs/AUTH.md</Code>, <Code>guides/OPERATIONS.md</Code></li>
-            </ul>
-          </>
-        ),
-      },
-      {
-        icon: ListChecks,
-        title: "0. 사전 준비",
-        body: (
-          <>
-            <ul className="ml-4 list-disc space-y-0.5">
-              <li>대상 AWS 계정 자격증명(SSO 프로파일) + 배포용 S3 버킷</li>
-              <li>Google Cloud 프로젝트(OAuth 동의 화면 구성)</li>
-              <li>프론트엔드 호스팅: AWS Amplify(Next.js SSR)</li>
-            </ul>
-          </>
-        ),
-      },
-      {
-        icon: Rocket,
-        title: "1. 백엔드 스택 배포",
-        body: (
-          <>
-            CloudFormation 스택(Lambda·DynamoDB·API Gateway)을 배포합니다. 코드 변경 후엔 항상{" "}
-            <Code>--all-artifacts</Code>로 전체 아티팩트를 올립니다.
-            <Block>{`python .codex/deploy-backend-stack.py --all-artifacts`}</Block>
-            인증/관리자 값은 환경변수로 전달하며, 미전달 시 이전 값이 유지됩니다.
-            <Block>{`GOOGLE_CLIENT_ID=...        # JWT authorizer audience
-ALLOWED_EMAILS=a@x.com,b@y.com
-ALLOWED_EMAIL_DOMAINS=mz.co.kr
-ADMIN_EMAILS=admin@mz.co.kr`}</Block>
-          </>
-        ),
-      },
-      {
-        icon: KeyRound,
-        title: "2. Google OAuth & 인증",
-        body: (
-          <>
-            <ol className="ml-4 list-decimal space-y-0.5">
-              <li>Google Cloud Console → OAuth 클라이언트(웹) 생성</li>
-              <li>
-                승인된 리디렉션 URI에 <b>실제 서빙 도메인</b>(브랜치 접두사 포함) 추가:
-                <Block>{`https://<branch>.<appId>.amplifyapp.com/api/auth/callback/google`}</Block>
-              </li>
-              <li>발급된 Client ID는 백엔드 <Code>GOOGLE_CLIENT_ID</Code>(audience)로 동일하게 사용</li>
-              <li>인증은 단계적: <Code>GOOGLE_CLIENT_ID</Code>가 비면 공개, 값이 있으면 강제</li>
-            </ol>
-          </>
-        ),
-      },
-      {
-        icon: Cloud,
-        title: "3. 프론트엔드(Amplify) 환경변수",
-        body: (
-          <>
-            Amplify 콘솔 환경변수에 설정합니다. <b>주의:</b> 인증을 켜면{" "}
-            <Code>NEXT_PUBLIC_API_BASE_URL</Code>은 <b>비워야</b> 합니다(브라우저가 프록시를
-            경유하도록). 서버 전용 <Code>API_GATEWAY_URL</Code>만 둡니다.
-            <Block>{`API_GATEWAY_URL=https://<api>.execute-api.<region>.amazonaws.com/<stage>
-AUTH_GOOGLE_ID=...        AUTH_GOOGLE_SECRET=...
-AUTH_SECRET=$(openssl rand -base64 32)
-AUTH_URL=https://<branch>.<appId>.amplifyapp.com
-AUTH_TRUST_HOST=true
-ALLOWED_EMAILS=...  ALLOWED_EMAIL_DOMAINS=...`}</Block>
-            서버 런타임이 값을 읽도록 빌드에서 <Code>.env.production</Code>에 기록합니다
-            (<Code>amplify.yml</Code>). 환경변수 변경 후엔 재빌드해야 반영됩니다.
-          </>
-        ),
-      },
-      {
-        icon: ShieldCheck,
-        title: "4. 관리자 권한",
-        body: (
-          <>
-            <Code>ADMIN_EMAILS</Code>(콤마 구분)에 포함된 이메일이 관리자입니다. 관리자만 고객사{" "}
-            <b>삭제</b> 버튼이 보이고 실제 삭제가 가능합니다. 비워두면 아무도 삭제할 수 없습니다.
-            생성·편집은 모든 로그인 사용자에게 허용됩니다.
-          </>
-        ),
-      },
-      {
-        icon: Share2,
-        title: "5. 고객사 계정 온보딩 (IAM Role 배포)",
-        body: (
-          <>
-            모니터링할 고객 AWS 계정마다 <b>IAM Role 스택</b>을 그 계정에 배포합니다. 중앙
-            계정이 이 Role을 AssumeRole해 리소스 조회·알람을 관리합니다(고객 계정엔 이 Role만
-            생성, Lambda/DB 없음).
-            <Block>{`# 고객 계정 자격증명으로 배포
-aws cloudformation deploy \\
-  --template-file infrastructure/customer-onboarding/template.yaml \\
-  --stack-name alarm-manager-onboarding \\
-  --capabilities CAPABILITY_NAMED_IAM \\
-  --parameter-overrides CentralAccountId=<중앙 계정 ID>`}</Block>
-            <ul className="ml-4 mt-1.5 list-disc space-y-0.5">
-              <li>생성물: IAM Role (리소스 read + CloudWatch 알람 CRUD + 태그 write). Lambda/DB 없음.</li>
-              <li>신뢰 관계: <b>중앙 계정만</b> AssumeRole 가능 (현재 ExternalId 미사용 — 중앙 코드와 일치).</li>
-              <li>배포 후 Output <Code>RoleArn</Code>을 <b>Settings → 계정 등록</b>(account_id, role_arn, 고객사)에 입력하면 연동 완료.</li>
-            </ul>
           </>
         ),
       },
