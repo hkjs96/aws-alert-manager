@@ -38,8 +38,14 @@ export function BulkActionBar({
         <Button variant="secondary" size="sm" onClick={onDisable} icon={<EyeOff size={14} />}>
           Disable
         </Button>
-        <Button variant="primary" size="sm" icon={<Settings size={14} />}>
-          Configure Alarms
+        <Button
+          variant="primary"
+          size="sm"
+          disabled
+          title="곧 제공 예정 (Coming soon)"
+          icon={<Settings size={14} />}
+        >
+          Configure Alarms (예정)
         </Button>
       </div>
     </div>

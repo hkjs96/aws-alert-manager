@@ -79,7 +79,7 @@ const SECTIONS: Section[] = [
             구분됩니다.
             <ul className="ml-4 mt-1.5 list-disc space-y-0.5">
               <li>각 행의 <b>토글</b>로 모니터링을 켜고 끕니다. 켜면 해당 리소스에 알람이 생성됩니다.</li>
-              <li>여러 개를 선택해 <b>일괄(Bulk)</b>로 켜고 끌 수 있습니다.</li>
+              <li>여러 개를 선택해 <b>일괄(Bulk)</b>로 켜고 끌 수 있습니다. (일괄 <b>알람 설정</b>“Configure Alarms”은 준비 중 — 예정)</li>
               <li><b>Sync</b> 버튼으로 계정/리전 범위를 정해 최신 리소스를 다시 수집합니다.</li>
             </ul>
           </>
