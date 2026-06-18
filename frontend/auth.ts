@@ -62,6 +62,11 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     }),
   ],
   pages: { signIn: "/login" },
+  session: {
+    strategy: "jwt",
+    maxAge: 60 * 60 * 8, // 8시간 (근무일 세션) — 미활동 8시간 후 만료
+    updateAge: 60 * 60, // 활동 시 1시간마다 rolling 갱신
+  },
   callbacks: {
     signIn({ profile }) {
       const p = profile as GoogleProfileFields | undefined;
