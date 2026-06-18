@@ -3,8 +3,8 @@ import Link from "next/link";
 import {
   LogIn, Users, Server, Bell, Search, ShieldCheck, Boxes, SlidersHorizontal,
   Rocket, KeyRound, Cloud, Wrench, ListChecks, FolderGit2, ArrowLeft,
+  Lightbulb, Network, Database, Share2, Workflow,
 } from "lucide-react";
-import { auth } from "@/auth";
 
 export const metadata = {
   title: "사용 가이드 · Alarm Manager",
@@ -116,6 +116,110 @@ const SECTIONS: Section[] = [
             <b>Settings</b>에서 고객사를 <b>생성·편집</b>할 수 있습니다(모든 사용자). 고객사 아래에
             AWS 계정을 등록하면 그 계정의 리소스가 수집됩니다. 고객사 <b>삭제는 관리자만</b>
             가능합니다(아래 권한 참고).
+          </>
+        ),
+      },
+    ],
+  },
+  {
+    id: "arch",
+    label: "아키텍처 & 연동",
+    intro: "이 도구가 무엇을, 왜, 어떻게 동작하는지.",
+    items: [
+      {
+        icon: Lightbulb,
+        title: "한 줄 요약 — 왜 중앙 스택인가",
+        body: (
+          <>
+            중앙 AWS 계정에 스택 <b>하나</b>를 올려, 여러 고객 AWS 계정의 CloudWatch
+            알람을 <b>태그 기반</b>으로 한 곳에서 관리합니다. 고객 계정에는 무거운 리소스
+            없이 <b>IAM Role만</b> 두고, 중앙에서 STS AssumeRole로 접근합니다. UI는 중앙
+            API 하나만 호출하면 되고, 알람 정책·코드를 중앙에서 일관 관리합니다.
+          </>
+        ),
+      },
+      {
+        icon: Network,
+        title: "구성도 (시스템 구성)",
+        body: (
+          <Block>{`브라우저
+  │ HTTPS
+  ▼
+AWS Amplify (Next.js SSR)
+  · Google 로그인   · /api 프록시(ID 토큰 주입)
+  │ Authorization: Bearer <Google ID 토큰>
+  ▼
+API Gateway (HTTP API) ──[ JWT Authorizer: Google ]
+  │
+  ▼
+api_handler  Lambda
+  ├─▶ DynamoDB      고객사·계정·임계값·작업·인벤토리·사용자설정
+  ├─▶ CloudWatch    알람 조회 / 생성 / 삭제
+  ├─▶ STS AssumeRole ─▶ 고객 AWS 계정 (리소스 조회·알람 CRUD)
+  └─▶ SQS FIFO ─▶ sqs_worker Lambda   (대량 작업)
+
+EventBridge Scheduler ─▶ daily_monitor Lambda
+     └ 정기: 계정 순회 → 리소스 스캔 → 알람 보정
+
+CloudWatch 알람 발생 ─▶ SNS Topic ─▶ 알림(Slack·이메일·운영팀)`}</Block>
+        ),
+      },
+      {
+        icon: Database,
+        title: "배포 시 생성되는 리소스 (CloudFormation)",
+        body: (
+          <>
+            스택 하나가 중앙 계정에 다음을 생성합니다:
+            <ul className="ml-4 mt-1.5 list-disc space-y-0.5">
+              <li><b>Lambda 7</b> — api_handler(API), daily_monitor(정기 동기화), sqs_worker(대량작업), remediation_handler(이벤트 대응) + 초기 셋업/싱크용</li>
+              <li><b>DynamoDB 7</b> — Customers, Accounts, ThresholdOverrides, JobStatus, MonitorRunHistory, ResourceInventory, UserPreferences</li>
+              <li><b>API Gateway</b> HTTP API + <b>JWT Authorizer</b> + Stage</li>
+              <li><b>SQS FIFO</b> + DLQ — 대량 작업 큐(순서·재시도 보장)</li>
+              <li><b>SNS 4</b> — 알람·리메디에이션·라이프사이클 알림</li>
+              <li><b>EventBridge Scheduler</b> — 정기 동기화 트리거</li>
+              <li><b>IAM Role 8</b> — Lambda 실행 권한 + 크로스계정 AssumeRole</li>
+            </ul>
+          </>
+        ),
+      },
+      {
+        icon: Share2,
+        title: "크로스 계정 연동 — 왜 / 어떻게",
+        body: (
+          <>
+            고객 계정의 리소스를 읽고 알람을 만들려면 그 계정 권한이 필요합니다. 고객
+            계정엔 <b>IAM Role만</b> 배포하고(중앙 계정을 신뢰), 중앙 Lambda가 그 Role을{" "}
+            <b>AssumeRole</b>해 접근합니다. 계정 정보(account_id, role)는{" "}
+            <Code>AccountsTable</Code>에 등록합니다.
+            <Block>{`중앙 계정 (이 스택)               고객 AWS 계정
+┌────────────────────┐           ┌──────────────────────────┐
+│ api_handler /      │ AssumeRole │ IAM Role (중앙 계정 신뢰) │
+│ daily_monitor      │──────────▶ │   · EC2/RDS/ELB… 조회     │
+│   Lambda           │           │   · CloudWatch 알람 CRUD  │
+└────────────────────┘           └──────────────────────────┘
+  ※ 고객 계정엔 Lambda/DB 없음 — IAM Role만(경량 온보딩).`}</Block>
+          </>
+        ),
+      },
+      {
+        icon: Workflow,
+        title: "주요 흐름 (태그 기반)",
+        body: (
+          <>
+            <Block>{`[모니터링 토글 ON]
+ UI 토글 → api_handler → (타 계정이면) AssumeRole
+   → 리소스에 태그 부여(Monitoring=on, 임계값 태그)
+   → CloudWatch PutMetricAlarm + 태그(ManagedBy/Severity)
+   → ResourceInventory 기록 → UI 갱신
+
+[정기 동기화 — 보정]
+ Scheduler → daily_monitor → 계정 순회·AssumeRole
+   → 리소스 태그 스캔 → 알람 상태 비교·보정 → 인벤토리/이력 갱신
+
+[알람 발생 → 알림]
+ 메트릭 임계값 초과 → CloudWatch ALARM → SNS → 운영팀`}</Block>
+            알람의 임계값·심각도·on/off가 모두 <b>리소스 태그</b>로 결정됩니다 — 그래서
+            “태그 기반”입니다.
           </>
         ),
       },
@@ -249,11 +353,8 @@ ALLOWED_EMAILS=...  ALLOWED_EMAIL_DOMAINS=...`}</Block>
   },
 ];
 
-export default async function HelpPage() {
-  // 배포/운영 섹션은 로그인 사용자에게만 노출(공개 페이지지만 운영 런북은 가림).
-  const session = process.env.AUTH_SECRET ? await auth() : null;
-  const showOps = Boolean(session?.user);
-  const sections = SECTIONS.filter((s) => s.id !== "deploy" || showOps);
+export default function HelpPage() {
+  const sections = SECTIONS;
 
   return (
     <main className="min-h-screen bg-surface">
@@ -266,7 +367,7 @@ export default async function HelpPage() {
             href="/"
             className="inline-flex items-center gap-1 text-xs font-semibold text-slate-500 hover:text-slate-800"
           >
-            <ArrowLeft size={14} /> {showOps ? "앱으로" : "로그인"}
+            <ArrowLeft size={14} /> 홈으로
           </Link>
         </div>
       </header>
