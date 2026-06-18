@@ -42,8 +42,9 @@ export function AppShell({ children, alarms = [], userEmail = null }: AppShellPr
     [alarms],
   );
 
-  // 로그인 페이지는 셸(사이드바/탑바) 없이 단독 렌더한다.
-  if (pathname === "/login") {
+  // 로그인/도움말 페이지는 셸(사이드바/탑바) 없이 단독 렌더한다.
+  // (도움말은 로그인 전에도 접근 가능해야 하므로 셸에 의존하지 않음)
+  if (pathname === "/login" || pathname === "/help") {
     return <>{children}</>;
   }
 

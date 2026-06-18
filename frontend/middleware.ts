@@ -36,7 +36,8 @@ export default function middleware(request: NextRequest, event: NextFetchEvent) 
 //  - api/auth   : the Auth.js sign-in/callback endpoints
 //  - api        : the backend proxy (carries its own Bearer; backend enforces)
 //  - login      : the sign-in page itself
+//  - help       : public usage guide (viewable before login)
 //  - _next, static assets, files with an extension
 export const config = {
-  matcher: ["/((?!api|login|_next/static|_next/image|favicon.ico|.*\\.).*)"],
+  matcher: ["/((?!api|login|help|_next/static|_next/image|favicon.ico|.*\\.).*)"],
 };

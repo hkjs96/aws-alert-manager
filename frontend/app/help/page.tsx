@@ -1,8 +1,10 @@
 import type { ReactNode } from "react";
+import Link from "next/link";
 import {
   LogIn, Users, Server, Bell, Search, ShieldCheck, Boxes, SlidersHorizontal,
-  Rocket, KeyRound, Cloud, Wrench, ListChecks,
+  Rocket, KeyRound, Cloud, Wrench, ListChecks, FolderGit2, ArrowLeft,
 } from "lucide-react";
+import { auth } from "@/auth";
 
 export const metadata = {
   title: "사용 가이드 · Alarm Manager",
@@ -125,6 +127,23 @@ const SECTIONS: Section[] = [
     intro: "스택을 처음 올리거나 인증을 켜는 사람을 위한 단계입니다.",
     items: [
       {
+        icon: FolderGit2,
+        title: "코드 받기 (저장소)",
+        body: (
+          <>
+            모든 코드(인프라·백엔드·프론트엔드)는 GitHub 저장소에 있습니다.
+            <Block>{`git clone https://github.com/hkjs96/aws-alert-manager.git`}</Block>
+            <ul className="ml-4 mt-1.5 list-disc space-y-0.5">
+              <li>CloudFormation 템플릿: <Code>infrastructure/backend/template.yaml</Code></li>
+              <li>백엔드 배포 스크립트: <Code>.codex/deploy-backend-stack.py</Code></li>
+              <li>백엔드 Lambda 코드: <Code>backend/</Code></li>
+              <li>프론트엔드(Next.js): <Code>frontend/</Code> — Amplify가 이 저장소 <Code>main</Code> 브랜치에 연결돼 자동 빌드</li>
+              <li>운영 문서: <Code>docs/AUTH.md</Code>, <Code>guides/OPERATIONS.md</Code></li>
+            </ul>
+          </>
+        ),
+      },
+      {
         icon: ListChecks,
         title: "0. 사전 준비",
         body: (
@@ -230,9 +249,29 @@ ALLOWED_EMAILS=...  ALLOWED_EMAIL_DOMAINS=...`}</Block>
   },
 ];
 
-export default function HelpPage() {
+export default async function HelpPage() {
+  // 배포/운영 섹션은 로그인 사용자에게만 노출(공개 페이지지만 운영 런북은 가림).
+  const session = process.env.AUTH_SECRET ? await auth() : null;
+  const showOps = Boolean(session?.user);
+  const sections = SECTIONS.filter((s) => s.id !== "deploy" || showOps);
+
   return (
-    <div className="max-w-3xl space-y-10">
+    <main className="min-h-screen bg-surface">
+      <header className="sticky top-0 z-10 border-b border-slate-200 bg-white/80 px-4 py-3 backdrop-blur-md">
+        <div className="mx-auto flex max-w-3xl items-center justify-between">
+          <span className="font-headline text-base font-bold tracking-tight text-slate-900">
+            Alarm Manager
+          </span>
+          <Link
+            href="/"
+            className="inline-flex items-center gap-1 text-xs font-semibold text-slate-500 hover:text-slate-800"
+          >
+            <ArrowLeft size={14} /> {showOps ? "앱으로" : "로그인"}
+          </Link>
+        </div>
+      </header>
+
+      <div className="mx-auto max-w-3xl space-y-10 p-8">
       <div>
         <h1 className="text-3xl font-headline font-extrabold tracking-tight text-slate-900">
           사용 가이드
@@ -242,7 +281,7 @@ export default function HelpPage() {
         </p>
         {/* 목차 */}
         <nav className="mt-4 flex flex-wrap gap-2">
-          {SECTIONS.map((s) => (
+          {sections.map((s) => (
             <a
               key={s.id}
               href={`#${s.id}`}
@@ -254,7 +293,7 @@ export default function HelpPage() {
         </nav>
       </div>
 
-      {SECTIONS.map((section) => (
+      {sections.map((section) => (
         <section key={section.id} id={section.id} className="scroll-mt-20 space-y-4">
           <div>
             <h2 className="text-xl font-bold text-slate-900">{section.label}</h2>
@@ -278,6 +317,7 @@ export default function HelpPage() {
           </div>
         </section>
       ))}
-    </div>
+      </div>
+    </main>
   );
 }
