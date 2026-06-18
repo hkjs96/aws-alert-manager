@@ -1,29 +1,31 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >
-  Alarm Manager - 고객사 계정 온보딩 스택.
-  중앙(모니터링) 계정이 STS AssumeRole로 이 계정의 리소스를 조회하고
-  CloudWatch 알람을 관리(태그 기반)할 수 있도록 하는 IAM Role 하나를 생성한다.
-  고객사 계정에는 이 Role 외에 Lambda/DB 등 무거운 리소스를 두지 않는다(경량 온보딩).
+  Alarm Manager - customer account onboarding stack.
+  Creates a single IAM Role that lets the central (monitoring) account use STS
+  AssumeRole to read this account's resources and manage CloudWatch alarms
+  (tag-based). No heavy resources (Lambda/DB) are created in the customer
+  account - lightweight onboarding.
 
 Parameters:
   CentralAccountId:
     Type: String
     AllowedPattern: "^[0-9]{12}$"
-    Description: 중앙(모니터링) 계정 ID. 이 계정만 아래 Role을 AssumeRole 할 수 있다.
+    Description: Central (monitoring) account ID. Only this account may AssumeRole the role below.
 
   RoleName:
     Type: String
     Default: AlarmManagerMonitoringRole
-    Description: 생성할 Role 이름. 생성 후 Output의 RoleArn을 앱의 계정 등록에 사용한다.
+    Description: Name of the IAM Role to create. After creation, use the RoleArn output to register this account in the app.
 
 Resources:
   MonitoringRole:
     Type: AWS::IAM::Role
     Properties:
       RoleName: !Ref RoleName
-      # 신뢰 정책: 중앙 계정이 AssumeRole 가능.
-      # 참고: 현재 중앙 핸들러는 ExternalId를 전달하지 않으므로 여기서도 요구하지 않는다.
-      # (ExternalId 강제는 중앙 코드의 assume_role 호출 변경이 선행되어야 한다.)
+      # Trust policy: the central account can AssumeRole.
+      # Note: the central handler does not pass an ExternalId, so it is not
+      # required here. (Enforcing ExternalId would require changing the central
+      # assume_role call first.)
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -36,7 +38,7 @@ Resources:
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
-              # 1) CloudWatch 알람 CRUD + 메트릭 + 태그
+              # 1) CloudWatch alarm CRUD + metrics + tags
               - Effect: Allow
                 Action:
                   - cloudwatch:DescribeAlarms
@@ -46,7 +48,7 @@ Resources:
                   - cloudwatch:TagResource
                   - cloudwatch:ListMetrics
                 Resource: "*"
-              # 2) 리소스 디스커버리(read) — 29종 지원 서비스의 describe/list + 태그 조회
+              # 2) Resource discovery (read) - describe/list + tag reads for the 29 supported services
               - Effect: Allow
                 Action:
                   - ec2:DescribeInstances
@@ -99,8 +101,9 @@ Resources:
                   - route53:ListHealthChecks
                   - route53:ListTagsForResource
                 Resource: "*"
-              # 3) 모니터링 토글(태그 write) — Resource Groups Tagging API가 위임 호출하는
-              #    서비스별 태그 쓰기 권한. (거버넌스 AP-19: 빠지면 토글이 영구 AccessDenied)
+              # 3) Monitoring toggle (tag write) - per-service tag-write permissions that the
+              #    Resource Groups Tagging API delegates. (Governance AP-19: a missing one makes
+              #    the toggle permanently AccessDenied.)
               - Effect: Allow
                 Action:
                   - tag:TagResources
@@ -132,5 +135,5 @@ Resources:
 
 Outputs:
   RoleArn:
-    Description: 앱의 계정 등록(account_id, role_arn)에 사용할 Role ARN
+    Description: Role ARN to use when registering this account (account_id, role_arn) in the app.
     Value: !GetAtt MonitoringRole.Arn
