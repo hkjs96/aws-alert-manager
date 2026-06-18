@@ -3,8 +3,8 @@ import { HelpCircle, Bell, Check } from "lucide-react";
 import { LoginButton } from "./LoginButton";
 
 const FEATURES = [
-  "리소스 모니터링 on/off",
-  "CloudWatch 임계값 알람 관리",
+  "태그 기반 알람 생성·관리",
+  "29종 AWS 리소스 타입 지원",
   "고객사·계정 단위 정리",
 ];
 
@@ -35,11 +35,11 @@ export default async function LoginPage({
 
         <div className="relative">
           <h2 className="font-headline text-4xl font-extrabold leading-tight">
-            사내 AWS<br />알람 관리 콘솔
+            태그 기반<br />AWS 알람 관리
           </h2>
           <p className="mt-4 max-w-md text-sm leading-relaxed text-white/70">
-            운영팀이 AWS CloudWatch 알람과 리소스 모니터링을 한 곳에서 관리하는
-            내부 도구입니다.
+            AWS 리소스의 CloudWatch 알람을 <b className="font-semibold text-white/90">태그
+            기반</b>으로 생성·관리하는 사내 콘솔입니다. 29종 리소스 타입을 지원합니다.
           </p>
           <ul className="mt-8 space-y-3 text-sm text-white/90">
             {FEATURES.map((f) => (
