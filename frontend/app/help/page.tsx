@@ -3,7 +3,7 @@ import Link from "next/link";
 import {
   LogIn, Users, Server, Bell, Search, Boxes, SlidersHorizontal,
   KeyRound, Cloud, Wrench, ArrowLeft,
-  Lightbulb, Network, Database, Share2, Workflow,
+  Lightbulb, Network, Share2, Workflow,
 } from "lucide-react";
 
 export const metadata = {
@@ -162,24 +162,6 @@ EventBridge Scheduler ─▶ daily_monitor Lambda
      └ 정기: 계정 순회 → 리소스 스캔 → 알람 보정
 
 CloudWatch 알람 발생 ─▶ SNS Topic ─▶ 알림(Slack·이메일·운영팀)`}</Block>
-        ),
-      },
-      {
-        icon: Database,
-        title: "배포 시 생성되는 리소스 (CloudFormation)",
-        body: (
-          <>
-            스택 하나가 중앙 계정에 다음을 생성합니다:
-            <ul className="ml-4 mt-1.5 list-disc space-y-0.5">
-              <li><b>Lambda 7</b> — api_handler(API), daily_monitor(정기 동기화), sqs_worker(대량작업), remediation_handler(이벤트 대응) + 초기 셋업/싱크용</li>
-              <li><b>DynamoDB 7</b> — Customers, Accounts, ThresholdOverrides, JobStatus, MonitorRunHistory, ResourceInventory, UserPreferences</li>
-              <li><b>API Gateway</b> HTTP API + <b>JWT Authorizer</b> + Stage</li>
-              <li><b>SQS FIFO</b> + DLQ — 대량 작업 큐(순서·재시도 보장)</li>
-              <li><b>SNS 4</b> — 알람·리메디에이션·라이프사이클 알림</li>
-              <li><b>EventBridge Scheduler</b> — 정기 동기화 트리거</li>
-              <li><b>IAM Role 8</b> — Lambda 실행 권한 + 크로스계정 AssumeRole</li>
-            </ul>
-          </>
         ),
       },
       {

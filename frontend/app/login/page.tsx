@@ -85,9 +85,9 @@ export default async function LoginPage({
 
           <Link
             href="/help"
-            className="mt-4 flex items-center justify-center gap-1.5 text-xs font-medium text-slate-500 hover:text-slate-800"
+            className="mt-3 flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
           >
-            <HelpCircle size={14} /> 처음이신가요? 사용 가이드 보기
+            <HelpCircle size={16} className="text-primary" /> 처음이신가요? 사용 가이드 보기
           </Link>
 
           <p className="mt-10 text-center text-[11px] text-slate-400">
