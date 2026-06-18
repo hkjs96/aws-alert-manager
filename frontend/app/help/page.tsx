@@ -3,8 +3,18 @@ import Link from "next/link";
 import {
   LogIn, Users, Server, Bell, Search, Boxes, SlidersHorizontal,
   KeyRound, Cloud, Wrench, ArrowLeft,
-  Lightbulb, Network, Share2, Workflow, ExternalLink, Download,
+  Lightbulb, Network, Share2, Workflow, ExternalLink, Download, LayoutGrid,
 } from "lucide-react";
+import { ResourceTypeIcon } from "@/components/shared/ResourceTypeIcon";
+
+const RESOURCE_GROUPS: { label: string; types: string[] }[] = [
+  { label: "Compute", types: ["EC2", "Lambda", "ECS", "SageMaker"] },
+  { label: "Database / Cache", types: ["RDS", "AuroraRDS", "DocDB", "DynamoDB", "ElastiCache"] },
+  { label: "Network / LB", types: ["ALB", "NLB", "CLB", "TG", "NAT", "VPN", "DX", "Route53", "APIGW", "CloudFront"] },
+  { label: "Storage", types: ["S3", "EFS", "Backup"] },
+  { label: "Messaging", types: ["SQS", "SNS", "MQ", "MSK"] },
+  { label: "Security / Search", types: ["ACM", "WAF", "OpenSearch"] },
+];
 
 export const metadata = {
   title: "사용 가이드 · Alarm Manager",
@@ -87,6 +97,29 @@ const SECTIONS: Section[] = [
               </li>
               <li><b>Sync</b> 버튼으로 계정/리전 범위를 정해 최신 리소스를 다시 수집합니다.</li>
             </ul>
+          </>
+        ),
+      },
+      {
+        icon: LayoutGrid,
+        title: "지원 리소스 (29종)",
+        body: (
+          <>
+            태그 기반으로 모니터링·알람을 관리할 수 있는 AWS 리소스 타입입니다.
+            <div className="mt-2.5 space-y-2.5">
+              {RESOURCE_GROUPS.map((g) => (
+                <div key={g.label}>
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                    {g.label}
+                  </div>
+                  <div className="mt-1 flex flex-wrap gap-1.5">
+                    {g.types.map((t) => (
+                      <ResourceTypeIcon key={t} type={t} />
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
           </>
         ),
       },
