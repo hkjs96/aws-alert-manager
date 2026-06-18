@@ -1,3 +1,5 @@
+import Link from "next/link";
+import { HelpCircle } from "lucide-react";
 import { LoginButton } from "./LoginButton";
 
 export default async function LoginPage({
@@ -19,6 +21,13 @@ export default async function LoginPage({
           </p>
         )}
         <LoginButton callbackUrl={callbackUrl ?? "/"} />
+
+        <Link
+          href="/help"
+          className="mt-4 flex items-center justify-center gap-1.5 text-xs font-medium text-gray-500 hover:text-gray-800"
+        >
+          <HelpCircle size={14} /> 처음이신가요? 사용 가이드 보기
+        </Link>
       </div>
     </main>
   );

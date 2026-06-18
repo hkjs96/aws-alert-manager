@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Layers, Bell, Users, Settings, HelpCircle, Info } from "lucide-react";
+import { LayoutDashboard, Layers, Bell, Users, Settings, HelpCircle } from "lucide-react";
 
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -13,8 +13,7 @@ const NAV_ITEMS = [
 ];
 
 const BOTTOM_ITEMS = [
-  { href: "#", label: "Support", icon: HelpCircle },
-  { href: "#", label: "Docs", icon: Info },
+  { href: "/help", label: "도움말 / 사용 가이드", icon: HelpCircle },
 ];
 
 interface SidebarProps {
