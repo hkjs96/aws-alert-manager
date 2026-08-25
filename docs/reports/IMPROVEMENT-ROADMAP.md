@@ -11,9 +11,16 @@
 2. **임계치: Anomaly Detection이 아니라 주기적 재보정 잡.**
    28일 p99 × 마진을 주 1회 계산해 오버라이드 테이블에 기록. 추가 비용 월 $1 미만
    (AD 전면 전환은 월 +$400~1,000). 근거를 숫자로 설명 가능, 롤백은 오버라이드 삭제뿐.
-3. **런타임: Go/Rust 비권고 — arm64 전환 + 배치화가 정답.**
-   런타임의 99%가 AWS API 대기(I/O-bound). Graviton은 코드 무변경 -20% 비용.
+3. **런타임: Go/Rust 비권고 — 배치화가 정답.**
+   런타임의 99%가 AWS API 대기(I/O-bound)라 언어 전환의 실익이 없다.
    콜 수 3,800 → 140으로 줄이는 배치화가 본질적 개선.
+   (참고: Lambda 관리형 Go 런타임은 폐지되어 Go는 `provided.al2023` 커스텀 런타임 +
+   크로스컴파일 빌드 파이프라인이 필요하다.)
+
+   > **arm64(Graviton) 관련 정정 (2026-08-25):** P3는 arm64 전환을 즉시 실행 권고했으나
+   > **보류로 결정**했다. 아키텍처 전환은 런타임/언어 변경과 무관한 별개 설정이고
+   > 기술적 리스크도 낮지만, daily run 비용이 계정당 약 $0.00125 수준이라 -20%의 절대
+   > 절감액이 무의미하다. 규모가 커진 뒤 **단독 커밋 + 단독 배포**로 다루는 것이 맞다.
 
 리뷰 중 **운영 영향 잠복 버그 7건**이 추가 발견되어 Phase 0로 분리했다.
 
@@ -31,7 +38,7 @@
 | 6 | sqs_worker가 만료되는 STS 자격증명을 `lru_cache` 무기한 캐시 | warm 컨테이너 장기 생존 시 ExpiredToken | `sqs_worker:103-116` | S |
 | 7 | FE `/api/debug-env` 무인증 환경 구성 노출 | 공격 표면 정보 | `app/api/debug-env/route.ts` | S |
 
-같은 주에 함께: Worker 타임아웃 300→900s, **arm64(Graviton) 전환**, FE `auth()`/데이터 함수
+같은 주에 함께: Worker 타임아웃 300→900s, FE `auth()`/데이터 함수
 `React cache()` dedupe, `/api/me` loaded 플래그, `next/font` 전환, ToastProvider `useMemo`,
 측정 베이스라인(run 단계별 소요 필드 + AWS/Usage CallCount) 수집 시작.
 
@@ -149,7 +156,7 @@ M1 쓰기 경로 확장 + 고객사 IAM `tag:GetResources`(온보딩 템플릿 3
 
 | Phase | 내용 | 기간 |
 |---|---|---|
-| 0 | 버그 7건 + 타임아웃 900s + arm64 + FE 퀵윈 + 측정 베이스라인 | ~1주 |
+| 0 | 버그 7건 + 타임아웃 900s + FE 퀵윈 + 측정 베이스라인 | ~1주 |
 | 1 | 알람 런 캐시 → GetMetricData 배치 → DDB batch_writer/GSI → RGT 태그 일괄화 + FE 스트리밍/인덱싱 | 1~2주 |
 | 2 | 아이덴티티 마이그레이션 M1~M4 (IAM 템플릿에 P2 권한 동봉) + Severity 정상화 | 2~3주 + 관측 2주 |
 | 3 | Threshold Calibrator: 테이블 연결 → Shadow → PoC. Fleet 결합은 PoC 후 결정 | 1+2+4주 |
