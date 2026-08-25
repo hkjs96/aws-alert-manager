@@ -282,10 +282,15 @@ class TestSyncInventory:
 
         assert result["discovered"] == 2
         assert result["synced"] == 2
-        assert inv_table.put_item.call_count == 2
+        # 쓰기는 batch_writer로 묶인다 (항목마다 put_item 호출하지 않는다)
+        writer = inv_table.batch_writer.return_value.__enter__.return_value
+        assert writer.put_item.call_count == 2
+        assert inv_table.put_item.call_count == 0
         # tags가 sanitize에서 빠졌는지 확인
-        first_call = inv_table.put_item.call_args_list[0]
+        first_call = writer.put_item.call_args_list[0]
         assert "tags" not in first_call.kwargs["Item"]
+        # 정리 대상 조회는 GSI query로만 한다 (전체 Scan 금지)
+        assert inv_table.scan.call_count == 0
 
     def test_no_accounts_returns_skipped(self, monkeypatch):
         for k, v in _ENV.items():
@@ -500,7 +505,10 @@ class TestResourcesSyncJob:
         assert result["status"] == "ok"
         assert result["discovered"] == 1
         assert result["synced"] == 1
-        assert inv_table.put_item.called
+        writer = inv_table.batch_writer.return_value.__enter__.return_value
+        assert writer.put_item.called
+        # 리소스마다 get_item으로 기존 값을 읽지 않는다 (계정 단위 GSI 조회 1회)
+        assert inv_table.get_item.call_count == 0
         # 마지막 job status가 completed
         assert mock_status.call_args.args[1] == "completed"
 

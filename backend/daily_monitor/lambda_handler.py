@@ -464,6 +464,112 @@ def _determine_alarm_state(alarms: list[dict]) -> str:
     return "OK"
 
 
+# 리소스 항목에 얹히는 알람 집계 필드. 디스커버리 결과에는 없으므로 upsert 시 보존한다.
+_ALARM_ROLLUP_FIELDS = (
+    "alarm_count",
+    "critical_count",
+    "warning_count",
+    "alarm_names",
+    "alarm_state",
+    "last_alarm_synced_at",
+)
+
+
+def _batch_put_items(inv_table, items: list[dict]) -> int:
+    """인벤토리 항목을 batch_writer로 일괄 저장하고 저장한 개수를 반환한다.
+
+    항목마다 put_item을 호출하면 리소스·알람 수만큼 왕복이 생긴다. batch_writer는
+    25개씩 묶고 UnprocessedItems를 자동 재시도한다. 한 배치 안에 같은 키가 두 번
+    들어가면 BatchWriteItem이 거부하므로 overwrite_by_pkeys로 정리한다.
+    """
+    if not items:
+        return 0
+    try:
+        with inv_table.batch_writer(
+            overwrite_by_pkeys=["resource_id", "account_id"]
+        ) as batch:
+            for item in items:
+                batch.put_item(Item=item)
+    except ClientError as e:
+        logger.error("Inventory batch write failed (%d items): %s", len(items), e)
+        return 0
+    return len(items)
+
+
+def _batch_delete_keys(inv_table, keys: list[dict]) -> int:
+    """인벤토리 항목을 batch_writer로 일괄 삭제하고 삭제한 개수를 반환한다."""
+    if not keys:
+        return 0
+    try:
+        with inv_table.batch_writer(
+            overwrite_by_pkeys=["resource_id", "account_id"]
+        ) as batch:
+            for key in keys:
+                batch.delete_item(Key=key)
+    except ClientError as e:
+        logger.error("Inventory batch delete failed (%d keys): %s", len(keys), e)
+        return 0
+    return len(keys)
+
+
+def _stale_alarm_keys(
+    db_items: list[dict],
+    fresh_keys: set[tuple[str, str]],
+    is_target,
+) -> list[dict]:
+    """이번 실행에서 갱신되지 않은 알람 스냅샷의 키 목록."""
+    keys = []
+    for item in db_items:
+        if item.get("entity_type") != "alarm":
+            continue
+        res_id = item.get("resource_id", "")
+        acc_id = item.get("account_id", "")
+        if not is_target(item):
+            continue
+        if (res_id, acc_id) in fresh_keys:
+            continue
+        keys.append({"resource_id": res_id, "account_id": acc_id})
+    return keys
+
+
+def _group_alarms_by_resource(alarms: list[dict]) -> dict[str, list[dict]]:
+    """알람을 리소스 식별자별로 묶는다."""
+    grouped: dict[str, list[dict]] = {}
+    for alarm in alarms:
+        extracted = _extract_resource_from_alarm_name(alarm["AlarmName"])
+        if extracted:
+            _rtype, rid = extracted
+            grouped.setdefault(rid, []).append(alarm)
+    return grouped
+
+
+def _build_resource_items(
+    discovered: list[dict],
+    resource_alarms_map: dict[str, list[dict]],
+) -> list[dict]:
+    """디스커버리 결과를 인벤토리 항목으로 변환하고 알람 집계 필드를 채운다."""
+    items = []
+    synced_at = datetime.now(timezone.utc).isoformat()
+    for resource in discovered:
+        item = _sanitize_inventory_item(resource)
+        if not item.get("resource_id") or not item.get("account_id"):
+            continue
+
+        item["entity_type"] = "resource"
+
+        res_alarms = resource_alarms_map.get(item["resource_id"], [])
+        firing = [a for a in res_alarms if a.get("StateValue") == "ALARM"]
+        item["alarm_count"] = len(res_alarms)
+        item["critical_count"] = sum(1 for a in firing if _is_alarm_critical(a))
+        item["warning_count"] = len(firing) - item["critical_count"]
+        item["alarm_names"] = [a["AlarmName"] for a in res_alarms]
+        item["alarm_state"] = _determine_alarm_state(res_alarms)
+        item["last_alarm_synced_at"] = synced_at
+
+        items.append(item)
+    return items
+
+
 def _sync_inventory(account_id_hint: str, role_arn: str) -> dict:
     """대상 계정의 리소스를 discover하여 ResourceInventoryTable에 upsert.
 
@@ -494,47 +600,16 @@ def _sync_inventory(account_id_hint: str, role_arn: str) -> dict:
         logger.error("Failed to fetch alarms during inventory sync: %s", e)
         alarms = []
 
-    # Map resource ID to alarms
-    resource_alarms_map = {}
-    for alarm in alarms:
-        extracted = _extract_resource_from_alarm_name(alarm["AlarmName"])
-        if extracted:
-            rtype, rid = extracted
-            resource_alarms_map.setdefault(rid, []).append(alarm)
-
     ddb = boto3.resource("dynamodb")
     inv_table = ddb.Table(inv_table_name)
-    synced = 0
 
-    # Save resource items
-    for resource in discovered:
-        item = _sanitize_inventory_item(resource)
-        if not item.get("resource_id") or not item.get("account_id"):
-            continue
+    resource_items = _build_resource_items(discovered, _group_alarms_by_resource(alarms))
+    synced = _batch_put_items(inv_table, resource_items)
 
-        item["entity_type"] = "resource"
-
-        # Pre-aggregate alarm summary fields
-        res_id = item["resource_id"]
-        res_alarms = resource_alarms_map.get(res_id, [])
-        item["alarm_count"] = len(res_alarms)
-        item["critical_count"] = sum(1 for a in res_alarms if a.get("StateValue") == "ALARM" and _is_alarm_critical(a))
-        item["warning_count"] = sum(1 for a in res_alarms if a.get("StateValue") == "ALARM" and not _is_alarm_critical(a))
-        item["alarm_names"] = [a["AlarmName"] for a in res_alarms]
-        item["alarm_state"] = _determine_alarm_state(res_alarms)
-        item["last_alarm_synced_at"] = datetime.now(timezone.utc).isoformat()
-
-        try:
-            inv_table.put_item(Item=item)
-            synced += 1
-        except ClientError as e:
-            logger.error(
-                "put_item failed for inventory resource %s: %s",
-                res_id, e,
-            )
-
-    # 디스커버리에서 사라진 인벤토리 항목 정리(공통 헬퍼). account_id-index GSI로
-    # 대상 계정만 조회한다. 정리 실패는 로깅만 하고 동기화는 계속 진행한다.
+    # 정리에 쓸 기존 인벤토리 항목은 account_id-index GSI로 한 번만 조회한다.
+    # 리소스 정리와 알람 정리가 이 결과를 공유하므로 전체 테이블 Scan이 필요 없다.
+    # 조회/정리 실패는 로깅만 하고 동기화는 계속 진행한다.
+    db_items: list[dict] = []
     try:
         account_ids = [a["account_id"] for a in accounts]
         db_items = query_inventory_by_accounts(inv_table, account_ids)
@@ -542,93 +617,23 @@ def _sync_inventory(account_id_hint: str, role_arn: str) -> dict:
     except ClientError as e:
         logger.error("Failed to query inventory for stale resource cleanup: %s", e)
 
-    # Save alarm snapshot items
-    synced_alarms = 0
-    fresh_alarm_keys = set()
-    for alarm in alarms:
-        arn = alarm.get("AlarmArn", "")
-        if not arn:
-            continue
+    # Save alarm snapshot items — 알람 잡(_handle_alarms_sync_job)과 같은 경로를 쓴다.
+    # 예전에는 여기에 같은 아이템 생성 코드가 복제돼 있어 한쪽만 고치는 사고가 났다.
+    synced_alarms, fresh_alarm_keys = _write_alarm_snapshots(inv_table, alarms)
 
-        alarm_name = alarm["AlarmName"]
-        arn_parts = arn.split(":")
-        account = arn_parts[4] if len(arn_parts) > 4 and arn_parts[4] else alarm.get("_account_id", "unknown")
-        region = arn_parts[3] if len(arn_parts) > 3 and arn_parts[3] else alarm.get("_region", "unknown")
-
-        res_id_extracted = ""
-        res_type_extracted = ""
-        extracted = _extract_resource_from_alarm_name(alarm_name)
-        if extracted:
-            res_type_extracted, res_id_extracted = extracted
-        else:
-            res_id_extracted = alarm_name
-
-        tags = {t["Key"]: t["Value"] for t in alarm.get("Tags", [])} if alarm.get("Tags") else {}
-        severity = resolve_alarm_severity(alarm)
-
-        ts = alarm.get("StateUpdatedTimestamp")
-        ts_str = ts.isoformat() if hasattr(ts, "isoformat") else str(ts or "")
-
-        db_key = f"alarm#{arn}"
-        alarm_item = {
-            "resource_id": db_key,
-            "account_id": account,
-            "alarm_name": alarm_name,
-            "arn": arn,
-            "entity_type": "alarm",
-            "state": alarm.get("StateValue", ""),
-            "metric": alarm.get("MetricName", ""),
-            "namespace": alarm.get("Namespace", ""),
-            "comparison": alarm.get("ComparisonOperator", ""),
-            "threshold": str(alarm.get("Threshold", "0")),
-            "severity": severity,
-            "time": ts_str,
-            "region": region,
-            "type": res_type_extracted,
-            "resource": res_id_extracted,
-            "inventory_source": "alarms",
-            "tags": tags,
-            "status": "active",
-            "period": alarm.get("Period"),
-            "evaluation_periods": alarm.get("EvaluationPeriods"),
-            "datapoints_to_alarm": alarm.get("DatapointsToAlarm"),
-            "treat_missing_data": alarm.get("TreatMissingData"),
-            "statistic": alarm.get("Statistic"),
-        }
-
-        try:
-            inv_table.put_item(Item=alarm_item)
-            synced_alarms += 1
-            fresh_alarm_keys.add((db_key, account))
-        except ClientError as e:
-            logger.error("Failed to write alarm snapshot %s: %s", db_key, e)
-
-    # Cleanup stale alarms for synchronized accounts
+    # Cleanup stale alarms for synchronized accounts — 위에서 GSI로 읽은 항목을
+    # 재사용한다. 이번 실행에서 새로 쓴 알람은 db_items에 없으므로 삭제 대상이 아니다.
     target_accounts = {acc["account_id"] for acc in accounts}
-    deleted_alarms = 0
-    try:
-        db_items = []
-        scan_kwargs = {}
-        while True:
-            resp = inv_table.scan(**scan_kwargs)
-            db_items.extend(resp.get("Items", []))
-            last = resp.get("LastEvaluatedKey")
-            if not last:
-                break
-            scan_kwargs["ExclusiveStartKey"] = last
-
-        for item in db_items:
-            res_id = item.get("resource_id", "")
-            acc_id = item.get("account_id", "")
-            if item.get("entity_type") == "alarm" and acc_id in target_accounts:
-                if (res_id, acc_id) not in fresh_alarm_keys:
-                    try:
-                        inv_table.delete_item(Key={"resource_id": res_id, "account_id": acc_id})
-                        deleted_alarms += 1
-                    except ClientError as e:
-                        logger.error("Failed to delete stale alarm %s: %s", res_id, e)
-    except ClientError as e:
-        logger.error("Failed to scan table for alarm cleanup: %s", e)
+    stale_keys = _stale_alarm_keys(
+        db_items,
+        fresh_alarm_keys,
+        lambda item: item.get("account_id", "") in target_accounts,
+    )
+    deleted_alarms = _batch_delete_keys(inv_table, stale_keys)
+    logger.info(
+        "Inventory sync: %d resources, %d alarm snapshots, %d stale alarms removed",
+        synced, synced_alarms, deleted_alarms,
+    )
 
     return {"discovered": len(discovered), "synced": synced}
 
@@ -982,7 +987,7 @@ def _scan_all_accounts(table) -> list[dict]:
 
 
 def _write_alarm_snapshots(inv_table, alarms: list[dict]) -> tuple[int, set[tuple[str, str]]]:
-    synced = 0
+    items = []
     fresh_keys = set()
     for alarm in alarms:
         arn = alarm.get("AlarmArn", "")
@@ -991,15 +996,11 @@ def _write_alarm_snapshots(inv_table, alarms: list[dict]) -> tuple[int, set[tupl
         db_key = f"alarm#{arn}"
         arn_parts = arn.split(":")
         acc = arn_parts[4] if len(arn_parts) > 4 and arn_parts[4] else alarm.get("_account_id", "unknown")
-        
-        item = _build_alarm_item(alarm, db_key, acc, arn_parts)
-        try:
-            inv_table.put_item(Item=item)
-            synced += 1
-            fresh_keys.add((db_key, acc))
-        except ClientError as e:
-            logger.error("Failed to write alarm snapshot %s: %s", db_key, e)
-    return synced, fresh_keys
+
+        items.append(_build_alarm_item(alarm, db_key, acc, arn_parts))
+        fresh_keys.add((db_key, acc))
+
+    return _batch_put_items(inv_table, items), fresh_keys
 
 
 def _build_alarm_item(alarm: dict, db_key: str, account: str, arn_parts: list[str]) -> dict:
@@ -1046,32 +1047,21 @@ def _build_alarm_item(alarm: dict, db_key: str, account: str, arn_parts: list[st
 
 
 def _cleanup_stale_snapshots(inv_table, fresh_keys: set[tuple[str, str]], target_acc_regions: set[tuple[str, str]]) -> int:
-    deleted = 0
+    # 정리 대상은 동기화한 계정뿐이므로 account_id-index GSI 조회로 충분하다.
+    # 전체 Scan은 테이블이 커질수록 비용/시간이 선형으로 늘어난다.
+    account_ids = {acc for acc, _ in target_acc_regions}
     try:
-        db_items = []
-        scan_kwargs = {}
-        while True:
-            resp = inv_table.scan(**scan_kwargs)
-            db_items.extend(resp.get("Items", []))
-            last = resp.get("LastEvaluatedKey")
-            if not last:
-                break
-            scan_kwargs["ExclusiveStartKey"] = last
-
-        for item in db_items:
-            res_id = item.get("resource_id", "")
-            acc_id = item.get("account_id", "")
-            reg_id = item.get("region", "")
-            if item.get("entity_type") == "alarm" and (acc_id, reg_id) in target_acc_regions:
-                if (res_id, acc_id) not in fresh_keys:
-                    try:
-                        inv_table.delete_item(Key={"resource_id": res_id, "account_id": acc_id})
-                        deleted += 1
-                    except ClientError as e:
-                        logger.error("Failed to delete stale alarm %s: %s", res_id, e)
+        db_items = query_inventory_by_accounts(inv_table, account_ids)
     except ClientError as e:
-        logger.error("Failed to scan table for alarm cleanup: %s", e)
-    return deleted
+        logger.error("Failed to query inventory for alarm cleanup: %s", e)
+        return 0
+
+    stale_keys = _stale_alarm_keys(
+        db_items,
+        fresh_keys,
+        lambda item: (item.get("account_id", ""), item.get("region", "")) in target_acc_regions,
+    )
+    return _batch_delete_keys(inv_table, stale_keys)
 
 
 def _handle_alarms_sync_job(event: dict, context) -> dict:
@@ -1138,29 +1128,38 @@ def _handle_alarms_sync_job(event: dict, context) -> dict:
 
 def _write_resources_to_inventory(inv_table, discovered: list[dict]) -> int:
     """디스커버리 결과를 인벤토리에 upsert. 기존 알람 집계 필드는 보존한다."""
-    synced = 0
+    items = []
     for resource in discovered:
         item = _sanitize_inventory_item(resource)
         if not item.get("resource_id") or not item.get("account_id"):
             continue
         item["entity_type"] = "resource"
-        try:
-            resp = inv_table.get_item(
-                Key={"resource_id": item["resource_id"], "account_id": item["account_id"]})
-            existing = resp.get("Item")
-        except ClientError:
-            existing = None
-        if existing:
-            for field in ("alarm_count", "critical_count", "warning_count",
-                          "alarm_names", "alarm_state", "last_alarm_synced_at"):
-                if field in existing:
-                    item[field] = existing[field]
-        try:
-            inv_table.put_item(Item=item)
-            synced += 1
-        except ClientError as e:
-            logger.error("Resource sync put_item failed for %s: %s", item["resource_id"], e)
-    return synced
+        items.append(item)
+
+    if not items:
+        return 0
+
+    # 알람 집계 필드를 보존하려면 기존 값을 알아야 한다. 리소스마다 get_item을 호출하면
+    # 리소스 수만큼 왕복이 생기므로, 계정 단위 GSI 조회로 한 번에 읽는다.
+    account_ids = {item["account_id"] for item in items}
+    try:
+        existing_items = query_inventory_by_accounts(inv_table, account_ids)
+    except ClientError as e:
+        logger.error("Failed to query existing inventory for rollup merge: %s", e)
+        existing_items = []
+    existing_by_key = {
+        (i.get("resource_id"), i.get("account_id")): i for i in existing_items
+    }
+
+    for item in items:
+        existing = existing_by_key.get((item["resource_id"], item["account_id"]))
+        if not existing:
+            continue
+        for field in _ALARM_ROLLUP_FIELDS:
+            if field in existing:
+                item[field] = existing[field]
+
+    return _batch_put_items(inv_table, items)
 
 
 def _handle_resources_sync_job(event: dict, context) -> dict:
