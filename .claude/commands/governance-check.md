@@ -1,7 +1,5 @@
 # /governance-check — 코딩 거버넌스 준수 검사
 
-> 원본: `.kiro/hooks/governance-check-on-write.json` (preToolUse: write)
-
 지정된 Python 파일(없으면 최근 수정된 `**/*.py` 전체)에 대해 아래 규칙 위반 여부를 검사한다.
 
 ## 검사 항목
@@ -39,16 +37,22 @@ pylint --disable=all --enable=too-many-locals,too-many-statements,too-many-branc
 ### §10 코드 중복 금지
 - 동일 로직이 2곳 이상 반복되면 공통 함수로 추출
 
-## 안티패턴 (anti-patterns.md)
+## 안티패턴 (루트 AGENTS.md §5 통합 목록 기준)
 
 - AP-1: 하드코딩된 시크릿 (AKIA..., password=, secret=)
 - AP-2: 순환 참조
 - AP-3: 알람 이름 문자열 매칭
 - AP-4: 전체 알람 풀스캔
 - AP-5: except Exception 남용
-- AP-6: f-string 로깅
+- AP-6: resource_id를 URL path에 raw 삽입 (base64url 토큰 필수)
 - AP-7: 모듈 레벨 global로 boto3 관리
 - AP-8: alive 체크를 lambda_handler에 하드코딩
+- AP-15: bare MagicMock 테이블로 페이지네이션 테스트
+- AP-18/AP-19: 알람 태깅 누락 / IAM TagResource 누락
+- AP-20: 최신 boto3 API에 정적 폴백 없이 의존
+- AP-22: f-string 로깅
+
+전체 목록(AP-1~AP-22)과 상세는 루트 `AGENTS.md` §5를 참조한다.
 
 ## 출력
 

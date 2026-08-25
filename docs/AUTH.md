@@ -79,7 +79,7 @@ audience). allowlist도 동일하게 맞춘다. 배포 시 환경변수로 전�
 $env:GOOGLE_CLIENT_ID = "<클라이언트 ID>"
 $env:ALLOWED_EMAILS = "me@gmail.com"
 $env:ALLOWED_EMAIL_DOMAINS = "company.com"
-python .codex/deploy-backend-stack.py --all-artifacts
+python scripts/deploy-backend-stack.py --all-artifacts
 ```
 
 이 값들은 CloudFormation 파라미터로 전달되며, 한 번 설정하면 이후

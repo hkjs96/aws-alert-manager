@@ -195,7 +195,7 @@ TagResource/UntagResource는 "MULTI" 타입 + ARN 기반 서비스 판별.
 TDD 사이클(Red→Green→Refactor)을 따르되, 이미 구현된 코드(Task 1~5)에 대한 테스트는 Green부터 시작해도 됨.
 각 Task 완료 후 `pytest` 실행하여 회귀 없음 확인.
 
-참고 파일:
+참고 파일 (아래 스펙 문서는 현재 git 히스토리에만 존재):
 - `.kiro/specs/remaining-resource-monitoring/tasks.md` (전체 태스크 목록)
 - `.kiro/specs/remaining-resource-monitoring/design.md` (설계 상세)
 - `.kiro/specs/remaining-resource-monitoring/requirements.md` (요구사항)

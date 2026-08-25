@@ -14,6 +14,9 @@ These rules apply to Python backend work under `backend/`.
 
 ## Resource Onboarding
 
+Full checklist: `/new-collector` command (`.claude/commands/new-collector.md`).
+Alarm naming/dimension rules: `docs/ALARM-RULES.md`.
+
 When adding a resource type:
 
 1. Confirm CloudWatch metrics, namespaces, dimensions, and CloudTrail events from AWS documentation.

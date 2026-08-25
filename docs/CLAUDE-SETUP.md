@@ -6,7 +6,7 @@
 
 | 파일 | git 추적 | 용도 |
 |------|--------|------|
-| `.claude/settings.json` | ✅ | 환경 독립 자동화: `defaultMode: "acceptEdits"` + 광범위 `permissions.allow` + Kiro 포팅 hooks |
+| `.claude/settings.json` | ✅ | 환경 독립 자동화: `defaultMode: "acceptEdits"` + 광범위 `permissions.allow` + 자동화 hooks |
 | `.claude/settings.local.json` | ❌ (`.gitignore`) | 본인 PC 특화: 절대 경로(`/Users/jsb/.aws/**` 등), Lambda 패키징 임시 디렉토리 |
 | `.claude/commands/*.md` | ✅ | 팀 공유 슬래시 커맨드 (`/deploy`, `/test`, `/governance-check` 등) |
 
@@ -25,11 +25,16 @@
 - **Lambda 패키징**: `zip -r api_handler.zip`, `/tmp/api_handler_pkg` 라이프사이클
 
 ### Hooks
-Kiro에서 포팅된 reminder 기반 hooks. 흐름을 막지 않고 stderr로 안내만:
+reminder/자동화 기반 hooks (`.claude/settings.json`):
 
-- **PreToolUse** — `secret-leak-guard`, `governance-check`
-- **PostToolUse** — `pylint-on-save`, `typecheck-on-save`, `vitest-on-test-save`, `dimension-check`, `arn-conversion`, `new-collector-checklist`
-- **Stop** — `deploy-after-tests`
+- **PreToolUse** — 편집 전 `.bak` 백업, `secret-leak-guard`, `governance-check` 리마인더
+- **PostToolUse** — `pylint-on-save`, `pytest-on-save`(대응 테스트 파일 자동 실행),
+  `typecheck-on-save`, `vitest-on-test-save`, 편집 파일 자동 `git add`,
+  backend 변경 시 자동 배포(`.claude/deploy-backend-stack.py`)
+- **Stop** — `python scripts/verify_all.py` (옵트아웃: `.claude/verify.off` 파일 생성)
+
+관련 슬래시 커맨드: `/deploy`, `/test`, `/governance-check`, `/dimension-check`,
+`/new-collector`, `/spec` (`docs/specs/` 기반)
 
 ## 다른 PC에서 셋업
 

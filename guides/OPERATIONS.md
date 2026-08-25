@@ -69,11 +69,25 @@ Disable auto deploy for a local edit session:
 $env:ALARM_MANAGER_AUTO_DEPLOY = "0"
 ```
 
-Manual trigger example:
+Manual trigger example (hook-style, stdin JSON):
 
 ```powershell
 '{"tool_input":{"file_path":"backend/common/alarm_registry.py"}}' | python .claude\deploy-backend-stack.py
 ```
+
+Manual CLI deploy (`scripts/deploy-backend-stack.py`, superset of the hook):
+
+```powershell
+python scripts/deploy-backend-stack.py                 # git diff 기반 변경 아티팩트만
+python scripts/deploy-backend-stack.py --all-artifacts # 전체 아티팩트 재빌드
+python scripts/deploy-backend-stack.py --changed-path backend/common/alarm_registry.py
+python scripts/deploy-backend-stack.py --dry-run       # 배포 계획만 출력
+```
+
+The CLI also forwards auth parameters (`GOOGLE_CLIENT_ID`, `ALLOWED_EMAILS`,
+`ALLOWED_EMAIL_DOMAINS`, `ADMIN_EMAILS`) when set as environment variables, and
+redeploys the stack at the current `CodeVersion` when only
+`infrastructure/backend/template.yaml` changed.
 
 The hook writes rebuilt zip files under `dist/` and leaves CloudFormation
 `CodeVersion` pointing at the new S3 prefix after deployment.

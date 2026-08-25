@@ -56,7 +56,7 @@ NLB TG는 `AWS/NetworkELB` 네임스페이스를 사용하므로 해당 메트�
 
 ### 참고
 - 적용 버전: v20260324b
-- 관련 스펙: `.kiro/specs/tg-alarm-lb-type-split/`
+- 관련 스펙: git 히스토리 `.kiro/specs/tg-alarm-lb-type-split/` 참조
 
 ---
 

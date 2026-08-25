@@ -32,4 +32,4 @@
 → "균일 안전망(A) + 정밀 제어·자동 복구·콘솔(B)"을 한 제품에 담아,
    **운영 부하는 낮추고 제어력은 높이는** 포지션을 확보합니다.
 
-상세 설계: [.kiro/specs/metric-insights-hybrid/design.md](../../.kiro/specs/metric-insights-hybrid/design.md)
+상세 설계: [docs/specs/metric-insights-hybrid/design.md](../specs/metric-insights-hybrid/design.md)

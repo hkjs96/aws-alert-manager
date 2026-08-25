@@ -8,9 +8,6 @@
 #
 # 수동 전체 실행:
 #   pre-commit run --all-files
-#
-# 훅 변경 시 governance/hooks-manifest.yaml 도 함께 버전 올릴 것
-# (hooks-manifest-sync 가 커밋 차단)
 # =============================================================================
 
 repos:
@@ -103,14 +100,6 @@ repos:
         entry: python scripts/run_frontend_vitest.py
         pass_filenames: false
         files: ^frontend/.*\.(ts|tsx)$
-
-      # ── 에이전트 훅 설정 동기화 검증 ─────────────────────────────────────
-      - id: hooks-manifest-sync
-        name: "[governance] 에이전트 훅 설정 동기화 검증"
-        language: system
-        entry: python governance/verify-sync.py
-        pass_filenames: false
-        files: ^(\.claude|\.kiro|\.gemini|\.codex|governance)/
 
       # ── 조건부 배포 트리거 (post-commit 스테이지) ────────────────────────
       - id: deploy-trigger

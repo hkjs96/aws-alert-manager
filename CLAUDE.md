@@ -17,9 +17,11 @@ Load additional context just in time:
 
 - Frontend work: `frontend/CLAUDE.md`
 - Backend alarm engine work: `backend/common/CLAUDE.md`
+- Alarm naming/dimension/severity contract: `docs/ALARM-RULES.md`
 - Deployment work: `guides/OPERATIONS.md`
 - Contract work: `docs/API-CONTRACT.md`, `docs/DATA-MODEL.md`,
   `docs/API-WORKFLOWS.md`
+- Feature specs and backlog: `docs/specs/` (`/spec` command)
 
 ## Verification
 

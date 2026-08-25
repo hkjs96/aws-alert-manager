@@ -1,8 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
-  "_comment": "Kiro hooks 중 포팅 가능한 것을 Claude Code 훅으로 재구성. stderr로 리마인더를 출력하면 Claude가 이어지는 턴에서 참고한다. Kiro 측 원본은 .kiro/hooks/ 아래 그대로 유지되어 있다. permissions/defaultMode는 이 저장소에서 자율 워크플로(테스트→커밋→푸시까지 단계별 수락 없이) 실행하도록 환경 독립적 항목만 등록. 본인 PC 절대 경로 같은 환경 특화는 .claude/settings.local.json(gitignored)으로.",
+  "_comment": "Claude Code 자동화 훅. stderr로 리마인더를 출력하면 Claude가 이어지는 턴에서 참고한다. permissions/defaultMode는 이 저장소에서 자율 워크플로(테스트→커밋→푸시까지 단계별 수락 없이) 실행하도록 환경 독립적 항목만 등록. 본인 PC 절대 경로 같은 환경 특화는 .claude/settings.local.json(gitignored)으로.",
   "defaultMode": "acceptEdits",
-  "_manifest_version": "2026-05-15-v1",
   "permissions": {
     "allow": [
       "Read(./**)",
@@ -130,7 +129,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "jq -r '.tool_input.content // .tool_input.new_string // \"\"' | grep -nE '(AKIA[0-9A-Z]{16}|(password|secret|token|api[_-]?key)\\s*=\\s*[\"'\\''][^\"'\\'' ${}]{6,})' >&2 && echo '[secret-leak-guard] ⚠️ 위 라인이 시크릿일 가능성이 있다. 환경 변수/Secrets Manager/SSM Parameter Store 사용을 검토하라. (anti-patterns.md AP-1)' >&2; exit 0"
+            "command": "jq -r '.tool_input.content // .tool_input.new_string // \"\"' | grep -nE '(AKIA[0-9A-Z]{16}|(password|secret|token|api[_-]?key)\\s*=\\s*[\"'\\''][^\"'\\'' ${}]{6,})' >&2 && echo '[secret-leak-guard] ⚠️ 위 라인이 시크릿일 가능성이 있다. 환경 변수/Secrets Manager/SSM Parameter Store 사용을 검토하라. (AGENTS.md AP-1)' >&2; exit 0"
           }
         ]
       },
@@ -139,7 +138,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "FILE=\"$CLAUDE_FILE_PATH\"; case \"$FILE\" in *.py) echo '[governance-check] 작성 전 확인: §1 boto3 lru_cache, §2 import 순서(stdlib→boto3→common.*), §3 복잡도(locals≤15,stmts≤50,branches≤12,args≤5), §4 ClientError만 catch·logger.error(\"%s\",e), §9 getLogger(__name__)+컨텍스트, §10 중복 금지. (.kiro/steering/coding-governance.md)' >&2 ;; esac; exit 0"
+            "command": "FILE=\"$CLAUDE_FILE_PATH\"; case \"$FILE\" in *.py) echo '[governance-check] 작성 전 확인: §1 boto3 lru_cache, §2 import 순서(stdlib→boto3→common.*), §3 복잡도(locals≤15,stmts≤50,branches≤12,args≤5), §4 ClientError만 catch·logger.error(\"%s\",e), §9 getLogger(__name__)+컨텍스트, §10 중복 금지. (backend/AGENTS.md, /governance-check)' >&2 ;; esac; exit 0"
           }
         ]
       }
@@ -212,10 +211,5 @@
         ]
       }
     ]
-  },
-
-  "_unported_kiro_hooks": {
-    "_note": "아래는 Kiro에 있었으나 Claude Code에 직접 대응 훅이 없어 Slash Command 또는 수동 실행으로 남겨둔 항목.",
-    "file_creation_event": "Kiro의 fileCreated 트리거는 Claude Code에 없다. new-collector-checklist는 Write 훅에서 근사 처리."
   }
 }
