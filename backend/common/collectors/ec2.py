@@ -40,42 +40,51 @@ def collect_monitored_resources() -> list[ResourceInfo]:
     Monitoring=on 태그가 있는 EC2 인스턴스 목록 반환.
     terminated/shutting-down 상태 인스턴스는 제외하고 로그 기록.
 
+    describe_instances는 결과가 많으면 여러 페이지로 나뉜다. 페이지네이션 없이
+    첫 페이지만 읽으면 나머지 인스턴스가 조용히 누락되어(알람 미생성 + 메트릭 미점검)
+    기존 알람이 고아로 오판될 수 있다.
+
     Returns:
         ResourceInfo 딕셔너리 리스트
     """
     try:
         ec2 = _get_ec2_client()
-        response = ec2.describe_instances(
-            Filters=[{"Name": "tag:Monitoring", "Values": ["on"]}]
+        paginator = ec2.get_paginator("describe_instances")
+        pages = list(
+            paginator.paginate(Filters=[{"Name": "tag:Monitoring", "Values": ["on"]}])
         )
     except ClientError as e:
         logger.error("EC2 describe_instances failed: %s", e)
         raise
 
+    # 리전은 모든 인스턴스가 동일하다. 루프 안에서 Session()을 만들면 인스턴스 수만큼
+    # 세션 객체가 생성된다.
+    region = boto3.session.Session().region_name or "us-east-1"
+
     resources: list[ResourceInfo] = []
-    for reservation in response.get("Reservations", []):
-        for instance in reservation.get("Instances", []):
-            instance_id = instance["InstanceId"]
-            state = instance.get("State", {}).get("Name", "")
+    for page in pages:
+        for reservation in page.get("Reservations", []):
+            for instance in reservation.get("Instances", []):
+                instance_id = instance["InstanceId"]
+                state = instance.get("State", {}).get("Name", "")
 
-            # terminated / shutting-down 제외
-            if state in ("terminated", "shutting-down"):
-                logger.info(
-                    "Skipping EC2 instance %s: state=%s", instance_id, state
+                # terminated / shutting-down 제외
+                if state in ("terminated", "shutting-down"):
+                    logger.info(
+                        "Skipping EC2 instance %s: state=%s", instance_id, state
+                    )
+                    continue
+
+                tags = {t["Key"]: t["Value"] for t in instance.get("Tags", [])}
+
+                resources.append(
+                    ResourceInfo(
+                        id=instance_id,
+                        type="EC2",
+                        tags=tags,
+                        region=region,
+                    )
                 )
-                continue
-
-            tags = {t["Key"]: t["Value"] for t in instance.get("Tags", [])}
-            region = boto3.session.Session().region_name or "us-east-1"
-
-            resources.append(
-                ResourceInfo(
-                    id=instance_id,
-                    type="EC2",
-                    tags=tags,
-                    region=region,
-                )
-            )
 
     return resources
 

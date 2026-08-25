@@ -100,9 +100,15 @@ def _finalize_job(job_id: str) -> None:
 # 크로스 어카운트 CW 클라이언트
 # ──────────────────────────────────────────────
 
-@functools.lru_cache(maxsize=None)
-def _get_cw_for_role(role_arn: str):
-    """AssumeRole을 통해 대상 어카운트의 CloudWatch 클라이언트를 반환."""
+# AssumeRole 임시 자격증명은 기본 1시간 후 만료된다. 클라이언트를 role_arn만으로
+# 캐시하면 warm 컨테이너가 오래 살아남았을 때 ExpiredToken이 난다.
+# 만료보다 짧은 시간 버킷을 캐시 키에 포함해 주기적으로 재발급한다.
+_CREDS_TTL_SECONDS = 900
+
+
+@functools.lru_cache(maxsize=8)
+def _assume_cw_client(role_arn: str, _creds_bucket: int):
+    """AssumeRole로 대상 어카운트 CloudWatch 클라이언트 생성 (시간 버킷당 1회)."""
     sts = boto3.client("sts")
     creds = sts.assume_role(
         RoleArn=role_arn,
@@ -114,6 +120,12 @@ def _get_cw_for_role(role_arn: str):
         aws_secret_access_key=creds["SecretAccessKey"],
         aws_session_token=creds["SessionToken"],
     )
+
+
+def _get_cw_for_role(role_arn: str):
+    """AssumeRole을 통해 대상 어카운트의 CloudWatch 클라이언트를 반환."""
+    bucket = int(datetime.now(timezone.utc).timestamp() // _CREDS_TTL_SECONDS)
+    return _assume_cw_client(role_arn, bucket)
 
 
 # ──────────────────────────────────────────────

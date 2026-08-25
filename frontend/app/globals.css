@@ -2,18 +2,18 @@
 @tailwind components;
 @tailwind utilities;
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Manrope:wght@600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
-
+/* 폰트는 app/layout.tsx의 next/font가 셀프 호스팅한다(CSS 변수로 주입).
+   여기서 외부 CDN을 @import하면 첫 렌더가 Google Fonts 왕복에 막힌다. */
 @layer base {
   body {
     @apply bg-[#f9f9ff] text-slate-900 antialiased;
-    font-family: "Inter", ui-sans-serif, system-ui, sans-serif;
+    font-family: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
   }
   .font-headline {
-    font-family: "Manrope", sans-serif;
+    font-family: var(--font-manrope), ui-sans-serif, system-ui, sans-serif;
   }
   .font-mono {
-    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+    font-family: var(--font-jetbrains-mono), ui-monospace, SFMono-Regular, monospace;
   }
 }
 

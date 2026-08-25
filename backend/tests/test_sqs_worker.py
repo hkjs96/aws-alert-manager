@@ -132,7 +132,7 @@ class TestLambdaHandler(unittest.TestCase):
         self.table = _setup_ddb_table()
         from sqs_worker import lambda_handler as lh
         lh._get_ddb.cache_clear()
-        lh._get_cw_for_role.cache_clear()
+        lh._assume_cw_client.cache_clear()
         self.patcher = patch("sqs_worker.lambda_handler._job_status_table", return_value=self.table)
         self.patcher.start()
         _put_job(self.table, "job-ok", 1)
@@ -141,7 +141,7 @@ class TestLambdaHandler(unittest.TestCase):
         self.patcher.stop()
         from sqs_worker import lambda_handler as lh
         lh._get_ddb.cache_clear()
-        lh._get_cw_for_role.cache_clear()
+        lh._assume_cw_client.cache_clear()
         self.mock.stop()
 
     @patch("sqs_worker.lambda_handler.alarm_manager.create_alarms_for_resource")

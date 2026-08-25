@@ -12,8 +12,9 @@ import type {
   Resource,
 } from "@/types";
 import type { AlarmSummary, DashboardStats } from "@/types/api";
+import { cache } from "react";
 import { encodeResourceId } from "@/lib/resource-id";
-import { auth } from "@/auth";
+import { getSession } from "@/lib/server/session";
 
 const API_BASE_URL =
   process.env.API_GATEWAY_URL ??
@@ -30,12 +31,16 @@ async function authHeaders(): Promise<Record<string, string>> {
   if (!process.env.AUTH_SECRET) {
     return {};
   }
-  const session = await auth();
+  const session = await getSession();
   const idToken = session?.id_token;
   return idToken ? { Authorization: `Bearer ${idToken}` } : {};
 }
 
-async function apiFetch<T>(path: string): Promise<T> {
+// Responses stay uncached across requests (`no-store`), but the same path is
+// often requested more than once while rendering a single page: the layout and
+// the page both read alarms, and a detail page reads the resource in both
+// generateMetadata and the page body. cache() collapses those duplicates.
+const cachedGet = cache(async (path: string): Promise<unknown> => {
   if (!API_BASE_URL) {
     throw new Error("API Gateway URL is not configured");
   }
@@ -46,7 +51,11 @@ async function apiFetch<T>(path: string): Promise<T> {
   if (!res.ok) {
     throw new Error(`API ${path} failed: ${res.status}`);
   }
-  return res.json() as Promise<T>;
+  return res.json();
+});
+
+async function apiFetch<T>(path: string): Promise<T> {
+  return (await cachedGet(path)) as T;
 }
 
 function normalizeResource(resource: ApiResource): Resource {

@@ -6,6 +6,7 @@ import {
   useState,
   useCallback,
   useEffect,
+  useMemo,
   type ReactNode,
 } from 'react';
 import { CheckCircle, XCircle, AlertTriangle, Info, X } from 'lucide-react';
@@ -114,8 +115,12 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     [],
   );
 
+  // 매 렌더마다 새 객체를 내려보내면 토스트 하나가 뜨고 질 때마다 useToast를 쓰는
+  // 모든 컴포넌트가 리렌더된다. Provider는 앱 루트에 있어 영향 범위가 전체다.
+  const value = useMemo(() => ({ showToast }), [showToast]);
+
   return (
-    <ToastContext.Provider value={{ showToast }}>
+    <ToastContext.Provider value={value}>
       {children}
       <ToastContainer toasts={toasts} onDismiss={dismiss} />
     </ToastContext.Provider>

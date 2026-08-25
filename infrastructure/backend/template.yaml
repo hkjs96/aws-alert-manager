@@ -86,6 +86,9 @@ Mappings:
   LambdaConfig:
     Settings:
       Runtime: python3.12
+      # Graviton(arm64)은 x86_64 대비 약 20% 저렴하고 성능은 동등하다.
+      # 배포 아티팩트가 순수 Python(.py)이라 네이티브 휠 의존성이 없어 전환 영향이 없다.
+      Architecture: arm64
       Timeout: 300
       MemorySize: 256
   # Full name -> short abbreviation for resource naming
@@ -315,6 +318,8 @@ Resources:
         - EnvShort: !FindInMap [EnvShortName, !Ref Environment, short]
       Description: REST API handler for Alarm Manager frontend
       Runtime: !FindInMap [LambdaConfig, Settings, Runtime]
+      Architectures:
+        - !FindInMap [LambdaConfig, Settings, Architecture]
       Timeout: 30
       MemorySize: 256
       Handler: lambda_handler.lambda_handler
@@ -519,6 +524,8 @@ Resources:
         - EnvShort: !FindInMap [EnvShortName, !Ref Environment, short]
       Description: SQS worker for bulk alarm operations
       Runtime: !FindInMap [LambdaConfig, Settings, Runtime]
+      Architectures:
+        - !FindInMap [LambdaConfig, Settings, Architecture]
       Timeout: 900
       MemorySize: 256
       Handler: lambda_handler.lambda_handler
@@ -679,7 +686,11 @@ Resources:
         - EnvShort: !FindInMap [EnvShortName, !Ref Environment, short]
       Description: EC2/RDS/ELB daily metric check and threshold alert
       Runtime: !FindInMap [LambdaConfig, Settings, Runtime]
-      Timeout: !FindInMap [LambdaConfig, Settings, Timeout]
+      Architectures:
+        - !FindInMap [LambdaConfig, Settings, Architecture]
+      # Worker는 계정 내 전 리소스를 순차 처리한다. 리소스가 늘면 300초로는 부족해
+      # 중간에 잘리고 run history가 running으로 남는다.
+      Timeout: 900
       MemorySize: !FindInMap [LambdaConfig, Settings, MemorySize]
       Handler: lambda_handler.lambda_handler
       Role: !GetAtt MonitoringEngineRole.Arn
@@ -753,6 +764,8 @@ Resources:
         - EnvShort: !FindInMap [EnvShortName, !Ref Environment, short]
       Description: CloudTrail event-based auto remediation and lifecycle alerts
       Runtime: !FindInMap [LambdaConfig, Settings, Runtime]
+      Architectures:
+        - !FindInMap [LambdaConfig, Settings, Architecture]
       Timeout: !FindInMap [LambdaConfig, Settings, Timeout]
       MemorySize: !FindInMap [LambdaConfig, Settings, MemorySize]
       Handler: lambda_handler.lambda_handler
@@ -789,6 +802,8 @@ Resources:
         - EnvShort: !FindInMap [EnvShortName, !Ref Environment, short]
       Description: Daily Monitor Orchestrator — reads account list and fans out to Worker Lambdas
       Runtime: !FindInMap [LambdaConfig, Settings, Runtime]
+      Architectures:
+        - !FindInMap [LambdaConfig, Settings, Architecture]
       Timeout: 60
       MemorySize: 128
       Handler: orchestrator.lambda_handler

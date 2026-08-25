@@ -7,6 +7,8 @@ import re
 import boto3
 from botocore.exceptions import ClientError
 
+from common.alarm_builder import resolve_alarm_severity
+
 logger = logging.getLogger(__name__)
 
 # [EC2] label metric >threshold (TagName: resource_id)
@@ -147,8 +149,7 @@ def get_alarm_overlay(customer_id: str | None = None, account_id: str | None = N
         overlay[tag_name]["alarms"].append(alarm["AlarmName"])
         
         if alarm.get("StateValue") == "ALARM":
-            tags = {t["Key"]: t["Value"] for t in alarm.get("Tags", [])} if alarm.get("Tags") else {}
-            sev = tags.get("Severity", "SEV-5")
+            sev = resolve_alarm_severity(alarm)
             if sev in ("SEV-1", "SEV-2"):
                 overlay[tag_name]["critical"] += 1
             else:

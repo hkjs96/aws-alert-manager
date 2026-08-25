@@ -25,6 +25,7 @@ from botocore.exceptions import ClientError
 logging.getLogger().setLevel(logging.INFO)
 logger = logging.getLogger(__name__)
 
+from common.alarm_builder import resolve_alarm_severity
 from common.alarm_manager import sync_alarms_for_resource
 from common.resource_discovery import (
     discover_resources,
@@ -449,9 +450,7 @@ def _extract_resource_from_alarm_name(name: str) -> tuple[str, str] | None:
 
 
 def _is_alarm_critical(alarm: dict) -> bool:
-    tags = {t["Key"]: t["Value"] for t in alarm.get("Tags", [])} if alarm.get("Tags") else {}
-    sev = tags.get("Severity", "SEV-5")
-    return sev in ("SEV-1", "SEV-2")
+    return resolve_alarm_severity(alarm) in ("SEV-1", "SEV-2")
 
 
 def _determine_alarm_state(alarms: list[dict]) -> str:
@@ -565,7 +564,7 @@ def _sync_inventory(account_id_hint: str, role_arn: str) -> dict:
             res_id_extracted = alarm_name
 
         tags = {t["Key"]: t["Value"] for t in alarm.get("Tags", [])} if alarm.get("Tags") else {}
-        severity = tags.get("Severity", "SEV-5")
+        severity = resolve_alarm_severity(alarm)
 
         ts = alarm.get("StateUpdatedTimestamp")
         ts_str = ts.isoformat() if hasattr(ts, "isoformat") else str(ts or "")
@@ -1015,7 +1014,7 @@ def _build_alarm_item(alarm: dict, db_key: str, account: str, arn_parts: list[st
         res_id = alarm_name
 
     tags = {t["Key"]: t["Value"] for t in alarm.get("Tags", [])} if alarm.get("Tags") else {}
-    severity = tags.get("Severity", "SEV-5")
+    severity = resolve_alarm_severity(alarm)
     ts = alarm.get("StateUpdatedTimestamp")
     ts_str = ts.isoformat() if hasattr(ts, "isoformat") else str(ts or "")
 

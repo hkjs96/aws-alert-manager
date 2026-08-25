@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { getSession } from "@/lib/server/session";
 
 const API_BASE_URL =
   process.env.API_GATEWAY_URL ??
@@ -30,7 +30,7 @@ async function proxy(request: NextRequest, { params }: RouteContext) {
   // session endpoint) — robust against getToken cookie/salt/chunking issues.
   // When auth is not configured this is simply absent (staged rollout).
   if (process.env.AUTH_SECRET) {
-    const session = await auth();
+    const session = await getSession();
     const idToken = session?.id_token;
     if (idToken) {
       headers["Authorization"] = `Bearer ${idToken}`;

@@ -73,7 +73,9 @@ def test_property_1_ec2_collection_filter(monitored_ids, unmonitored_ids):
 
     monitored = [_make_ec2_instance(i, {"Monitoring": "on"}) for i in monitored_ids]
     mock_ec2 = MagicMock()
-    mock_ec2.describe_instances.return_value = _make_ec2_response(monitored)
+    mock_ec2.get_paginator.return_value.paginate.return_value = [
+        _make_ec2_response(monitored)
+    ]
 
     with patch("common.collectors.ec2._get_ec2_client", return_value=mock_ec2), \
          patch("common.collectors.ec2.boto3.session.Session") as mock_session:
@@ -113,7 +115,9 @@ def test_property_5_terminated_instances_excluded(active_ids, dead_state):
     dead = [_make_ec2_instance(dead_id, {"Monitoring": "on"}, dead_state)]
 
     mock_ec2 = MagicMock()
-    mock_ec2.describe_instances.return_value = _make_ec2_response(active + dead)
+    mock_ec2.get_paginator.return_value.paginate.return_value = [
+        _make_ec2_response(active + dead)
+    ]
 
     with patch("common.collectors.ec2._get_ec2_client", return_value=mock_ec2), \
          patch("common.collectors.ec2.boto3.session.Session") as mock_session:
@@ -139,9 +143,9 @@ class TestEC2Collector:
         importlib.reload(m)
         self.module = m
 
-    def _mock_boto3(self, ec2_response):
+    def _mock_boto3(self, *ec2_pages):
         mock_ec2 = MagicMock()
-        mock_ec2.describe_instances.return_value = ec2_response
+        mock_ec2.get_paginator.return_value.paginate.return_value = list(ec2_pages)
         mock_session = MagicMock()
         mock_session.return_value.region_name = "us-east-1"
         return mock_ec2, mock_session
@@ -158,13 +162,23 @@ class TestEC2Collector:
         """AWS API 오류 시 예외 전파 - Requirements 1.4"""
         from botocore.exceptions import ClientError
         mock_ec2 = MagicMock()
-        mock_ec2.describe_instances.side_effect = ClientError(
+        mock_ec2.get_paginator.return_value.paginate.side_effect = ClientError(
             {"Error": {"Code": "InvalidParameterValue", "Message": "error"}},
             "describe_instances",
         )
         with patch("common.collectors.ec2._get_ec2_client", return_value=mock_ec2):
             with pytest.raises(ClientError):
                 self.module.collect_monitored_resources()
+
+    def test_collects_across_all_pages(self):
+        """describe_instances가 여러 페이지로 나뉘어도 전부 수집한다"""
+        page1 = _make_ec2_response([_make_ec2_instance("i-page1", {"Monitoring": "on"})])
+        page2 = _make_ec2_response([_make_ec2_instance("i-page2", {"Monitoring": "on"})])
+        mock_ec2, mock_session = self._mock_boto3(page1, page2)
+        with patch("common.collectors.ec2._get_ec2_client", return_value=mock_ec2), \
+             patch("common.collectors.ec2.boto3.session.Session", mock_session):
+            result = self.module.collect_monitored_resources()
+        assert {r["id"] for r in result} == {"i-page1", "i-page2"}
 
     def test_get_metrics_returns_cpu(self):
         """CPUUtilization 메트릭 정상 반환"""

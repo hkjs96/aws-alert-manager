@@ -113,8 +113,9 @@ def _create_disk_alarms(
 
     for dim_set in disk_dim_sets:
         path = next((d["Value"] for d in dim_set if d["Name"] == "path"), "/")
-        suffix = path.lstrip("/") or "root"
-        alarm_metric = f"Disk_{suffix}"
+        # 임계치/메타데이터 키는 태그 suffix 규칙(`/var/log` → `var_log`)을 따른다.
+        # alarm_sync·재생성 경로와 같은 키를 써야 드리프트 비교가 성립한다.
+        alarm_metric = f"Disk_{disk_path_to_tag_suffix(path)}"
         if is_threshold_off(resource_tags, alarm_metric):
             logger.info(
                 "Skipping Disk alarm for %s path %s: threshold set to off",
@@ -122,7 +123,8 @@ def _create_disk_alarms(
             )
             continue
         disk_threshold = get_threshold(resource_tags, alarm_metric)
-        disk_metric_label = f"Disk-{suffix}"
+        # 표시용 라벨은 실제 마운트 경로를 그대로 보여준다.
+        disk_metric_label = f"Disk-{path.lstrip('/') or 'root'}"
         name = _pretty_alarm_name(
             resource_type, resource_id, resource_name,
             disk_metric_label, disk_threshold,
@@ -347,6 +349,26 @@ def _resolve_metric_key(alarm_info: dict) -> str:
     return metric_name
 
 
+def _is_disk_metric_key(metric_key: str) -> bool:
+    """Disk 계열 메트릭 키 판별 (Disk_{suffix} / disk_used_percent 계열)."""
+    return metric_key.startswith("Disk_") or metric_key.startswith("disk_used_percent")
+
+
+def resolve_alarm_severity(alarm: dict) -> str:
+    """알람 dict에서 Severity를 해석한다.
+
+    `describe_alarms` 응답에는 알람 태그가 포함되지 않으므로, 태그를 별도로 조회해
+    주입한 경우에만 태그 값을 쓰고, 그 외에는 생성 시점과 동일한 규칙
+    (metric_key → `get_severity`)으로 기본 등급을 계산한다.
+    태그 값을 그대로 믿고 폴백을 두지 않으면 모든 알람이 SEV-5로 강등된다.
+    """
+    tags = {t["Key"]: t["Value"] for t in alarm.get("Tags", [])} if alarm.get("Tags") else {}
+    severity = tags.get("Severity")
+    if severity:
+        return severity
+    return get_severity(_resolve_metric_key(alarm))
+
+
 def _create_single_alarm(
     metric: str,
     resource_id: str,
@@ -382,7 +404,11 @@ def _create_single_alarm(
         else alarm_def["namespace"]
     )
 
-    name = _pretty_alarm_name(resource_type, resource_id, resource_name, metric, threshold)
+    # resource_tags 없이 부르면 ACM/APIGW의 (TagName: ...) 부분이 생성 경로와 달라져
+    # 같은 알람이 두 이름으로 갈라진다.
+    name = _pretty_alarm_name(
+        resource_type, resource_id, resource_name, metric, threshold, resource_tags,
+    )
     desc = _build_alarm_description(
         resource_type, resource_id, metric,
         f"Auto-created by AWS Monitoring Engine for {resource_type} {resource_id}",
@@ -442,27 +468,32 @@ def _recreate_alarm_by_name(
     metric_key = _resolve_metric_key(alarm_info)
     existing_dims = alarm_info.get("Dimensions", [])
 
-    # 2. 해당 알람만 삭제
+    # 2. 알람 정의를 **삭제 전에** 확보한다. 삭제를 먼저 하면 정의를 못 찾았을 때
+    #    알람이 영구 소실된다. Disk_{suffix} 계열은 레지스트리에 disk_used_percent
+    #    단일 정의로 존재하므로 조회 키를 치환한다.
+    is_disk = _is_disk_metric_key(metric_key)
+    def_key = "disk_used_percent" if is_disk else metric_key
+    alarm_defs = _get_alarm_defs(resource_type, resource_tags)
+    alarm_def = next(
+        (d for d in alarm_defs if (d.get("metric_key") or d["metric"]) == def_key),
+        None,
+    )
+    if alarm_def is None:
+        logger.warning(
+            "No alarm definition found for metric key %s (alarm: %s), skipping recreate",
+            metric_key, alarm_name,
+        )
+        return
+
+    # 3. 해당 알람만 삭제
     try:
         cw.delete_alarms(AlarmNames=[alarm_name])
     except ClientError as e:
         logger.error("Failed to delete alarm %s: %s", alarm_name, e)
         return
 
-    # 3. put_metric_alarm으로 재생성
-    alarm_defs = _get_alarm_defs(resource_type, resource_tags)
-    alarm_def = next(
-        (d for d in alarm_defs if (d.get("metric_key") or d["metric"]) == metric_key),
-        None,
-    )
-    if alarm_def is None:
-        logger.warning(
-            "No alarm definition found for metric key %s (alarm: %s)",
-            metric_key, alarm_name,
-        )
-        return
-
-    if metric_key.startswith("Disk_"):
+    # 4. put_metric_alarm으로 재생성
+    if is_disk:
         _recreate_disk_alarm(
             alarm_def, existing_dims, resource_id, resource_type,
             resource_name, resource_tags, cw, sns_arn,
@@ -488,7 +519,10 @@ def _recreate_disk_alarm(
     path = next((d["Value"] for d in existing_dims if d["Name"] == "path"), "/")
     suffix = disk_path_to_tag_suffix(path)
     threshold = get_threshold(resource_tags, f"Disk_{suffix}")
-    disk_metric_label = f"disk_used_percent-{path.lstrip('/') or 'root'}"
+    # 라벨 포맷은 생성 경로(_create_disk_alarms)와 반드시 같아야 한다.
+    # `disk_used_percent-...` 형태는 _pretty_alarm_name의 어느 분기에도 걸리지 않아
+    # 알람 이름이 "... unknown > 80 ..."으로 만들어진다.
+    disk_metric_label = f"Disk-{path.lstrip('/') or 'root'}"
     name = _pretty_alarm_name(resource_type, resource_id, resource_name, disk_metric_label, threshold)
     _DISK_DIM_KEYS = {"InstanceId", "device", "fstype", "path"}
     clean_dims = [d for d in existing_dims if d["Name"] in _DISK_DIM_KEYS]
@@ -545,7 +579,10 @@ def _recreate_standard_alarm(
         else alarm_def["namespace"]
     )
 
-    name = _pretty_alarm_name(resource_type, resource_id, resource_name, metric_key, threshold)
+    # resource_tags 누락 시 ACM/APIGW 알람 이름이 생성 경로와 달라진다(_create_single_alarm 참고).
+    name = _pretty_alarm_name(
+        resource_type, resource_id, resource_name, metric_key, threshold, resource_tags,
+    )
     desc = _build_alarm_description(
         resource_type, resource_id, metric_key,
         f"Auto-created by AWS Monitoring Engine for {resource_type} {resource_id}",
