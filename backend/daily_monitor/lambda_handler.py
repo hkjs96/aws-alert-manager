@@ -26,6 +26,7 @@ logging.getLogger().setLevel(logging.INFO)
 logger = logging.getLogger(__name__)
 
 from common.alarm_builder import resolve_alarm_severity
+from common.alarm_index import AlarmIndex
 from common.alarm_manager import sync_alarms_for_resource
 from common.resource_discovery import (
     discover_resources,
@@ -216,12 +217,19 @@ def lambda_handler(event, context):
 
     # 0단계: ResourceInventoryTable 동기화 (세션 전환 전 — 메인 계정 DDB 접근 필요)
     # discover_resources()가 자체적으로 AssumeRole 하므로 세션 전환 불필요.
+    prefetched_alarms: list[dict] = []
     try:
         inventory_stats = _sync_inventory(account_id, role_arn)
+        prefetched_alarms = inventory_stats.pop("_alarms", [])
         logger.info("Inventory sync: %s", inventory_stats)
     except (ClientError, RuntimeError, KeyError) as e:
         logger.error("Inventory sync failed: %s", e)
         inventory_stats = {"error": str(e)}
+
+    # 런 스코프 알람 인덱스: 인벤토리 동기화가 이미 조회한 전체 알람을 재사용해
+    # 리소스별 describe_alarms 프리픽스 스캔(리소스 수 × 타입 알람 수)을 제거.
+    # 페치 실패(빈 목록) 시에는 기존 라이브 조회로 폴백한다.
+    alarm_index = AlarmIndex(prefetched_alarms) if prefetched_alarms else None
 
     if role_arn:
         try:
@@ -268,10 +276,12 @@ def lambda_handler(event, context):
             resource_type = resource["type"]
             resource_tags = resource.get("tags", {})
 
-            # 1단계: 알람 동기화
+            # 1단계: 알람 동기화 (기존 알람 조회는 런 스코프 인덱스 사용)
             try:
                 sync_result = sync_alarms_for_resource(
                     resource_id, resource_type, resource_tags,
+                    alarm_index=alarm_index,
+                    resource_region=resource.get("region", ""),
                 )
                 alarms_synced["created"] += len(sync_result.get("created", []))
                 alarms_synced["updated"] += len(sync_result.get("updated", []))
@@ -429,7 +439,10 @@ def _fetch_alarms_for_accounts(accounts: list[dict]) -> list[dict]:
             try:
                 cw = session.client("cloudwatch")
                 paginator = cw.get_paginator("describe_alarms")
-                for page in paginator.paginate(AlarmTypes=["MetricAlarm"], AlarmNamePrefix="["):
+                # 프리픽스 없이 전체 조회: 이 결과가 런 스코프 AlarmIndex의 원천이라
+                # 레거시 포맷({resource_id}-...) 알람까지 포함해야 한다. 인벤토리
+                # 스냅샷 기록은 _write_alarm_snapshots에서 관리 알람만 필터링한다.
+                for page in paginator.paginate(AlarmTypes=["MetricAlarm"]):
                     for alarm in page.get("MetricAlarms", []):
                         alarm["_region"] = region
                         alarm["_account_id"] = account_id
@@ -635,7 +648,10 @@ def _sync_inventory(account_id_hint: str, role_arn: str) -> dict:
         synced, synced_alarms, deleted_alarms,
     )
 
-    return {"discovered": len(discovered), "synced": synced}
+    # "_alarms": 이번 런에서 이미 조회한 전체 알람 — lambda_handler가 꺼내
+    # AlarmIndex를 만들어 리소스별 재조회를 없앤다. run history에 기록되기 전에
+    # 호출부에서 pop 하므로 요약에는 남지 않는다.
+    return {"discovered": len(discovered), "synced": synced, "_alarms": alarms}
 
 
 def _resolve_accounts_for_inventory(account_id_hint: str, role_arn: str) -> list[dict]:
@@ -990,6 +1006,11 @@ def _write_alarm_snapshots(inv_table, alarms: list[dict]) -> tuple[int, set[tupl
     items = []
     fresh_keys = set()
     for alarm in alarms:
+        # 인벤토리에는 이 엔진이 관리하는 새 포맷 알람만 기록한다.
+        # (페치는 AlarmIndex용으로 전체를 가져오지만, 고객이 직접 만든 알람을
+        #  인벤토리/UI에 노출하지 않는 기존 동작을 유지한다)
+        if not alarm.get("AlarmName", "").startswith("["):
+            continue
         arn = alarm.get("AlarmArn", "")
         if not arn:
             continue

@@ -14,6 +14,46 @@ from common.alarm_naming import _shorten_elb_resource_id
 
 logger = logging.getLogger("common.alarm_manager")
 
+_ALL_TYPE_PREFIXES = tuple(
+    f"[{rt}] " for rt in (
+        "EC2", "RDS", "ALB", "NLB", "TG", "AuroraRDS", "DocDB", "ElastiCache",
+        "NAT", "Lambda", "VPN", "APIGW", "ACM", "Backup", "MQ", "CLB",
+        "OpenSearch", "SQS", "ECS", "MSK", "DynamoDB", "CloudFront", "WAF",
+        "Route53", "DX", "EFS", "S3", "SageMaker", "SNS",
+    )
+)
+
+
+def _candidate_prefixes(resource_type: str) -> list[str]:
+    """새 포맷 알람 검색에 쓸 이름 프리픽스 목록 (레거시 타입명 호환 포함).
+
+    라이브 검색(_find_alarms_for_resource)과 인메모리 인덱스(AlarmIndex)가
+    같은 매칭 규칙을 쓰도록 여기 한 곳에서 정의한다.
+    """
+    prefixes = (
+        [f"[{resource_type}] "] if resource_type else list(_ALL_TYPE_PREFIXES)
+    )
+    # 레거시 [ELB] prefix 호환: ALB/NLB/TG는 기존 [ELB] 알람도 검색
+    if resource_type in ("ALB", "NLB", "TG"):
+        prefixes.append("[ELB] ")
+    # 레거시 [NATGateway] prefix 호환: NAT 리네임 이전 알람 검색
+    if resource_type == "NAT":
+        prefixes.append("[NATGateway] ")
+    return prefixes
+
+
+def _match_suffixes(
+    resource_id: str,
+    resource_type: str,
+    resource_tags: dict | None = None,
+) -> set[str]:
+    """리소스를 알람 이름과 매칭할 (TagName: ...) 서픽스 집합."""
+    short_id = _shorten_elb_resource_id(resource_id, resource_type, resource_tags)
+    suffixes = {f"(TagName: {short_id})"}
+    if short_id != resource_id:
+        suffixes.add(f"(TagName: {resource_id})")  # 레거시 Full_ARN 호환
+    return suffixes
+
 
 def _find_alarms_for_resource(
     resource_id: str,
@@ -27,15 +67,17 @@ def _find_alarms_for_resource(
     검색 전략 (전체 풀스캔 금지 - 거버넌스 규칙 6):
     1) 레거시: AlarmNamePrefix=resource_id (레거시 알람 호환)
     2) 새 포맷: AlarmNamePrefix="[{resource_type}] " + suffix 필터
-       resource_type 지정 시 해당 타입만, 미지정 시 EC2/RDS/ELB 검색
+       resource_type 지정 시 해당 타입만, 미지정 시 전 타입 검색
+
+    daily run처럼 리소스를 대량 순회하는 경로에서는 이 함수 대신
+    `common.alarm_index.AlarmIndex`(런당 1회 전체 조회 + 인메모리 매칭)를
+    사용한다 — 타입 프리픽스 스캔은 리소스 수 × 타입 알람 수에 비례해
+    API 콜을 만든다.
     """
     cw = cw or _clients._get_cw_client()
     seen: set[str] = set()
     alarm_names: list[str] = []
-    short_id = _shorten_elb_resource_id(resource_id, resource_type, resource_tags)
-    suffixes = {f"(TagName: {short_id})"}
-    if short_id != resource_id:
-        suffixes.add(f"(TagName: {resource_id})")  # 레거시 Full_ARN 호환
+    suffixes = _match_suffixes(resource_id, resource_type, resource_tags)
 
     def _collect(prefix: str, filter_suffix: bool = False) -> None:
         try:
@@ -54,26 +96,12 @@ def _find_alarms_for_resource(
                 prefix, resource_id, e,
             )
 
-
     # 1) 레거시 prefix 검색
     _collect(resource_id)
 
     # 2) 새 포맷: resource_type prefix 기반 검색 + suffix 필터
-    type_prefixes = (
-        [f"[{resource_type}] "]
-        if resource_type
-        else [f"[{rt}] " for rt in ("EC2", "RDS", "ALB", "NLB", "TG", "AuroraRDS", "DocDB", "ElastiCache", "NAT", "Lambda", "VPN", "APIGW", "ACM", "Backup", "MQ", "CLB", "OpenSearch", "SQS", "ECS", "MSK", "DynamoDB", "CloudFront", "WAF", "Route53", "DX", "EFS", "S3", "SageMaker", "SNS")]
-    )
-    for p in type_prefixes:
+    for p in _candidate_prefixes(resource_type):
         _collect(p, filter_suffix=True)
-
-    # 3) 레거시 [ELB] prefix 호환: ALB/NLB/TG는 기존 [ELB] 알람도 검색
-    if resource_type in ("ALB", "NLB", "TG"):
-        _collect("[ELB] ", filter_suffix=True)
-
-    # 4) 레거시 [NATGateway] prefix 호환: NAT 리네임 이전 알람 검색
-    if resource_type == "NAT":
-        _collect("[NATGateway] ", filter_suffix=True)
 
     return alarm_names
 

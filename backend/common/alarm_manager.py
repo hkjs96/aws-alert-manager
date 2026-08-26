@@ -258,26 +258,48 @@ def sync_alarms_for_resource(
     resource_tags: dict,
     *,
     cw=None,
+    alarm_index=None,
+    resource_region: str = "",
 ) -> dict:
-    """리소스의 알람이 현재 태그 임계치와 일치하는지 확인하고 불일치 시 업데이트."""
-    # 글로벌 서비스(CloudFront/Route53)는 us-east-1 CloudWatch 클라이언트 사용
+    """리소스의 알람이 현재 태그 임계치와 일치하는지 확인하고 불일치 시 업데이트.
+
+    alarm_index(common.alarm_index.AlarmIndex)가 주어지면 기존 알람 조회를
+    인메모리 인덱스로 수행한다 — daily run처럼 리소스를 대량 순회하는 경로에서
+    리소스당 describe_alarms 프리픽스 스캔을 제거하기 위함. 쓰기(생성/삭제)는
+    항상 라이브 API로 수행한다.
+    """
+    # 글로벌 서비스(CloudFront/Route53)는 us-east-1 CloudWatch 클라이언트 사용.
+    # 알람도 us-east-1에 있어 계정 리전 기반 인덱스 범위 밖 → 라이브 조회로 폴백.
     global_region = _GLOBAL_SERVICE_REGION.get(resource_type)
-    if global_region and cw is None:
-        cw = _clients._get_cw_client_for_region(global_region)
+    if global_region:
+        alarm_index = None
+        if cw is None:
+            cw = _clients._get_cw_client_for_region(global_region)
     _fwd: dict = {"cw": cw} if cw is not None else {}
     cw = cw or _clients._get_cw_client()
     result: dict[str, list] = {
         "created": [], "updated": [], "ok": [], "deleted": [],
     }
 
-    existing_names = _find_alarms_for_resource(resource_id, resource_type, **_fwd)
+    if alarm_index is not None:
+        existing_names = alarm_index.find_names(
+            resource_id, resource_type, resource_tags, region=resource_region,
+        )
+    else:
+        existing_names = _find_alarms_for_resource(
+            resource_id, resource_type, resource_tags=resource_tags, **_fwd,
+        )
 
     if not existing_names:
         created = create_alarms_for_resource(resource_id, resource_type, resource_tags, **_fwd)
         result["created"] = created
         return result
 
-    alarm_map = _describe_alarms_batch(existing_names, **_fwd)
+    alarm_map = (
+        alarm_index.describe(existing_names, region=resource_region)
+        if alarm_index is not None
+        else _describe_alarms_batch(existing_names, **_fwd)
+    )
 
     key_to_alarm: dict[str, dict] = {}
     for alarm_info in alarm_map.values():
