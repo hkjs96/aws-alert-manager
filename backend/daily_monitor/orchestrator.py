@@ -43,14 +43,19 @@ def lambda_handler(event, context):
     worker_fn = os.environ["WORKER_FUNCTION_NAME"]
     lambda_client = _get_lambda_client()
 
+    # 스케줄이 실행 모드를 지정할 수 있다 (예: 주간 metric_snapshot).
+    # 미지정 시 기존 daily 흐름 그대로.
+    mode = event.get("mode", "") if isinstance(event, dict) else ""
+
     dispatched, failed = [], []
     for account in accounts:
         account_id = account.get("account_id", "unknown")
+        payload = {**account, "mode": mode} if mode else account
         try:
             lambda_client.invoke(
                 FunctionName=worker_fn,
                 InvocationType="Event",  # 비동기 — Worker 완료를 기다리지 않음
-                Payload=json.dumps(account).encode(),
+                Payload=json.dumps(payload).encode(),
             )
             dispatched.append(account_id)
             logger.info("Dispatched worker for account: %s", account_id)

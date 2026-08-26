@@ -193,6 +193,9 @@ def lambda_handler(event, context):
         return _handle_alarms_sync_job(event, context)
     if isinstance(event, dict) and event.get("sync_target") == "resources":
         return _handle_resources_sync_job(event, context)
+    # 주간 메트릭 스냅샷 (metric-snapshot-schedule → Orchestrator → mode 전달)
+    if isinstance(event, dict) and event.get("mode") == "metric_snapshot":
+        return _handle_metric_snapshot(event, context)
     """
     Lambda 핸들러 진입점 (Worker).
 
@@ -327,6 +330,26 @@ def lambda_handler(event, context):
         inventory_stats.get("error"),
     )
     return result
+
+
+def _handle_metric_snapshot(event: dict, context) -> dict:
+    """주간 메트릭 스냅샷 잡 (mode=metric_snapshot).
+
+    대상 계정 세션으로 CloudWatch만 읽고 메인 계정 DDB에 적재하므로
+    세션 전환(_switch_account_session) 없이 동작한다.
+    """
+    from daily_monitor.metric_snapshot import collect_weekly_snapshots
+
+    account_id = event.get("account_id", "self")
+    role_arn = event.get("role_arn", "")
+    accounts = _resolve_accounts_for_inventory(account_id, role_arn)
+    if not accounts:
+        logger.warning("Metric snapshot: no account metadata for %s", account_id)
+        return {"status": "ok", "skipped": "no_account_metadata"}
+
+    stats = collect_weekly_snapshots(accounts)
+    logger.info("Metric snapshot done for %s: %s", account_id, stats)
+    return {"status": "ok", "account_id": account_id, **stats}
 
 
 # ──────────────────────────────────────────────

@@ -285,6 +285,34 @@ Resources:
         - Key: ManagedBy
           Value: AlarmManager
 
+  # -- DynamoDB: 메트릭 장기 추이 스냅샷 (주간 수집) --------------------------
+  # CloudWatch는 5분 해상도를 63일까지만 보관하므로, 주 1회 일 단위 통계
+  # (p50/p95/p99/max/avg/min)를 여기 적재해 3개월+ 추이를 확보한다.
+  # 임계치 재보정(Threshold Calibrator)과 추이 기반 리포트의 데이터 원천.
+  MetricHistoryTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub
+        - aws-monitoring-metric-history-${EnvShort}
+        - EnvShort: !FindInMap [EnvShortName, !Ref Environment, short]
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: series_id      # "{account_id}#{resource_id}#{metric_key}"
+          AttributeType: S
+        - AttributeName: period_start   # "YYYY-MM-DD" (일 단위 버킷)
+          AttributeType: S
+      KeySchema:
+        - AttributeName: series_id
+          KeyType: HASH
+        - AttributeName: period_start
+          KeyType: RANGE
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+      Tags:
+        - Key: ManagedBy
+          Value: AlarmManager
+
   BulkOperationDLQ:
     Type: AWS::SQS::Queue
     Properties:
@@ -709,6 +737,7 @@ Resources:
           RESOURCE_INVENTORY_TABLE: !Ref ResourceInventoryTable
           MONITOR_RUN_HISTORY_TABLE: !Ref MonitorRunHistoryTable
           JOB_STATUS_TABLE: !Ref JobStatusTable
+          METRIC_HISTORY_TABLE: !Ref MetricHistoryTable
 
   # -- Dead Letter Queue: Remediation Handler (RISK-08) --
   RemediationDLQ:
@@ -830,6 +859,34 @@ Resources:
       Action: lambda:InvokeFunction
       Principal: scheduler.amazonaws.com
       SourceArn: !GetAtt DailyMonitorSchedule.Arn
+
+  # -- EventBridge Scheduler: 주간 메트릭 스냅샷 (Orchestrator 경유) --
+  # 매주 월요일 00:00 KST (일요일 15:00 UTC)에 지난 7일 일 단위 통계를
+  # MetricHistoryTable에 적재한다. mode=metric_snapshot이 Worker까지 전달된다.
+  MetricSnapshotSchedule:
+    Type: AWS::Scheduler::Schedule
+    Properties:
+      Name: !Sub
+        - metric-snapshot-schedule-${EnvShort}
+        - EnvShort: !FindInMap [EnvShortName, !Ref Environment, short]
+      Description: Weekly metric statistics snapshot at 00:00 KST Monday (15:00 UTC Sunday)
+      ScheduleExpression: "cron(0 15 ? * SUN *)"
+      ScheduleExpressionTimezone: UTC
+      State: ENABLED
+      FlexibleTimeWindow:
+        Mode: "OFF"
+      Target:
+        Arn: !GetAtt OrchestratorFunction.Arn
+        RoleArn: !GetAtt SchedulerInvokeRole.Arn
+        Input: '{"mode": "metric_snapshot"}'
+
+  MetricSnapshotSchedulerPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt OrchestratorFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: scheduler.amazonaws.com
+      SourceArn: !GetAtt MetricSnapshotSchedule.Arn
 
   # -- EventBridge Rule: CloudTrail events ---
   CloudTrailModifyRule:
@@ -1224,6 +1281,18 @@ Resources:
                 Resource:
                   - !GetAtt ResourceInventoryTable.Arn
                   - !Sub "${ResourceInventoryTable.Arn}/index/*"
+              # -- DynamoDB: MetricHistoryTable 주간 스냅샷 적재 --
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                  - dynamodb:BatchWriteItem
+                  - dynamodb:Query
+                Resource: !GetAtt MetricHistoryTable.Arn
+              # -- Resource Groups Tagging API: 태그 일괄 조회 (단일 계정 모드) --
+              - Effect: Allow
+                Action:
+                  - tag:GetResources
+                Resource: "*"
               - Effect: Allow
                 Action:
                   - dynamodb:PutItem
