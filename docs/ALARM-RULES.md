@@ -253,7 +253,36 @@ remediation handler에서 이 ARN을 실제 리소스 식별자로 변환해야 
 
 `_create_dynamic_alarm()`의 기본값도 `"notBreaching"`. 사용자 정의 메트릭은 대부분 이벤트/트래픽 기반이므로 데이터 없음 = 정상으로 처리한다.
 
-### 10-5. 새 메트릭 추가 체크리스트
+### 10-5. M-of-N 평가 정책 (Severity 기반 오탐 감소)
+
+데이터포인트 1개 초과로 즉시 울리는 오탐(순간 스파이크)을 줄이기 위해,
+`_get_alarm_defs()`가 Severity에 따라 M-of-N 평가를 자동 적용한다
+(`alarm_registry._apply_eval_policy`). 개별 정의(`_*_ALARMS`)의
+`evaluation_periods: 1`은 원본 기본값일 뿐, 실제 적용 값은 아래 표를 따른다.
+
+| Severity | 평가 정책 (evaluation_periods / datapoints_to_alarm) | 근거 |
+|----------|------------------------------------------------------|------|
+| SEV-1 | **1 / 즉시 (정책 미적용)** | 가용성 직결 — 감지 지연 불가 |
+| SEV-2 | 3 중 2 | 에러 급증: 15분 창에서 10분 이상 지속 시 |
+| SEV-3 | 3 중 2 | 포화도: CPU/메모리는 지속성이 판단 기준 |
+| SEV-4 | 5 중 3 | 성능 저하: 추세로 판단 |
+| SEV-5 | 5 중 3 | 참고 지표 |
+
+**정책 적용 제외 (즉시 평가 1/1 유지):**
+- Severity가 SEV-1인 메트릭
+- `treat_missing_data: "breaching"` — 데이터 없음=장애로 보는 메트릭.
+  M-of-N을 얹으면 다운 감지 자체가 M배 늦어진다 (예: Aurora CPU/FreeableMemory).
+- `period ≥ 3600` — 저빈도 메트릭(DaysToExpiry 등)은 알림만 일 단위로 늦어진다.
+- 정의가 `datapoints_to_alarm`을 직접 명시한 경우 (개별 오버라이드).
+
+**동적 알람**(`Threshold_*` 태그)도 동일 정책을 따른다
+(`get_dynamic_eval_policy` — 미매핑 메트릭은 SEV-5 폴백 → 5 중 3).
+
+정의(레지스트리)와 실물 알람의 평가 설정이 어긋나면 daily sync의
+설정 드리프트 감지(`alarm_sync._config_drift`)가 재생성으로 교정한다.
+정책 변경 시 별도 마이그레이션 없이 다음 sync에서 전체 알람에 전파된다.
+
+### 10-6. 새 메트릭 추가 체크리스트
 
 ```
 □ 메트릭이 항상 발행되는가? (리소스 실행 중)

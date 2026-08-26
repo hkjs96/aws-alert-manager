@@ -297,7 +297,14 @@ def test_aurora_rds_alarm_defs():
         assert d["namespace"] == "AWS/RDS"
         assert d["dimension_key"] == "DBInstanceIdentifier"
         assert d["period"] == 300
-        assert d["evaluation_periods"] == 1
+        # M-of-N 평가 정책: breaching(데이터 없음=다운) 메트릭은 즉시 평가(1) 유지,
+        # ReplicaLag(SEV-3, missing)만 3회 창 중 2회로 평가.
+        if d["metric"] == "ReplicaLag":
+            assert d["evaluation_periods"] == 3
+            assert d["datapoints_to_alarm"] == 2
+        else:
+            assert d["evaluation_periods"] == 1
+            assert "datapoints_to_alarm" not in d
 
     cpu_def = next(d for d in defs if d["metric"] == "CPUUtilization")
     assert cpu_def["stat"] == "Average"
@@ -1483,3 +1490,83 @@ class TestExtendedResourceMappingTables:
         }
         for cw_name, expected_key in roundtrips.items():
             assert _metric_name_to_key(cw_name) == expected_key, f"{cw_name} → {expected_key} mismatch"
+
+
+# ──────────────────────────────────────────────
+# M-of-N 평가 정책 (_apply_eval_policy)
+# ──────────────────────────────────────────────
+
+class TestEvalPolicy:
+    """Severity 기반 M-of-N 평가 정책 적용 검증.
+
+    SEV-2/3 → 3회 중 2회, SEV-4/5 → 5회 중 3회.
+    예외: SEV-1, treat_missing_data=breaching, period≥1h, 개별 오버라이드.
+    """
+
+    def test_ec2_mem_disk_get_policy_but_availability_stays_immediate(self):
+        from common.alarm_registry import _get_alarm_defs
+        defs = {d["metric"]: d for d in _get_alarm_defs("EC2", {})}
+
+        # mem/disk: SEV-3 + notBreaching → 3 중 2
+        assert defs["mem_used_percent"]["evaluation_periods"] == 3
+        assert defs["mem_used_percent"]["datapoints_to_alarm"] == 2
+        assert defs["disk_used_percent"]["evaluation_periods"] == 3
+
+        # StatusCheckFailed: SEV-1 → 즉시 평가 유지
+        assert defs["StatusCheckFailed"]["evaluation_periods"] == 1
+        assert "datapoints_to_alarm" not in defs["StatusCheckFailed"]
+
+        # CPU: treat_missing_data=breaching(다운 감지 겸용) → 즉시 평가 유지
+        assert defs["CPUUtilization"]["evaluation_periods"] == 1
+        assert "datapoints_to_alarm" not in defs["CPUUtilization"]
+
+    def test_sev1_metrics_never_get_policy_across_types(self):
+        from common.alarm_registry import _get_alarm_defs, get_severity
+        for rtype in ("EC2", "TG", "VPN", "DX", "Route53", "OpenSearch", "MSK"):
+            for d in _get_alarm_defs(rtype, {}):
+                key = d.get("metric_key") or d["metric"]
+                if get_severity(key) == "SEV-1":
+                    assert d["evaluation_periods"] == 1, f"{rtype}/{key}"
+                    assert "datapoints_to_alarm" not in d, f"{rtype}/{key}"
+
+    def test_breaching_metrics_never_get_policy(self):
+        from common import SUPPORTED_RESOURCE_TYPES
+        from common.alarm_registry import _get_alarm_defs
+        for rtype in SUPPORTED_RESOURCE_TYPES:
+            for d in _get_alarm_defs(rtype, {}):
+                if d.get("treat_missing_data") == "breaching":
+                    assert "datapoints_to_alarm" not in d, f"{rtype}/{d['metric']}"
+
+    def test_daily_period_metrics_keep_immediate(self):
+        """DaysToExpiry 등 period≥1h 메트릭은 M-of-N 적용 시 알림이 일 단위로 늦어진다."""
+        from common import SUPPORTED_RESOURCE_TYPES
+        from common.alarm_registry import _get_alarm_defs
+        checked = 0
+        for rtype in SUPPORTED_RESOURCE_TYPES:
+            for d in _get_alarm_defs(rtype, {}):
+                if d["period"] >= 3600:
+                    assert "datapoints_to_alarm" not in d, f"{rtype}/{d['metric']}"
+                    checked += 1
+        assert checked > 0  # 최소 ACM DaysToExpiry가 존재해야 함
+
+    def test_policy_returns_copies_not_mutated_registry(self):
+        """정책은 복사본에 적용되고 원본 레지스트리 dict는 불변이어야 한다."""
+        from common.alarm_registry import _EC2_ALARMS, _get_alarm_defs
+        _get_alarm_defs("EC2", {})
+        raw_mem = next(d for d in _EC2_ALARMS if d["metric"] == "mem_used_percent")
+        assert raw_mem["evaluation_periods"] == 1
+        assert "datapoints_to_alarm" not in raw_mem
+
+    def test_dynamic_policy_defaults_to_sev5(self):
+        from common.alarm_registry import get_dynamic_eval_policy
+        # 미매핑 메트릭 → SEV-5 폴백 → 5 중 3
+        assert get_dynamic_eval_policy("SomeCustomMetric") == (5, 3)
+        # SEV-4 지연 메트릭 → 5 중 3
+        assert get_dynamic_eval_policy("ReadLatency") == (5, 3)
+        # SEV-1 → 정책 표에 없음 → 즉시
+        assert get_dynamic_eval_policy("StatusCheckFailed") == (1, 1)
+
+    def test_cluster_status_red_is_sev1(self):
+        """docs/ALARM-RULES.md §13-2와 코드 매핑 일치 (기존 누락 버그)."""
+        from common.alarm_registry import get_severity
+        assert get_severity("ClusterStatusRed") == "SEV-1"

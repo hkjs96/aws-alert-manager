@@ -17,7 +17,7 @@ from common.alarm_builder import (
     _resolve_metric_key,
 )
 from common.dimension_builder import _get_disk_dimensions
-from common.alarm_registry import _get_alarm_defs
+from common.alarm_registry import _get_alarm_defs, get_dynamic_eval_policy
 from common.alarm_search import (
     _delete_alarm_names,
     _delete_all_alarms_for_resource,
@@ -260,7 +260,19 @@ def _sync_dynamic_alarms(
             continue
         existing_thr = alarm_info.get("Threshold", 0)
         tag_thr, tag_comparison = dynamic_tags[mk]
-        if abs(existing_thr - tag_thr) > 0.001:
+
+        # 임계치 드리프트 + 평가 정책 드리프트 모두 재생성 대상.
+        # DatapointsToAlarm 미설정 알람은 CloudWatch가 EvaluationPeriods와
+        # 같은 값으로 취급하므로 그 기준으로 비교한다.
+        eval_periods, datapoints = get_dynamic_eval_policy(mk)
+        existing_ep = alarm_info.get("EvaluationPeriods")
+        existing_dp = alarm_info.get("DatapointsToAlarm") or existing_ep
+        drifted = (
+            abs(existing_thr - tag_thr) > 0.001
+            or existing_ep != eval_periods
+            or existing_dp != datapoints
+        )
+        if drifted:
             _delete_alarm_names(cw, [name])
             _create_dynamic_alarm(
                 resource_id, resource_type, resource_name,

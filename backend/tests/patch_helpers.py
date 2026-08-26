@@ -75,10 +75,14 @@ def alarm_config_fields(
     )
     if match is None:
         return {}
-    return {
+    fields = {
         "Statistic": match["stat"],
         "Period": match["period"],
         "EvaluationPeriods": match["evaluation_periods"],
         "ComparisonOperator": match["comparison"],
         "TreatMissingData": match.get("treat_missing_data", "notBreaching"),
     }
+    # M-of-N 평가 정책이 적용된 정의는 DatapointsToAlarm도 실물에 설정된다.
+    if "datapoints_to_alarm" in match:
+        fields["DatapointsToAlarm"] = match["datapoints_to_alarm"]
+    return fields

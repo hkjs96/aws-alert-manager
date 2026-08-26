@@ -21,6 +21,7 @@ from common.alarm_naming import (
 )
 from common.alarm_registry import (
     _get_alarm_defs,
+    get_dynamic_eval_policy,
     get_severity,
 )
 from common.dimension_builder import (
@@ -293,6 +294,8 @@ def _create_dynamic_alarm(
             else:
                 name = f"{prefix}{min_label} {_ELLIPSIS}{threshold_part}{suffix}"
 
+    eval_periods, datapoints = get_dynamic_eval_policy(metric_name)
+
     try:
         cw.put_metric_alarm(
             AlarmName=name,
@@ -305,7 +308,8 @@ def _create_dynamic_alarm(
             Dimensions=dimensions,
             Statistic="Average",
             Period=300,
-            EvaluationPeriods=1,
+            EvaluationPeriods=eval_periods,
+            DatapointsToAlarm=datapoints,
             Threshold=threshold,
             ComparisonOperator=comparison,
             ActionsEnabled=True,

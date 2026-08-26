@@ -1485,7 +1485,65 @@ _SNS_ALARMS = [
 _NLB_TG_EXCLUDED_METRICS = {"RequestCountPerTarget", "TargetResponseTime"}
 
 
+# ──────────────────────────────────────────────
+# M-of-N 평가 정책 (Severity 기반)
+# ──────────────────────────────────────────────
+# 데이터포인트 1개 초과로 즉시 울리는 오탐(순간 스파이크)을 줄이기 위해,
+# 심각도에 따라 "N개 평가 창에서 M개 초과 시 알람"을 기본 적용한다.
+# 값: (evaluation_periods, datapoints_to_alarm)
+_EVAL_POLICY_BY_SEVERITY: dict[str, tuple[int, int]] = {
+    "SEV-2": (3, 2),   # 에러 급증: 15분 창에서 10분 이상 지속 시
+    "SEV-3": (3, 2),   # 포화도: CPU/메모리는 지속성이 판단 기준
+    "SEV-4": (5, 3),   # 성능 저하: 추세로 판단
+    "SEV-5": (5, 3),   # 참고 지표
+}
+
+
+def _apply_eval_policy(defs: list[dict]) -> list[dict]:
+    """Severity 기반 M-of-N 평가 정책을 알람 정의에 적용한다.
+
+    적용 제외 (즉시 평가 1/1 유지):
+    - SEV-1: 가용성 직결 — 감지 지연 불가
+    - treat_missing_data="breaching": 데이터 없음=장애로 보는 메트릭.
+      M-of-N을 얹으면 다운 감지 자체가 M배 늦어진다.
+    - period ≥ 1시간: 저빈도 메트릭(DaysToExpiry 등)은 스파이크 필터가
+      무의미하고 알림만 하루 단위로 늦어진다.
+    - 정의가 datapoints_to_alarm을 직접 명시: 개별 오버라이드 존중.
+
+    원본 정의 dict는 변경하지 않는다(적용 시 복사본 반환).
+    """
+    out = []
+    for d in defs:
+        severity = get_severity(d.get("metric_key") or d["metric"])
+        policy = _EVAL_POLICY_BY_SEVERITY.get(severity)
+        if (
+            policy is None
+            or d.get("treat_missing_data") == "breaching"
+            or d.get("period", 0) >= 3600
+            or "datapoints_to_alarm" in d
+        ):
+            out.append(d)
+            continue
+        ep, dp = policy
+        out.append({**d, "evaluation_periods": ep, "datapoints_to_alarm": dp})
+    return out
+
+
+def get_dynamic_eval_policy(metric_name: str) -> tuple[int, int]:
+    """동적(Threshold_* 태그) 알람의 평가 정책.
+
+    동적 알람은 treat_missing_data=notBreaching·period=300 고정이므로
+    Severity 가드만 적용한다. SEV-1 메트릭은 정책 표에 없어 즉시(1/1) 평가.
+    """
+    return _EVAL_POLICY_BY_SEVERITY.get(get_severity(metric_name), (1, 1))
+
+
 def _get_alarm_defs(resource_type: str, resource_tags: dict | None = None) -> list[dict]:
+    """리소스 타입의 알람 정의 (M-of-N 평가 정책 적용 후)."""
+    return _apply_eval_policy(_get_alarm_defs_raw(resource_type, resource_tags))
+
+
+def _get_alarm_defs_raw(resource_type: str, resource_tags: dict | None = None) -> list[dict]:
     if resource_type == "EC2":
         return _EC2_ALARMS
     elif resource_type == "RDS":
@@ -1719,6 +1777,9 @@ _DEFAULT_SEVERITY: dict[str, str] = {
     "ConnectionState":    "SEV-1",
     "HealthCheckStatus":  "SEV-1",
     "ActiveControllerCount": "SEV-1",
+    # docs/ALARM-RULES.md §13-2에 SEV-1로 정의되어 있으나 코드에 누락돼
+    # SEV-5로 폴백되던 항목 (클러스터 완전 다운 지표).
+    "ClusterStatusRed":   "SEV-1",
 
     # SEV-2: 에러 급증, 서비스 품질 심각 저하
     "ELB5XX":                "SEV-2",

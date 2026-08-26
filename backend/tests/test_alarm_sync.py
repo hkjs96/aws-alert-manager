@@ -390,9 +390,20 @@ class TestSyncDynamicAlarms:
                     mk, thr = "NetworkIn", 1000000.0
                 else:
                     mk, thr = "Disk_root", 80.0
+                if mk == "NetworkIn":
+                    # 동적 알람(SEV-5)은 평가 정책 5 중 3이 적용된 상태여야 ok
+                    config = {"EvaluationPeriods": 5, "DatapointsToAlarm": 3}
+                else:
+                    cw_metric = {
+                        "CPU": "CPUUtilization",
+                        "Memory": "mem_used_percent",
+                        "Disk_root": "disk_used_percent",
+                    }.get(mk, mk)
+                    config = alarm_config_fields("EC2", cw_metric)
                 alarms.append({
                     "AlarmName": n, "Threshold": thr, "MetricName": mk,
                     "AlarmDescription": self._make_desc(mk), "Dimensions": [],
+                    **config,
                 })
             return {"MetricAlarms": alarms}
 

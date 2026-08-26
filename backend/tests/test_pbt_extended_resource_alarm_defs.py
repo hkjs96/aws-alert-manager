@@ -207,8 +207,11 @@ def test_ecs_launch_type_alarm_invariance(launch_type: str, extra_tags: dict):
         f"ECS {launch_type}: expected {expected_metrics}, got {actual_metrics}"
     )
 
-    # Verify identical to _ECS_ALARMS (launch type does NOT affect definitions)
-    assert alarm_defs is _ECS_ALARMS
+    # Verify launch type does NOT affect definitions.
+    # (_get_alarm_defs는 평가 정책이 적용된 복사본을 반환하므로 동일성(is)이 아니라
+    #  태그 무관 기준 결과와의 등가로 검증한다)
+    assert alarm_defs == _get_alarm_defs("ECS", {})
+    assert {ad["metric"] for ad in alarm_defs} == {ad["metric"] for ad in _ECS_ALARMS}
 
 
 # ──────────────────────────────────────────────
