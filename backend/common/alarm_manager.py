@@ -294,7 +294,10 @@ def sync_alarms_for_resource(
     for alarm_def in alarm_defs:
         metric = alarm_def["metric"]
         if alarm_def.get("dynamic_dimensions") and metric == "disk_used_percent":
-            changed = _sync_disk_alarms(key_to_alarm, resource_id, resource_tags, result, **_fwd)
+            changed = _sync_disk_alarms(
+                key_to_alarm, resource_id, resource_tags, result,
+                alarm_def=alarm_def, **_fwd,
+            )
             if changed:
                 needs_recreate = True
         else:

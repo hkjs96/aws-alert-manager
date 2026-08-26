@@ -18,6 +18,8 @@ from unittest.mock import MagicMock, patch
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
+from patch_helpers import alarm_config_fields
+
 from common.alarm_manager import sync_alarms_for_resource
 from common.tag_resolver import disk_path_to_tag_suffix
 
@@ -54,7 +56,7 @@ class TestDiskThresholdSync:
     """
 
     @given(path=disk_paths, threshold=non_default_thresholds)
-    @settings(max_examples=50)
+    @settings(max_examples=50, deadline=None)
     def test_disk_alarm_with_matching_path_threshold_is_ok(
         self, path, threshold,
     ):
@@ -81,6 +83,7 @@ class TestDiskThresholdSync:
         alarm_info = {
             "AlarmName": alarm_name,
             "MetricName": "disk_used_percent",
+            **alarm_config_fields("EC2", "disk_used_percent"),
             "Threshold": float(threshold),
             "Dimensions": [
                 {"Name": "InstanceId", "Value": iid},

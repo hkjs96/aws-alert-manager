@@ -9,6 +9,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from patch_helpers import alarm_config_fields
+
 from common.alarm_manager import (
     create_alarms_for_resource,
     sync_alarms_for_resource,
@@ -76,12 +78,21 @@ class TestSyncAlarms:
                     mk, thr = "StatusCheckFailed", 0.0
                 else:
                     mk, thr = "Disk_root", 80.0
+                if "StatusCheckFailed" in n:
+                    cw_metric = "StatusCheckFailed"
+                elif "disk" in n:
+                    cw_metric = "disk_used_percent"
+                elif "mem_used_percent" in n:
+                    cw_metric = "mem_used_percent"
+                else:
+                    cw_metric = "CPUUtilization"
                 alarms.append({
                     "AlarmName": n,
                     "Threshold": thr,
-                    "MetricName": "StatusCheckFailed" if "StatusCheckFailed" in n else ("disk_used_percent" if "disk" in n else "CPUUtilization"),
+                    "MetricName": cw_metric,
                     "AlarmDescription": _make_desc(mk),
                     "Dimensions": [{"Name": "path", "Value": "/"}] if "disk" in n else [],
+                    **alarm_config_fields("EC2", cw_metric),
                 })
             return {"MetricAlarms": alarms}
 
@@ -585,3 +596,95 @@ class TestCreateAlarmsOffCheck:
 
         assert not any("CPUUtilization" in n for n in created)
         assert len(created) == 6
+
+
+# ──────────────────────────────────────────────
+# 설정 드리프트 감지 (_config_drift)
+# ──────────────────────────────────────────────
+
+class TestConfigDrift:
+    """알람 정의의 설정이 바뀌면 기존 알람도 재생성 대상으로 잡혀야 한다.
+
+    임계치만 비교하던 시절에는 evaluation_periods 같은 값을 레지스트리에서 바꿔도
+    이미 만들어진 알람에는 영원히 반영되지 않았다.
+    """
+
+    @staticmethod
+    def _alarm(**overrides):
+        alarm = {
+            "AlarmName": "[EC2] srv CPUUtilization > 80% (TagName: i-001)",
+            "Threshold": 80.0,
+            "Statistic": "Average",
+            "Period": 300,
+            "EvaluationPeriods": 1,
+            "ComparisonOperator": "GreaterThanThreshold",
+            "TreatMissingData": "breaching",
+        }
+        alarm.update(overrides)
+        return alarm
+
+    @staticmethod
+    def _def(**overrides):
+        alarm_def = {
+            "metric": "CPUUtilization",
+            "metric_name": "CPUUtilization",
+            "stat": "Average",
+            "period": 300,
+            "evaluation_periods": 1,
+            "comparison": "GreaterThanThreshold",
+            "treat_missing_data": "breaching",
+        }
+        alarm_def.update(overrides)
+        return alarm_def
+
+    def test_no_drift_when_config_matches(self):
+        from common.alarm_sync import _config_drift
+        assert _config_drift(self._alarm(), self._def()) == []
+
+    @pytest.mark.parametrize("cw_key,def_key,new_value", [
+        ("EvaluationPeriods", "evaluation_periods", 3),
+        ("Period", "period", 60),
+        ("Statistic", "stat", "Maximum"),
+        ("ComparisonOperator", "comparison", "LessThanThreshold"),
+        ("TreatMissingData", "treat_missing_data", "notBreaching"),
+    ])
+    def test_each_config_field_is_detected(self, cw_key, def_key, new_value):
+        from common.alarm_sync import _config_drift
+        drifted = _config_drift(self._alarm(), self._def(**{def_key: new_value}))
+        assert drifted == [cw_key]
+
+    def test_datapoints_to_alarm_detected_when_newly_added(self):
+        """정의에 datapoints_to_alarm이 새로 생기면 기존 알람은 드리프트로 잡힌다."""
+        from common.alarm_sync import _config_drift
+        drifted = _config_drift(self._alarm(), self._def(datapoints_to_alarm=2))
+        assert drifted == ["DatapointsToAlarm"]
+
+    def test_unset_optional_field_is_not_compared(self):
+        """우리가 넘기지 않는 필드는 알람에 있든 없든 드리프트가 아니다."""
+        from common.alarm_sync import _config_drift
+        alarm = self._alarm(DatapointsToAlarm=1)
+        assert _config_drift(alarm, self._def()) == []
+
+    def test_builder_sets_datapoints_when_defined(self):
+        """정의에 있으면 put_metric_alarm에 실제로 넘어가야 한다.
+
+        넘기지 않으면 드리프트 감지 → 재생성 → 여전히 미설정 → 무한 반복이 된다.
+        """
+        from common.alarm_builder import _optional_alarm_params
+        assert _optional_alarm_params(self._def(datapoints_to_alarm=2)) == {"DatapointsToAlarm": 2}
+        assert _optional_alarm_params(self._def()) == {}
+
+    def test_drift_marks_alarm_for_update(self):
+        """_sync_standard_alarms가 설정 드리프트를 updated로 보고한다."""
+        from common.alarm_sync import _sync_standard_alarms
+        alarm = self._alarm()
+        key_to_alarm = {"CPUUtilization": alarm}
+        result = {"created": [], "updated": [], "ok": [], "deleted": []}
+
+        changed = _sync_standard_alarms(
+            self._def(evaluation_periods=3), key_to_alarm, {}, result,
+        )
+
+        assert changed is True
+        assert result["updated"] == [alarm["AlarmName"]]
+        assert result["ok"] == []

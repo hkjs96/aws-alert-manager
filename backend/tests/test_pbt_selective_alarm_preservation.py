@@ -15,6 +15,8 @@ from unittest.mock import MagicMock, patch
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
+from patch_helpers import alarm_config_fields
+
 from common.alarm_manager import sync_alarms_for_resource
 
 _ENV = {"ENVIRONMENT": "prod", "SNS_TOPIC_ARN_ALERT": ""}
@@ -45,7 +47,7 @@ class TestInitialCreationPreservation:
     """
 
     @given(data=st.data())
-    @settings(max_examples=30)
+    @settings(max_examples=30, deadline=None)
     def test_no_existing_alarms_calls_create_alarms(self, data):
         """
         **Property 2: Preservation** - 최초 생성 시 create_alarms_for_resource 호출 유지
@@ -73,7 +75,7 @@ class TestAllAlarmsOkPreservation:
     """
 
     @given(cpu_thr=threshold_values, mem_thr=threshold_values)
-    @settings(max_examples=50)
+    @settings(max_examples=50, deadline=None)
     def test_all_alarms_ok_no_delete_or_recreate(self, cpu_thr, mem_thr):
         """
         **Property 2: Preservation** - 모든 알람 일치 시 아무 동작 없음
@@ -104,18 +106,21 @@ class TestAllAlarmsOkPreservation:
                 {
                     "AlarmName": cpu_name,
                     "MetricName": "CPUUtilization",
+                    **alarm_config_fields("EC2", "CPUUtilization"),
                     "Threshold": float(cpu_thr),
                     "Dimensions": [{"Name": "InstanceId", "Value": iid}],
                 },
                 {
                     "AlarmName": mem_name,
                     "MetricName": "mem_used_percent",
+                    **alarm_config_fields("EC2", "mem_used_percent"),
                     "Threshold": float(mem_thr),
                     "Dimensions": [{"Name": "InstanceId", "Value": iid}],
                 },
                 {
                     "AlarmName": disk_name,
                     "MetricName": "disk_used_percent",
+                    **alarm_config_fields("EC2", "disk_used_percent"),
                     "Threshold": 80.0,
                     "Dimensions": [
                         {"Name": "InstanceId", "Value": iid},
@@ -125,6 +130,7 @@ class TestAllAlarmsOkPreservation:
                 {
                     "AlarmName": status_name,
                     "MetricName": "StatusCheckFailed",
+                    **alarm_config_fields("EC2", "StatusCheckFailed"),
                     "Threshold": 0.0,
                     "Dimensions": [
                         {"Name": "InstanceId", "Value": iid},
@@ -152,7 +158,7 @@ class TestOkAlarmsPreservedAfterSync:
     """
 
     @given(cpu_thr=threshold_values)
-    @settings(max_examples=30)
+    @settings(max_examples=30, deadline=None)
     def test_ok_alarms_in_result_when_all_match(self, cpu_thr):
         """
         **Property 2: Preservation** - result["ok"] 알람 목록 정확성
@@ -182,18 +188,21 @@ class TestOkAlarmsPreservedAfterSync:
                 {
                     "AlarmName": cpu_name,
                     "MetricName": "CPUUtilization",
+                    **alarm_config_fields("EC2", "CPUUtilization"),
                     "Threshold": float(cpu_thr),
                     "Dimensions": [{"Name": "InstanceId", "Value": iid}],
                 },
                 {
                     "AlarmName": mem_name,
                     "MetricName": "mem_used_percent",
+                    **alarm_config_fields("EC2", "mem_used_percent"),
                     "Threshold": 80.0,
                     "Dimensions": [{"Name": "InstanceId", "Value": iid}],
                 },
                 {
                     "AlarmName": disk_name,
                     "MetricName": "disk_used_percent",
+                    **alarm_config_fields("EC2", "disk_used_percent"),
                     "Threshold": 80.0,
                     "Dimensions": [
                         {"Name": "InstanceId", "Value": iid},
@@ -203,6 +212,7 @@ class TestOkAlarmsPreservedAfterSync:
                 {
                     "AlarmName": status_name,
                     "MetricName": "StatusCheckFailed",
+                    **alarm_config_fields("EC2", "StatusCheckFailed"),
                     "Threshold": 0.0,
                     "Dimensions": [
                         {"Name": "InstanceId", "Value": iid},

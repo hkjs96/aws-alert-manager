@@ -38,12 +38,46 @@ from common.threshold_resolver import (
 logger = logging.getLogger("common.alarm_manager")
 
 
+# put_metric_alarm으로 우리가 설정하는 값 중, 알람 정의에서 바뀌면 기존 알람도
+# 다시 만들어야 하는 필드. (CloudWatch 응답 키, alarm_def 키, 미지정 시 기본값)
+#
+# Namespace/MetricName/Dimensions는 여기서 비교하지 않는다. 그것들은 설정이 아니라
+# 알람의 정체성이라, 바뀌면 애초에 같은 알람으로 매칭되지 않는다.
+_CONFIG_FIELDS: tuple[tuple[str, str, object | None], ...] = (
+    ("Statistic", "stat", None),
+    ("Period", "period", None),
+    ("EvaluationPeriods", "evaluation_periods", None),
+    ("ComparisonOperator", "comparison", None),
+    ("TreatMissingData", "treat_missing_data", "notBreaching"),
+    ("DatapointsToAlarm", "datapoints_to_alarm", None),
+)
+
+
+def _config_drift(alarm_info: dict, alarm_def: dict) -> list[str]:
+    """알람 정의와 실제 알람 설정이 어긋난 필드 목록을 반환한다.
+
+    임계치만 비교하면 evaluation_periods·period·statistic 같은 설정을 레지스트리에서
+    바꿔도 이미 만들어진 알람에는 영원히 반영되지 않는다. 정의와 실제가 말없이
+    갈라지는 것을 막기 위해 우리가 설정하는 필드는 모두 비교한다.
+    """
+    drifted = []
+    for cw_key, def_key, default in _CONFIG_FIELDS:
+        expected = alarm_def.get(def_key, default)
+        if expected is None:
+            # 우리가 put_metric_alarm에 넘기지 않는 필드는 비교 대상이 아니다.
+            continue
+        if alarm_info.get(cw_key) != expected:
+            drifted.append(cw_key)
+    return drifted
+
+
 def _sync_disk_alarms(
     key_to_alarm: dict[str, dict],
     resource_id: str,
     resource_tags: dict,
     result: dict[str, list],
     *,
+    alarm_def: dict | None = None,
     cw=None,
 ) -> bool:
     """Disk 알람 동기화. 변경 필요 시 True 반환."""
@@ -86,8 +120,16 @@ def _sync_disk_alarms(
         if abs(existing_thr - expected_thr) > 0.001:
             result["updated"].append(name)
             changed = True
-        else:
-            result["ok"].append(name)
+            continue
+
+        drifted = _config_drift(alarm_info, alarm_def) if alarm_def else []
+        if drifted:
+            logger.info("Disk alarm %s config drift: %s", name, ", ".join(drifted))
+            result["updated"].append(name)
+            changed = True
+            continue
+
+        result["ok"].append(name)
     return changed
 
 
@@ -122,6 +164,12 @@ def _sync_standard_alarms(
     name = alarm_info["AlarmName"]
     existing_thr = alarm_info.get("Threshold", 0)
     if abs(existing_thr - cw_threshold) > 0.001:
+        result["updated"].append(name)
+        return True
+
+    drifted = _config_drift(alarm_info, alarm_def)
+    if drifted:
+        logger.info("Alarm %s config drift: %s", name, ", ".join(drifted))
         result["updated"].append(name)
         return True
 

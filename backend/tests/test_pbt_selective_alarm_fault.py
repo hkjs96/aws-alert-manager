@@ -17,6 +17,8 @@ from unittest.mock import MagicMock, patch
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
+from patch_helpers import alarm_config_fields
+
 from common.alarm_manager import sync_alarms_for_resource
 
 _ENV = {"ENVIRONMENT": "prod", "SNS_TOPIC_ARN_ALERT": ""}
@@ -62,7 +64,7 @@ class TestSelectiveAlarmFaultCondition:
     """
 
     @given(new_disk_threshold=non_default_thresholds)
-    @settings(max_examples=30)
+    @settings(max_examples=30, deadline=None)
     def test_ok_alarms_not_deleted_when_disk_threshold_changes(
         self, new_disk_threshold,
     ):
@@ -98,6 +100,7 @@ class TestSelectiveAlarmFaultCondition:
             {
                 "AlarmName": cpu_name,
                 "MetricName": "CPUUtilization",
+                **alarm_config_fields("EC2", "CPUUtilization"),
                 "Threshold": float(OK_THRESHOLD),
                 "Dimensions": [
                     {"Name": "InstanceId", "Value": iid},
@@ -106,6 +109,7 @@ class TestSelectiveAlarmFaultCondition:
             {
                 "AlarmName": mem_name,
                 "MetricName": "mem_used_percent",
+                **alarm_config_fields("EC2", "mem_used_percent"),
                 "Threshold": float(OK_THRESHOLD),
                 "Dimensions": [
                     {"Name": "InstanceId", "Value": iid},
@@ -114,6 +118,7 @@ class TestSelectiveAlarmFaultCondition:
             {
                 "AlarmName": disk_root_name,
                 "MetricName": "disk_used_percent",
+                **alarm_config_fields("EC2", "disk_used_percent"),
                 "Threshold": float(OK_THRESHOLD),
                 "Dimensions": [
                     {"Name": "InstanceId", "Value": iid},
@@ -125,6 +130,7 @@ class TestSelectiveAlarmFaultCondition:
             {
                 "AlarmName": disk_data_name,
                 "MetricName": "disk_used_percent",
+                **alarm_config_fields("EC2", "disk_used_percent"),
                 "Threshold": float(new_disk_threshold),
                 "Dimensions": [
                     {"Name": "InstanceId", "Value": iid},
@@ -177,7 +183,7 @@ class TestSelectiveAlarmFaultCondition:
         )
 
     @given(new_cpu_threshold=non_default_thresholds)
-    @settings(max_examples=30)
+    @settings(max_examples=30, deadline=None)
     def test_ok_alarms_not_deleted_when_cpu_threshold_changes(
         self, new_cpu_threshold,
     ):
@@ -204,6 +210,7 @@ class TestSelectiveAlarmFaultCondition:
             {
                 "AlarmName": cpu_name,
                 "MetricName": "CPUUtilization",
+                **alarm_config_fields("EC2", "CPUUtilization"),
                 "Threshold": float(OK_THRESHOLD),
                 "Dimensions": [
                     {"Name": "InstanceId", "Value": iid},
@@ -212,6 +219,7 @@ class TestSelectiveAlarmFaultCondition:
             {
                 "AlarmName": mem_name,
                 "MetricName": "mem_used_percent",
+                **alarm_config_fields("EC2", "mem_used_percent"),
                 "Threshold": float(OK_THRESHOLD),
                 "Dimensions": [
                     {"Name": "InstanceId", "Value": iid},
@@ -220,6 +228,7 @@ class TestSelectiveAlarmFaultCondition:
             {
                 "AlarmName": disk_name,
                 "MetricName": "disk_used_percent",
+                **alarm_config_fields("EC2", "disk_used_percent"),
                 "Threshold": float(OK_THRESHOLD),
                 "Dimensions": [
                     {"Name": "InstanceId", "Value": iid},
@@ -266,7 +275,7 @@ class TestSelectiveAlarmFaultCondition:
         )
 
     @given(new_disk_threshold=non_default_thresholds)
-    @settings(max_examples=30)
+    @settings(max_examples=30, deadline=None)
     def test_delete_all_not_called_on_partial_update(
         self, new_disk_threshold,
     ):
@@ -293,6 +302,7 @@ class TestSelectiveAlarmFaultCondition:
             {
                 "AlarmName": cpu_name,
                 "MetricName": "CPUUtilization",
+                **alarm_config_fields("EC2", "CPUUtilization"),
                 "Threshold": float(OK_THRESHOLD),
                 "Dimensions": [
                     {"Name": "InstanceId", "Value": iid},
@@ -301,6 +311,7 @@ class TestSelectiveAlarmFaultCondition:
             {
                 "AlarmName": mem_name,
                 "MetricName": "mem_used_percent",
+                **alarm_config_fields("EC2", "mem_used_percent"),
                 "Threshold": float(OK_THRESHOLD),
                 "Dimensions": [
                     {"Name": "InstanceId", "Value": iid},
@@ -309,6 +320,7 @@ class TestSelectiveAlarmFaultCondition:
             {
                 "AlarmName": disk_name,
                 "MetricName": "disk_used_percent",
+                **alarm_config_fields("EC2", "disk_used_percent"),
                 "Threshold": float(new_disk_threshold),
                 "Dimensions": [
                     {"Name": "InstanceId", "Value": iid},

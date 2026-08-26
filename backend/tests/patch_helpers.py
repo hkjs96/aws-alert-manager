@@ -53,3 +53,32 @@ def patch_all_collectors(**overrides):
             )
         )
     return stack
+
+
+def alarm_config_fields(
+    resource_type: str,
+    cw_metric_name: str,
+    resource_tags: dict | None = None,
+) -> dict:
+    """레지스트리 정의 기준으로 describe_alarms가 돌려줄 설정 필드를 만든다.
+
+    실제 CloudWatch 응답에는 Statistic/Period/EvaluationPeriods/ComparisonOperator/
+    TreatMissingData가 항상 들어 있다. 픽스처가 이를 빠뜨리면 alarm_sync가 설정
+    드리프트로 오인해 멀쩡한 알람을 재생성 대상으로 잡는다.
+    """
+    from common.alarm_registry import _get_alarm_defs
+
+    defs = _get_alarm_defs(resource_type, resource_tags or {})
+    match = next(
+        (d for d in defs if (d.get("metric_name") or d["metric"]) == cw_metric_name),
+        None,
+    )
+    if match is None:
+        return {}
+    return {
+        "Statistic": match["stat"],
+        "Period": match["period"],
+        "EvaluationPeriods": match["evaluation_periods"],
+        "ComparisonOperator": match["comparison"],
+        "TreatMissingData": match.get("treat_missing_data", "notBreaching"),
+    }

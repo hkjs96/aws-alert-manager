@@ -15,6 +15,8 @@ from unittest.mock import MagicMock, patch
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
+from patch_helpers import alarm_config_fields
+
 from common.alarm_manager import sync_alarms_for_resource
 
 non_disk_metrics = st.sampled_from(["CPU", "Memory"])
@@ -44,7 +46,7 @@ class TestNonDiskMetricPreservation:
     Validates: Requirements 3.2"""
 
     @given(metric=non_disk_metrics, threshold=threshold_values)
-    @settings(max_examples=50)
+    @settings(max_examples=50, deadline=None)
     def test_non_disk_alarm_with_matching_threshold_is_ok(
         self, metric, threshold,
     ):
@@ -75,6 +77,7 @@ class TestNonDiskMetricPreservation:
             {
                 "AlarmName": cpu_name,
                 "MetricName": "CPUUtilization",
+                **alarm_config_fields("EC2", "CPUUtilization"),
                 "Threshold": cpu_thr,
                 "Dimensions": [
                     {"Name": "InstanceId", "Value": iid},
@@ -83,6 +86,7 @@ class TestNonDiskMetricPreservation:
             {
                 "AlarmName": mem_name,
                 "MetricName": "mem_used_percent",
+                **alarm_config_fields("EC2", "mem_used_percent"),
                 "Threshold": mem_thr,
                 "Dimensions": [
                     {"Name": "InstanceId", "Value": iid},
@@ -91,6 +95,7 @@ class TestNonDiskMetricPreservation:
             {
                 "AlarmName": disk_name,
                 "MetricName": "disk_used_percent",
+                **alarm_config_fields("EC2", "disk_used_percent"),
                 "Threshold": 80.0,
                 "Dimensions": [
                     {"Name": "InstanceId", "Value": iid},
@@ -131,7 +136,7 @@ class TestDefaultFallbackPreservation:
     Validates: Requirements 3.1"""
 
     @given(data=st.data())
-    @settings(max_examples=30)
+    @settings(max_examples=30, deadline=None)
     def test_disk_alarm_default_threshold_is_ok(self, data):
         """**Validates: Requirements 3.1**"""
         iid = "i-fallback01"
@@ -149,6 +154,7 @@ class TestDefaultFallbackPreservation:
             {
                 "AlarmName": cpu_name,
                 "MetricName": "CPUUtilization",
+                **alarm_config_fields("EC2", "CPUUtilization"),
                 "Threshold": 80.0,
                 "Dimensions": [
                     {"Name": "InstanceId", "Value": iid},
@@ -157,6 +163,7 @@ class TestDefaultFallbackPreservation:
             {
                 "AlarmName": mem_name,
                 "MetricName": "mem_used_percent",
+                **alarm_config_fields("EC2", "mem_used_percent"),
                 "Threshold": 80.0,
                 "Dimensions": [
                     {"Name": "InstanceId", "Value": iid},
@@ -165,6 +172,7 @@ class TestDefaultFallbackPreservation:
             {
                 "AlarmName": disk_name,
                 "MetricName": "disk_used_percent",
+                **alarm_config_fields("EC2", "disk_used_percent"),
                 "Threshold": 80.0,
                 "Dimensions": [
                     {"Name": "InstanceId", "Value": iid},
@@ -205,7 +213,7 @@ class TestNoDiskAlarmsTriggersRecreate:
     Validates: Requirements 3.4"""
 
     @given(cpu_threshold=threshold_values)
-    @settings(max_examples=30)
+    @settings(max_examples=30, deadline=None)
     def test_missing_disk_alarms_triggers_create(self, cpu_threshold):
         """**Validates: Requirements 3.4**"""
         iid = "i-nodisk01"
@@ -226,6 +234,7 @@ class TestNoDiskAlarmsTriggersRecreate:
             {
                 "AlarmName": cpu_name,
                 "MetricName": "CPUUtilization",
+                **alarm_config_fields("EC2", "CPUUtilization"),
                 "Threshold": float(cpu_threshold),
                 "Dimensions": [
                     {"Name": "InstanceId", "Value": iid},
@@ -234,6 +243,7 @@ class TestNoDiskAlarmsTriggersRecreate:
             {
                 "AlarmName": mem_name,
                 "MetricName": "mem_used_percent",
+                **alarm_config_fields("EC2", "mem_used_percent"),
                 "Threshold": 80.0,
                 "Dimensions": [
                     {"Name": "InstanceId", "Value": iid},

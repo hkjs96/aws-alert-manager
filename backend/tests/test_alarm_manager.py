@@ -9,6 +9,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from patch_helpers import alarm_config_fields
+
 from common import HARDCODED_DEFAULTS
 from common.alarm_manager import (
     _alarm_name,
@@ -1276,6 +1278,7 @@ class TestDocDBEndToEnd:
                 "Statistic": kw["Statistic"],
                 "Period": kw["Period"],
                 "EvaluationPeriods": kw["EvaluationPeriods"],
+                "TreatMissingData": kw.get("TreatMissingData", "notBreaching"),
                 "AlarmDescription": kw.get("AlarmDescription", ""),
                 "AlarmActions": kw.get("AlarmActions", []),
                 "OKActions": kw.get("OKActions", []),
@@ -1370,18 +1373,21 @@ class TestAuroraRDSIntegration:
                             "AlarmName": n, "Threshold": thr, "MetricName": cw_metric,
                             "AlarmDescription": _make_desc(mk),
                             "Dimensions": [{"Name": "DBInstanceIdentifier", "Value": db_id}],
+                            **alarm_config_fields("AuroraRDS", cw_metric, tags),
                         })
                         break
             return {"MetricAlarms": alarms}
 
         mock_cw.describe_alarms.side_effect = describe_side_effect
 
+        tags = {
+            "Name": "my-aurora",
+            "_is_serverless_v2": "false", "_is_cluster_writer": "true", "_has_readers": "true",
+        }
+
         with patch("common._clients._get_cw_client", return_value=mock_cw), \
              patch("common.alarm_manager._find_alarms_for_resource", return_value=existing):
-            result = sync_alarms_for_resource(db_id, "AuroraRDS", {
-                "Name": "my-aurora",
-                "_is_serverless_v2": "false", "_is_cluster_writer": "true", "_has_readers": "true",
-            })
+            result = sync_alarms_for_resource(db_id, "AuroraRDS", tags)
 
         assert len(result["ok"]) == 5
         assert result["created"] == []
@@ -1424,6 +1430,7 @@ class TestAuroraRDSIntegration:
                             "AlarmName": n, "Threshold": thr, "MetricName": cw_metric,
                             "AlarmDescription": _make_desc(mk),
                             "Dimensions": [{"Name": "DBInstanceIdentifier", "Value": db_id}],
+                            **alarm_config_fields("AuroraRDS", cw_metric, tags),
                         })
                         break
             return {"MetricAlarms": alarms}

@@ -53,6 +53,20 @@ def _get_global_sns_arn() -> str:
     return os.environ.get("SNS_TOPIC_ARN_GLOBAL_ALERT", "")
 
 
+def _optional_alarm_params(alarm_def: dict) -> dict:
+    """알람 정의에 값이 있을 때만 put_metric_alarm에 넘기는 파라미터.
+
+    put_metric_alarm은 None을 허용하지 않으므로 조건부로 구성한다.
+    여기서 넘기지 않는 필드를 alarm_sync가 드리프트로 감지하면 재생성이 무한 반복되므로,
+    `_CONFIG_FIELDS`(alarm_sync)와 이 함수는 항상 같은 필드를 다뤄야 한다.
+    """
+    params = {}
+    datapoints = alarm_def.get("datapoints_to_alarm")
+    if datapoints is not None:
+        params["DatapointsToAlarm"] = datapoints
+    return params
+
+
 # ──────────────────────────────────────────────
 # Severity 태그 부여 (Phase2 §13-4)
 # ──────────────────────────────────────────────
@@ -151,6 +165,7 @@ def _create_disk_alarms(
                 AlarmActions=[sns_arn] if sns_arn else [],
                 OKActions=[sns_arn] if sns_arn else [],
                 TreatMissingData="notBreaching",
+                **_optional_alarm_params(alarm_def),
             )
             logger.info("Created disk alarm: %s (path=%s, threshold=%.2f)", name, path, disk_threshold)
             created.append(name)
@@ -214,6 +229,7 @@ def _create_standard_alarm(
             AlarmActions=[sns_arn] if sns_arn else [],
             OKActions=[sns_arn] if sns_arn else [],
             TreatMissingData=alarm_def.get("treat_missing_data", "notBreaching"),
+            **_optional_alarm_params(alarm_def),
         )
         logger.info("Created alarm: %s (threshold=%.2f)", name, threshold)
         _tag_alarm_with_severity(name, alarm_def.get("metric_key") or alarm_def["metric"], cw)
@@ -429,6 +445,7 @@ def _create_single_alarm(
             AlarmActions=[sns_arn] if sns_arn else [],
             OKActions=[sns_arn] if sns_arn else [],
             TreatMissingData=alarm_def.get("treat_missing_data", "notBreaching"),
+            **_optional_alarm_params(alarm_def),
         )
         logger.info("Created single alarm: %s (threshold=%.2f)", name, threshold)
         _tag_alarm_with_severity(name, metric, cw)
@@ -546,6 +563,7 @@ def _recreate_disk_alarm(
             AlarmActions=[sns_arn] if sns_arn else [],
             OKActions=[sns_arn] if sns_arn else [],
             TreatMissingData="notBreaching",
+            **_optional_alarm_params(alarm_def),
         )
         logger.info("Recreated disk alarm: %s (path=%s, threshold=%.2f)", name, path, threshold)
         _tag_alarm_with_severity(name, f"Disk_{suffix}", cw)
@@ -603,6 +621,7 @@ def _recreate_standard_alarm(
             AlarmActions=[sns_arn] if sns_arn else [],
             OKActions=[sns_arn] if sns_arn else [],
             TreatMissingData=alarm_def.get("treat_missing_data", "notBreaching"),
+            **_optional_alarm_params(alarm_def),
         )
         logger.info("Recreated alarm: %s (threshold=%.2f)", name, threshold)
         # 재생성 시에도 ManagedBy/Severity 태그를 다시 부여해야 한다. 누락 시 임계치
