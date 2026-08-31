@@ -74,8 +74,18 @@ def _artifact_targets(path: str) -> set[str]:
 
 
 def _run(args: list[str], *, text: bool = True) -> subprocess.CompletedProcess:
-    env = {**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"}
-    return subprocess.run(args, capture_output=True, text=text, env=env)
+    # AWS_CLI_FILE_ENCODING: Windows 기본 코드페이지(cp949)로 템플릿을 읽으면
+    # 유니코드 주석에서 깨진다. 출력 디코딩도 자식과 같은 utf-8로 맞춘다.
+    env = {
+        **os.environ,
+        "PYTHONUTF8": "1",
+        "PYTHONIOENCODING": "utf-8",
+        "AWS_CLI_FILE_ENCODING": "UTF-8",
+    }
+    return subprocess.run(
+        args, capture_output=True, text=text, env=env,
+        encoding="utf-8" if text else None, errors="replace" if text else None,
+    )
 
 
 def _aws() -> list[str]:
@@ -164,32 +174,71 @@ def _copy_previous(old_version: str, new_version: str, zip_name: str) -> None:
 
 
 def _deploy(version: str) -> None:
-    result = _run(
-        _aws()
-        + [
-            "cloudformation",
-            "deploy",
-            "--stack-name",
-            STACK,
-            "--template-file",
-            str(TEMPLATE),
-            # 템플릿이 51,200 bytes를 넘으면 S3 경유 배포가 필수다.
-            "--s3-bucket",
-            BUCKET,
-            "--s3-prefix",
-            "cfn-templates",
-            "--parameter-overrides",
-            f"DeploymentBucket={BUCKET}",
-            f"CodeVersion={version}",
-            f"Environment={ENVIRONMENT}",
-            "--capabilities",
-            "CAPABILITY_IAM",
-            "CAPABILITY_NAMED_IAM",
-            "--no-fail-on-empty-changeset",
-        ]
+    """boto3 changeset 흐름으로 스택을 갱신한다 (aws cloudformation deploy 대체).
+
+    Windows에서 `aws cloudformation deploy --s3-bucket`은 템플릿을 임시 파일에
+    로케일 인코딩(cp949)으로 쓰다 유니코드 주석에서 깨진다. 템플릿을 바이트
+    그대로 S3에 올리고 TemplateURL로 changeset을 만들면 인코딩 경로가 없다.
+    scripts/deploy-backend-stack.py의 _deploy와 같은 흐름이다.
+    """
+    import boto3
+    from botocore.exceptions import WaiterError
+
+    session = boto3.Session(profile_name=PROFILE, region_name=REGION)
+    s3 = session.client("s3")
+    cfn = session.client("cloudformation")
+
+    key = f"cfn-templates/{version}/template.yaml"
+    s3.put_object(Bucket=BUCKET, Key=key, Body=TEMPLATE.read_bytes())
+    template_url = f"https://{BUCKET}.s3.{REGION}.amazonaws.com/{key}"
+
+    overrides = {
+        "DeploymentBucket": BUCKET,
+        "CodeVersion": version,
+        "Environment": ENVIRONMENT,
+    }
+    existing = cfn.describe_stacks(StackName=STACK)["Stacks"][0].get("Parameters", [])
+    existing_keys = [p["ParameterKey"] for p in existing]
+    parameters = [
+        {"ParameterKey": k, "ParameterValue": overrides[k]} if k in overrides
+        else {"ParameterKey": k, "UsePreviousValue": True}
+        for k in existing_keys
+    ]
+    for k, v in overrides.items():
+        if k not in existing_keys:
+            parameters.append({"ParameterKey": k, "ParameterValue": v})
+
+    changeset = f"deploy-{version}"
+    cfn.create_change_set(
+        StackName=STACK,
+        TemplateURL=template_url,
+        Parameters=parameters,
+        Capabilities=["CAPABILITY_IAM", "CAPABILITY_NAMED_IAM"],
+        ChangeSetName=changeset,
+        ChangeSetType="UPDATE",
     )
-    if result.returncode != 0:
-        raise RuntimeError(result.stderr.strip() or "cloudformation deploy failed")
+    try:
+        cfn.get_waiter("change_set_create_complete").wait(
+            StackName=STACK, ChangeSetName=changeset,
+            WaiterConfig={"Delay": 5, "MaxAttempts": 60},
+        )
+    except WaiterError:
+        desc = cfn.describe_change_set(StackName=STACK, ChangeSetName=changeset)
+        reason = desc.get("StatusReason", "")
+        if desc.get("Status") == "FAILED" and "didn't contain changes" in reason:
+            print("[backend-auto-deploy] no changes in changeset - skipping", file=sys.stderr)
+            cfn.delete_change_set(StackName=STACK, ChangeSetName=changeset)
+            return
+        raise RuntimeError(f"changeset failed: {reason}")
+
+    cfn.execute_change_set(StackName=STACK, ChangeSetName=changeset)
+    try:
+        cfn.get_waiter("stack_update_complete").wait(
+            StackName=STACK, WaiterConfig={"Delay": 10, "MaxAttempts": 120},
+        )
+    except WaiterError as exc:
+        status = cfn.describe_stacks(StackName=STACK)["Stacks"][0].get("StackStatus", "?")
+        raise RuntimeError(f"stack update did not complete: {status} ({exc})") from exc
 
 
 def main() -> int:

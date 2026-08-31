@@ -45,12 +45,19 @@ def _run(args: list[str], *, check: bool = True) -> subprocess.CompletedProcess[
         **os.environ,
         "PYTHONUTF8": "1",
         "PYTHONIOENCODING": "utf-8",
+        # Windows 기본 코드페이지(cp949)로 템플릿을 읽다 유니코드 주석에서 깨진다.
+        # AWS CLI가 file:// 및 --template-file을 읽을 때 쓰는 인코딩을 고정한다.
+        "AWS_CLI_FILE_ENCODING": "UTF-8",
     }
     result = subprocess.run(
         args,
         cwd=ROOT,
         capture_output=True,
         text=True,
+        # 자식(aws)의 출력은 PYTHONIOENCODING=utf-8 — 부모도 같은 인코딩으로 디코딩해야
+        # CFN 오류 메시지의 비ASCII 문자에서 UnicodeDecodeError가 나지 않는다.
+        encoding="utf-8",
+        errors="replace",
         env=env,
         check=False,
     )
@@ -201,14 +208,30 @@ def _deploy(
     environment: str,
     version: str,
 ) -> None:
-    overrides = [
-        f"DeploymentBucket={bucket}",
-        f"CodeVersion={version}",
-        f"Environment={environment}",
-    ]
-    # Auth params are passed only when provided via env. Omitted params keep
-    # their previous stack value (CFN UsePreviousValue), so auth, once set,
-    # persists across code-only deploys.
+    """boto3 changeset 흐름으로 스택을 갱신한다 (aws cloudformation deploy 대체).
+
+    Windows에서 `aws cloudformation deploy --s3-bucket`은 템플릿을 임시 파일에
+    로케일 인코딩(cp949)으로 쓰다 유니코드 주석(═, →)에서 깨진다. 템플릿을
+    바이트 그대로 S3에 올리고 TemplateURL로 changeset을 만들면 인코딩 경로가 없다.
+    """
+    import boto3
+    from botocore.exceptions import WaiterError
+
+    session = boto3.Session(profile_name=profile, region_name=region)
+    s3 = session.client("s3")
+    cfn = session.client("cloudformation")
+
+    # 1) 템플릿 업로드 (51,200 bytes 초과 템플릿은 S3 경유 필수)
+    key = f"cfn-templates/{version}/template.yaml"
+    s3.put_object(Bucket=bucket, Key=key, Body=TEMPLATE.read_bytes())
+    template_url = f"https://{bucket}.s3.{region}.amazonaws.com/{key}"
+
+    # 2) 파라미터: 지정한 것만 덮고 나머지는 이전 값 유지 (deploy의 UsePreviousValue 의미)
+    overrides = {
+        "DeploymentBucket": bucket,
+        "CodeVersion": version,
+        "Environment": environment,
+    }
     for env_name, param_name in (
         ("GOOGLE_CLIENT_ID", "GoogleClientId"),
         ("ALLOWED_EMAILS", "AllowedEmails"),
@@ -217,27 +240,52 @@ def _deploy(
     ):
         value = os.environ.get(env_name)
         if value is not None:
-            overrides.append(f"{param_name}={value}")
+            overrides[param_name] = value
 
-    _run(
-        _aws(profile, region)
-        + [
-            "cloudformation",
-            "deploy",
-            "--stack-name",
-            stack,
-            "--template-file",
-            str(TEMPLATE),
-            "--s3-bucket",
-            bucket,
-            "--parameter-overrides",
-            *overrides,
-            "--capabilities",
-            "CAPABILITY_IAM",
-            "CAPABILITY_NAMED_IAM",
-            "--no-fail-on-empty-changeset",
-        ]
+    existing = cfn.describe_stacks(StackName=stack)["Stacks"][0].get("Parameters", [])
+    existing_keys = [p["ParameterKey"] for p in existing]
+    parameters = []
+    for k in existing_keys:
+        if k in overrides:
+            parameters.append({"ParameterKey": k, "ParameterValue": overrides[k]})
+        else:
+            parameters.append({"ParameterKey": k, "UsePreviousValue": True})
+    for k, v in overrides.items():
+        if k not in existing_keys:
+            parameters.append({"ParameterKey": k, "ParameterValue": v})
+
+    # 3) changeset 생성 → 변경 없으면 no-op → 실행 → 완료 대기
+    changeset = f"deploy-{version}"
+    cfn.create_change_set(
+        StackName=stack,
+        TemplateURL=template_url,
+        Parameters=parameters,
+        Capabilities=["CAPABILITY_IAM", "CAPABILITY_NAMED_IAM"],
+        ChangeSetName=changeset,
+        ChangeSetType="UPDATE",
     )
+    try:
+        cfn.get_waiter("change_set_create_complete").wait(
+            StackName=stack, ChangeSetName=changeset,
+            WaiterConfig={"Delay": 5, "MaxAttempts": 60},
+        )
+    except WaiterError:
+        desc = cfn.describe_change_set(StackName=stack, ChangeSetName=changeset)
+        reason = desc.get("StatusReason", "")
+        if desc.get("Status") == "FAILED" and "didn't contain changes" in reason:
+            print("[deploy] no changes in changeset - skipping execute")
+            cfn.delete_change_set(StackName=stack, ChangeSetName=changeset)
+            return
+        raise DeployError(f"changeset failed: {reason}")
+
+    cfn.execute_change_set(StackName=stack, ChangeSetName=changeset)
+    try:
+        cfn.get_waiter("stack_update_complete").wait(
+            StackName=stack, WaiterConfig={"Delay": 10, "MaxAttempts": 120},
+        )
+    except WaiterError as exc:
+        status = cfn.describe_stacks(StackName=stack)["Stacks"][0].get("StackStatus", "?")
+        raise DeployError(f"stack update did not complete: {status} ({exc})") from exc
 
 
 def _parse_args() -> argparse.Namespace:
