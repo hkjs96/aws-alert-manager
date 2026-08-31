@@ -1,5 +1,6 @@
 """
-Metric Snapshot — 주간 메트릭 장기 추이 수집
+Metric Snapshot — 주간 메트릭 장기 추이 수집 (common 레이어: Lambda 패키지는 daily_monitor/ 내용물을
+루트에 풀기 때문에 sibling 패키지 import가 불가 — 공용 레이어에서 import한다)
 
 CloudWatch는 5분 해상도를 63일까지만 보관한다(이후 1시간 롤업).
 주 1회 지난 7일의 일 단위 통계(p50/p95/p99/max/avg/min/표본수)를

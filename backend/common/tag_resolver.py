@@ -650,9 +650,17 @@ def _get_msk_tags(resource_arn: str) -> dict:
     return resp.get("Tags", {})
 
 
-def _get_dynamodb_tags(resource_arn: str) -> dict:
-    """DynamoDB 테이블 태그 조회."""
+def _get_dynamodb_tags(resource_id: str) -> dict:
+    """DynamoDB 테이블 태그 조회.
+
+    알람의 resource_id는 테이블 이름이지만 list_tags_of_resource는 ARN만 받는다.
+    (고아 정리 경로가 이름을 넘겨 ValidationException → 태그를 못 읽어 정리가
+    영구 스킵되던 버그.) 이름이 오면 describe_table로 ARN을 해석한다.
+    """
     client = _get_dynamodb_client()
+    resource_arn = resource_id
+    if not resource_id.startswith("arn:"):
+        resource_arn = client.describe_table(TableName=resource_id)["Table"]["TableArn"]
     resp = client.list_tags_of_resource(ResourceArn=resource_arn)
     return {t["Key"]: t["Value"] for t in resp.get("Tags", [])}
 

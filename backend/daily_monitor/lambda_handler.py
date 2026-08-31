@@ -368,7 +368,7 @@ def _handle_metric_snapshot(event: dict, context) -> dict:
     대상 계정 세션으로 CloudWatch만 읽고 메인 계정 DDB에 적재하므로
     세션 전환(_switch_account_session) 없이 동작한다.
     """
-    from daily_monitor.metric_snapshot import collect_weekly_snapshots
+    from common.metric_snapshot import collect_weekly_snapshots
 
     account_id = event.get("account_id", "self")
     role_arn = event.get("role_arn", "")

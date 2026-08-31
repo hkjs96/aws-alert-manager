@@ -1,5 +1,5 @@
 """
-주간 메트릭 스냅샷 (daily_monitor/metric_snapshot.py) 테스트
+주간 메트릭 스냅샷 (common/metric_snapshot.py) 테스트
 
 - 알람 정의 → GetMetricData 쿼리 변환 (dynamic_dimensions 제외, 임계치 동봉)
 - GetMetricData 배치/페이지네이션 결과 병합
@@ -13,7 +13,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from daily_monitor.metric_snapshot import (
+from common.metric_snapshot import (
     _build_queries_for_resource,
     _fetch_metric_data,
     _query_region,
@@ -135,10 +135,10 @@ class TestCollectWeeklySnapshots:
         ddb.Table.return_value = table
         accounts = [{"account_id": "123456789012", "role_arn": "", "regions": ["ap-northeast-2"]}]
 
-        with patch("daily_monitor.metric_snapshot.discover_resources",
+        with patch("common.metric_snapshot.discover_resources",
                    return_value=[_ec2_resource(), _ec2_resource(resource_id="i-off", monitoring=False)]), \
-             patch("daily_monitor.metric_snapshot._get_session_for_account", return_value=session), \
-             patch("daily_monitor.metric_snapshot.boto3.resource", return_value=ddb):
+             patch("common.metric_snapshot._get_session_for_account", return_value=session), \
+             patch("common.metric_snapshot.boto3.resource", return_value=ddb):
             stats = collect_weekly_snapshots(accounts)
 
         # monitoring=False 리소스는 제외
@@ -160,7 +160,7 @@ class TestCollectWeeklySnapshots:
     def test_discover_failure_returns_error(self):
         from botocore.exceptions import ClientError
         with patch(
-            "daily_monitor.metric_snapshot.discover_resources",
+            "common.metric_snapshot.discover_resources",
             side_effect=ClientError({"Error": {"Code": "X", "Message": "y"}}, "Describe"),
         ):
             assert collect_weekly_snapshots([{"account_id": "1"}]) == {"error": "discover_failed"}
@@ -200,7 +200,7 @@ class TestWorkerRouting:
         monkeypatch.setenv("METRIC_HISTORY_TABLE", "t")
         with patch.object(lh, "_resolve_accounts_for_inventory",
                           return_value=[{"account_id": "111", "role_arn": "", "regions": ["us-east-1"]}]), \
-             patch("daily_monitor.metric_snapshot.collect_weekly_snapshots",
+             patch("common.metric_snapshot.collect_weekly_snapshots",
                    return_value={"rows_written": 3}) as mock_collect:
             result = lh.lambda_handler({"mode": "metric_snapshot", "account_id": "111"}, None)
         assert result["status"] == "ok"

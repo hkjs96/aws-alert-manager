@@ -552,3 +552,33 @@ class TestGetResourceTagsNewTypes:
             result = get_resource_tags(arn, "SNS")
         mock.assert_called_once_with(arn)
         assert result == {"Monitoring": "on"}
+
+
+# ──────────────────────────────────────────────
+# DynamoDB 태그 조회: 테이블 이름 → ARN 해석
+# ──────────────────────────────────────────────
+
+class TestDynamoDBTagLookupByName:
+    """알람 resource_id(테이블 이름)로 호출돼도 태그를 읽어야 고아 정리가 동작한다."""
+
+    def test_table_name_is_resolved_to_arn(self):
+        from unittest.mock import MagicMock, patch
+        from common import tag_resolver as tr
+        client = MagicMock()
+        client.describe_table.return_value = {"Table": {"TableArn": "arn:aws:dynamodb:us-east-1:1:table/t"}}
+        client.list_tags_of_resource.return_value = {"Tags": [{"Key": "Monitoring", "Value": "on"}]}
+        with patch.object(tr, "_get_dynamodb_client", return_value=client):
+            assert tr._get_dynamodb_tags("t") == {"Monitoring": "on"}
+        client.describe_table.assert_called_once_with(TableName="t")
+        client.list_tags_of_resource.assert_called_once_with(
+            ResourceArn="arn:aws:dynamodb:us-east-1:1:table/t",
+        )
+
+    def test_arn_input_skips_describe(self):
+        from unittest.mock import MagicMock, patch
+        from common import tag_resolver as tr
+        client = MagicMock()
+        client.list_tags_of_resource.return_value = {"Tags": []}
+        with patch.object(tr, "_get_dynamodb_client", return_value=client):
+            assert tr._get_dynamodb_tags("arn:aws:dynamodb:us-east-1:1:table/t") == {}
+        client.describe_table.assert_not_called()
