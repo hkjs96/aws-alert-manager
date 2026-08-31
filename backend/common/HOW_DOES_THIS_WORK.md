@@ -66,6 +66,13 @@
 - 컬렉터 `_get_tags`·디스커버리 인라인 조회가 먼저 본다. 글로벌/크로스리전(S3·CloudFront)은
   `trust_negative=False`로 히트만 신뢰. 킬 스위치 `TAG_CACHE=off`
 
+### `threshold_recalibration.py` (Shadow)
+- `run_shadow_recalibration()` — 주 1회, MetricHistoryTable 28일 일 p99/max → 제안 계산 →
+  ThresholdOverridesTable `scope_id=resource_id:…, status=shadow` 행 (TTL 35일, 알람 미변경)
+- 산식: 창 안 일 p99 최댓값 × 1.2 → 절대 클램프(CPU 70~95) → 변화율 ±25% → 5% 히스테리시스
+- 대상: GreaterThanThreshold + `_POLICY` 메트릭(트래픽/지연/CPU) + SEV-3 이하
+- `breach_days_current/proposed` — "바꿨다면 발화일이 얼마나 줄었을까" 사전 추정
+
 ### `alarm_identity.py`
 - `identify_alarm(alarm)` — "이 알람은 어느 리소스/타입/메트릭인가"의 단일 진입점
 - 우선순위: AlarmDescription JSON 메타데이터(Full ID, 정본) → 이름 `(TagName: …)` → 레거시 `i-xxx-…`

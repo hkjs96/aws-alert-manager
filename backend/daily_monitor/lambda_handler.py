@@ -206,6 +206,8 @@ def lambda_handler(event, context):
     # 주간 메트릭 스냅샷 (metric-snapshot-schedule → Orchestrator → mode 전달)
     if isinstance(event, dict) and event.get("mode") == "metric_snapshot":
         return _handle_metric_snapshot(event, context)
+    if isinstance(event, dict) and event.get("mode") == "threshold_recalibration":
+        return _handle_threshold_recalibration(event, context)
     """
     Lambda 핸들러 진입점 (Worker).
 
@@ -393,6 +395,26 @@ def _handle_metric_snapshot(event: dict, context) -> dict:
 
     stats = collect_weekly_snapshots(accounts)
     logger.info("Metric snapshot done for %s: %s", account_id, stats)
+    return {"status": "ok", "account_id": account_id, **stats}
+
+
+def _handle_threshold_recalibration(event: dict, context) -> dict:
+    """임계치 재보정 Shadow 잡 (mode=threshold_recalibration, 주 1회 스냅샷 1시간 뒤).
+
+    MetricHistoryTable(메인 계정)을 읽고 ThresholdOverridesTable(메인 계정)에 제안만
+    기록한다 — 알람은 건드리지 않으므로 세션 전환 없이 동작한다.
+    """
+    from common.threshold_recalibration import run_shadow_recalibration
+
+    account_id = event.get("account_id", "self")
+    role_arn = event.get("role_arn", "")
+    accounts = _resolve_accounts_for_inventory(account_id, role_arn)
+    if not accounts:
+        logger.warning("Threshold recalibration: no account metadata for %s", account_id)
+        return {"status": "ok", "skipped": "no_account_metadata"}
+
+    stats = run_shadow_recalibration(accounts)
+    logger.info("Threshold recalibration (shadow) done for %s: %s", account_id, stats)
     return {"status": "ok", "account_id": account_id, **stats}
 
 

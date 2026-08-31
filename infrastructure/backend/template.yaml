@@ -190,6 +190,11 @@ Resources:
           KeyType: HASH
         - AttributeName: metric_key
           KeyType: RANGE
+      # 재보정 Shadow 제안 행(scope_id=resource_id:…, status=shadow)만 ttl을 가진다.
+      # 고객사 오버라이드 행에는 ttl 속성이 없으므로 만료되지 않는다.
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
       Tags:
         - Key: ManagedBy
           Value: AlarmManager
@@ -740,6 +745,7 @@ Resources:
           MONITOR_RUN_HISTORY_TABLE: !Ref MonitorRunHistoryTable
           JOB_STATUS_TABLE: !Ref JobStatusTable
           METRIC_HISTORY_TABLE: !Ref MetricHistoryTable
+          THRESHOLD_OVERRIDES_TABLE: !Ref ThresholdOverridesTable
 
   # -- Dead Letter Queue: Remediation Handler (RISK-08) --
   RemediationDLQ:
@@ -889,6 +895,32 @@ Resources:
       Action: lambda:InvokeFunction
       Principal: scheduler.amazonaws.com
       SourceArn: !GetAtt MetricSnapshotSchedule.Arn
+
+  # -- 임계치 재보정 Shadow 잡: 주간 스냅샷 1시간 뒤(01:00 KST 월요일). 제안만 기록, 알람 미변경 --
+  ThresholdRecalibrationSchedule:
+    Type: AWS::Scheduler::Schedule
+    Properties:
+      Name: !Sub
+        - threshold-recalibration-schedule-${EnvShort}
+        - EnvShort: !FindInMap [EnvShortName, !Ref Environment, short]
+      Description: Weekly shadow threshold recalibration at 01:00 KST Monday (16:00 UTC Sunday)
+      ScheduleExpression: "cron(0 16 ? * SUN *)"
+      ScheduleExpressionTimezone: UTC
+      State: ENABLED
+      FlexibleTimeWindow:
+        Mode: "OFF"
+      Target:
+        Arn: !GetAtt OrchestratorFunction.Arn
+        RoleArn: !GetAtt SchedulerInvokeRole.Arn
+        Input: '{"mode": "threshold_recalibration"}'
+
+  ThresholdRecalibrationSchedulerPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt OrchestratorFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: scheduler.amazonaws.com
+      SourceArn: !GetAtt ThresholdRecalibrationSchedule.Arn
 
   # -- EventBridge Rule: CloudTrail events ---
   CloudTrailModifyRule:
@@ -1290,6 +1322,13 @@ Resources:
                   - dynamodb:BatchWriteItem
                   - dynamodb:Query
                 Resource: !GetAtt MetricHistoryTable.Arn
+              # -- DynamoDB: ThresholdOverridesTable 재보정 Shadow 제안 기록 --
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                  - dynamodb:BatchWriteItem
+                  - dynamodb:Query
+                Resource: !GetAtt ThresholdOverridesTable.Arn
               # -- Resource Groups Tagging API: 태그 일괄 조회 (단일 계정 모드) --
               - Effect: Allow
                 Action:

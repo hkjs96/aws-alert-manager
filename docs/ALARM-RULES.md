@@ -304,6 +304,23 @@ remediation handler에서 이 ARN을 실제 리소스 식별자로 변환해야 
   → NO: notBreaching (기본값, 명시 불필요)
 ```
 
+### 10-7. 임계치 재보정 — Shadow 모드 (2026-08-31~)
+
+`common/threshold_recalibration.py`가 주 1회(스냅샷 1시간 뒤) 리소스×메트릭별 제안을 계산해
+ThresholdOverridesTable에 `status=shadow` 행으로만 남긴다. **알람은 바뀌지 않는다.**
+
+| 단계 | 규칙 |
+|------|------|
+| 대상 | `GreaterThanThreshold` + 정책 표 메트릭(RequestCount·RequestCountPerTarget·ProcessedBytes·NewFlowCount / TargetResponseTime·ApiLatency / CPUUtilization) + SEV-3 이하 |
+| 데이터 | 최근 28일 중 일 p99 21일 이상 (`insufficient_data`는 행 미기록) |
+| 기준값 | 창 안 일 p99 최댓값 × 1.2 |
+| 가드 | 절대 클램프(CPU 70~95) → 사이클당 변화율 ±25% → 현재 대비 5% 미만 변화는 유지(`hysteresis`) |
+| 효과 추정 | 일 max 기준 현재/제안 임계치 초과 일수 (`breach_days_*`, 근사) |
+
+제외: 가용성 이진(StatusCheckFailed·HealthyHostCount·TunnelState…), 에러 카운트(5XX), `LessThan`
+계열, SEV-1/2. Shadow 2주 관측 후 PoC(EC2 CPU·ALB RequestCount·TargetResponseTime)로 실제 적용 예정 —
+그때 resolver 체인(태그 → 오버라이드 → 기본값)에 연결한다. 수동(태그·고객사 설정)은 자동보다 항상 우선.
+
 ## §13. 알람 등급(Severity) 체계
 
 > 참고: [PagerDuty Incident Response — Severity Levels](https://response.pagerduty.com/before/severity_levels/), ITIL Incident Priority Matrix, Splunk/Datadog 등급 체계를 참고하여 MSP 환경에 맞게 재정의.

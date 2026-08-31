@@ -186,5 +186,6 @@ Anomaly Detection 전면 전환 · 테이블 가상화.
 | P1 태그 인덱스(CW 알람 태그 ResourceId/MetricKey) + 백필 | 미착수 | RGT 프라임 인프라가 생겼으므로 다음 단계로 자연 연결 |
 | P4 P0/P1 (cache(), next/font, Suspense 스트리밍, 서버 props, 인덱싱, 디바운스) | 완료 | `a124dc5` 외 |
 | P4 P2 (병렬 POST, RecentAlarms 상한, 벌크 모달 실구현, AGENTS 정정) | 완료 | `1071369` |
-| P2 임계치 재보정 잡 (Shadow → PoC) | 미착수 | ThresholdOverridesTable ↔ 엔진 연결이 선행 |
+| P2 임계치 재보정 잡 — Shadow | 완료 | `common/threshold_recalibration.py`, 주 1회 제안만 기록(`status=shadow`), 알람 미변경 |
+| P2 임계치 재보정 — PoC(실제 적용) | 미착수 | Shadow 2주 관측 후; resolver 체인(태그→오버라이드→기본값) 연결 선행 |
 | 워커 메모리 512MB / 타임아웃 900s | 완료 | 실측 217MB / 22s (dev, 리소스 33) |
