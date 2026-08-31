@@ -10,6 +10,7 @@ import os
 from botocore.exceptions import ClientError
 
 import common._clients as _clients
+from common.collectors.base import run_memo
 from common.alarm_registry import _DIMENSION_KEY_MAP, _NAMESPACE_MAP
 
 logger = logging.getLogger(__name__)
@@ -232,10 +233,14 @@ def _get_disk_dimensions(instance_id: str, extra_paths: set[str] | None = None, 
 
     cw = cw or _clients._get_cw_client()
     try:
-        resp = cw.list_metrics(
-            Namespace="CWAgent",
-            MetricName="disk_used_percent",
-            Dimensions=[{"Name": "InstanceId", "Value": instance_id}],
+        # daily run에서는 sync가 인스턴스마다 이 조회를 반복한다 — 런 스코프 메모로 1회만.
+        resp = run_memo(
+            ("disk_dimensions_list_metrics", instance_id),
+            lambda: cw.list_metrics(
+                Namespace="CWAgent",
+                MetricName="disk_used_percent",
+                Dimensions=[{"Name": "InstanceId", "Value": instance_id}],
+            ),
         )
         metrics = resp.get("Metrics", [])
         if not metrics:

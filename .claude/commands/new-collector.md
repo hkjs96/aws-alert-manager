@@ -104,6 +104,19 @@ CPU/Memory만 포함하며, RunningTaskCount는 동적 알람 태그로 사용 �
 S3(객체), ECR(이미지)는 cleanup CustomResource를 추가하고, Delete 핸들러는 에러 시에도
 `SUCCESS`를 반환해 스택 삭제를 블로킹하지 않는다. OpenSearch는 삭제에 10~15분 소요.
 
+## IAM 체크 (필수 — 단위 테스트가 잡지 못하는 유일한 계층)
+
+새 AWS API 호출이나 새 DynamoDB 테이블/연산을 추가하면 **같은 커밋에서** 권한을 확인한다.
+2026-08-31 라이브 검증에서 세 번 연속 IAM 누락이 배포 후에야 드러났다
+(온보딩 롤 `GetMetricStatistics`, 워커 롤 run history `Query`, `GetMetricData`).
+
+- 워커/핸들러 롤: `infrastructure/backend/template.yaml`의 해당 Role Policies에 액션 추가
+  (DynamoDB는 테이블 ARN + `/index/*` 둘 다, CloudWatch 읽기는 `Resource: "*"`)
+- 크로스어카운트 호출이면 **온보딩 템플릿 3곳 동기화**: `infrastructure/customer-onboarding/template.yaml`
+  → `frontend/public/customer-onboarding.yaml`(복사) → 공개 S3 버킷 재업로드(`text/yaml`)
+- 배포 후 첫 run 로그에서 `AccessDenied`를 grep 한다 — 코드는 대부분 권한 오류를 삼키고 폴백하므로
+  기능이 "조용히 동작 안 함"으로 나타난다
+
 ## Verification
 
 ```bash

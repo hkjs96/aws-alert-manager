@@ -83,6 +83,9 @@ class MetricBatch:
         self._mode: str | None = None
         self._pending: dict[tuple, dict] = {}
         self._cache: dict[tuple, float | None] = {}
+        # 런 동안 반복되는 보조 조회(list_metrics 디멘션 탐색 등)의 메모.
+        # get_metrics가 record/serve 두 번 돌고 sync가 같은 조회를 또 하므로 3배가 된다.
+        self.memo: dict[tuple, object] = {}
 
     @property
     def mode(self) -> str | None:
@@ -195,6 +198,20 @@ def set_active_metric_batch(batch: MetricBatch | None) -> None:
 
 def _recording_active() -> bool:
     return _active_metric_batch is not None and _active_metric_batch.mode == "record"
+
+
+def run_memo(key: tuple, compute):
+    """런 스코프 메모. 배치가 활성이면 key당 compute()를 한 번만 실행하고 재사용한다.
+
+    배치가 없는 경로(sqs_worker, remediation 등)에서는 그냥 compute()를 호출한다.
+    예외는 캐시되지 않고 그대로 전파된다.
+    """
+    batch = _active_metric_batch
+    if batch is None:
+        return compute()
+    if key not in batch.memo:
+        batch.memo[key] = compute()
+    return batch.memo[key]
 
 
 # ──────────────────────────────────────────────

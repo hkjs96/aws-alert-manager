@@ -13,7 +13,7 @@ import boto3
 from botocore.exceptions import ClientError
 
 from common import ResourceInfo
-from common.collectors.base import query_metric, CW_LOOKBACK_MINUTES
+from common.collectors.base import query_metric, CW_LOOKBACK_MINUTES, run_memo
 from common.tag_resolver import get_disk_thresholds
 
 logger = logging.getLogger(__name__)
@@ -206,14 +206,18 @@ def _query_disk_metric(
     try:
         cw = _get_cw_client()
         # CWAgent disk 메트릭은 path, device, fstype Dimension이 필요하므로
-        # list_metrics로 해당 인스턴스+경로의 실제 Dimension 조회 후 사용
-        response = cw.list_metrics(
-            Namespace="CWAgent",
-            MetricName="disk_used_percent",
-            Dimensions=[
-                {"Name": "InstanceId", "Value": instance_id},
-                {"Name": "path", "Value": path},
-            ],
+        # list_metrics로 해당 인스턴스+경로의 실제 Dimension 조회 후 사용.
+        # daily run에서는 get_metrics가 record/serve 두 번 돌므로 런 스코프 메모로 1회만 조회.
+        response = run_memo(
+            ("disk_list_metrics", instance_id, path),
+            lambda: cw.list_metrics(
+                Namespace="CWAgent",
+                MetricName="disk_used_percent",
+                Dimensions=[
+                    {"Name": "InstanceId", "Value": instance_id},
+                    {"Name": "path", "Value": path},
+                ],
+            ),
         )
         metric_list = response.get("Metrics", [])
         if not metric_list:

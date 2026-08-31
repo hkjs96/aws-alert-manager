@@ -173,3 +173,65 @@ class TestServeFallback:
         with patch("common.collectors.base._get_cw_client", return_value=live):
             assert query_metric("AWS/EC2", "CPUUtilization", _DIMS, _START, _END) is None
         live.get_metric_statistics.assert_called_once()
+
+
+class TestRunMemo:
+    def test_without_batch_computes_every_time(self):
+        from common.collectors.base import run_memo, set_active_metric_batch
+        set_active_metric_batch(None)
+        calls = []
+        assert run_memo(("k",), lambda: calls.append(1) or 1) == 1
+        assert run_memo(("k",), lambda: calls.append(1) or 2) == 2
+        assert len(calls) == 2
+
+    def test_with_batch_computes_once_per_key(self):
+        from common.collectors.base import MetricBatch, run_memo, set_active_metric_batch
+        batch = MetricBatch()
+        set_active_metric_batch(batch)
+        try:
+            calls = []
+            assert run_memo(("k",), lambda: calls.append(1) or "v") == "v"
+            assert run_memo(("k",), lambda: calls.append(1) or "other") == "v"
+            assert run_memo(("k2",), lambda: "v2") == "v2"
+            assert len(calls) == 1
+        finally:
+            set_active_metric_batch(None)
+
+    def test_exception_is_not_cached(self):
+        from common.collectors.base import MetricBatch, run_memo, set_active_metric_batch
+        batch = MetricBatch()
+        set_active_metric_batch(batch)
+        try:
+            with pytest.raises(ValueError):
+                run_memo(("k",), lambda: (_ for _ in ()).throw(ValueError("boom")))
+            assert run_memo(("k",), lambda: "recovered") == "recovered"
+        finally:
+            set_active_metric_batch(None)
+
+    def test_ec2_disk_list_metrics_called_once_across_record_and_serve(self):
+        """record/serve 두 번의 get_metrics에서 디스크 디멘션 탐색은 1회만 API를 친다."""
+        from common.collectors import ec2
+        from common.collectors.base import MetricBatch, set_active_metric_batch
+        cw = MagicMock()
+        cw.list_metrics.return_value = {"Metrics": [{"Dimensions": [
+            {"Name": "InstanceId", "Value": "i-001"},
+            {"Name": "path", "Value": "/"},
+            {"Name": "device", "Value": "xvda1"},
+            {"Name": "fstype", "Value": "ext4"},
+        ]}]}
+        cw.get_metric_statistics.return_value = {"Datapoints": []}
+        cw.get_metric_data.return_value = {"MetricDataResults": []}
+        batch = MetricBatch()
+        set_active_metric_batch(batch)
+        try:
+            with patch("common.collectors.ec2._get_cw_client", return_value=cw), \
+                 patch("common.collectors.base._get_cw_client", return_value=cw):
+                tags = {"Monitoring": "on", "Threshold_Disk_root": "85"}
+                batch.record()
+                ec2.get_metrics("i-001", tags)
+                batch.execute(cw=cw)
+                batch.serve()
+                ec2.get_metrics("i-001", tags)
+        finally:
+            set_active_metric_batch(None)
+        assert cw.list_metrics.call_count == 1
