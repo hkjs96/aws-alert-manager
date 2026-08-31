@@ -3,17 +3,20 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import type { Customer, Account } from "@/types/index";
-import { fetchCustomers, fetchAccounts } from "@/lib/api-functions";
 import { useOwnedCustomers } from "@/hooks/useOwnedCustomers";
 import { FRONTEND_INTEGRATION_RESOURCE_TYPES } from "@/lib/constants";
 
-function GlobalFilterBarInner() {
+export interface GlobalFilterBarProps {
+  /** 서버(GlobalFilterOptions)가 내려주는 전체 고객사 — 담당 고객사만 표시된다 */
+  customers: Customer[];
+  accounts: Account[];
+}
+
+function GlobalFilterBarInner({ customers: allCustomers, accounts }: GlobalFilterBarProps) {
   const router = useRouter();
   const pathname = usePathname();
   const { ownedCustomerIds } = useOwnedCustomers();
 
-  const [allCustomers, setAllCustomers] = useState<Customer[]>([]);
-  const [accounts, setAccounts] = useState<Account[]>([]);
   const [queryString, setQueryString] = useState("");
 
   useEffect(() => {
@@ -33,17 +36,6 @@ function GlobalFilterBarInner() {
   const customers = allCustomers.filter((c) =>
     ownedCustomerIds.includes(c.customer_id),
   );
-
-  useEffect(() => {
-    Promise.all([fetchCustomers(), fetchAccounts()])
-      .then(([c, a]) => {
-        setAllCustomers(c);
-        setAccounts(a);
-      })
-      .catch(() => {
-        // 에러 시 빈 목록 유지
-      });
-  }, []);
 
   // URL에 비담당 customer_id가 있으면 조용히 제거
   useEffect(() => {
@@ -160,6 +152,6 @@ function GlobalFilterBarInner() {
   );
 }
 
-export function GlobalFilterBar() {
-  return <GlobalFilterBarInner />;
+export function GlobalFilterBar(props: GlobalFilterBarProps) {
+  return <GlobalFilterBarInner {...props} />;
 }

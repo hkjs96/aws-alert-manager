@@ -1,20 +1,24 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import { TopBar } from "./TopBar";
 import { Sidebar } from "./Sidebar";
-import type { Alarm } from "@/types";
 
 const SIDEBAR_KEY = "alarm-mgr:sidebar-open";
 
 interface AppShellProps {
-  children: React.ReactNode;
-  alarms?: Alarm[];
+  children: ReactNode;
   userEmail?: string | null;
+  /** 루트 레이아웃이 Suspense로 감싼 서버 컴포넌트 슬롯 (TopBar로 전달) */
+  alarmBadge?: ReactNode;
+  alarmBell?: ReactNode;
+  filterBar?: ReactNode;
 }
 
-export function AppShell({ children, alarms = [], userEmail = null }: AppShellProps) {
+export function AppShell({
+  children, userEmail = null, alarmBadge, alarmBell, filterBar,
+}: AppShellProps) {
   const pathname = usePathname();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
@@ -37,11 +41,6 @@ export function AppShell({ children, alarms = [], userEmail = null }: AppShellPr
     localStorage.setItem(SIDEBAR_KEY, "false");
   };
 
-  const alarmCount = useMemo(
-    () => alarms.filter((a) => a.state === "ALARM").length,
-    [alarms],
-  );
-
   // 로그인/도움말 페이지는 셸(사이드바/탑바) 없이 단독 렌더한다.
   // (도움말은 로그인 전에도 접근 가능해야 하므로 셸에 의존하지 않음)
   if (pathname === "/login" || pathname === "/help") {
@@ -51,10 +50,11 @@ export function AppShell({ children, alarms = [], userEmail = null }: AppShellPr
   return (
     <div className="min-h-screen bg-surface">
       <TopBar
-        alarmCount={alarmCount}
         onMenuToggle={toggle}
         userEmail={userEmail}
-        alarms={alarms}
+        alarmBadge={alarmBadge}
+        alarmBell={alarmBell}
+        filterBar={filterBar}
       />
       <Sidebar isOpen={sidebarOpen} onClose={close} />
       <main className="pt-16 min-h-screen lg:ml-52">

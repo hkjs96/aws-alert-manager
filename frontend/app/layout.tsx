@@ -1,10 +1,17 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { Inter, JetBrains_Mono, Manrope } from "next/font/google";
 import "./globals.css";
 import { AppShell } from "@/components/layout/AppShell";
+import { AlarmBadge } from "@/components/layout/AlarmBadge";
+import { AlarmBell } from "@/components/layout/AlarmBell";
+import { GlobalFilterOptions } from "@/components/layout/GlobalFilterOptions";
+import {
+  AlarmBadgeFallback,
+  AlarmBellFallback,
+  GlobalFilterBarFallback,
+} from "@/components/layout/AlarmStatusViews";
 import { ToastProvider } from "@/components/shared/Toast";
-import { fetchAlarms } from "@/lib/server/data";
-import type { Alarm } from "@/types";
 import { getSession } from "@/lib/server/session";
 
 // next/font self-hosts and preloads the faces. Loading them through an
@@ -38,17 +45,30 @@ export const metadata: Metadata = {
 };
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
-  let alarms: Alarm[] = [];
-  try {
-    alarms = await fetchAlarms();
-  } catch (error) {
-    console.error("[RootLayout] Failed to fetch alarms:", error);
-    // Fallback to empty array to allow the app shell to render
-    alarms = [];
-  }
-
   // Only resolve a session when auth is configured (auth() requires AUTH_SECRET).
   const session = process.env.AUTH_SECRET ? await getSession() : null;
+
+  // 인증이 켜져 있는데 세션이 없으면 미들웨어가 /login으로 보내는 요청이다 — 셸이
+  // 렌더되지 않으므로 슬롯 fetch(실패가 예정된 3콜)를 아예 만들지 않는다.
+  const hasShellData = !process.env.AUTH_SECRET || session !== null;
+
+  // 알람 배지·벨·필터 옵션은 셸의 첫 바이트를 막지 않도록 Suspense 슬롯으로 스트리밍한다.
+  // (예전에는 레이아웃이 alarms를 await해 모든 하드 로드의 TTFB가 그 fetch에 묶였다)
+  const alarmBadge = hasShellData ? (
+    <Suspense fallback={<AlarmBadgeFallback />}>
+      <AlarmBadge />
+    </Suspense>
+  ) : null;
+  const alarmBell = hasShellData ? (
+    <Suspense fallback={<AlarmBellFallback />}>
+      <AlarmBell />
+    </Suspense>
+  ) : null;
+  const filterBar = hasShellData ? (
+    <Suspense fallback={<GlobalFilterBarFallback />}>
+      <GlobalFilterOptions />
+    </Suspense>
+  ) : null;
 
   return (
     <html
@@ -57,7 +77,12 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     >
       <body>
         <ToastProvider>
-          <AppShell alarms={alarms} userEmail={session?.user?.email ?? null}>
+          <AppShell
+            userEmail={session?.user?.email ?? null}
+            alarmBadge={alarmBadge}
+            alarmBell={alarmBell}
+            filterBar={filterBar}
+          >
             {children}
           </AppShell>
         </ToastProvider>

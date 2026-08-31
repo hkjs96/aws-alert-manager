@@ -26,10 +26,10 @@ const mockAccounts = [
   { account_id: "acc-003", customer_id: "cust-002", name: "Globex Main", role_arn: "arn:...", regions: ["eu-west-1"], connection_status: "connected" as const },
 ];
 
-vi.mock("@/lib/api-functions", () => ({
-  fetchCustomers: vi.fn(() => Promise.resolve(mockCustomers)),
-  fetchAccounts: vi.fn(() => Promise.resolve(mockAccounts)),
-}));
+// 고객사/어카운트는 서버 컴포넌트(GlobalFilterOptions)가 props로 내려준다 — 클라이언트 fetch 없음.
+function renderBar() {
+  return render(<GlobalFilterBar customers={mockCustomers} accounts={mockAccounts} />);
+}
 
 // --- useOwnedCustomers mock ---
 vi.mock("@/hooks/useOwnedCustomers", () => ({
@@ -58,7 +58,7 @@ describe("GlobalFilterBar", () => {
   });
 
   it("초기 렌더링 시 3개 드롭다운을 표시한다", async () => {
-    render(<GlobalFilterBar />);
+    renderBar();
     await waitFor(() => {
       expect(screen.getByLabelText("Customer filter")).toBeInTheDocument();
       expect(screen.getByLabelText("Account filter")).toBeInTheDocument();
@@ -66,16 +66,16 @@ describe("GlobalFilterBar", () => {
     });
   });
 
-  it("고객사 목록을 API에서 가져와 드롭다운에 표시한다", async () => {
-    render(<GlobalFilterBar />);
+  it("props로 받은 고객사 목록을 드롭다운에 표시한다", async () => {
+    renderBar();
     await waitFor(() => {
       expect(screen.getByText("Acme Corp")).toBeInTheDocument();
       expect(screen.getByText("Globex Inc")).toBeInTheDocument();
     });
   });
 
-  it("어카운트 목록을 API에서 가져와 드롭다운에 표시한다", async () => {
-    render(<GlobalFilterBar />);
+  it("props로 받은 어카운트 목록을 드롭다운에 표시한다", async () => {
+    renderBar();
     await waitFor(() => {
       expect(screen.getByText("Acme Prod")).toBeInTheDocument();
       expect(screen.getByText("Acme Staging")).toBeInTheDocument();
@@ -84,7 +84,7 @@ describe("GlobalFilterBar", () => {
   });
 
   it("기본 옵션으로 All Customers / All Accounts / All Services를 표시한다", async () => {
-    render(<GlobalFilterBar />);
+    renderBar();
     await waitFor(() => {
       expect(screen.getByText("All Customers")).toBeInTheDocument();
       expect(screen.getByText("All Accounts")).toBeInTheDocument();
@@ -93,7 +93,7 @@ describe("GlobalFilterBar", () => {
   });
 
   it("Customer 선택 시 router.push로 URL을 업데이트한다", async () => {
-    render(<GlobalFilterBar />);
+    renderBar();
     await waitFor(() => {
       expect(screen.getByText("Acme Corp")).toBeInTheDocument();
     });
@@ -107,7 +107,7 @@ describe("GlobalFilterBar", () => {
 
   it("Customer 변경 시 Account와 Service를 리셋한다", async () => {
     window.history.replaceState(null, "", "/dashboard?account_id=acc-001&service=EC2");
-    render(<GlobalFilterBar />);
+    renderBar();
     await waitFor(() => {
       expect(screen.getByText("Acme Corp")).toBeInTheDocument();
     });
@@ -122,7 +122,7 @@ describe("GlobalFilterBar", () => {
 
   it("Account 변경 시 Service를 리셋한다", async () => {
     window.history.replaceState(null, "", "/dashboard?customer_id=cust-001&service=EC2");
-    render(<GlobalFilterBar />);
+    renderBar();
     await waitFor(() => {
       expect(screen.getByText("Acme Prod")).toBeInTheDocument();
     });
@@ -135,7 +135,7 @@ describe("GlobalFilterBar", () => {
   });
 
   it("Service 드롭다운에 프론트 통합 MVP 리소스 타입 옵션을 표시한다", async () => {
-    render(<GlobalFilterBar />);
+    renderBar();
     await waitFor(() => {
       expect(screen.getByLabelText("Service filter")).toBeInTheDocument();
     });
@@ -148,7 +148,7 @@ describe("GlobalFilterBar", () => {
 
   it("OwnedCustomers에 포함된 고객사만 Customer 드롭다운에 나타난다", async () => {
     vi.mocked(useOwnedCustomers).mockReturnValue(makeOwnedState(["cust-001"]));
-    render(<GlobalFilterBar />);
+    renderBar();
     await waitFor(() => {
       expect(screen.getByText("Acme Corp")).toBeInTheDocument();
     });
@@ -157,7 +157,7 @@ describe("GlobalFilterBar", () => {
 
   it("OwnedCustomers가 비어있으면 Customer 드롭다운이 disabled되고 placeholder가 표시된다", async () => {
     vi.mocked(useOwnedCustomers).mockReturnValue(makeOwnedState([]));
-    render(<GlobalFilterBar />);
+    renderBar();
     await waitFor(() => {
       const select = screen.getByLabelText("Customer filter");
       expect(select).toBeDisabled();
@@ -168,7 +168,7 @@ describe("GlobalFilterBar", () => {
   it("URL에 OwnedCustomers에 없는 customer_id가 있으면 router.replace로 파라미터를 제거한다", async () => {
     vi.mocked(useOwnedCustomers).mockReturnValue(makeOwnedState(["cust-001"]));
     window.history.replaceState(null, "", "/dashboard?customer_id=cust-002");
-    render(<GlobalFilterBar />);
+    renderBar();
     await waitFor(() => {
       expect(mockReplace).toHaveBeenCalledWith(
         expect.not.stringContaining("customer_id=cust-002"),
