@@ -650,6 +650,8 @@ class TestMonitorRunHistory:
 
         mock_collector = _make_collector_mock(resources=[])
         mock_table = MagicMock()
+        # 시작 시 stale running 정정 조회(query)가 돌므로 종료 페이지를 stub한다 (AP-15)
+        mock_table.query.return_value = {"Items": []}
         context = MagicMock(aws_request_id="req-123")
 
         with pytest.MonkeyPatch.context() as mp:

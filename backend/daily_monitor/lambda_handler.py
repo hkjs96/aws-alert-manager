@@ -18,7 +18,7 @@ import time
 from datetime import datetime, timezone
 
 import boto3
-from boto3.dynamodb.conditions import Key
+from boto3.dynamodb.conditions import Attr, Key
 from botocore.exceptions import ClientError
 
 # Lambda 환경에서 root logger 레벨 설정 (모든 모듈에 적용)
@@ -218,6 +218,7 @@ def lambda_handler(event, context):
     run_id = _build_monitor_run_id(account_id, context)
     run_table = _monitor_run_history_table()
     _put_monitor_run_start(run_table, run_id, run_started_at, account_id, event, context)
+    _mark_stale_runs(run_table)
 
     # 0단계: ResourceInventoryTable 동기화 (세션 전환 전 — 메인 계정 DDB 접근 필요)
     # discover_resources()가 자체적으로 AssumeRole 하므로 세션 전환 불필요.
@@ -402,6 +403,70 @@ def _monitor_run_history_table():
     if not table_name:
         return None
     return _get_ddb_resource().Table(table_name)
+
+
+# 워커 타임아웃(900s)보다 넉넉한 값. 이보다 오래 running이면 finish 레코드는 영영 오지 않는다.
+_STALE_RUN_AFTER_SECONDS = 20 * 60
+_STALE_RUN_LOOKBACK_DAYS = 7
+
+
+def _mark_stale_runs(table, now_ts: float | None = None) -> int:
+    """finish 기록 없이 running으로 남은 과거 run을 timeout으로 정정한다.
+
+    Lambda가 타임아웃/강제 종료되면 _finish_monitor_run이 실행되지 않아 레코드가
+    영구히 running으로 남는다(2026-08-31 dev 계정 실사례). 다음 run 시작 시 정정한다.
+    조회 범위는 최근 N일로 제한해 히스토리 전체를 읽지 않는다.
+    """
+    if table is None:
+        return 0
+    now_ts = now_ts if now_ts is not None else time.time()
+    cutoff = datetime.fromtimestamp(now_ts - _STALE_RUN_AFTER_SECONDS, tz=timezone.utc)
+    lookback = datetime.fromtimestamp(now_ts - _STALE_RUN_LOOKBACK_DAYS * 86400, tz=timezone.utc)
+    to_iso = lambda d: d.isoformat(timespec="seconds").replace("+00:00", "Z")  # noqa: E731
+
+    stale: list[dict] = []
+    kwargs = {
+        "KeyConditionExpression": (
+            Key("scope").eq("daily_monitor")
+            & Key("started_at").between(to_iso(lookback), to_iso(cutoff))
+        ),
+        "FilterExpression": Attr("status").eq("running"),
+    }
+    try:
+        while True:
+            resp = table.query(**kwargs)
+            stale.extend(resp.get("Items", []))
+            last = resp.get("LastEvaluatedKey")
+            if not last:
+                break
+            kwargs["ExclusiveStartKey"] = last
+    except ClientError as e:
+        logger.error("Stale run query failed: %s", e)
+        return 0
+
+    fixed = 0
+    for item in stale:
+        try:
+            table.update_item(
+                Key={"scope": "daily_monitor", "started_at": item["started_at"]},
+                UpdateExpression="SET #s = :status, error_message = :err, stale_marked_at = :now",
+                # 그 사이 finish가 기록됐다면 건드리지 않는다.
+                ConditionExpression="#s = :running",
+                ExpressionAttributeNames={"#s": "status"},
+                ExpressionAttributeValues={
+                    ":status": "timeout",
+                    ":running": "running",
+                    ":err": "no finish record within lambda timeout (marked stale by a later run)",
+                    ":now": to_iso(datetime.fromtimestamp(now_ts, tz=timezone.utc)),
+                },
+            )
+            fixed += 1
+        except ClientError as e:
+            if e.response.get("Error", {}).get("Code") != "ConditionalCheckFailedException":
+                logger.error("Stale run update failed for %s: %s", item.get("run_id"), e)
+    if fixed:
+        logger.warning("Marked %d stale running run(s) as timeout", fixed)
+    return fixed
 
 
 def _put_monitor_run_start(
