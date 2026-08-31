@@ -12,7 +12,7 @@ import { Pagination } from "@/components/shared/Pagination";
 import { FilterBar } from "@/components/resources/FilterBar";
 import { downloadCsv } from "@/lib/exportCsv";
 import { AlarmSummaryCards } from "./AlarmSummaryCards";
-import { AlarmTable } from "./AlarmTable";
+import { AlarmTable, sortAlarms, type AlarmSortDir } from "./AlarmTable";
 import { useOwnedCustomers } from "@/hooks/useOwnedCustomers";
 import { OwnedEmptyState } from "@/components/shared/OwnedEmptyState";
 import { syncAlarms } from "@/lib/api-functions";
@@ -52,6 +52,9 @@ export function AlarmsContent({ alarms, summary, customers, accounts }: AlarmsCo
   const [typeFilter, setTypeFilter] = useState("");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  // 정렬은 페이지 슬라이스 전에 전체 필터 결과에 적용한다 (테이블 내부 정렬은 현재 페이지만 정렬하던 결함)
+  const [sortKey, setSortKey] = useState("time");
+  const [sortDir, setSortDir] = useState<AlarmSortDir>("desc");
   const [isExporting, setIsExporting] = useState(false);
 
   const [isSyncScopeOpen, setIsSyncScopeOpen] = useState(false);
@@ -130,10 +133,22 @@ export function AlarmsContent({ alarms, summary, customers, accounts }: AlarmsCo
     });
   }, [alarms, stateFilter, customerFilter, accountFilter, typeFilter, deferredSearch, customerAccountIds, ownedAccountIdSet, ownedAccountIds]);
 
+  const sorted = useMemo(() => sortAlarms(filtered, sortKey, sortDir), [filtered, sortKey, sortDir]);
+
   const paginated = useMemo(() => {
     const start = (page - 1) * pageSize;
-    return filtered.slice(start, start + pageSize);
-  }, [filtered, page, pageSize]);
+    return sorted.slice(start, start + pageSize);
+  }, [sorted, page, pageSize]);
+
+  const handleSort = (key: string) => {
+    if (sortKey === key) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir("asc");
+    }
+    setPage(1); // 정렬이 바뀌면 첫 페이지부터 (ResourcesContent와 동일 관례)
+  };
 
   const handleExport = async () => {
     setIsExporting(true);
@@ -227,7 +242,7 @@ export function AlarmsContent({ alarms, summary, customers, accounts }: AlarmsCo
       </div>
 
       {/* Table */}
-      <AlarmTable alarms={paginated} />
+      <AlarmTable alarms={paginated} sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
 
       {/* Pagination */}
       <Pagination page={page} pageSize={pageSize} total={filtered.length}

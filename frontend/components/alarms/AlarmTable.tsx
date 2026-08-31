@@ -1,6 +1,5 @@
 "use client";
 
-import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronUp, ChevronDown } from "lucide-react";
 import type { Alarm } from "@/types";
@@ -8,7 +7,7 @@ import { ResourceTypeIcon } from "@/components/shared/ResourceTypeIcon";
 import { formatRelativeTime } from "@/lib/time-utils";
 import { encodeResourceId } from "@/lib/resource-id";
 
-type SortDir = "asc" | "desc";
+export type AlarmSortDir = "asc" | "desc";
 
 const COLUMNS: { key: string; label: string; sortable: boolean; align?: string }[] = [
   { key: "time", label: "Time", sortable: true },
@@ -19,6 +18,24 @@ const COLUMNS: { key: string; label: string; sortable: boolean; align?: string }
 ];
 
 const STATE_ORDER: Record<string, number> = { ALARM: 0, INSUFFICIENT_DATA: 1, OK: 2, OFF: 3 };
+
+/**
+ * 알람 정렬 (순수 함수). 부모가 필터 → 정렬 → 페이지 슬라이스 순으로 호출한다.
+ * 정렬을 테이블 내부에서 하면 현재 페이지 슬라이스 안에서만 정렬되는 결함이 생긴다.
+ */
+export function sortAlarms(alarms: Alarm[], sortKey: string, sortDir: AlarmSortDir): Alarm[] {
+  return [...alarms].sort((a, b) => {
+    let cmp = 0;
+    if (sortKey === "state") {
+      cmp = (STATE_ORDER[a.state] ?? 9) - (STATE_ORDER[b.state] ?? 9);
+    } else {
+      const aVal = String(a[sortKey as keyof Alarm] ?? "");
+      const bVal = String(b[sortKey as keyof Alarm] ?? "");
+      cmp = aVal.localeCompare(bVal);
+    }
+    return sortDir === "asc" ? cmp : -cmp;
+  });
+}
 
 const STATE_STYLES: Record<string, string> = {
   ALARM: "bg-error/10 text-error ring-error/20",
@@ -39,36 +56,15 @@ const STATE_LABEL: Record<string, string> = {
 };
 
 interface AlarmTableProps {
+  /** 이미 정렬·페이지 슬라이스된 알람 (정렬은 부모 책임 — sortAlarms 참조) */
   alarms: Alarm[];
+  sortKey: string;
+  sortDir: AlarmSortDir;
+  onSort: (key: string) => void;
 }
 
-export function AlarmTable({ alarms }: AlarmTableProps) {
+export function AlarmTable({ alarms, sortKey, sortDir, onSort }: AlarmTableProps) {
   const router = useRouter();
-  const [sortKey, setSortKey] = useState("time");
-  const [sortDir, setSortDir] = useState<SortDir>("desc");
-
-  const handleSort = (key: string) => {
-    if (sortKey === key) {
-      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
-    } else {
-      setSortKey(key);
-      setSortDir("asc");
-    }
-  };
-
-  const sorted = useMemo(() => {
-    return [...alarms].sort((a, b) => {
-      let cmp = 0;
-      if (sortKey === "state") {
-        cmp = (STATE_ORDER[a.state] ?? 9) - (STATE_ORDER[b.state] ?? 9);
-      } else {
-        const aVal = String(a[sortKey as keyof Alarm] ?? "");
-        const bVal = String(b[sortKey as keyof Alarm] ?? "");
-        cmp = aVal.localeCompare(bVal);
-      }
-      return sortDir === "asc" ? cmp : -cmp;
-    });
-  }, [alarms, sortKey, sortDir]);
 
   if (alarms.length === 0) {
     return (
@@ -92,7 +88,7 @@ export function AlarmTable({ alarms }: AlarmTableProps) {
                 return (
                   <th key={col.key}
                     className={`px-4 py-3 text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wider ${col.align ?? ""} ${col.sortable ? "cursor-pointer select-none hover:text-slate-800" : ""} ${isActive ? "text-slate-800" : ""}`}
-                    onClick={col.sortable ? () => handleSort(col.key) : undefined}>
+                    onClick={col.sortable ? () => onSort(col.key) : undefined}>
                     <span className="inline-flex items-center gap-1">
                       {col.label}
                       {col.sortable && (
@@ -108,7 +104,7 @@ export function AlarmTable({ alarms }: AlarmTableProps) {
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {sorted.map((alarm) => (
+            {alarms.map((alarm) => (
               <tr
                 key={alarm.id}
                 onClick={() => router.push(`/resources/${encodeResourceId(alarm.resource)}`)}
