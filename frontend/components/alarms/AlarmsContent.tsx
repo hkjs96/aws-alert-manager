@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useDeferredValue } from "react";
 import { useRouter } from "next/navigation";
 import { Download, RefreshCw } from "lucide-react";
 import type { Alarm } from "@/types";
@@ -94,29 +94,41 @@ export function AlarmsContent({ alarms, summary, customers, accounts }: AlarmsCo
     return counts;
   }, [alarms]);
 
+  // 조회 인덱스: 알람마다 accounts 배열을 다시 훑지 않도록 한 번만 만든다 (O(n×m) → O(n)).
+  const ownedAccountIdSet = useMemo(() => new Set(ownedAccountIds), [ownedAccountIds]);
+  const customerAccountIds = useMemo(() => {
+    const map = new Map<string, Set<string>>();
+    accounts.forEach((acc) => {
+      if (!map.has(acc.customerId)) map.set(acc.customerId, new Set());
+      map.get(acc.customerId)!.add(acc.id);
+    });
+    return map;
+  }, [accounts]);
+
+  // 검색어는 지연 값으로 필터링 — 입력은 즉시 반영되고 목록 재계산은 뒤따른다.
+  const deferredSearch = useDeferredValue(search);
+
   const filtered = useMemo(() => {
+    const q = deferredSearch.toLowerCase();
+    const customerAccounts = customerFilter ? customerAccountIds.get(customerFilter) : null;
     return alarms.filter((a) => {
       const account = a.account ?? "";
       // 담당 고객사 범위 필터 (explicit customerFilter가 없을 때)
       if (!customerFilter && ownedAccountIds.length > 0) {
-        if (!ownedAccountIds.includes(account)) return false;
+        if (!ownedAccountIdSet.has(account)) return false;
       }
       if (stateFilter !== "ALL" && a.state !== stateFilter) return false;
       if (typeFilter && a.type !== typeFilter) return false;
       if (accountFilter && account !== accountFilter) return false;
-      if (customerFilter) {
-        const ids = accounts.filter((acc) => acc.customerId === customerFilter).map((acc) => acc.id);
-        if (!ids.includes(account)) return false;
-      }
-      if (search) {
-        const q = search.toLowerCase();
+      if (customerFilter && !customerAccounts?.has(account)) return false;
+      if (q) {
         const resource = a.resource ?? "";
         const metric = a.metric ?? "";
         if (!resource.toLowerCase().includes(q) && !metric.toLowerCase().includes(q)) return false;
       }
       return true;
     });
-  }, [alarms, stateFilter, customerFilter, accountFilter, typeFilter, search, accounts, ownedAccountIds]);
+  }, [alarms, stateFilter, customerFilter, accountFilter, typeFilter, deferredSearch, customerAccountIds, ownedAccountIdSet, ownedAccountIds]);
 
   const paginated = useMemo(() => {
     const start = (page - 1) * pageSize;

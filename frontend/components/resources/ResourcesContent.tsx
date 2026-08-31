@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useState, useMemo, useCallback, useDeferredValue, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Download, RefreshCw } from "lucide-react";
 import type { Resource } from "@/types";
@@ -128,29 +128,39 @@ export function ResourcesContent({
     [accounts, ownedCustomerIds],
   );
 
+  // 조회 인덱스: 리소스마다 accounts 배열을 다시 훑지 않도록 한 번만 만든다 (O(n×m) → O(n)).
+  const ownedAccountIdSet = useMemo(() => new Set(ownedAccountIds), [ownedAccountIds]);
+  const customerAccountIds = useMemo(() => {
+    const map = new Map<string, Set<string>>();
+    accounts.forEach((a) => {
+      if (!map.has(a.customerId)) map.set(a.customerId, new Set());
+      map.get(a.customerId)!.add(a.id);
+    });
+    return map;
+  }, [accounts]);
+
+  // 검색어는 지연 값으로 필터링 — 입력은 즉시 반영되고 목록 재계산은 뒤따른다.
+  const deferredSearch = useDeferredValue(search);
+
   // 필터링
   const filtered = useMemo(() => {
+    const q = deferredSearch.toLowerCase();
+    const customerAccounts = customerFilter ? customerAccountIds.get(customerFilter) : null;
     return localResources.filter((r) => {
       // 담당 고객사 범위 필터 (explicit customerFilter가 없을 때)
       if (!customerFilter && ownedCustomerIds.length > 0) {
-        if (!ownedAccountIds.includes(r.account)) return false;
+        if (!ownedAccountIdSet.has(r.account)) return false;
       }
-      if (customerFilter) {
-        const accountIds = accounts
-          .filter((a) => a.customerId === customerFilter)
-          .map((a) => a.id);
-        if (!accountIds.includes(r.account)) return false;
-      }
+      if (customerFilter && !customerAccounts?.has(r.account)) return false;
       if (accountFilter && r.account !== accountFilter) return false;
       if (typeFilter && r.type !== typeFilter) return false;
-      if (search) {
-        const q = search.toLowerCase();
+      if (q) {
         if (!r.name.toLowerCase().includes(q) && !r.id.toLowerCase().includes(q))
           return false;
       }
       return true;
     });
-  }, [localResources, customerFilter, accountFilter, typeFilter, search, accounts, ownedAccountIds, ownedCustomerIds]);
+  }, [localResources, customerFilter, accountFilter, typeFilter, deferredSearch, customerAccountIds, ownedAccountIdSet, ownedCustomerIds]);
 
   // 정렬
   const sorted = useMemo(() => {
@@ -174,7 +184,10 @@ export function ResourcesContent({
   }, [sorted, page, pageSize]);
 
   // Selection analysis
-  const selectedResources = localResources.filter((r) => selected.has(r.id));
+  const selectedResources = useMemo(
+    () => localResources.filter((r) => selected.has(r.id)),
+    [localResources, selected],
+  );
   const selectedTypes = useMemo(
     () => new Set(selectedResources.map((r) => r.type)),
     [selectedResources],

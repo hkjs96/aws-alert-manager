@@ -35,7 +35,7 @@ class TestMarkStaleRuns:
         assert kw["ConditionExpression"] == "#s = :running"
 
     def test_query_window_excludes_current_run(self):
-        """조회 범위가 [now-7일, now-20분]이어야 방금 시작한 run이 대상이 되지 않는다."""
+        """조회 범위가 [now-90일, now-20분]이어야 방금 시작한 run이 대상이 되지 않는다."""
         from boto3.dynamodb.conditions import ConditionExpressionBuilder
         from daily_monitor import lambda_handler as lh
         now = datetime(2026, 8, 31, 6, 0, tzinfo=timezone.utc)
@@ -46,7 +46,7 @@ class TestMarkStaleRuns:
         cond = table.query.call_args.kwargs["KeyConditionExpression"]
         built = ConditionExpressionBuilder().build_expression(cond, is_key_condition=True)
         bounds = set(built.attribute_value_placeholders.values())
-        assert "2026-08-24T06:00:00Z" in bounds   # lookback: now - 7일
+        assert "2026-06-02T06:00:00Z" in bounds   # lookback: now - 90일 (테이블 TTL과 동일)
         assert "2026-08-31T05:40:00Z" in bounds   # cutoff: now - 20분
 
     def test_conditional_check_failure_is_skipped_quietly(self):

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useToast } from "@/components/shared/Toast";
 import { LoadingButton } from "@/components/shared/LoadingButton";
 import { AlarmRow } from "./AlarmRow";
@@ -85,9 +85,15 @@ export function AlarmConfigTable({
     );
   }, []);
 
-  // Register the add function so parent can call it
-  if (onRegisterAdd) onRegisterAdd(addCustomConfig);
-  if (onRegisterSetAllMonitoring) onRegisterSetAllMonitoring(setAllMonitoring);
+  // Register the add/set-all functions so the parent can call them.
+  // 렌더 본문에서 호출하면 React 19 동시성 렌더에서 렌더가 재실행될 때마다
+  // 부모 상태를 건드리는 사이드이펙트가 된다 — 커밋 이후(useEffect)에 등록한다.
+  useEffect(() => {
+    onRegisterAdd?.(addCustomConfig);
+  }, [onRegisterAdd, addCustomConfig]);
+  useEffect(() => {
+    onRegisterSetAllMonitoring?.(setAllMonitoring);
+  }, [onRegisterSetAllMonitoring, setAllMonitoring]);
 
   return (
     <div className="bg-slate-50 rounded-xl overflow-hidden border border-slate-200">

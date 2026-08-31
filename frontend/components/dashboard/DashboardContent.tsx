@@ -62,21 +62,30 @@ export function DashboardContent({ stats, alarms, customers, accounts }: Dashboa
     [accounts, ownedCustomerIds],
   );
 
+  // 조회 인덱스: 알람마다 accounts 배열을 다시 훑지 않도록 한 번만 만든다 (O(n×m) → O(n)).
+  const ownedAccountIdSet = useMemo(() => new Set(ownedAccountIds), [ownedAccountIds]);
+  const customerAccountIds = useMemo(() => {
+    const map = new Map<string, Set<string>>();
+    accounts.forEach((acc) => {
+      if (!map.has(acc.customerId)) map.set(acc.customerId, new Set());
+      map.get(acc.customerId)!.add(acc.id);
+    });
+    return map;
+  }, [accounts]);
+
   const filteredAlarms = useMemo(() => {
+    const customerAccounts = customerFilter ? customerAccountIds.get(customerFilter) : null;
     return alarms.filter((a) => {
       const account = a.account ?? "";
       if (!customerFilter && ownedAccountIds.length > 0) {
-        if (!ownedAccountIds.includes(account)) return false;
+        if (!ownedAccountIdSet.has(account)) return false;
       }
       if (accountFilter && account !== accountFilter) return false;
       if (typeFilter && a.type !== typeFilter) return false;
-      if (customerFilter) {
-        const accountIds = accounts.filter((acc) => acc.customerId === customerFilter).map((acc) => acc.id);
-        if (!accountIds.includes(account)) return false;
-      }
+      if (customerFilter && !customerAccounts?.has(account)) return false;
       return true;
     });
-  }, [alarms, customerFilter, accountFilter, typeFilter, accounts, ownedAccountIds]);
+  }, [alarms, customerFilter, accountFilter, typeFilter, customerAccountIds, ownedAccountIdSet, ownedAccountIds]);
 
   const filteredStats: DashboardStats = useMemo(() => {
     if (!customerFilter && !accountFilter && !typeFilter) return stats;

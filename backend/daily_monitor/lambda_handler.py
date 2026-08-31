@@ -407,7 +407,9 @@ def _monitor_run_history_table():
 
 # 워커 타임아웃(900s)보다 넉넉한 값. 이보다 오래 running이면 finish 레코드는 영영 오지 않는다.
 _STALE_RUN_AFTER_SECONDS = 20 * 60
-_STALE_RUN_LOOKBACK_DAYS = 7
+# 테이블 TTL(90일)과 같은 범위 — 7일로 두면 그보다 오래된 유령 running(6월 수동 실행분)이
+# 영구히 남는다. 파티션 크기가 TTL로 제한되므로 90일 조회도 소량이다.
+_STALE_RUN_LOOKBACK_DAYS = 90
 
 
 def _mark_stale_runs(table, now_ts: float | None = None) -> int:
