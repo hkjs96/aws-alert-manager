@@ -147,20 +147,34 @@ export function CreateAlarmModal({ open, onClose, onSuccess }: CreateAlarmModalP
         });
       }
 
-      for (const metric of activeMetrics) {
-        const res = await fetch(`/api/resources/${encodeResourceId(resourceId)}/alarms`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            metric_name: metric.metric_name,
-            threshold: metric.threshold,
-            severity: "SEV-5",
+      // 메트릭별 POST는 서로 독립이므로 병렬로 보낸다 (5개 기준 대기 시간 1/5).
+      // 하나가 실패해도 나머지는 생성되므로 결과를 개별로 집계한다.
+      const results = await Promise.allSettled(
+        activeMetrics.map((metric) =>
+          fetch(`/api/resources/${encodeResourceId(resourceId)}/alarms`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              metric_name: metric.metric_name,
+              threshold: metric.threshold,
+              severity: "SEV-5",
+            }),
+          }).then((res) => {
+            if (!res.ok) throw new Error(`API Error (${res.status})`);
           }),
-        });
-        if (!res.ok) throw new Error("API Error");
-      }
+        ),
+      );
+      const failed = results.filter((r) => r.status === "rejected").length;
 
-      showToast("success", "알람이 성공적으로 생성되었습니다.");
+      if (failed === activeMetrics.length && activeMetrics.length > 0) {
+        showToast("error", "알람 생성에 실패했습니다. 다시 시도해주세요.");
+        return;
+      }
+      if (failed > 0) {
+        showToast("error", `${activeMetrics.length - failed}개 생성, ${failed}개 실패했습니다.`);
+      } else {
+        showToast("success", "알람이 성공적으로 생성되었습니다.");
+      }
       handleClose();
       onSuccess?.();
     } catch {

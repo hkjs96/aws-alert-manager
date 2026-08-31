@@ -6,7 +6,10 @@
 - **Framework:** Next.js (App Router)
 - **Language:** TypeScript (Strict Mode)
 - **Styling:** Tailwind CSS, Lucide React (Icons)
-- **State/Data:** React Query (TanStack Query)
+- **State/Data:** 서버 컴포넌트 fetch(`lib/server/data`, 요청 단위 `React cache()`) +
+  클라이언트 `useState`/`useMemo`. React Query/SWR은 사용하지 않는다. 크로스 리퀘스트
+  캐시(Next Data Cache)는 Authorization 헤더 응답이 사용자 간 공유될 수 있어 AuthZ 스코핑
+  확정 전까지 보류 (`docs/reports/IMPROVEMENT-ROADMAP.md` P4).
 
 ## 2. 컴포넌트 설계 규칙
 - **Atomic Design:** 최대한 재사용 가능한 작은 단위로 컴포넌트를 분리하십시오.

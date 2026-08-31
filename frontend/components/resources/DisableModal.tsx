@@ -4,13 +4,16 @@ import { useState } from "react";
 import { Button } from "@/components/shared/Button";
 import { useToast } from "@/components/shared/Toast";
 import { LoadingButton } from "@/components/shared/LoadingButton";
+import { describeBulkToggle, runBulkToggle } from "@/lib/bulk-toggle";
 
 interface DisableModalProps {
   selectedIds: string[];
   onClose: () => void;
-  onComplete: () => void;
+  /** 실제로 비활성화에 성공한 리소스 ID만 넘긴다 (부분 실패 시 나머지는 그대로). */
+  onComplete: (succeededIds: string[]) => void;
 }
 
+/** 선택 리소스 일괄 모니터링 비활성화 — 리소스별 PUT /resources/{id}/monitoring. */
 export function DisableModal({
   selectedIds,
   onClose,
@@ -22,15 +25,10 @@ export function DisableModal({
   const handleSubmit = async () => {
     setIsSubmitting(true);
     try {
-      // Simulate API call — replace with bulkMonitoring() when backend ready
-      await new Promise((resolve) => setTimeout(resolve, 600));
-      showToast(
-        "success",
-        `${selectedIds.length}개 리소스의 모니터링을 비활성화했습니다.`,
-      );
-      onComplete();
-    } catch {
-      showToast("error", "모니터링 비활성화에 실패했습니다.");
+      const result = await runBulkToggle(selectedIds, false);
+      const { kind, message } = describeBulkToggle(result, false);
+      showToast(kind, message);
+      if (result.succeeded.length > 0) onComplete(result.succeeded);
     } finally {
       setIsSubmitting(false);
     }

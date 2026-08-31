@@ -25,6 +25,10 @@ const STATE_LABEL: Record<string, string> = {
 
 type TimeBucket = "recent" | "today" | "older";
 
+// 대시보드는 전체 알람 스냅샷을 받는다. 정렬(최신순) 후 이 수까지만 행을 그린다 —
+// 수천 행 DOM은 첫 페인트와 검색 타이핑을 모두 느리게 한다. 초과분은 안내 행으로 알린다.
+const MAX_RENDERED_ROWS = 200;
+
 const BUCKET_LABELS: Record<TimeBucket, string> = {
   recent: "Last hour",
   today: "Last 24 hours",
@@ -168,9 +172,11 @@ export function RecentAlarmsTable({ alarms }: RecentAlarmsTableProps) {
     });
   }, [filtered, sortKey, sortDir]);
 
+  const hiddenCount = Math.max(0, sorted.length - MAX_RENDERED_ROWS);
+
   const grouped = useMemo(() => {
     const buckets: Record<TimeBucket, Alarm[]> = { recent: [], today: [], older: [] };
-    for (const alarm of sorted) {
+    for (const alarm of sorted.slice(0, MAX_RENDERED_ROWS)) {
       buckets[getTimeBucket(alarm.time)].push(alarm);
     }
     return buckets;
@@ -244,6 +250,13 @@ export function RecentAlarmsTable({ alarms }: RecentAlarmsTableProps) {
                 }
               />
             ))
+          )}
+          {hiddenCount > 0 && (
+            <tr>
+              <td colSpan={6} className="px-4 py-3 text-center text-xs text-slate-400">
+                최신 {MAX_RENDERED_ROWS}건만 표시 중 (+{hiddenCount}건) — 검색으로 범위를 좁히세요
+              </td>
+            </tr>
           )}
         </tbody>
       </table>

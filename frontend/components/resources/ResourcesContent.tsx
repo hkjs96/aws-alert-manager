@@ -266,21 +266,22 @@ export function ResourcesContent({
     setPage(1);
   };
 
-  const handleBulkEnableComplete = () => {
+  // 모달은 실제로 성공한 리소스 ID만 넘긴다 — 부분 실패한 리소스는 선택 상태로 남겨
+  // 사용자가 바로 재시도할 수 있게 한다.
+  const applyBulkResult = useCallback((succeededIds: string[], monitoring: boolean) => {
+    const done = new Set(succeededIds);
     setLocalResources((prev) =>
-      prev.map((r) => (selected.has(r.id) ? { ...r, monitoring: true } : r))
+      prev.map((r) => (done.has(r.id) ? { ...r, monitoring } : r))
     );
+    setSelected((prev) => {
+      const remaining = new Set([...prev].filter((id) => !done.has(id)));
+      return remaining;
+    });
     setModal(null);
-    setSelected(new Set());
-  };
+  }, []);
 
-  const handleBulkDisableComplete = () => {
-    setLocalResources((prev) =>
-      prev.map((r) => (selected.has(r.id) ? { ...r, monitoring: false } : r))
-    );
-    setModal(null);
-    setSelected(new Set());
-  };
+  const handleBulkEnableComplete = (succeededIds: string[]) => applyBulkResult(succeededIds, true);
+  const handleBulkDisableComplete = (succeededIds: string[]) => applyBulkResult(succeededIds, false);
 
   if (!isOwnedLoading && ownedCustomerIds.length === 0) {
     return <OwnedEmptyState />;
