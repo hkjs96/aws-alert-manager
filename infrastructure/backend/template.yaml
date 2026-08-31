@@ -87,7 +87,9 @@ Mappings:
     Settings:
       Runtime: python3.12
       Timeout: 300
-      MemorySize: 256
+      # 256MB에서 daily monitor 콜드 스타트가 Max Memory 256/256으로 스래싱 → 900s 타임아웃
+      # (2026-08-31, 리소스 4개 계정에서 재현). 기준 사용량 ~217MB + 인덱스/인벤토리 여유분.
+      MemorySize: 512
   # Full name -> short abbreviation for resource naming
   EnvShortName:
     development:
