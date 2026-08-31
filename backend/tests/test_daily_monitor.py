@@ -85,12 +85,13 @@ def test_property_6_insufficient_data_no_alert(resource_ids):
 def test_property_8_multiple_resources_individual_alerts(cpu_values):
     """Feature: aws-monitoring-engine, Property 8: 복수 리소스 개별 알림 발송"""
     resources = [_make_resource(f"i-{i:03d}") for i in range(len(cpu_values))]
-    # 각 리소스마다 CPU 임계치 초과 메트릭 반환
-    metrics_list = [{"CPU": v} for v in cpu_values]
+    # 각 리소스마다 CPU 임계치 초과 메트릭 반환. 러너는 get_metrics를 두 번 호출하므로
+    # (메트릭 배치 record → serve) 소모형 이터레이터 대신 리소스 ID 매핑으로 멱등 응답한다.
+    metrics_by_id = {f"i-{i:03d}": {"CPU": v} for i, v in enumerate(cpu_values)}
 
     with patch_infra_stages(), \
          patch_all_collectors(ec2_resources=resources), \
-         patch("common.collectors.ec2.get_metrics", side_effect=metrics_list), \
+         patch("common.collectors.ec2.get_metrics", side_effect=lambda rid, tags=None, **kw: metrics_by_id[rid]), \
          patch("daily_monitor.lambda_handler.send_alert") as mock_alert, \
          patch("daily_monitor.lambda_handler.get_threshold", return_value=80.0):
         result = handler({}, MagicMock())

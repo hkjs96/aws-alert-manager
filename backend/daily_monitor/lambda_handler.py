@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 from common.alarm_builder import resolve_alarm_severity
 from common.alarm_index import AlarmIndex
 from common.alarm_manager import sync_alarms_for_resource
+from common.collectors.base import MetricBatch, set_active_metric_batch
 from common.resource_discovery import (
     discover_resources,
     cleanup_stale_inventory,
@@ -256,6 +257,8 @@ def lambda_handler(event, context):
     total_alerts = 0
     alarms_synced = {"created": 0, "updated": 0, "ok": 0}
 
+    # 컬렉터별 리소스 수집 (메트릭 배치를 위해 목록을 먼저 확정)
+    collected: list[tuple[object, list]] = []
     for collector_mod in _COLLECTOR_MODULES:
         try:
             resources = collector_mod.collect_monitored_resources()
@@ -273,44 +276,71 @@ def lambda_handler(event, context):
         if not resources:
             logger.info("No monitored resources found in %s", collector_mod.__name__)
             continue
+        collected.append((collector_mod, resources))
 
+    # 메트릭 배치: record(쿼리 수집, API 콜 없음) → execute(GetMetricData 일괄).
+    # 리소스×메트릭당 1콜이던 get_metric_statistics를 500쿼리/콜로 줄인다.
+    # record에서 누락된 쿼리는 serve 단계에서 라이브 폴백되므로 정확성은 동일.
+    metric_batch = MetricBatch()
+    set_active_metric_batch(metric_batch)
+    metric_batch.record()
+    for collector_mod, resources in collected:
         for resource in resources:
-            resource_id = resource["id"]
-            resource_type = resource["type"]
-            resource_tags = resource.get("tags", {})
-
-            # 1단계: 알람 동기화 (기존 알람 조회는 런 스코프 인덱스 사용)
             try:
-                sync_result = sync_alarms_for_resource(
-                    resource_id, resource_type, resource_tags,
-                    alarm_index=alarm_index,
-                    resource_region=resource.get("region", ""),
+                _collect_resource_metrics(
+                    resource["id"], resource["type"],
+                    resource.get("tags", {}), collector_mod,
                 )
-                alarms_synced["created"] += len(sync_result.get("created", []))
-                alarms_synced["updated"] += len(sync_result.get("updated", []))
-                alarms_synced["ok"] += len(sync_result.get("ok", []))
-            except ClientError as e:
-                logger.error(
-                    "Failed to sync alarms for %s (%s): %s",
-                    resource_id, resource_type, e,
-                )
-
-            # 2단계: 메트릭 조회 + 임계치 비교
-            try:
-                alerts = _process_resource(
-                    resource_id, resource_type, resource_tags, collector_mod
-                )
-                total_processed += 1
-                total_alerts += alerts
             except (ClientError, RuntimeError, ValueError) as e:
-                logger.error(
-                    "Unexpected error processing resource %s (%s): %s",
-                    resource_id, resource_type, e,
+                logger.warning(
+                    "Metric recording failed for %s (%s): %s",
+                    resource["id"], resource["type"], e,
                 )
-                send_error_alert(
-                    context=f"process_resource {resource_id} ({resource_type})",
-                    error=e,
-                )
+    metric_batch.execute()
+    metric_batch.serve()
+
+    try:
+        for collector_mod, resources in collected:
+            for resource in resources:
+                resource_id = resource["id"]
+                resource_type = resource["type"]
+                resource_tags = resource.get("tags", {})
+
+                # 1단계: 알람 동기화 (기존 알람 조회는 런 스코프 인덱스 사용)
+                try:
+                    sync_result = sync_alarms_for_resource(
+                        resource_id, resource_type, resource_tags,
+                        alarm_index=alarm_index,
+                        resource_region=resource.get("region", ""),
+                    )
+                    alarms_synced["created"] += len(sync_result.get("created", []))
+                    alarms_synced["updated"] += len(sync_result.get("updated", []))
+                    alarms_synced["ok"] += len(sync_result.get("ok", []))
+                except ClientError as e:
+                    logger.error(
+                        "Failed to sync alarms for %s (%s): %s",
+                        resource_id, resource_type, e,
+                    )
+
+                # 2단계: 메트릭 조회 + 임계치 비교 (배치 캐시에서 응답)
+                try:
+                    alerts = _process_resource(
+                        resource_id, resource_type, resource_tags, collector_mod
+                    )
+                    total_processed += 1
+                    total_alerts += alerts
+                except (ClientError, RuntimeError, ValueError) as e:
+                    logger.error(
+                        "Unexpected error processing resource %s (%s): %s",
+                        resource_id, resource_type, e,
+                    )
+                    send_error_alert(
+                        context=f"process_resource {resource_id} ({resource_type})",
+                        error=e,
+                    )
+    finally:
+        # 배치는 이 런 전용 — 다른 경로(sqs_worker 등)가 재사용하지 않도록 해제
+        set_active_metric_batch(None)
 
     logger.info(
         "Daily monitor complete: account=%s, processed=%d, alerts=%d, alarms_synced=%s, inventory=%s",
@@ -887,6 +917,26 @@ def _is_currently_monitored(resource_id: str, resource_type: str) -> bool:
     return has_monitoring_tag(tags)
 
 
+def _collect_resource_metrics(
+    resource_id: str,
+    resource_type: str,
+    resource_tags: dict,
+    collector_mod,
+) -> dict[str, float] | None:
+    """컬렉터 get_metrics 호출 (타입별 호출 형태 단일화).
+
+    메트릭 배치의 record 단계와 본 실행이 반드시 같은 경로를 타야
+    기록된 쿼리와 실제 쿼리가 일치한다.
+    """
+    if resource_type == "TG":
+        # ELB TG의 경우 lb_arn 태그 전달
+        lb_arn = resource_tags.get("_lb_arn")
+        return collector_mod.get_metrics(resource_id, resource_tags, lb_arn=lb_arn)
+    if resource_type == "AuroraRDS":
+        return collector_mod.get_aurora_metrics(resource_id, resource_tags)
+    return collector_mod.get_metrics(resource_id, resource_tags)
+
+
 def _process_resource(
     resource_id: str,
     resource_type: str,
@@ -899,14 +949,9 @@ def _process_resource(
     Returns:
         발송된 알림 수
     """
-    # ELB TG의 경우 lb_arn 태그 전달
-    if resource_type == "TG":
-        lb_arn = resource_tags.get("_lb_arn")
-        metrics = collector_mod.get_metrics(resource_id, resource_tags, lb_arn=lb_arn)
-    elif resource_type == "AuroraRDS":
-        metrics = collector_mod.get_aurora_metrics(resource_id, resource_tags)
-    else:
-        metrics = collector_mod.get_metrics(resource_id, resource_tags)
+    metrics = _collect_resource_metrics(
+        resource_id, resource_type, resource_tags, collector_mod
+    )
 
     if metrics is None:
         logger.info(
