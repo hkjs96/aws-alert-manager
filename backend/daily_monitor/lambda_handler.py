@@ -1139,10 +1139,11 @@ def _write_alarm_snapshots(inv_table, alarms: list[dict]) -> tuple[int, set[tupl
     items = []
     fresh_keys = set()
     for alarm in alarms:
-        # 인벤토리에는 이 엔진이 관리하는 새 포맷 알람만 기록한다.
-        # (페치는 AlarmIndex용으로 전체를 가져오지만, 고객이 직접 만든 알람을
-        #  인벤토리/UI에 노출하지 않는 기존 동작을 유지한다)
-        if not alarm.get("AlarmName", "").startswith("["):
+        # 인벤토리에는 이 엔진이 관리하는 포맷의 알람만 기록한다.
+        # (페치는 AlarmIndex용으로 전체를 가져온다.) 단순 "[" 접두사 필터는
+        # CFN이 만든 [RemediationDLQ] 같은 인프라 알람까지 리소스 없는 유령 행으로
+        # 넣었으므로, 리소스를 역추출할 수 있는 관리 포맷만 통과시킨다.
+        if _extract_resource_from_alarm_name(alarm.get("AlarmName", "")) is None:
             continue
         arn = alarm.get("AlarmArn", "")
         if not arn:

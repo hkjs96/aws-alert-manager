@@ -1295,10 +1295,12 @@ Resources:
                 Action:
                   - tag:GetResources
                 Resource: "*"
+              # run history: 시작/종료 기록 + 타임아웃으로 남은 running 레코드 정정 조회(Query)
               - Effect: Allow
                 Action:
                   - dynamodb:PutItem
                   - dynamodb:UpdateItem
+                  - dynamodb:Query
                 Resource: !GetAtt MonitorRunHistoryTable.Arn
               - Effect: Allow
                 Action:
