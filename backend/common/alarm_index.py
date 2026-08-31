@@ -20,6 +20,7 @@ daily run은 계정의 전체 알람을 이미 1회 조회한다(인벤토리 �
 
 import logging
 
+from common.alarm_identity import identify_alarm
 from common.alarm_search import _candidate_prefixes, _match_suffixes
 
 logger = logging.getLogger("common.alarm_manager")
@@ -62,6 +63,16 @@ class AlarmIndex:
                 not e.get("_region") or e.get("_region") == region
                 for e in entries
             ):
+                continue
+            # 정본: AlarmDescription 메타데이터의 Full ID — 이름과 무관하게 매칭
+            identity = identify_alarm(entries[0])
+            if (
+                identity is not None
+                and identity.source == "metadata"
+                and identity.resource_id == resource_id
+                and (not resource_type or identity.resource_type == resource_type)
+            ):
+                names.append(name)
                 continue
             # 레거시 포맷: {resource_id}-{metric}-{env}
             if name.startswith(resource_id):

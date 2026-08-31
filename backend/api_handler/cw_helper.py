@@ -2,17 +2,14 @@
 
 import functools
 import logging
-import re
 
 import boto3
 from botocore.exceptions import ClientError
 
 from common.alarm_builder import resolve_alarm_severity
+from common.alarm_identity import identify_alarm, parse_alarm_name
 
 logger = logging.getLogger(__name__)
-
-# [EC2] label metric >threshold (TagName: resource_id)
-_ALARM_NAME_RE = re.compile(r"^\[(\w+)\]\s+.+\(TagName:\s*(.+)\)$")
 
 
 @functools.lru_cache(maxsize=None)
@@ -132,29 +129,30 @@ def get_alarm_overlay(customer_id: str | None = None, account_id: str | None = N
 
     overlay = {}
     for alarm in all_alarms:
-        result = extract_resource_from_alarm(alarm["AlarmName"])
-        if not result:
+        identity = identify_alarm(alarm)
+        if identity is None:
             continue
-        rtype, tag_name = result
-        
-        if tag_name not in overlay:
-            overlay[tag_name] = {
+        # Canonical (full) resource id keys the overlay so inventory ids join directly.
+        rid = identity.resource_id
+
+        if rid not in overlay:
+            overlay[rid] = {
                 "critical": 0,
                 "warning": 0,
                 "count": 0,
                 "alarms": []
             }
-        
-        overlay[tag_name]["count"] += 1
-        overlay[tag_name]["alarms"].append(alarm["AlarmName"])
-        
+
+        overlay[rid]["count"] += 1
+        overlay[rid]["alarms"].append(alarm["AlarmName"])
+
         if alarm.get("StateValue") == "ALARM":
             sev = resolve_alarm_severity(alarm)
             if sev in ("SEV-1", "SEV-2"):
-                overlay[tag_name]["critical"] += 1
+                overlay[rid]["critical"] += 1
             else:
-                overlay[tag_name]["warning"] += 1
-                
+                overlay[rid]["warning"] += 1
+
     return overlay
 
 
@@ -172,11 +170,12 @@ def _parse_alarm_arn(alarm_arn: str) -> tuple[str, str]:
 
 
 def extract_resource_from_alarm(alarm_name: str) -> tuple[str, str] | None:
-    """Extract (resource_type, tag_name) from an alarm name."""
-    m = _ALARM_NAME_RE.match(alarm_name)
-    if m:
-        return m.group(1), m.group(2)
-    return None
+    """Extract (resource_type, tag_name) from an alarm *name* only.
+
+    Prefer common.alarm_identity.identify_alarm(alarm) when the full alarm dict is
+    available — it reads the AlarmDescription metadata (full resource id) first.
+    """
+    return parse_alarm_name(alarm_name)
 
 
 def get_dashboard_stats(customer_id: str | None = None, account_id: str | None = None) -> dict:
@@ -246,16 +245,16 @@ def get_resources_from_alarms(
 
     resource_map: dict[tuple[str, str], dict] = {}
     for alarm in all_alarms:
-        result = extract_resource_from_alarm(alarm["AlarmName"])
-        if not result:
+        identity = identify_alarm(alarm)
+        if identity is None:
             continue
-        rtype, tag_name = result
-        key = (rtype, tag_name)
+        rtype = identity.resource_type
+        key = (rtype, identity.resource_id)
         if key not in resource_map:
             region, account_id = _parse_alarm_arn(alarm.get("AlarmArn", ""))
             resource_map[key] = {
-                "id": tag_name,
-                "name": tag_name,
+                "id": identity.resource_id,
+                "name": identity.tag_name or identity.resource_id,
                 "type": rtype,
                 "account": account_id,
                 "region": region,

@@ -53,6 +53,10 @@
 - **AP-8:** 리소스 alive 체크 로직을 `daily_monitor/lambda_handler.py`에 직접 작성.
   각 Collector의 `resolve_alive_ids()`에서 처리한다.
 - **AP-22:** 로깅에 f-string 사용. Lazy formatting(`logger.info("%s", var)`)을 사용한다.
+- **AP-23:** 알람 이름을 정규식으로 파싱해 리소스/타입을 식별. `common/alarm_identity.py`의
+  `identify_alarm(alarm)`(AlarmDescription 메타데이터 우선, 이름 폴백)만 사용한다. 이름의
+  `(TagName: …)`은 ALB/NLB/TG/ACM에서 Full ID가 아니라 인벤토리 조인이 깨진다.
+  (`tests/test_alarm_identity.py`의 가드 테스트가 정규식 재유입을 막는다)
 
 ### 테스트 (pytest / unittest.mock)
 - **AP-15:** 페이지네이션(`while True` + `table.query/scan`)을 bare `MagicMock` 테이블로 테스트.

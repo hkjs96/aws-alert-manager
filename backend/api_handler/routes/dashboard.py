@@ -75,20 +75,6 @@ def get_recent_alarms(event: dict) -> dict:
 
 # ── 내부 헬퍼 ─────────────────────────────────────────────────────
 
-import re
-_ALARM_NAME_RE = re.compile(r"^\[(\w+)\]\s+.+\(TagName:\s*(.+)\)$")
-
-
-def _extract_resource_id(alarm_name: str) -> str:
-    m = _ALARM_NAME_RE.match(alarm_name)
-    return m.group(2) if m else alarm_name
-
-
-def _extract_resource_type(alarm_name: str) -> str:
-    m = _ALARM_NAME_RE.match(alarm_name)
-    return m.group(1) if m else ""
-
-
 def _ok(data, status: int = 200) -> dict:
     return {"statusCode": status, "body": json.dumps(data, default=str)}
 

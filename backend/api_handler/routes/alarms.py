@@ -87,17 +87,7 @@ def get_alarm_summary(event: dict) -> dict:
 # ── 내부 헬퍼 ─────────────────────────────────────────────────────
 
 import re
-_ALARM_NAME_RE = re.compile(r"^\[(\w+)\]\s+.+\(TagName:\s*(.+)\)$")
 _DISK_PATH_RE = re.compile(r"disk_used_percent\(([^)]+)\)")
-
-def _extract_resource_id(alarm_name: str) -> str:
-    m = _ALARM_NAME_RE.match(alarm_name)
-    return m.group(2) if m else alarm_name
-
-
-def _extract_resource_type(alarm_name: str) -> str:
-    m = _ALARM_NAME_RE.match(alarm_name)
-    return m.group(1) if m else ""
 
 
 def _alarm_mount_path(alarm: dict) -> str | None:

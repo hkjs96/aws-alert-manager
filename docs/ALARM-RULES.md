@@ -8,6 +8,10 @@
 
 - 알람 이름 포맷: `[{resource_type}] {label} {display_metric} {direction} {threshold}{unit} (TagName: {resource_id})`
   - EC2/RDS: `resource_id`는 인스턴스 ID / DB 식별자를 그대로 사용
+  - **식별은 이름이 아니라 메타데이터로**: 알람→리소스 역해석은 `common/alarm_identity.py`
+    `identify_alarm()`이 AlarmDescription JSON(`resource_id` Full ID) → 이름 `(TagName: …)` 순으로
+    듀얼 리드한다. 이름의 short ID(ALB/NLB/TG/ACM/APIGW-HTTP)는 인벤토리 `resource_id`와 다르므로
+    이름 정규식으로 리소스를 식별하는 코드를 새로 만들지 말 것 (AP-23).
   - ALB/NLB/TG: `resource_id` 부분에 전체 ARN 대신 Short_ID(`{name}/{hash}`)를 사용한다
     - Short_ID 추출: `_shorten_elb_resource_id(resource_id, resource_type)` 함수 사용
     - ALB ARN `...loadbalancer/app/{name}/{hash}` → `{name}/{hash}`

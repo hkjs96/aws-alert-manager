@@ -7,10 +7,28 @@ Alarm Naming — 알람 이름 생성, 메타데이터 빌드/파싱, Short ID �
 import json
 import logging
 import os
+import re
 
 from common.alarm_registry import _METRIC_DISPLAY
 
 logger = logging.getLogger(__name__)
+
+# 표시 라벨 추출용 — 이름 구조(prefix / 조건 / TagName 서픽스)를 아는 코드는 이 모듈과
+# alarm_identity/alarm_search에만 둔다 (AGENTS.md AP-23).
+_NAME_PREFIX_RE = re.compile(r"^\[[^\]]+\]\s+")
+_NAME_CONDITION_SUFFIX_RE = re.compile(
+    r"\s+(?:<=|>=|<|>)\s*[-+]?\d+(?:\.\d+)?\S*\s+\(TagName:\s*.+\)$"
+)
+
+
+def strip_alarm_name_decorations(name: str) -> str:
+    """`[{type}] {label} {metric} {dir} {thr}{unit} (TagName: …)` → `{label} {metric}`.
+
+    타입 prefix와 조건+TagName 서픽스를 떼어낸 표시 본문을 돌려준다. 리소스 식별에는
+    쓰지 말 것 — 그건 alarm_identity.identify_alarm()의 몫이다.
+    """
+    body = _NAME_PREFIX_RE.sub("", name or "", count=1)
+    return _NAME_CONDITION_SUFFIX_RE.sub("", body)
 
 
 def _get_env() -> str:

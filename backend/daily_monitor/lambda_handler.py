@@ -13,7 +13,6 @@ event 형식 (Orchestrator → Worker):
 import functools
 import logging
 import os
-import re
 import time
 from datetime import datetime, timezone
 
@@ -26,6 +25,7 @@ logging.getLogger().setLevel(logging.INFO)
 logger = logging.getLogger(__name__)
 
 from common.alarm_builder import resolve_alarm_severity
+from common.alarm_identity import group_alarms_by_resource, identify_alarm
 from common.alarm_index import AlarmIndex
 from common.alarm_manager import sync_alarms_for_resource
 from common.collectors.base import MetricBatch, set_active_metric_batch
@@ -73,10 +73,6 @@ _COLLECTOR_MODULES = [
     cloudfront_collector, waf_collector, route53_collector, dx_collector,
     efs_collector, s3_collector, sagemaker_collector, sns_collector,
 ]
-
-# 새 포맷 알람에서 resource_type과 resource_id를 추출하는 정규식
-# 예: "[EC2] MyServer CPU >=80% (i-1234567890abcdef0)"
-_NEW_FORMAT_RE = re.compile(r"^\[(\w+)\]\s.*\(TagName:\s(.+)\)$")
 
 # resource_type → collector 모듈 매핑 (고아 알람 정리용)
 _RESOURCE_TYPE_TO_COLLECTOR = {
@@ -572,16 +568,6 @@ def _fetch_alarms_for_accounts(accounts: list[dict]) -> list[dict]:
     return all_alarms
 
 
-def _extract_resource_from_alarm_name(name: str) -> tuple[str, str] | None:
-    m = _NEW_FORMAT_RE.match(name)
-    if m:
-        return m.group(1), m.group(2)
-    legacy = re.match(r"^(i-[0-9a-f]+)-", name)
-    if legacy:
-        return "EC2", legacy.group(1)
-    return None
-
-
 def _is_alarm_critical(alarm: dict) -> bool:
     return resolve_alarm_severity(alarm) in ("SEV-1", "SEV-2")
 
@@ -666,14 +652,12 @@ def _stale_alarm_keys(
 
 
 def _group_alarms_by_resource(alarms: list[dict]) -> dict[str, list[dict]]:
-    """알람을 리소스 식별자별로 묶는다."""
-    grouped: dict[str, list[dict]] = {}
-    for alarm in alarms:
-        extracted = _extract_resource_from_alarm_name(alarm["AlarmName"])
-        if extracted:
-            _rtype, rid = extracted
-            grouped.setdefault(rid, []).append(alarm)
-    return grouped
+    """알람을 리소스 식별자별로 묶는다 (Full ID·short ID 양쪽 키).
+
+    인벤토리 resource_id는 ALB/NLB/TG에서 Full ARN인데, 예전엔 이름의 short ID로만
+    묶어 이 타입들의 alarm_count/alarm_state가 항상 비어 있었다.
+    """
+    return group_alarms_by_resource(alarms)
 
 
 def _build_resource_items(
@@ -894,30 +878,31 @@ def _collect_alarm_resource_ids(
 
     for page in paginator.paginate(AlarmTypes=["MetricAlarm"]):
         for alarm in page.get("MetricAlarms", []):
-            name = alarm["AlarmName"]
-            _classify_alarm(name, result)
+            _classify_alarm(alarm, result)
 
     return result
 
 
 def _classify_alarm(
-    name: str,
+    alarm: dict | str,
     result: dict[str, dict[str, list[str]]],
 ) -> None:
-    """단일 알람 이름을 분류하여 result에 추가."""
-    # 새 포맷: [EC2] ... (resource_id)
-    m = _NEW_FORMAT_RE.match(name)
-    if m:
-        rtype = m.group(1)
-        rid = m.group(2)
-        result.setdefault(rtype, {}).setdefault(rid, []).append(name)
-        return
+    """단일 알람을 {type: {tag_name: [alarm_name]}}로 분류하여 result에 추가.
 
-    # 레거시 포맷: i-xxx-metric-env
-    legacy = re.match(r"^(i-[0-9a-f]+)-", name)
-    if legacy:
-        iid = legacy.group(1)
-        result.setdefault("EC2", {}).setdefault(iid, []).append(name)
+    키는 이름 서픽스의 TagName(short ID)이다 — 컬렉터 resolve_alive_ids()가
+    short ID를 입력으로 받아 역매핑하기 때문(/new-collector §5-1). 메타데이터만 있고
+    이름이 관리 포맷이 아닌 알람은 Full ID를 키로 쓴다.
+
+    alarm은 describe_alarms 항목(dict)이 정상 입력이며, 이름 문자열도 받는다
+    (메타데이터 없이 이름만으로 분류 — 기존 호출/테스트 호환).
+    """
+    if isinstance(alarm, str):
+        alarm = {"AlarmName": alarm}
+    identity = identify_alarm(alarm)
+    if identity is None:
+        return
+    key = identity.tag_name or identity.resource_id
+    result.setdefault(identity.resource_type, {}).setdefault(key, []).append(alarm["AlarmName"])
 
 
 def _cleanup_orphan_alarms() -> list[str]:
@@ -1145,7 +1130,7 @@ def _write_alarm_snapshots(inv_table, alarms: list[dict]) -> tuple[int, set[tupl
         # (페치는 AlarmIndex용으로 전체를 가져온다.) 단순 "[" 접두사 필터는
         # CFN이 만든 [RemediationDLQ] 같은 인프라 알람까지 리소스 없는 유령 행으로
         # 넣었으므로, 리소스를 역추출할 수 있는 관리 포맷만 통과시킨다.
-        if _extract_resource_from_alarm_name(alarm.get("AlarmName", "")) is None:
+        if identify_alarm(alarm) is None:
             continue
         arn = alarm.get("AlarmArn", "")
         if not arn:
@@ -1164,12 +1149,13 @@ def _build_alarm_item(alarm: dict, db_key: str, account: str, arn_parts: list[st
     alarm_name = alarm["AlarmName"]
     region = arn_parts[3] if len(arn_parts) > 3 and arn_parts[3] else alarm.get("_region", "unknown")
     
-    res_id, res_type = "", ""
-    extracted = _extract_resource_from_alarm_name(alarm_name)
-    if extracted:
-        res_type, res_id = extracted
+    # resource = 정본(Full) ID → 프론트 링크 /resources/{token}와 대시보드의 인벤토리
+    # 조인이 ALB/NLB/TG에서도 맞는다. tag_name은 이름의 short ID (표시·레거시 매칭용).
+    identity = identify_alarm(alarm)
+    if identity is not None:
+        res_type, res_id, tag_name = identity.resource_type, identity.resource_id, identity.tag_name
     else:
-        res_id = alarm_name
+        res_type, res_id, tag_name = "", alarm_name, ""
 
     tags = {t["Key"]: t["Value"] for t in alarm.get("Tags", [])} if alarm.get("Tags") else {}
     severity = resolve_alarm_severity(alarm)
@@ -1192,6 +1178,7 @@ def _build_alarm_item(alarm: dict, db_key: str, account: str, arn_parts: list[st
         "region": region,
         "type": res_type,
         "resource": res_id,
+        "tag_name": tag_name,
         "inventory_source": "alarms",
         "tags": tags,
         "status": "active",

@@ -7,22 +7,25 @@ import functools
 import json
 import logging
 import os
-import re
 
 import boto3
 from botocore.exceptions import ClientError
 
 from api_handler.cw_helper import (
     _parse_alarm_arn,
-    extract_resource_from_alarm,
     list_alarms,
 )
 from api_handler.db import accounts_table, resource_inventory_table, scan_all, query_by_pk
 from common import SUPPORTED_RESOURCE_TYPES, dimension_builder
+from common.alarm_identity import identify_alarm
 from common.tag_resolver import disk_path_to_tag_suffix
 from common.resource_discovery import _get_session_for_account
 from common.alarm_manager import sync_alarms_for_resource, delete_alarms_for_resource
-from common.alarm_naming import _build_alarm_description, _pretty_alarm_name
+from common.alarm_naming import (
+    _build_alarm_description,
+    _pretty_alarm_name,
+    strip_alarm_name_decorations,
+)
 from common.alarm_registry import (
     _DIMENSION_KEY_MAP,
     _GLOBAL_SERVICE_REGION,
@@ -33,9 +36,6 @@ from common.alarm_registry import (
 
 logger = logging.getLogger(__name__)
 
-_ALARM_NAME_RE = re.compile(r"^\[(\w+)\]\s+.+\(TagName:\s*(.+)\)$")
-_ALARM_NAME_PREFIX_RE = re.compile(r"^\[[^\]]+\]\s+")
-_ALARM_NAME_CONDITION_RE = re.compile(r"\s+(?:<=|>=|<|>)\s*[-+]?\d+(?:\.\d+)?\S*\s+\(TagName:\s*.+\)$")
 _LIST_METRICS_PAGE_CAP = 20
 
 
@@ -319,7 +319,7 @@ def create_resource_alarm(event: dict) -> dict:
     resource_alarms = _alarms_for_resource(existing_alarms, resource_id)
     if not resource_alarms:
         return _err(404, "NOT_FOUND", f"Resource '{resource_id}' was not found")
-    resource_type = _get_resource_type(resource_alarms[0]["AlarmName"])
+    resource_type = _get_resource_type(resource_alarms[0])
 
     region = _GLOBAL_SERVICE_REGION.get(resource_type)
     cw = _get_cw_client_for_region(region) if region else _get_cw_client()
@@ -783,21 +783,28 @@ def _update_inventory_monitoring(resource: dict, monitoring: bool) -> None:
     )
 
 
-def _get_tag_name(alarm_name: str) -> str:
-    match = _ALARM_NAME_RE.match(alarm_name)
-    return match.group(2) if match else ""
+def _get_tag_name(alarm: dict) -> str:
+    """이름 서픽스의 short ID. 알람 이름을 *재생성*할 때만 쓴다 (Full ID를 넣으면
+    ACM/APIGW-HTTP처럼 태그가 필요한 타입의 서픽스가 달라진다)."""
+    identity = identify_alarm(alarm)
+    if identity is None:
+        return ""
+    return identity.tag_name or identity.resource_id
 
 
-def _get_resource_type(alarm_name: str) -> str:
-    parsed = extract_resource_from_alarm(alarm_name)
-    if parsed:
-        return parsed[0]
-    match = _ALARM_NAME_RE.match(alarm_name)
-    return match.group(1) if match else ""
+def _get_resource_type(alarm: dict) -> str:
+    identity = identify_alarm(alarm)
+    return identity.resource_type if identity else ""
 
 
 def _alarms_for_resource(alarms: list[dict], resource_id: str) -> list[dict]:
-    return [alarm for alarm in alarms if _get_tag_name(alarm.get("AlarmName", "")) == resource_id]
+    """resource_id(Full ID 또는 short ID)에 속한 알람. 메타데이터 우선, 이름 폴백."""
+    matched = []
+    for alarm in alarms:
+        identity = identify_alarm(alarm)
+        if identity is not None and identity.matches(resource_id):
+            matched.append(alarm)
+    return matched
 
 
 def _find_alarm_for_config(alarms: list[dict], config: dict) -> dict | None:
@@ -866,7 +873,7 @@ def _update_metric_alarm(alarm: dict, config: dict) -> str:
 
 
 def _sync_threshold_tag_for_alarm(resource_id: str, alarm: dict, config: dict) -> None:
-    if _get_resource_type(alarm.get("AlarmName", "")) != "EC2":
+    if _get_resource_type(alarm) != "EC2":
         return
     tag_key = _threshold_tag_key(alarm, config)
     if not tag_key:
@@ -949,8 +956,8 @@ def _metric_alarm_update_kwargs(alarm: dict, config: dict) -> dict:
 
 
 def _updated_alarm_name(alarm: dict, config: dict, threshold: float) -> str:
-    resource_id = _get_tag_name(alarm.get("AlarmName", ""))
-    resource_type = _get_resource_type(alarm.get("AlarmName", ""))
+    resource_id = _get_tag_name(alarm)
+    resource_type = _get_resource_type(alarm)
     metric_key = _alarm_metric_key(alarm, config)
     if not resource_id or not resource_type or not metric_key:
         return alarm["AlarmName"]
@@ -969,9 +976,7 @@ def _alarm_metric_key(alarm: dict, config: dict) -> str:
 
 
 def _alarm_resource_name(alarm: dict, metric_key: str) -> str:
-    name = alarm.get("AlarmName", "")
-    body = _ALARM_NAME_PREFIX_RE.sub("", name, count=1)
-    body = _ALARM_NAME_CONDITION_RE.sub("", body)
+    body = strip_alarm_name_decorations(alarm.get("AlarmName", ""))
     metric_display = _alarm_metric_display(metric_key)
     suffix = f" {metric_display}"
     if body.endswith(suffix):

@@ -58,6 +58,14 @@
 - `_pretty_alarm_name()` — `[{type}] {label} {metric} {dir} {threshold}{unit} (TagName: {id})`
 - 255자 초과 시 label → display_metric 순으로 truncate
 - `_shorten_elb_resource_id()` — ARN → Short_ID 변환
+- `strip_alarm_name_decorations()` — 이름에서 표시 본문(`{label} {metric}`)만 추출
+
+### `alarm_identity.py`
+- `identify_alarm(alarm)` — "이 알람은 어느 리소스/타입/메트릭인가"의 단일 진입점
+- 우선순위: AlarmDescription JSON 메타데이터(Full ID, 정본) → 이름 `(TagName: …)` → 레거시 `i-xxx-…`
+- `AlarmIdentity.resource_id`(Full ID)·`tag_name`(이름의 short ID)·`match_keys`(둘 다) —
+  인벤토리 조인은 Full ID, 컬렉터 `resolve_alive_ids`/이름 재생성은 short ID
+- 이름 파싱 정규식은 이 모듈 밖에 두지 않는다 (AGENTS.md AP-23, `tests/test_alarm_identity.py` 가드)
 
 ### `alarm_sync.py`
 - 기존 알람과 새 정의를 비교하여 생성/업데이트/삭제 결정
