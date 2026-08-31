@@ -15,6 +15,7 @@ from botocore.exceptions import ClientError
 
 from common import ResourceInfo
 from common.collectors.base import query_metric, CW_LOOKBACK_MINUTES, CW_STAT_AVG, CW_STAT_SUM, collect_metric
+from common.tag_cache import cached_tags
 
 logger = logging.getLogger(__name__)
 
@@ -151,6 +152,9 @@ def _collect_request_metric(namespace, cw_metric_name, dimensions,
 
 def _get_bucket_tags(s3_client, bucket_name: str) -> dict:
     """S3 get_bucket_tagging 래퍼. NoSuchTagConfiguration 시 빈 dict 반환."""
+    cached = cached_tags(f"arn:aws:s3:::{bucket_name}", trust_negative=False)
+    if cached is not None:
+        return cached
     try:
         response = s3_client.get_bucket_tagging(Bucket=bucket_name)
         tag_set = response.get("TagSet", [])

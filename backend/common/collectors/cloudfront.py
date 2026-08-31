@@ -15,6 +15,7 @@ from botocore.exceptions import ClientError
 
 from common import ResourceInfo
 from common.collectors.base import CW_LOOKBACK_MINUTES, CW_STAT_AVG, CW_STAT_SUM
+from common.tag_cache import cached_tags
 
 logger = logging.getLogger(__name__)
 
@@ -163,6 +164,9 @@ def _get_tags(cf_client, distribution_arn: str) -> dict:
     """CloudFront list_tags_for_resource 래퍼.
     응답 형식: {"Tags": {"Items": [{"Key": ..., "Value": ...}]}}
     """
+    cached = cached_tags(distribution_arn, trust_negative=False)
+    if cached is not None:
+        return cached
     try:
         response = cf_client.list_tags_for_resource(Resource=distribution_arn)
         items = response.get("Tags", {}).get("Items", [])

@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 
 from common.alarm_builder import resolve_alarm_severity
 from common.alarm_identity import group_alarms_by_resource, identify_alarm
+from common.tag_cache import log_tag_cache_stats, prime_tag_cache, set_active_tag_cache
 from common.alarm_index import AlarmIndex
 from common.alarm_manager import sync_alarms_for_resource
 from common.collectors.base import MetricBatch, set_active_metric_batch
@@ -158,6 +159,18 @@ def _switch_account_session(role_arn: str, account_id: str) -> None:
     logger.info("Switched to account %s via AssumeRole", account_id)
 
 
+def _prime_tag_cache(account_id: str) -> None:
+    """컬렉터 단계용 런 스코프 태그 캐시 프라임 (기본 세션 = 현재 계정/리전).
+
+    컬렉터의 리소스별 태그 API(N+1)를 RGT GetResources 수 콜로 대체한다.
+    프라임 실패(IAM `tag:GetResources` 미부여 등) 시 컬렉터는 기존 조회로 폴백한다.
+    """
+    prime_tag_cache(
+        lambda: boto3.client("resourcegroupstaggingapi"),
+        label=f"collectors account={account_id}",
+    )
+
+
 def _clear_all_client_caches() -> None:
     """모든 모듈의 lru_cache boto3 클라이언트를 무효화하여 새 세션으로 재생성되도록 한다."""
     import common._clients as _cl
@@ -255,6 +268,7 @@ def lambda_handler(event, context):
     alarms_synced = {"created": 0, "updated": 0, "ok": 0}
 
     # 컬렉터별 리소스 수집 (메트릭 배치를 위해 목록을 먼저 확정)
+    _prime_tag_cache(account_id)
     collected: list[tuple[object, list]] = []
     for collector_mod in _COLLECTOR_MODULES:
         try:
@@ -274,6 +288,9 @@ def lambda_handler(event, context):
             logger.info("No monitored resources found in %s", collector_mod.__name__)
             continue
         collected.append((collector_mod, resources))
+
+    log_tag_cache_stats(f"collectors account={account_id}")
+    set_active_tag_cache(None)
 
     # 메트릭 배치: record(쿼리 수집, API 콜 없음) → execute(GetMetricData 일괄).
     # 리소스×메트릭당 1콜이던 get_metric_statistics를 500쿼리/콜로 줄인다.

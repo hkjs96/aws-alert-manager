@@ -13,6 +13,7 @@ import boto3
 from botocore.exceptions import ClientError
 
 from common import ResourceInfo
+from common.tag_cache import cached_tags
 from common.collectors.base import (
     query_metric,
     CW_LOOKBACK_MINUTES,
@@ -197,6 +198,9 @@ def resolve_alive_ids(tag_names: set[str]) -> set[str]:
 
 def _get_tags(opensearch_client, domain_arn: str) -> dict:
     """OpenSearch list_tags 래퍼. ClientError 시 빈 dict 반환 + error 로그."""
+    cached = cached_tags(domain_arn)
+    if cached is not None:
+        return cached
     if not domain_arn:
         return {}
     try:

@@ -14,6 +14,7 @@ import boto3
 from boto3.dynamodb.conditions import Key
 from botocore.exceptions import ClientError
 
+from common.tag_cache import cached_tags, prime_tag_cache, set_active_tag_cache
 from common.tag_resolver import has_monitoring_tag
 
 logger = logging.getLogger(__name__)
@@ -119,6 +120,14 @@ def cleanup_stale_inventory(table, db_items: List[dict], discovered: List[dict],
 
 
 def discover_resources(accounts: List[dict]) -> List[dict]:
+    try:
+        return _discover_all_accounts(accounts)
+    finally:
+        # 런 스코프 태그 캐시 해제 — warm start의 다음 호출이 이전 계정 태그를 보지 않도록
+        set_active_tag_cache(None)
+
+
+def _discover_all_accounts(accounts: List[dict]) -> List[dict]:
     all_resources = []
     for account in accounts:
         regions = account.get("regions") or ["ap-northeast-2"]
@@ -129,6 +138,13 @@ def discover_resources(accounts: List[dict]) -> List[dict]:
             session = _get_session_for_account(account, region)
             if not session:
                 continue
+
+            # 리전당 RGT GetResources 수 콜로 태그를 프라임 → 아래 _discover_*의
+            # 리소스별 태그 API(N+1)가 메모리 조회로 바뀐다. 실패 시 각 사이트가 폴백.
+            prime_tag_cache(
+                lambda: session.client("resourcegroupstaggingapi", region_name=region),
+                label=f"account={account_id} region={region}",
+            )
 
             all_resources.extend(_discover_ec2(session, account_id, region, customer_id))
             all_resources.extend(_discover_rds(session, account_id, region, customer_id))
@@ -158,6 +174,12 @@ def discover_resources(accounts: List[dict]) -> List[dict]:
         # 글로벌 서비스(계정당 1회): S3 + CloudFront + Route53
         session = _get_session_for_account(account, regions[0])
         if session:
+            # 글로벌 리소스(CloudFront/Route53)는 us-east-1 RGT에 실린다. S3 버킷은
+            # 각자 리전에 있으므로 _discover_s3는 히트만 신뢰한다.
+            prime_tag_cache(
+                lambda: session.client("resourcegroupstaggingapi", region_name="us-east-1"),
+                label=f"account={account_id} region=us-east-1 (global)",
+            )
             all_resources.extend(_discover_s3(session, account_id, customer_id))
             all_resources.extend(_discover_cloudfront(session, account_id, customer_id))
             all_resources.extend(_discover_route53(session, account_id, customer_id))
@@ -207,8 +229,10 @@ def _discover_rds(session, account_id, region, customer_id):
 
                 resource_type = "AuroraRDS" if "aurora" in engine.lower() else "RDS"
 
-                tags_resp = rds.list_tags_for_resource(ResourceName=db["DBInstanceArn"])
-                tags = {t["Key"]: t["Value"] for t in tags_resp.get("TagList", [])}
+                tags = cached_tags(db["DBInstanceArn"])
+                if tags is None:
+                    tags_resp = rds.list_tags_for_resource(ResourceName=db["DBInstanceArn"])
+                    tags = {t["Key"]: t["Value"] for t in tags_resp.get("TagList", [])}
 
                 resources.append({
                     "resource_id": db_id,
@@ -244,10 +268,12 @@ def _discover_load_balancers(session, account_id, region, customer_id):
                 else:
                     continue
 
-                tags_resp = elbv2.describe_tags(ResourceArns=[lb_arn])
-                tags = {}
-                if tags_resp.get("TagDescriptions"):
-                    tags = {t["Key"]: t["Value"] for t in tags_resp["TagDescriptions"][0].get("Tags", [])}
+                tags = cached_tags(lb_arn)
+                if tags is None:
+                    tags_resp = elbv2.describe_tags(ResourceArns=[lb_arn])
+                    tags = {}
+                    if tags_resp.get("TagDescriptions"):
+                        tags = {t["Key"]: t["Value"] for t in tags_resp["TagDescriptions"][0].get("Tags", [])}
 
                 resources.append({
                     "resource_id": lb_arn,
@@ -275,10 +301,12 @@ def _discover_target_groups(session, account_id, region, customer_id):
         for page in paginator.paginate():
             for tg in page.get("TargetGroups", []):
                 tg_arn = tg["TargetGroupArn"]
-                tags_resp = elbv2.describe_tags(ResourceArns=[tg_arn])
-                tags = {}
-                if tags_resp.get("TagDescriptions"):
-                    tags = {t["Key"]: t["Value"] for t in tags_resp["TagDescriptions"][0].get("Tags", [])}
+                tags = cached_tags(tg_arn)
+                if tags is None:
+                    tags_resp = elbv2.describe_tags(ResourceArns=[tg_arn])
+                    tags = {}
+                    if tags_resp.get("TagDescriptions"):
+                        tags = {t["Key"]: t["Value"] for t in tags_resp["TagDescriptions"][0].get("Tags", [])}
 
                 resources.append({
                     "resource_id": tg_arn,
@@ -310,14 +338,16 @@ def _discover_elasticache(session, account_id, region, customer_id):
                     continue
                 cluster_id = cluster["CacheClusterId"]
 
-                tags = {}
                 arn = cluster.get("ARN")
-                if arn:
-                    try:
-                        tags_resp = ec.list_tags_for_resource(ResourceName=arn)
-                        tags = {t["Key"]: t["Value"] for t in tags_resp.get("TagList", [])}
-                    except ClientError as e:
-                        logger.error("ElastiCache list_tags failed for %s: %s", cluster_id, e)
+                tags = cached_tags(arn or "")
+                if tags is None:
+                    tags = {}
+                    if arn:
+                        try:
+                            tags_resp = ec.list_tags_for_resource(ResourceName=arn)
+                            tags = {t["Key"]: t["Value"] for t in tags_resp.get("TagList", [])}
+                        except ClientError as e:
+                            logger.error("ElastiCache list_tags failed for %s: %s", cluster_id, e)
 
                 cluster_arn = arn or f"arn:aws:elasticache:{region}:{account_id}:cluster:{cluster_id}"
                 resources.append({
@@ -376,8 +406,10 @@ def _discover_lambda(session, account_id, region, customer_id):
                 fn_name = fn["FunctionName"]
                 fn_arn = fn["FunctionArn"]
 
-                tags_resp = lambda_client.list_tags(Resource=fn_arn)
-                tags = tags_resp.get("Tags", {})
+                tags = cached_tags(fn_arn)
+                if tags is None:
+                    tags_resp = lambda_client.list_tags(Resource=fn_arn)
+                    tags = tags_resp.get("Tags", {})
 
                 resources.append({
                     "resource_id": fn_name,
@@ -412,12 +444,14 @@ def _discover_s3(session, account_id, customer_id):
             except ClientError:
                 region = "unknown"
 
-            tags = {}
-            try:
-                tags_resp = s3.get_bucket_tagging(Bucket=bucket_name)
-                tags = {t["Key"]: t["Value"] for t in tags_resp.get("TagSet", [])}
-            except ClientError:
-                pass
+            tags = cached_tags(f"arn:aws:s3:::{bucket_name}", trust_negative=False)
+            if tags is None:
+                tags = {}
+                try:
+                    tags_resp = s3.get_bucket_tagging(Bucket=bucket_name)
+                    tags = {t["Key"]: t["Value"] for t in tags_resp.get("TagSet", [])}
+                except ClientError:
+                    pass
 
             resources.append({
                 "resource_id": bucket_name,
@@ -450,13 +484,15 @@ def _discover_docdb(session, account_id, region, customer_id):
                     continue
                 db_id = db["DBInstanceIdentifier"]
                 arn = db.get("DBInstanceArn", "")
-                tags = {}
-                if arn:
-                    try:
-                        resp = rds.list_tags_for_resource(ResourceName=arn)
-                        tags = {t["Key"]: t["Value"] for t in resp.get("TagList", [])}
-                    except ClientError as e:
-                        logger.error("DocDB list_tags failed for %s: %s", db_id, e)
+                tags = cached_tags(arn)
+                if tags is None:
+                    tags = {}
+                    if arn:
+                        try:
+                            resp = rds.list_tags_for_resource(ResourceName=arn)
+                            tags = {t["Key"]: t["Value"] for t in resp.get("TagList", [])}
+                        except ClientError as e:
+                            logger.error("DocDB list_tags failed for %s: %s", db_id, e)
                 resources.append({
                     "resource_id": db_id,
                     "name": db_id,
@@ -483,15 +519,17 @@ def _discover_clb(session, account_id, region, customer_id):
         for page in paginator.paginate():
             for lb in page.get("LoadBalancerDescriptions", []):
                 lb_name = lb["LoadBalancerName"]
-                tags = {}
-                try:
-                    resp = elb.describe_tags(LoadBalancerNames=[lb_name])
-                    descs = resp.get("TagDescriptions", [])
-                    if descs:
-                        tags = {t["Key"]: t["Value"] for t in descs[0].get("Tags", [])}
-                except ClientError as e:
-                    logger.error("CLB describe_tags failed for %s: %s", lb_name, e)
                 arn = f"arn:aws:elasticloadbalancing:{region}:{account_id}:loadbalancer/{lb_name}"
+                tags = cached_tags(arn)
+                if tags is None:
+                    tags = {}
+                    try:
+                        resp = elb.describe_tags(LoadBalancerNames=[lb_name])
+                        descs = resp.get("TagDescriptions", [])
+                        if descs:
+                            tags = {t["Key"]: t["Value"] for t in descs[0].get("Tags", [])}
+                    except ClientError as e:
+                        logger.error("CLB describe_tags failed for %s: %s", lb_name, e)
                 resources.append({
                     "resource_id": lb_name,
                     "name": lb_name,
@@ -518,13 +556,15 @@ def _discover_sqs(session, account_id, region, customer_id):
         for page in paginator.paginate():
             for url in page.get("QueueUrls", []):
                 queue_name = url.rsplit("/", 1)[-1]
-                tags = {}
-                try:
-                    resp = sqs.list_queue_tags(QueueUrl=url)
-                    tags = resp.get("Tags", {})
-                except ClientError as e:
-                    logger.error("SQS list_queue_tags failed for %s: %s", url, e)
                 arn = f"arn:aws:sqs:{region}:{account_id}:{queue_name}"
+                tags = cached_tags(arn)
+                if tags is None:
+                    tags = {}
+                    try:
+                        resp = sqs.list_queue_tags(QueueUrl=url)
+                        tags = resp.get("Tags", {})
+                    except ClientError as e:
+                        logger.error("SQS list_queue_tags failed for %s: %s", url, e)
                 resources.append({
                     "resource_id": queue_name,
                     "name": queue_name,
@@ -550,18 +590,22 @@ def _discover_dynamodb(session, account_id, region, customer_id):
         paginator = ddb.get_paginator("list_tables")
         for page in paginator.paginate():
             for table_name in page.get("TableNames", []):
-                try:
-                    desc = ddb.describe_table(TableName=table_name)
-                    arn = desc["Table"]["TableArn"]
-                except ClientError as e:
-                    logger.error("DynamoDB describe_table failed for %s: %s", table_name, e)
-                    continue
-                tags = {}
-                try:
-                    resp = ddb.list_tags_of_resource(ResourceArn=arn)
-                    tags = {t["Key"]: t["Value"] for t in resp.get("Tags", [])}
-                except ClientError as e:
-                    logger.error("DynamoDB list_tags failed for %s: %s", table_name, e)
+                # 캐시가 활성이면 ARN을 조립해 describe_table + list_tags 2콜을 모두 건너뛴다
+                arn = f"arn:aws:dynamodb:{region}:{account_id}:table/{table_name}"
+                tags = cached_tags(arn)
+                if tags is None:
+                    try:
+                        desc = ddb.describe_table(TableName=table_name)
+                        arn = desc["Table"]["TableArn"]
+                    except ClientError as e:
+                        logger.error("DynamoDB describe_table failed for %s: %s", table_name, e)
+                        continue
+                    tags = {}
+                    try:
+                        resp = ddb.list_tags_of_resource(ResourceArn=arn)
+                        tags = {t["Key"]: t["Value"] for t in resp.get("Tags", [])}
+                    except ClientError as e:
+                        logger.error("DynamoDB list_tags failed for %s: %s", table_name, e)
                 resources.append({
                     "resource_id": table_name,
                     "name": table_name,
@@ -631,13 +675,15 @@ def _discover_opensearch(session, account_id, region, customer_id):
                 continue
             domain_name = domain["DomainName"]
             arn = domain.get("ARN", "")
-            tags = {}
-            if arn:
-                try:
-                    tags_resp = client.list_tags(ARN=arn)
-                    tags = {t["Key"]: t["Value"] for t in tags_resp.get("TagList", [])}
-                except ClientError as e:
-                    logger.error("OpenSearch list_tags failed for %s: %s", domain_name, e)
+            tags = cached_tags(arn)
+            if tags is None:
+                tags = {}
+                if arn:
+                    try:
+                        tags_resp = client.list_tags(ARN=arn)
+                        tags = {t["Key"]: t["Value"] for t in tags_resp.get("TagList", [])}
+                    except ClientError as e:
+                        logger.error("OpenSearch list_tags failed for %s: %s", domain_name, e)
             tags["_client_id"] = account_id
             resources.append({
                 "resource_id": domain_name,
@@ -697,12 +743,14 @@ def _discover_ecs_services(ecs, cluster_arn, cluster_name, account_id, region,
         for svc in desc.get("services", []):
             svc_arn = svc.get("serviceArn", "")
             svc_name = svc.get("serviceName", "")
-            tags = {}
-            try:
-                tags_resp = ecs.list_tags_for_resource(resourceArn=svc_arn)
-                tags = {t["key"]: t["value"] for t in tags_resp.get("tags", [])}
-            except ClientError as e:
-                logger.error("ECS list_tags failed for %s: %s", svc_arn, e)
+            tags = cached_tags(svc_arn)
+            if tags is None:
+                tags = {}
+                try:
+                    tags_resp = ecs.list_tags_for_resource(resourceArn=svc_arn)
+                    tags = {t["key"]: t["value"] for t in tags_resp.get("tags", [])}
+                except ClientError as e:
+                    logger.error("ECS list_tags failed for %s: %s", svc_arn, e)
             tags["_cluster_name"] = cluster_name
             tags["_ecs_launch_type"] = svc.get("launchType", "")
             resources.append({
@@ -751,11 +799,13 @@ def _discover_apigw(session, account_id, region, customer_id):
                 api_id = api["id"]
                 api_name = api.get("name", api_id)
                 arn = f"arn:aws:apigateway:{region}::/restapis/{api_id}"
-                tags = {}
-                try:
-                    tags = client.get_tags(resourceArn=arn).get("tags", {})
-                except ClientError as e:
-                    logger.error("APIGW REST get_tags failed for %s: %s", api_id, e)
+                tags = cached_tags(arn)
+                if tags is None:
+                    tags = {}
+                    try:
+                        tags = client.get_tags(resourceArn=arn).get("tags", {})
+                    except ClientError as e:
+                        logger.error("APIGW REST get_tags failed for %s: %s", api_id, e)
                 t = dict(tags)
                 t["_api_type"] = "REST"
                 resources.append(_inv_item(api_name, api_name, "APIGW", arn,
@@ -827,12 +877,14 @@ def _discover_backup(session, account_id, region, customer_id):
             for vault in page.get("BackupVaultList", []):
                 name = vault["BackupVaultName"]
                 arn = vault.get("BackupVaultArn", "")
-                tags = {}
-                if arn:
-                    try:
-                        tags = client.list_tags(ResourceArn=arn).get("Tags", {})
-                    except ClientError as e:
-                        logger.error("Backup list_tags failed for %s: %s", name, e)
+                tags = cached_tags(arn)
+                if tags is None:
+                    tags = {}
+                    if arn:
+                        try:
+                            tags = client.list_tags(ResourceArn=arn).get("Tags", {})
+                        except ClientError as e:
+                            logger.error("Backup list_tags failed for %s: %s", name, e)
                 resources.append(_inv_item(name, name, "Backup", arn,
                                            account_id, region, customer_id, tags))
     except ClientError as e:
@@ -896,14 +948,16 @@ def _discover_waf(session, account_id, region, customer_id):
     for acl in response.get("WebACLs", []):
         name = acl.get("Name", "")
         arn = acl.get("ARN", "")
-        tags = {}
-        if arn:
-            try:
-                resp = client.list_tags_for_resource(ResourceARN=arn)
-                tag_list = resp.get("TagInfoForResource", {}).get("TagList", [])
-                tags = {t["Key"]: t["Value"] for t in tag_list}
-            except ClientError as e:
-                logger.error("WAF list_tags failed for %s: %s", name, e)
+        tags = cached_tags(arn)
+        if tags is None:
+            tags = {}
+            if arn:
+                try:
+                    resp = client.list_tags_for_resource(ResourceARN=arn)
+                    tag_list = resp.get("TagInfoForResource", {}).get("TagList", [])
+                    tags = {t["Key"]: t["Value"] for t in tag_list}
+                except ClientError as e:
+                    logger.error("WAF list_tags failed for %s: %s", name, e)
         t = dict(tags)
         t["_waf_rule"] = "ALL"
         resources.append(_inv_item(name, name, "WAF", arn,
@@ -927,14 +981,16 @@ def _discover_dx(session, account_id, region, customer_id):
             continue
         conn_id = conn["connectionId"]
         arn = f"arn:aws:directconnect:{region}:{account_id}:dxcon/{conn_id}"
-        tags = {}
-        try:
-            resp = client.describe_tags(resourceArns=[arn])
-            for rt in resp.get("resourceTags", []):
-                for tag in rt.get("tags", []):
-                    tags[tag.get("key", "")] = tag.get("value", "")
-        except ClientError as e:
-            logger.error("DX describe_tags failed for %s: %s", conn_id, e)
+        tags = cached_tags(arn)
+        if tags is None:
+            tags = {}
+            try:
+                resp = client.describe_tags(resourceArns=[arn])
+                for rt in resp.get("resourceTags", []):
+                    for tag in rt.get("tags", []):
+                        tags[tag.get("key", "")] = tag.get("value", "")
+            except ClientError as e:
+                logger.error("DX describe_tags failed for %s: %s", conn_id, e)
         resources.append(_inv_item(conn_id, conn_id, "DX", arn,
                                    account_id, region, customer_id, tags))
     return resources
@@ -955,13 +1011,15 @@ def _discover_sagemaker(session, account_id, region, customer_id):
         for ep in page.get("Endpoints", []):
             name = ep.get("EndpointName", "")
             arn = ep.get("EndpointArn", "")
-            tags = {}
-            if arn:
-                try:
-                    tags = {t["Key"]: t["Value"]
-                            for t in client.list_tags(ResourceArn=arn).get("Tags", [])}
-                except ClientError as e:
-                    logger.error("SageMaker list_tags failed for %s: %s", name, e)
+            tags = cached_tags(arn)
+            if tags is None:
+                tags = {}
+                if arn:
+                    try:
+                        tags = {t["Key"]: t["Value"]
+                                for t in client.list_tags(ResourceArn=arn).get("Tags", [])}
+                    except ClientError as e:
+                        logger.error("SageMaker list_tags failed for %s: %s", name, e)
             resources.append(_inv_item(name, name, "SageMaker", arn,
                                        account_id, region, customer_id, tags))
     return resources
@@ -976,12 +1034,14 @@ def _discover_sns(session, account_id, region, customer_id):
             for topic in page.get("Topics", []):
                 arn = topic["TopicArn"]
                 name = arn.rsplit(":", 1)[-1]
-                tags = {}
-                try:
-                    resp = client.list_tags_for_resource(ResourceArn=arn)
-                    tags = {t["Key"]: t["Value"] for t in resp.get("Tags", [])}
-                except ClientError as e:
-                    logger.error("SNS list_tags failed for %s: %s", name, e)
+                tags = cached_tags(arn)
+                if tags is None:
+                    tags = {}
+                    try:
+                        resp = client.list_tags_for_resource(ResourceArn=arn)
+                        tags = {t["Key"]: t["Value"] for t in resp.get("Tags", [])}
+                    except ClientError as e:
+                        logger.error("SNS list_tags failed for %s: %s", name, e)
                 resources.append(_inv_item(name, name, "SNS", arn,
                                            account_id, region, customer_id, tags))
     except ClientError as e:

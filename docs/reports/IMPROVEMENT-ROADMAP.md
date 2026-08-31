@@ -168,3 +168,23 @@ Anomaly Detection 전면 전환 · 테이블 가상화.
 ---
 
 *P1~P4 상세 보고서(파일:라인 근거 전체)는 리뷰 세션 로그에 보존. 페르소나 구성은 프로젝트 메모리 기록.*
+
+---
+
+## 진행 현황 (2026-08-31 기준)
+
+| 항목 | 상태 | 커밋/근거 |
+|------|------|-----------|
+| Phase 0 버그 3건 + 디스크 키 매핑 | 완료 | alarm_builder 정의 조회·resource_tags 전달 |
+| P3 DynamoDB batch_writer + GSI Query | 완료 | `8d45742` |
+| P3 설정 드리프트 감지 / SEV별 M-of-N | 완료 | `3c519d6`, `0ac4080` |
+| P3 런 스코프 AlarmIndex (describe_alarms 프리픽스 스캔 제거) | 완료 | `72db2a4` |
+| P3 GetMetricData record/replay 배치 | 완료 | `MetricBatch` (`common/collectors/base.py`) |
+| P2 주간 메트릭 스냅샷 (MetricHistoryTable, 91일) | 완료 | `3b0bdaf` — 재보정 잡의 입력 데이터 |
+| P3 태그 조회 N+1 → RGT GetResources 프라임 | 완료 | `common/tag_cache.py`; 컬렉터 15종 + 디스커버리 18사이트, 실패 시 리소스별 API 폴백 |
+| P1 정규식 5벌 → `alarm_identity` 듀얼 리드(메타데이터 우선) | 완료 | `400df67` — ALB/NLB/TG Full ARN 조인 정상화, AP-23 가드 테스트 |
+| P1 태그 인덱스(CW 알람 태그 ResourceId/MetricKey) + 백필 | 미착수 | RGT 프라임 인프라가 생겼으므로 다음 단계로 자연 연결 |
+| P4 P0/P1 (cache(), next/font, Suspense 스트리밍, 서버 props, 인덱싱, 디바운스) | 완료 | `a124dc5` 외 |
+| P4 P2 (병렬 POST, RecentAlarms 상한, 벌크 모달 실구현, AGENTS 정정) | 완료 | `1071369` |
+| P2 임계치 재보정 잡 (Shadow → PoC) | 미착수 | ThresholdOverridesTable ↔ 엔진 연결이 선행 |
+| 워커 메모리 512MB / 타임아웃 900s | 완료 | 실측 217MB / 22s (dev, 리소스 33) |

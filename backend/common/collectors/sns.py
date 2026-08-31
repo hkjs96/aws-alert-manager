@@ -14,6 +14,7 @@ from botocore.exceptions import ClientError
 
 from common import ResourceInfo
 from common.collectors.base import query_metric, CW_LOOKBACK_MINUTES, CW_STAT_SUM, collect_metric
+from common.tag_cache import cached_tags
 
 logger = logging.getLogger(__name__)
 
@@ -120,6 +121,9 @@ def resolve_alive_ids(tag_names: set[str]) -> set[str]:
 
 def _get_tags(sns_client, topic_arn: str) -> dict:
     """SNS list_tags_for_resource 래퍼. ClientError 시 빈 dict 반환."""
+    cached = cached_tags(topic_arn)
+    if cached is not None:
+        return cached
     try:
         response = sns_client.list_tags_for_resource(ResourceArn=topic_arn)
         return {t["Key"]: t["Value"] for t in response.get("Tags", [])}

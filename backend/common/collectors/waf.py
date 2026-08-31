@@ -15,6 +15,7 @@ from botocore.exceptions import ClientError
 
 from common import ResourceInfo
 from common.collectors.base import query_metric, CW_LOOKBACK_MINUTES, CW_STAT_SUM, collect_metric
+from common.tag_cache import cached_tags
 
 logger = logging.getLogger(__name__)
 
@@ -131,6 +132,9 @@ def resolve_alive_ids(tag_names: set[str]) -> set[str]:
 
 def _get_tags(wafv2_client, resource_arn: str) -> dict:
     """WAFv2 list_tags_for_resource 래퍼. TagInfoForResource.TagList 구조 파싱."""
+    cached = cached_tags(resource_arn)
+    if cached is not None:
+        return cached
     if not resource_arn:
         return {}
     try:

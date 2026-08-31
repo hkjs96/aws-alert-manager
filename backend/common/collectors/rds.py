@@ -14,6 +14,7 @@ from botocore.exceptions import ClientError
 
 from common import ResourceInfo
 from common.collectors.base import query_metric, CW_LOOKBACK_MINUTES, CW_STAT_AVG, collect_metric
+from common.tag_cache import cached_tags
 
 logger = logging.getLogger(__name__)
 
@@ -503,6 +504,9 @@ def _rds_cluster_exists(rds, identifier: str, tag: str) -> bool:
 
 
 def _get_tags(rds_client, db_arn: str) -> dict:
+    cached = cached_tags(db_arn)
+    if cached is not None:
+        return cached
     if not db_arn:
         return {}
     try:

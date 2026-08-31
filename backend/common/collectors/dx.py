@@ -15,6 +15,7 @@ from botocore.exceptions import ClientError
 
 from common import ResourceInfo
 from common.collectors.base import query_metric, CW_LOOKBACK_MINUTES, CW_STAT_MIN, collect_metric
+from common.tag_cache import cached_tags
 
 logger = logging.getLogger(__name__)
 
@@ -121,6 +122,9 @@ def resolve_alive_ids(tag_names: set[str]) -> set[str]:
 
 def _get_tags(dx_client, connection_arn: str) -> dict:
     """DX describe_tags 래퍼. DX는 lowercase key 사용: {key: ..., value: ...}."""
+    cached = cached_tags(connection_arn)
+    if cached is not None:
+        return cached
     try:
         response = dx_client.describe_tags(resourceArns=[connection_arn])
         tags = {}

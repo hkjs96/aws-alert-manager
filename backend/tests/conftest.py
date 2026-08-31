@@ -45,6 +45,20 @@ def _aws_default_region():
 
 
 @pytest.fixture(autouse=True)
+def _tag_cache_off():
+    """단위 테스트에서 RGT 프라임(실제 boto3 호출)을 막고 활성 태그 캐시를 격리한다.
+
+    캐시 자체를 검증하는 tests/test_tag_cache.py는 이 env를 다시 지운다.
+    """
+    from common.tag_cache import set_active_tag_cache
+
+    set_active_tag_cache(None)
+    with patch.dict(os.environ, {"TAG_CACHE": "off"}, clear=False):
+        yield
+    set_active_tag_cache(None)
+
+
+@pytest.fixture(autouse=True)
 def _reset_all_cw_clients():
     """모든 모듈의 캐시된 boto3 클라이언트 초기화 (CW + SNS)."""
     from common._clients import _get_cw_client

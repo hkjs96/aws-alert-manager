@@ -15,6 +15,7 @@ import boto3
 from botocore.exceptions import ClientError
 
 from common import ResourceInfo
+from common.tag_cache import cached_tags
 from common.collectors.base import (
     query_metric,
     CW_LOOKBACK_MINUTES,
@@ -276,6 +277,9 @@ def resolve_alive_ids(tag_names: set[str]) -> set[str]:
 
 
 def _get_tags(elbv2_client, resource_arn: str) -> dict:
+    cached = cached_tags(resource_arn)
+    if cached is not None:
+        return cached
     try:
         response = elbv2_client.describe_tags(ResourceArns=[resource_arn])
         descriptions = response.get("TagDescriptions", [])

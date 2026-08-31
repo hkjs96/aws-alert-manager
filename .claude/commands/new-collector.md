@@ -52,6 +52,9 @@ Use this command when adding a backend-supported AWS resource type.
 5. **단위 환산 검토:** bytes 메트릭(FreeableMemory 등)은 GB 단위 `metric_key` + `multiplier`
    (GB→bytes: 1073741824)로 환산하고, 알람 이름의 `display_metric`/`unit`도 환산 단위로 표시.
 6. **Collector 구현:** `backend/common/collectors/` 하위에 모듈 추가 후
+   - 태그 조회 래퍼(`_get_tags`)는 `common.tag_cache.cached_tags(arn)`를 먼저 보고 `None`일 때만
+     리소스별 API를 부른다 (런 스코프 RGT 프라임, N+1 제거). 새 서비스의 ARN service 세그먼트를
+     `tag_cache.TAGGED_SERVICES`에 추가. describe 응답에 태그가 실리는 서비스는 둘 다 불필요.
    - `daily_monitor/lambda_handler.py::_COLLECTOR_MODULES` 리스트에 등록
    - `daily_monitor/lambda_handler.py::_RESOURCE_TYPE_TO_COLLECTOR`에 매핑 추가
      (alias 포함 — 예: `AuroraRDS` → rds, `NATGateway` → natgw)

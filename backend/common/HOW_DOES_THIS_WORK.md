@@ -60,6 +60,12 @@
 - `_shorten_elb_resource_id()` — ARN → Short_ID 변환
 - `strip_alarm_name_decorations()` — 이름에서 표시 본문(`{label} {metric}`)만 추출
 
+### `tag_cache.py`
+- `prime_tag_cache()` — 리전당 RGT `GetResources` 수 콜로 ARN→태그를 적재 (런 스코프)
+- `cached_tags(arn)` — 활성 캐시면 태그(부재는 `{}`), 없으면 `None` → 호출자가 리소스별 API 폴백
+- 컬렉터 `_get_tags`·디스커버리 인라인 조회가 먼저 본다. 글로벌/크로스리전(S3·CloudFront)은
+  `trust_negative=False`로 히트만 신뢰. 킬 스위치 `TAG_CACHE=off`
+
 ### `alarm_identity.py`
 - `identify_alarm(alarm)` — "이 알람은 어느 리소스/타입/메트릭인가"의 단일 진입점
 - 우선순위: AlarmDescription JSON 메타데이터(Full ID, 정본) → 이름 `(TagName: …)` → 레거시 `i-xxx-…`

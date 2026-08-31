@@ -14,6 +14,7 @@ from botocore.exceptions import ClientError
 
 from common import ResourceInfo
 from common.collectors.base import query_metric, CW_LOOKBACK_MINUTES, CW_STAT_SUM, collect_metric
+from common.tag_cache import cached_tags
 
 logger = logging.getLogger(__name__)
 
@@ -134,6 +135,9 @@ def _get_table_arn(dynamodb_client, table_name: str) -> str | None:
 
 def _get_tags(dynamodb_client, resource_arn: str) -> dict:
     """DynamoDB list_tags_of_resource 래퍼. ClientError 시 빈 dict 반환."""
+    cached = cached_tags(resource_arn)
+    if cached is not None:
+        return cached
     try:
         response = dynamodb_client.list_tags_of_resource(ResourceArn=resource_arn)
         return {t["Key"]: t["Value"] for t in response.get("Tags", [])}

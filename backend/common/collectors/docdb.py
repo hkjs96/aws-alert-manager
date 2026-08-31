@@ -16,6 +16,7 @@ from botocore.exceptions import ClientError
 from common import ResourceInfo
 from common.collectors.base import query_metric, CW_LOOKBACK_MINUTES, CW_STAT_AVG, collect_metric
 from common.collectors.rds import _enrich_rds_memory
+from common.tag_cache import cached_tags
 
 logger = logging.getLogger(__name__)
 
@@ -152,6 +153,9 @@ def resolve_alive_ids(tag_names: set[str]) -> set[str]:
 
 def _get_tags(rds_client, db_arn: str) -> dict:
     """RDS list_tags_for_resource 래퍼. ClientError 시 빈 dict 반환 + error 로그."""
+    cached = cached_tags(db_arn)
+    if cached is not None:
+        return cached
     if not db_arn:
         return {}
     try:
