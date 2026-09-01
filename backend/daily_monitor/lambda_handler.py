@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 
 from common.alarm_builder import resolve_alarm_severity
 from common.alarm_identity import group_alarms_by_resource, identify_alarm
+from common.perf_log import Timer
 from common.tag_cache import log_tag_cache_stats, prime_tag_cache, set_active_tag_cache
 from common.alarm_index import AlarmIndex
 from common.alarm_manager import sync_alarms_for_resource
@@ -235,8 +236,10 @@ def lambda_handler(event, context):
     # discover_resources()가 자체적으로 AssumeRole 하므로 세션 전환 불필요.
     prefetched_alarms: list[dict] = []
     try:
-        inventory_stats = _sync_inventory(account_id, role_arn)
-        prefetched_alarms = inventory_stats.pop("_alarms", [])
+        with Timer("daily_stage", stage="inventory_sync", account=account_id) as t:
+            inventory_stats = _sync_inventory(account_id, role_arn)
+            prefetched_alarms = inventory_stats.pop("_alarms", [])
+            t.set(discovered=inventory_stats.get("discovered", 0), alarms=len(prefetched_alarms))
         logger.info("Inventory sync: %s", inventory_stats)
     except (ClientError, RuntimeError, KeyError) as e:
         logger.error("Inventory sync failed: %s", e)
@@ -260,7 +263,9 @@ def lambda_handler(event, context):
 
     # 1단계: 고아 알람 정리
     try:
-        orphaned = _cleanup_orphan_alarms()
+        with Timer("daily_stage", stage="orphan_cleanup", account=account_id) as t:
+            orphaned = _cleanup_orphan_alarms()
+            t.set(deleted=len(orphaned))
         if orphaned:
             logger.info("Cleaned up orphan alarms: %s", orphaned)
     except ClientError as e:
@@ -270,6 +275,8 @@ def lambda_handler(event, context):
     alarms_synced = {"created": 0, "updated": 0, "ok": 0}
 
     # 컬렉터별 리소스 수집 (메트릭 배치를 위해 목록을 먼저 확정)
+    collect_timer = Timer("daily_stage", stage="collect_resources", account=account_id)
+    collect_timer.__enter__()
     _prime_tag_cache(account_id)
     collected: list[tuple[object, list]] = []
     for collector_mod in _COLLECTOR_MODULES:
@@ -293,6 +300,8 @@ def lambda_handler(event, context):
 
     log_tag_cache_stats(f"collectors account={account_id}")
     set_active_tag_cache(None)
+    collect_timer.set(resources=sum(len(r) for _m, r in collected), collectors=len(collected))
+    collect_timer.__exit__(None, None, None)
 
     # 메트릭 배치: record(쿼리 수집, API 콜 없음) → execute(GetMetricData 일괄).
     # 리소스×메트릭당 1콜이던 get_metric_statistics를 500쿼리/콜로 줄인다.

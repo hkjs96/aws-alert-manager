@@ -16,9 +16,25 @@ import json
 import logging
 import os
 import re
+import time
 
 logging.getLogger().setLevel(logging.INFO)
 logger = logging.getLogger(__name__)
+
+from common.perf_log import log_perf
+
+# 첫 invocation(콜드 스타트)은 INIT 비용이 얹혀 응답이 느리다. 이 둘을 섞어 평균을 내면
+# "느린 API"와 "가끔 느린 콜드 스타트"를 구분할 수 없으므로 측정에 플래그로 남긴다.
+_COLD = True
+
+# 라우트 정규식 → 집계용 이름. raw_path로 집계하면 리소스 ID마다 다른 축이 생겨
+# "어느 엔드포인트가 느린가"를 볼 수 없다. (?P<id>...) → {id} 로 정규화한다.
+_ROUTE_PARAM_RE = re.compile(r"\(\?P<(\w+)>[^)]*\)")
+
+
+def _route_name(method: str, pattern: re.Pattern) -> str:
+    raw = pattern.pattern.lstrip("^").rstrip("$")
+    return f"{method} {_ROUTE_PARAM_RE.sub(lambda m: '{' + m.group(1) + '}', raw)}"
 
 from api_handler.routes import (
     customers, accounts, dashboard, resources, alarms, thresholds, jobs, bulk,
@@ -135,9 +151,13 @@ _ROUTES: list[tuple[str, re.Pattern, object]] = [
 # ──────────────────────────────────────────────
 
 def lambda_handler(event, context):
+    global _COLD
+    cold, _COLD = _COLD, False
+    started = time.perf_counter()
+
     method = event.get("requestContext", {}).get("http", {}).get("method", "GET").upper()
 
-    # CORS preflight — OPTIONS는 라우트 매칭 없이 즉시 응답
+    # CORS preflight — 라우트 매칭 없이 즉시 응답 (측정 대상 아님)
     if method == "OPTIONS":
         return _with_cors({"statusCode": 200, "body": ""})
 
@@ -160,6 +180,7 @@ def lambda_handler(event, context):
     if raw_path != "/health":
         denied = _authorize(event)
         if denied is not None:
+            _log_request(f"{method} (denied)", denied, started, cold)
             return _with_cors(denied)
 
     for route_method, pattern, handler in _ROUTES:
@@ -178,12 +199,27 @@ def lambda_handler(event, context):
                     "statusCode": 500,
                     "body": json.dumps({"code": "INTERNAL_ERROR", "message": "서버 오류가 발생했습니다"}),
                 }
+            _log_request(_route_name(route_method, pattern), result, started, cold)
             return _with_cors(result)
 
-    return _with_cors({
+    not_found = {
         "statusCode": 404,
         "body": json.dumps({"code": "NOT_FOUND", "message": f"{method} {raw_path} 를 찾을 수 없습니다"}),
-    })
+    }
+    _log_request(f"{method} (unmatched)", not_found, started, cold)
+    return _with_cors(not_found)
+
+
+def _log_request(route: str, result: dict, started: float, cold: bool) -> None:
+    """요청 1건의 소요·상태·콜드스타트를 구조화 로그로 남긴다 (docs/OBSERVABILITY.md)."""
+    log_perf(
+        "api_request",
+        (time.perf_counter() - started) * 1000,
+        route=route,
+        status=result.get("statusCode", 0),
+        cold=cold,
+        bytes=len(result.get("body") or ""),
+    )
 
 
 def _with_cors(response: dict) -> dict:

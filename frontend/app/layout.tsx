@@ -12,6 +12,7 @@ import {
   GlobalFilterBarFallback,
 } from "@/components/layout/AlarmStatusViews";
 import { ToastProvider } from "@/components/shared/Toast";
+import { WebVitals } from "@/components/shared/WebVitals";
 import { getSession } from "@/lib/server/session";
 
 // next/font self-hosts and preloads the faces. Loading them through an
@@ -76,6 +77,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       className={`${inter.variable} ${manrope.variable} ${jetbrainsMono.variable}`}
     >
       <body>
+        <WebVitals />
         <ToastProvider>
           <AppShell
             userEmail={session?.user?.email ?? null}

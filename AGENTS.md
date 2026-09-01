@@ -57,6 +57,9 @@
   `identify_alarm(alarm)`(AlarmDescription 메타데이터 우선, 이름 폴백)만 사용한다. 이름의
   `(TagName: …)`은 ALB/NLB/TG/ACM에서 Full ID가 아니라 인벤토리 조인이 깨진다.
   (`tests/test_alarm_identity.py`의 가드 테스트가 정규식 재유입을 막는다)
+- **AP-24:** 성능 지표를 CloudWatch 커스텀 메트릭/EMF로 발행. 메트릭당 $0.30/월이라
+  라우트 수만큼 곱해진다. `common/perf_log.py`의 구조화 로그 + Logs Insights를 쓴다
+  (쿼리: `docs/OBSERVABILITY.md`). 마커 `PERF_METRIC` + 공백 없는 JSON은 쿼리가 의존하는 계약.
 
 ### 테스트 (pytest / unittest.mock)
 - **AP-15:** 페이지네이션(`while True` + `table.query/scan`)을 bare `MagicMock` 테이블로 테스트.
