@@ -12,14 +12,20 @@
 > 무엇을 억제할지 정할 수 없다. `DescribeAlarmHistory`는 일반 CloudWatch API(무료 구간)라
 > 아무것도 배포하지 않고 오늘 돌릴 수 있다.
 
-- [ ] 0.1 알람 이력 분석 스크립트 (`scripts/analyze_alarm_history.py`)
-  - [ ] 0.1.1 `DescribeAlarmHistory`로 지정 기간의 상태 전이 전량 수집 (계정·리전 파라미터화, 페이지네이션)
-  - [ ] 0.1.2 **ALARM 지속시간 분포 산출** — "N분 유예 시 억제되는 비율" 표 (1/2/3/5/10/15분)
+- [x] 0.1 알람 이력 분석 스크립트 (`scripts/analyze_alarm_history.py`) — 구현 완료, 실행 대기
+  - [x] 0.1.1 `DescribeAlarmHistory`로 지정 기간의 상태 전이 전량 수집 (계정·리전 파라미터화, 페이지네이션, `--role-arn` 크로스 어카운트)
+  - [x] 0.1.2 **ALARM 지속시간 분포 산출** — "N분 유예 시 억제되는 비율" 표 (1/2/3/5/10/15분)
     - → **Auto-pause 기본값을 이 숫자로 결정한다** (design.md D4)
-  - [ ] 0.1.3 알람별·리소스별·메트릭별 발화 횟수 상위 N — 상위 10개가 전체의 몇 %인가
-  - [ ] 0.1.4 시간대 분포 — 09시 스파이크가 정상 부하인지 판별
-  - [ ] 0.1.5 flapping 후보 식별 — 하루 N회 이상 토글하는 알람
-  - [ ] 0.1.6 결과를 `docs/reports/ALARM-NOISE-{date}.md`로 출력
+    - `recommend_pause()`: 억제율은 유예에 단조 증가하므로 최대값을 고르면 항상 가장 긴 후보가 나온다.
+      유예 = 탐지 지연이므로 **최대 효과의 90%에 도달하는 가장 짧은 유예**를 택한다
+  - [x] 0.1.3 알람별·리소스별·메트릭별 발화 횟수 상위 N — 상위 5/10/20개 집중도
+  - [x] 0.1.4 시간대 분포 (UTC/KST 병기 + 막대)
+  - [x] 0.1.5 flapping 후보 식별 — 하루 `FLAPPING_PER_DAY`회 이상
+  - [x] 0.1.6 결과를 `docs/reports/ALARM-NOISE-{date}.md`로 출력
+  - 테스트: `backend/tests/test_alarm_history_analysis.py` (32건 — 경계값·미해소·창 시작 시 이미 ALARM 등)
+- [ ] 0.1.7 **실제 계정에서 실행** ← 다음 단계. 실 알람이 있는 계정 필요 (dev는 발화 이력이 거의 없음)
+  - `AWS_PROFILE=... python scripts/analyze_alarm_history.py --days 7 --region ap-northeast-2`
+  - 크로스 어카운트: `--role-arn arn:aws:iam::{고객사}:role/AlarmManagerMonitoringRole`
 - [ ] 0.2 결과 리뷰 후 Phase 1 파라미터 확정 (auto-pause 유예, group_by 축, repeat_interval)
 
 ## Phase 1 — 수집 + 이력 + 기본 정제
