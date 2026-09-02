@@ -23,6 +23,7 @@ DEFAULT_REGION = "us-east-1"
 DEFAULT_ENVIRONMENT = "development"
 
 ARTIFACTS = (
+    "alert_ingestor.zip",
     "api_handler.zip",
     "common_layer.zip",
     "daily_monitor.zip",
@@ -96,6 +97,8 @@ def _artifact_targets(paths: list[str], *, all_artifacts: bool) -> set[str]:
             targets.add("remediation_handler.zip")
         elif path.startswith("backend/sqs_worker/"):
             targets.add("sqs_worker.zip")
+        elif path.startswith("backend/alert_ingestor/"):
+            targets.add("alert_ingestor.zip")
     return targets
 
 

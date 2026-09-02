@@ -44,22 +44,28 @@
 
 ### 1.2 인프라
 
-- [ ] 1.2.1 우리 계정 커스텀 이벤트 버스 + 버스 정책(고객사 계정 허용) — CFN
+- [x] 1.2.1 우리 계정 커스텀 이벤트 버스 + 버스 정책(고객사 계정 허용) — CFN
+  - `AlertEventBus` + `AlertEventBusPolicy`(파라미터 `AlertBusSourceAccounts`, 비면 단일 계정 모드)
+  - `AlertIngestDLQ` — 인제스터가 재시도까지 실패한 이벤트 (비어 있어야 정상)
+  - 룰 2개: 커스텀 버스(크로스 어카운트) + 기본 버스(단일 계정 모드)
+  - [ ] **후속:** 고객사 계정 등록 시 버스 정책을 자동 갱신 — 현재는 파라미터 수동 관리
 - [ ] 1.2.2 고객사 온보딩 템플릿에 EventBridge 룰 + 전달 역할 추가
   - 온보딩 템플릿 3곳 동기화 (`infrastructure/customer-onboarding/` → `frontend/public/` → 공개 S3, `text/yaml`)
 - [x] 1.2.3 `EventHistoryTable` — PK `series_id` / SK `event_key`, GSI `customer_day-index`, TTL 90일 (design.md **D8**)
-- [ ] 1.2.4 워커 IAM 및 배포 검증 (`/new-collector` IAM 체크 절차 준용 — 배포 후 `AccessDenied` grep)
+- [x] 1.2.4 인제스터 IAM (`EventHistoryTable` PutItem + `AccountsTable` Scan) — 배포 후 `AccessDenied` grep 필요
 
 ### 1.3 수집·정규화
 
 - [x] 1.3.1 `common/alert_event.py` — 클라우드 중립 이벤트 스키마 정의 (R1-6)
   - [x] 테스트: CloudWatch 이벤트 → 정규화 스키마 변환 (22건, `test_alert_event.py`)
   - 파서는 어떤 입력에도 예외를 던지지 않고 `parse_error` + `raw`로 남긴다 (R2-1)
-- [ ] 1.3.2 정규화 Lambda — 이벤트 수신 → 스키마 변환 → 이력 기록
-  - [ ] 테스트: 알 수 없는 형태의 이벤트를 버리지 않고 기록
-- [ ] 1.3.3 `alarm_identity.identify_alarm()`으로 리소스 해석 (기존 모듈 재사용)
-- [ ] 1.3.4 **정제 이전에** 원본 전량 기록 (R2-1)
-  - [ ] 테스트: 억제된 이벤트도 억제 사유와 함께 기록됨 (R2-3)
+- [x] 1.3.2 정규화 Lambda `backend/alert_ingestor/` — 이벤트 수신 → 스키마 변환 → 이력 기록
+  - [x] 테스트: 알 수 없는 형태의 이벤트를 버리지 않고 기록 (10건, `test_alert_ingestor.py`)
+  - 적재 실패는 예외를 올린다 — EventBridge 재시도·DLQ가 안전망이므로 삼키면 안 된다
+  - 계정→고객사 매핑은 컨테이너 수명 동안 캐시 (이벤트마다 스캔하지 않는다)
+- [x] 1.3.3 `alarm_identity.identify_alarm()`으로 리소스 해석 (기존 모듈 재사용)
+- [x] 1.3.4 **정제 이전에** 원본 전량 기록 (R2-1)
+  - [x] 테스트: `suppressed=False`로 기록됨. 억제 사유 필드는 정제 엔진(1.4) 도입 시 채워진다 (R2-3)
 
 ### 1.4 정제 엔진
 
