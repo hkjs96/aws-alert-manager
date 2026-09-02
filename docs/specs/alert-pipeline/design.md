@@ -112,7 +112,7 @@ CloudWatch 알람당 액션 5개 제한도 상한이 된다.
 severity별 분기도 고객사별 분기도 불가능하다. `docs/ALARM-RULES.md` §334-337의 SEV별 라우팅
 요구를 만족하려면 (고객사 × severity)만큼 토픽이 필요해진다. 코드 라우터가 필수다.
 
-**자격증명:** Webhook URL은 Secrets Manager에 저장하고 표에는 참조만 둔다(R6-8).
+**자격증명:** 표에는 참조만 두고 값은 SSM Parameter Store SecureString에 둔다 — D7 참조(R6-8).
 
 ### D4. 정제 기법은 Alertmanager + PagerDuty 모델을 따른다
 
@@ -172,6 +172,54 @@ Anomaly Detection을 "설명 불가"로 기각한 기존 결정과 일관된다.
 - 인시던트 단위: 월 7,200회 → 약 $40
 - **패턴 단위 + 프롬프트 캐싱: 월 1,500회 → 약 $5**
 
+### D7. 채널 자격증명은 SSM Parameter Store SecureString에 둔다
+
+**결정:** `NotificationChannelTable`에는 참조 경로만 저장하고, Webhook URL 등 실제 값은
+SSM Parameter Store의 SecureString 파라미터에 둔다.
+
+```
+NotificationChannelTable (DynamoDB)     ← 메타데이터
+  customer_id, channel_id, name, type, enabled, filters
+  secret_ref: "/alarm-manager/channels/cust-001/slack-ops"
+
+SSM Parameter Store (SecureString)      ← 값
+  /alarm-manager/channels/cust-001/slack-ops = https://hooks.slack.com/...
+```
+
+**비용 비교 (AWS 요금 페이지 확인, 2026-09-02):**
+
+| 방식 | 비용 | KMS 암호화 | 스캔에 딸려나감 | 읽기 감사 |
+|---|---|---|---|---|
+| DynamoDB 평문 | $0 | ❌ | **딸려나감** | data event 별도 유료 설정 |
+| **Parameter Store Standard SecureString** | **$0** (*"No additional charge"*, 표준 처리량 API도 무료) | ✅ `aws/ssm` 기본키 | 안 딸려나감(별도 API) | CloudTrail 기본 |
+| Secrets Manager | $0.40/시크릿/월 → 고객사 10 × 채널 2 = **$8/월** | ✅ | 안 딸려나감 | CloudTrail 기본 |
+
+**위험도 평가 — 솔직하게:**
+
+Slack Webhook URL이 유출됐을 때 가능한 것은 **그 채널 하나에 글을 쓰는 것**뿐이다.
+메시지 읽기·워크스페이스 접근·권한 상승은 불가능하다. 게다가 이 시스템의 노출 경로
+(아래 주의사항)는 API Gateway JWT + 이메일 allowlist 뒤에 있어 **인증된 내부 사용자**에게만
+보인다 — 그 사람들은 어차피 해당 Slack에 있다. **즉 위험도 자체는 낮다.**
+
+그럼에도 이 결정을 택하는 이유:
+
+1. **비용과 작업량이 같다.** Parameter Store가 DynamoDB 평문과 똑같이 $0이고 코드도
+   `get_parameter` 한 줄 차이다. 트레이드오프가 없으면 덜 안전한 쪽을 고를 이유가 없다.
+2. **고객사 채널이면 경계를 넘는다.** 우리 팀원이 *고객사* Slack에 글을 쓸 수 있게 되는 것은
+   권한 경계 문제다.
+3. **예정된 AuthZ 스코핑과 충돌한다.** 유저별 담당 고객사 스코핑을 도입하면서 다른 고객사의
+   채널 URL이 스캔에 딸려 나오면 그 스코핑이 무의미해진다.
+
+Secrets Manager의 유일한 우위인 자동 로테이션은 **Slack Webhook에 로테이션 API가 없어**
+쓸 수 없다. 월 $8을 낼 근거가 없다.
+
+**⚠️ 구현 주의 — 이 저장소의 실제 패턴:**
+
+`api_handler`에는 `scan_all(table)` 결과를 **필드 화이트리스트 없이 그대로 응답에 넣는** 코드가
+12곳 있다. 예: `routes/customers.py::list_customers`는 `scan_all(customers_table())` →
+`_ok(items)`다. 채널 표에 나중에 목록 API를 추가할 때 같은 관례를 따르면 저장된 값이 그대로
+나간다. **채널 표에는 응답에 나가도 무해한 것만 둔다**는 것이 이 결정의 실질적 내용이다.
+
 ### D6. 조치는 L1 → L2 → L3 순으로만 확장한다
 
 | 단계 | 예 | 사람 개입 | 도입 |
@@ -222,7 +270,7 @@ Anomaly Detection을 "설명 불가"로 기각한 기존 결정과 일관된다.
 | ③ 정제 | Lambda | $0 (무료 구간) |
 | ④ 인시던트 | Step Functions 10.8만 전이 | $2.70 |
 | ⑤ 온콜 | Lambda + DDB | $0.05 |
-| ⑥ 알림 | Lambda + 전송(무료 100GB) + Secrets Manager | $0.45 |
+| ⑥ 알림 | Lambda + 전송(무료 100GB) + Parameter Store(무료, D7) | $0.05 |
 | ⑦ AIOps | AI 패턴 분석 $5 + SSM Automation $6 | $11 |
 | | **합계** | **약 월 $15** |
 

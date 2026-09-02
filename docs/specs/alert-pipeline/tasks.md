@@ -95,7 +95,12 @@
 > **선행 결정 필요:** U2(등록 주체), U3(조건 범위) — design.md §5
 
 - [ ] 2.2.1 `NotificationChannelTable` 설계 (고객사 × 채널 × 조건)
-- [ ] 2.2.2 Secrets Manager 연동 — Webhook URL 등 자격증명 분리 (R6-8)
+- [ ] 2.2.2 SSM Parameter Store SecureString 연동 — Webhook URL 등 자격증명 분리 (R6-8, design.md **D7**)
+  - 표에는 `secret_ref` 경로만, 값은 `/alarm-manager/channels/{customer}/{channel}`
+  - 라우터 Lambda에만 `ssm:GetParameter` 부여, 경로 접두사로 제한
+  - [ ] 테스트: 채널 목록 응답에 자격증명 값이 포함되지 않음
+    - `api_handler`에 `scan_all` 결과를 화이트리스트 없이 응답에 넣는 코드가 12곳 있다 —
+      채널 표가 같은 관례를 따라도 유출되지 않아야 한다
 - [ ] 2.2.3 라우터 Lambda — 조건 매칭 → 채널별 발송
   - [ ] 테스트: 조건에 맞는 채널만 선택됨
   - [ ] 테스트: 채널 추가/삭제가 알람을 수정하지 않고 반영됨 (R6-5)
