@@ -320,6 +320,48 @@ Resources:
         - Key: ManagedBy
           Value: AlarmManager
 
+  # -- DynamoDB: 알림 파이프라인 이벤트 이력 (정제 전 원본 전량) ----------------
+  # docs/specs/alert-pipeline/ R2. 억제된 이벤트도 사유와 함께 남긴다 — 정제 규칙을
+  # 바꾼 뒤 과거 판단을 소급 검증하려면 원본이 있어야 하고, Phase 4 AIOps의 학습
+  # 데이터이기도 하다. series_id는 MetricHistoryTable과 **동일 규약**이라
+  # "이 알람이 몇 번 울렸나"와 "평소 이 메트릭 값은"이 같은 키로 조인된다.
+  EventHistoryTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub
+        - aws-monitoring-event-history-${EnvShort}
+        - EnvShort: !FindInMap [EnvShortName, !Ref Environment, short]
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: series_id     # "{account_id}#{resource_id}#{metric_key}"
+          AttributeType: S
+        - AttributeName: event_key     # "{ISO8601}#{event_id 앞 8자}" — 시간순 정렬
+          AttributeType: S
+        - AttributeName: customer_day  # "{customer_id}#YYYY-MM-DD" — 리포트/기간 조회
+          AttributeType: S
+      KeySchema:
+        - AttributeName: series_id
+          KeyType: HASH
+        - AttributeName: event_key
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        # 고객사·일자 단위 조회 (억제율 리포트 R9, 기간 집계). 일 단위로 파티션을
+        # 나눠 큰 고객사의 알람 폭풍이 단일 파티션에 몰리지 않게 한다.
+        - IndexName: customer_day-index
+          KeySchema:
+            - AttributeName: customer_day
+              KeyType: HASH
+            - AttributeName: event_key
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+      Tags:
+        - Key: ManagedBy
+          Value: AlarmManager
+
   BulkOperationDLQ:
     Type: AWS::SQS::Queue
     Properties:

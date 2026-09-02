@@ -47,13 +47,14 @@
 - [ ] 1.2.1 우리 계정 커스텀 이벤트 버스 + 버스 정책(고객사 계정 허용) — CFN
 - [ ] 1.2.2 고객사 온보딩 템플릿에 EventBridge 룰 + 전달 역할 추가
   - 온보딩 템플릿 3곳 동기화 (`infrastructure/customer-onboarding/` → `frontend/public/` → 공개 S3, `text/yaml`)
-- [ ] 1.2.3 `EventHistoryTable` — PK/SK 설계, TTL, GSI(고객사·시간 조회용)
+- [x] 1.2.3 `EventHistoryTable` — PK `series_id` / SK `event_key`, GSI `customer_day-index`, TTL 90일 (design.md **D8**)
 - [ ] 1.2.4 워커 IAM 및 배포 검증 (`/new-collector` IAM 체크 절차 준용 — 배포 후 `AccessDenied` grep)
 
 ### 1.3 수집·정규화
 
-- [ ] 1.3.1 `common/alert_event.py` — 클라우드 중립 이벤트 스키마 정의 (R1-6)
-  - [ ] 테스트: CloudWatch 이벤트 → 정규화 스키마 변환
+- [x] 1.3.1 `common/alert_event.py` — 클라우드 중립 이벤트 스키마 정의 (R1-6)
+  - [x] 테스트: CloudWatch 이벤트 → 정규화 스키마 변환 (22건, `test_alert_event.py`)
+  - 파서는 어떤 입력에도 예외를 던지지 않고 `parse_error` + `raw`로 남긴다 (R2-1)
 - [ ] 1.3.2 정규화 Lambda — 이벤트 수신 → 스키마 변환 → 이력 기록
   - [ ] 테스트: 알 수 없는 형태의 이벤트를 버리지 않고 기록
 - [ ] 1.3.3 `alarm_identity.identify_alarm()`으로 리소스 해석 (기존 모듈 재사용)
