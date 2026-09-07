@@ -289,6 +289,10 @@ NOTIFY가 조회 창 밖으로 밀려 dedup이 **조용히 풀린다** — 가�
 - `version` 조건부 갱신 — 같은 series의 이벤트가 동시에 처리돼도 한쪽만 알린다(at-least-once 대비).
 - 비용: 이벤트당 읽기 1 + 쓰기 1. 월 7만 이벤트 기준 $0.1 미만.
 
+**구현(2026-09-07):** `common/alert_state.py`(순수·멱등, PBT) + 인제스터 "상태 먼저, 이력 나중" 조건부 갱신.
+라이브: 25번 토글 → 발화 NOTIFY 1 · dedup 1 · flapping 23, 해소 알림 1, version 50, 충돌 0.
+`grp#` 항목은 D10에서 쓴다.
+
 ### D10. 타이머는 그룹 단위다 — 이벤트 단위가 아니다
 
 **결정:** Step Functions 실행은 **그룹당 하나**다. 그룹 키는 우선 `{customer_id}#{severity}`

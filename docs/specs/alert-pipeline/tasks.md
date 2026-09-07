@@ -82,15 +82,16 @@
   - [x] 라이브 실증(2026-09-07): 발화→NOTIFY, 해소→cleared 억제, 재발화→**dedup 억제** 확인
   - 발송자(2.2)가 붙기 전에 실제 트래픽으로 억제율(R9-1)을 측정하고 규칙을 검증한다
   - DEFER는 타이머가 없어 실행 불가 → 억제로 세지 않는다(과대 집계 방지)
-- [ ] 1.4.2 **상태 테이블** `AlertStateTable` (design.md **D9**, review-2026-09-07 B1) — 계획 `plan-state-grouping.md` §A
-  - 받아들임 기준(라이브): **25번 토글 → NOTIFY 1건** (현재 코드는 ~10번마다 1건)
-  - 상태 먼저, 이력 나중 — 재시도에 안전한 순서. 이력 Query(Limit=20)와 그 IAM은 제거
-  - 지문별 `last_notified_at` / `recent_episodes` / `quarantined_until` / `version`
-  - 이력 Query 스캔(Limit=20) 제거 — 억제 20건 뒤 dedup이 풀리는 버그의 근본 해소
-  - `is_flapping` / `already_notified`를 여기서 채워 `decide()`에 전달 (현재 항상 False)
-  - 갱신은 `version` 조건부 — 동시 처리에서 한쪽만 알린다
-  - [ ] 테스트: 억제 항목이 아무리 쌓여도 dedup 창이 유지됨
-  - [ ] 테스트: 조건부 갱신 실패 시 dedup으로 판정
+- [x] 1.4.2 **상태 테이블** `AlertStateTable` (design.md **D9**, review-2026-09-07 B1) — 계획 `plan-state-grouping.md` §A — ✅ 2026-09-07 배포 (v20260907T065829)
+  - [x] 받아들임 기준(라이브): **25번 토글 → 발화 NOTIFY 1건** — 실측 NOTIFY 1 · dedup 1 · flapping 23, 해소 알림 1, 상태 version 50, 충돌 0, AccessDenied 0
+  - `common/alert_state.py` 순수 모듈 (`inputs_from_state` / `apply_event` / `unchanged` / `state_item`) — 멱등, PBT 3건(각 200 예시)
+  - 상태 먼저, 이력 나중 — 재시도에 안전한 순서. 이력 Query(Limit=20)와 그 IAM은 제거, 상태 GetItem/PutItem 추가
+  - `is_flapping` / `already_notified`를 상태에서 채워 `decide()`에 전달 — flapping 격리·해소 알림이 실제로 동작
+  - 갱신은 `version` 조건부(PutItem) — 충돌 시 재판정(최대 3회) → dedup, 소진 시 fail-open NOTIFY `state_contention`
+  - 상태 조회·갱신 실패는 fail-open이되 `PERF_METRIC state_ok=false`로 드러난다 (IAM 누락을 숨기지 않기 위해)
+  - flapping 기본: 창 1일 · 3회 · 격리 1h (`ALERT_FLAPPING_QUARANTINE_SEC` / `ALERT_FLAPPING_WINDOW_DAYS`)
+  - [x] 테스트: 억제 항목이 아무리 쌓여도 dedup 창이 유지됨 (핸들러 + 조건식 해석 가짜 테이블로 25번 토글)
+  - [x] 테스트: 조건부 갱신 실패 시 재판정 → dedup / 소진 → fail-open / 상태→이력 순서
 - [ ] 1.4.3 Grouping — **타이머보다 먼저** (design.md **D10**, review S2) — 계획 `plan-state-grouping.md` §B
   - 받아들임 기준(라이브): **1분 500건 → 실행 1개**, 이력 500건 전부 같은 `group_id`
   - 그룹은 **닫고 나서 조회**한다 — 늦게 온 이벤트가 어느 쪽에도 안 잡히는 빈틈 방지
@@ -109,14 +110,14 @@
   - [x] 테스트: 정비 시간대 억제, 종료 후 정상화, 스코프 매칭
   - [ ] 정비창을 DB에 저장·관리하는 UI/API (현재는 정책 객체에만 존재)
 - [x] 1.4.5 Flapping 판정 함수 (`is_flapping`) — 실측 스크립트와 같은 기준식
-  - [ ] 격리 상태 저장·해제 → 1.4.2 상태 테이블의 `recent_episodes`/`quarantined_until`
+  - [x] 격리 상태 저장·해제 → 1.4.2 상태 테이블의 `recent_episodes`/`quarantined_until` (라이브: 3번째 발화부터 격리)
 - [ ] 1.4.6 정제 설정을 DB에서 읽기 (R3-9) — 현재는 환경변수
   (`ALERT_AUTO_PAUSE_SEC`, `ALERT_REPEAT_INTERVAL_SEC`)
 
 ### 1.5 측정
 
 - [ ] 1.5.1 억제율·억제 사유별 건수 계측 (`perf_log` 규약 사용, R9-1·9-2)
-  - ⚠️ 1.4.2 전까지 억제율은 **하한**이다 — flapping·silence·해소 알림이 미배선 (review §4). 리포트에 명시
+  - ⚠️ 억제율은 아직 **하한** — silence(정비창)만 미배선(1.4.4 저장소 없음). flapping·해소 알림은 1.4.2로 배선됨
 - [ ] 1.5.2 `docs/OBSERVABILITY.md`에 조회 쿼리 추가
 
 ### 1.6 검토 반영 — `review-2026-09-07.md` — ✅ 2026-09-07 배포 (v20260907T035356)

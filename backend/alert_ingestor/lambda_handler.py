@@ -1,5 +1,5 @@
 """
-Alert Ingestor — 알람 이벤트 수집 진입점 (docs/specs/alert-pipeline/ Phase 1.3)
+Alert Ingestor — 알람 이벤트 수집 진입점 (docs/specs/alert-pipeline/ Phase 1.3 / 1.4)
 
 EventBridge가 전달한 CloudWatch 알람 이벤트를 정규화해 EventHistoryTable에 적재한다.
 **정제(억제) 이전에 원본 전량을 기록한다** (R2-1) — 이 단계에서 버린 이벤트는 되돌릴 수 없고,
@@ -16,6 +16,18 @@ Phase 4 AIOps의 학습 데이터이기도 하다.
 **정제는 지금 Shadow 모드다.** `alert_suppression.decide()`의 판정을 항목에 기록만 하고
 아무것도 막지 않는다 — 알림 발송자(Phase 2.2)가 아직 없기 때문이다. 덕분에 발송을 붙이기 전에
 실제 트래픽으로 억제율(R9-1)을 측정하고 규칙을 검증할 수 있다. 임계치 재보정과 같은 방식이다.
+
+**판정 재료는 상태 테이블에서 온다(design.md D9).** 순서는 **상태 먼저, 이력 나중**:
+  1. `fp#{지문}` 읽기 → `decide()` → 새 상태를 **조건부**(version)로 쓴다
+  2. 이력 적재
+반대로 하면 이력을 쓴 뒤 크래시 → 재시도 → 이력은 이미 있음 → 상태가 영영 갱신되지 않는다.
+상태 갱신은 멱등이라(같은 이벤트 두 번 = 한 번) 재시도에 안전하고, 이력 put은 같은 키를 덮어쓴다.
+조건 충돌은 같은 지문의 이벤트가 동시에 처리됐다는 뜻이다 — 다시 읽어 재판정하면 진 쪽은
+`last_notified_at`을 보고 dedup이 된다. 이게 이중 발송을 막는 유일한 지점이다(Phase 2 claim-then-send).
+
+**상태 조회·갱신 실패는 fail-open이다** — 알림을 잃는 것보다 중복이 낫다. 단, 이 원칙은
+IAM 누락 같은 결함을 숨긴다(2026-09-07 실측: Query 권한 누락으로 dedup이 조용히 죽어 있었다).
+그래서 실패는 ERROR 로그 + `PERF_METRIC state_ok=false`로 남기고, 배포 뒤 `AccessDenied`를 grep한다.
 """
 
 import functools
@@ -23,20 +35,37 @@ import json
 import logging
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 
 import boto3
+from boto3.dynamodb.conditions import Attr
 from botocore.exceptions import ClientError
 
-from boto3.dynamodb.conditions import Key
-
 from common.alarm_registry import get_severity
-from common.alert_event import from_eventbridge, to_item
-from common.alert_suppression import DEFER, NOTIFY, SuppressionPolicy, decide
+from common.alert_event import STATE_CHANGE, from_eventbridge, to_item
+from common.alert_state import (
+    apply_event,
+    fp_key,
+    inputs_from_state,
+    state_item,
+    unchanged,
+)
+from common.alert_suppression import (
+    DEFER,
+    NOTIFY,
+    Decision,
+    SuppressionPolicy,
+    decide,
+    fingerprint,
+)
 from common.perf_log import log_perf
 
 logging.getLogger().setLevel(logging.INFO)
 logger = logging.getLogger(__name__)
+
+#: 조건 충돌 재시도 횟수. 같은 지문이 이 이상 연속 충돌하면 fail-open으로 NOTIFY한다.
+STATE_MAX_ATTEMPTS = 3
+_REASON_CONTENTION = "state_contention"
 
 
 @functools.lru_cache(maxsize=None)
@@ -112,34 +141,83 @@ def _policy() -> SuppressionPolicy:
             pause = {str(k): int(v) for k, v in json.loads(raw).items()}
         except (json.JSONDecodeError, TypeError, ValueError) as e:
             logger.error("ALERT_AUTO_PAUSE_SEC is malformed, ignoring: %s", e)
+    kwargs: dict = {"auto_pause_sec": pause}
     repeat = os.environ.get("ALERT_REPEAT_INTERVAL_SEC", "")
-    kwargs = {"auto_pause_sec": pause}
     if repeat.isdigit():
         kwargs["repeat_interval_sec"] = int(repeat)
+    quarantine = os.environ.get("ALERT_FLAPPING_QUARANTINE_SEC", "")
+    if quarantine.isdigit():
+        kwargs["flapping_quarantine_sec"] = int(quarantine)
+    window = os.environ.get("ALERT_FLAPPING_WINDOW_DAYS", "")
+    try:
+        if window:
+            kwargs["flapping_window_days"] = float(window)
+    except ValueError:
+        logger.error("ALERT_FLAPPING_WINDOW_DAYS is malformed, ignoring: %r", window)
     return SuppressionPolicy(**kwargs)
 
 
-def _last_notified_at(table, series_id: str):
-    """같은 지문으로 마지막으로 '보낸' 시각. 중복 판정(R3-1)의 입력.
-
-    최근 항목만 역순으로 훑는다 — 전체를 읽으면 오래된 알람일수록 비싸진다.
-    조회 실패는 억제하지 않는 쪽으로 흘려보낸다(알림을 잃는 것보다 중복이 낫다).
-    """
+def _read_state(table, key: str):
+    """(상태 항목 또는 None, 조회 성공 여부). 실패는 fail-open — 첫 발화처럼 판정한다."""
     try:
-        resp = table.query(
-            KeyConditionExpression=Key("series_id").eq(series_id),
-            ScanIndexForward=False, Limit=20,
-        )
+        resp = table.get_item(Key={"state_key": key}, ConsistentRead=True)
     except ClientError as e:
-        logger.warning("last-notified lookup failed for %s: %s", series_id, e)
+        logger.error("state read failed for %s — deciding as first occurrence: %s", key, e)
+        return None, False
+    return resp.get("Item"), True
+
+
+def _write_state(table, key: str, state: dict, expected_version, wall: datetime):
+    """조건부 저장. True=성공, False=조건 충돌(재판정 필요), None=그 외 실패(판정은 유지)."""
+    if expected_version is None:
+        condition = Attr("state_key").not_exists()
+        version = 1
+    else:
+        condition = Attr("version").eq(int(expected_version))
+        version = int(expected_version) + 1
+    try:
+        table.put_item(Item=state_item(key, state, now=wall, version=version),
+                       ConditionExpression=condition)
+        return True
+    except ClientError as e:
+        if e.response.get("Error", {}).get("Code") == "ConditionalCheckFailedException":
+            return False
+        logger.error("state write failed for %s — decision kept, state not updated: %s", key, e)
         return None
-    for item in resp.get("Items", []):
-        if not item.get("suppressed", True) and item.get("occurred_at"):
-            try:
-                return datetime.fromisoformat(str(item["occurred_at"]).replace("Z", "+00:00"))
-            except ValueError:
-                continue
-    return None
+
+
+def _decide_with_state(table, key: str, alert, policy: SuppressionPolicy,
+                       now: datetime, wall: datetime) -> tuple[Decision, bool]:
+    """상태를 읽어 판정하고 조건부로 갱신한다. (판정, 상태 처리 성공 여부)."""
+    if table is None:
+        return decide(alert, policy=policy, now=now), False
+
+    for _ in range(STATE_MAX_ATTEMPTS):
+        state, read_ok = _read_state(table, key)
+        inputs = inputs_from_state(state, alert, now=now, policy=policy)
+        decision = decide(
+            alert, policy=policy,
+            last_notified_at=inputs.last_notified_at,
+            is_flapping=inputs.is_flapping,
+            already_notified=inputs.already_notified,
+            now=now,
+        )
+        if not read_ok:
+            return decision, False
+        new_state = apply_event(state, alert, decision, now=now, policy=policy)
+        if unchanged(state, new_state):
+            return decision, True
+        wrote = _write_state(table, key, new_state,
+                             state.get("version") if state else None, wall)
+        if wrote is None:
+            return decision, False
+        if wrote:
+            return decision, True
+        # 조건 충돌: 같은 지문의 이벤트가 방금 처리됐다. 다시 읽어 재판정한다.
+
+    logger.warning("state contention on %s after %d attempts — fail-open NOTIFY",
+                   key, STATE_MAX_ATTEMPTS)
+    return Decision(NOTIFY, _REASON_CONTENTION), False
 
 
 def lambda_handler(event, context):
@@ -155,21 +233,29 @@ def lambda_handler(event, context):
     # 알람 이벤트에는 태그가 실리지 않는다 — 메트릭 키의 기본 등급을 쓴다.
     alert.severity = get_severity(alert.metric_key) if alert.metric_key else ""
 
-    table = _get_ddb().Table(table_name)
-    decision = decide(
-        alert,
-        policy=_policy(),
-        last_notified_at=_last_notified_at(table, alert.series_id),
-        # 벽시계가 아니라 이벤트 발생 시각으로 판정한다 — 재시도로 늦게 처리돼도
-        # 중복·정비창 판정이 흔들리지 않고, 과거 이벤트 재현도 같은 결과가 나온다.
-        now=alert.occurred_dt,
-    )
-    # Shadow: 판정을 기록만 한다. DEFER는 타이머(Step Functions, tasks 1.4.2)가 붙기 전까지
+    # 벽시계가 아니라 이벤트 발생 시각으로 판정한다 — 재시도로 늦게 처리돼도
+    # 중복·정비창 판정이 흔들리지 않고, 과거 이벤트 재현도 같은 결과가 나온다.
+    wall = datetime.now(timezone.utc)
+    now = alert.occurred_dt or wall
+    policy = _policy()
+
+    if alert.event_type != STATE_CHANGE:
+        # 알람 생성/수정/삭제는 상태에 관여하지 않는다 — 읽기·쓰기 모두 건너뛴다
+        decision, state_ok = decide(alert, policy=policy, now=now), True
+    else:
+        state_name = os.environ.get("ALERT_STATE_TABLE", "")
+        if not state_name:
+            logger.error("ALERT_STATE_TABLE is not configured — no dedup/flapping state")
+        state_table = _get_ddb().Table(state_name) if state_name else None
+        decision, state_ok = _decide_with_state(
+            state_table, fp_key(fingerprint(alert)), alert, policy, now, wall)
+
+    # Shadow: 판정을 기록만 한다. DEFER는 타이머(Step Functions, tasks 1.4.3b)가 붙기 전까지
     # 실행할 수 없으므로 억제로 세지 않는다 — 세면 억제율이 과대 집계된다.
     alert.suppressed = decision.action not in (NOTIFY, DEFER)
     alert.suppression_reason = decision.reason
 
-    table.put_item(Item=to_item(alert))
+    _get_ddb().Table(table_name).put_item(Item=to_item(alert))
 
     log_perf(
         "alert_ingest", 0,
@@ -180,11 +266,13 @@ def lambda_handler(event, context):
         action=decision.action,
         reason=decision.reason or "-",
         parsed=not alert.parse_error,
+        state_ok=state_ok,
     )
     logger.info(
-        "Ingested %s: alarm=%s state=%s verdict=%s(%s) series=%s%s",
+        "Ingested %s: alarm=%s state=%s verdict=%s(%s) series=%s%s%s",
         alert.event_type, alert.alarm_name, alert.state,
         decision.action, decision.reason or "-", alert.series_id,
+        "" if state_ok else " (state_ok=false)",
         f" (parse_error={alert.parse_error})" if alert.parse_error else "",
     )
     return {
@@ -194,4 +282,5 @@ def lambda_handler(event, context):
         "action": decision.action,
         "reason": decision.reason,
         "suppressed": alert.suppressed,
+        "state_ok": state_ok,
     }

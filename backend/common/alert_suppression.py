@@ -79,6 +79,13 @@ class SuppressionPolicy:
 
     silences: tuple[Silence, ...] = ()
 
+    #: flapping — 창(일) 안에 하루 평균 이 횟수 이상 ALARM 진입이면 격리한다 (R3-7).
+    #: 창 1일·3회 = "오늘 세 번째 발화부터 격리". 실측 스크립트의 후보 기준(3회/일)과 같은 식.
+    flapping_window_days: float = 1.0
+    flapping_per_day: int = 3
+    #: 격리 시간. 격리 중에도 에피소드는 기록되므로 만료 시 아직 flapping이면 다시 격리된다.
+    flapping_quarantine_sec: int = 3600
+
     def pause_for(self, severity: str) -> int:
         return int(self.auto_pause_sec.get(severity, 0))
 
