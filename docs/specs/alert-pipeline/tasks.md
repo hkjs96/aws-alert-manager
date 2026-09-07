@@ -52,7 +52,10 @@
 - [ ] 1.2.2 고객사 온보딩 템플릿에 EventBridge 룰 + 전달 역할 추가
   - 온보딩 템플릿 3곳 동기화 (`infrastructure/customer-onboarding/` → `frontend/public/` → 공개 S3, `text/yaml`)
 - [x] 1.2.3 `EventHistoryTable` — PK `series_id` / SK `event_key`, GSI `customer_day-index`, TTL 90일 (design.md **D8**)
-- [x] 1.2.4 인제스터 IAM (`EventHistoryTable` PutItem + `AccountsTable` Scan) — 배포 후 `AccessDenied` grep 필요
+- [x] 1.2.4 인제스터 IAM (`EventHistoryTable` PutItem+**Query** + `AccountsTable` Scan)
+  - ⚠️ Query를 빠뜨려 dedup이 **조용히 동작하지 않았다** (2026-09-07 실측에서 발견).
+    조회 실패를 fail-open으로 흘려보내는 설계라 로그를 보기 전엔 드러나지 않는다 —
+    새 AWS 호출을 추가하면 **같은 커밋에서** 권한을 확인하라는 규칙(`/new-collector` IAM 체크)의 실제 사례
 
 ### 1.3 수집·정규화
 
@@ -76,6 +79,7 @@
     같고, 과거 이벤트를 새 규칙으로 재현할 수 있다(R2-5)
   - 지문은 `series_id` — 알람 이름은 임계치가 바뀌면 달라져 중복 판정이 초기화된다
 - [x] 1.4.1b **Shadow 연결** — 인제스터가 판정을 기록만 하고 실행하지 않는다
+  - [x] 라이브 실증(2026-09-07): 발화→NOTIFY, 해소→cleared 억제, 재발화→**dedup 억제** 확인
   - 발송자(2.2)가 붙기 전에 실제 트래픽으로 억제율(R9-1)을 측정하고 규칙을 검증한다
   - DEFER는 타이머가 없어 실행 불가 → 억제로 세지 않는다(과대 집계 방지)
 - [ ] 1.4.2 Auto-pause **실행** — Step Functions Wait 기반 (판정 로직은 1.4.1에 있음)
