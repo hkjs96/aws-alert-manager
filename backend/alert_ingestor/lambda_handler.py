@@ -28,6 +28,11 @@ Phase 4 AIOps의 학습 데이터이기도 하다.
 **상태 조회·갱신 실패는 fail-open이다** — 알림을 잃는 것보다 중복이 낫다. 단, 이 원칙은
 IAM 누락 같은 결함을 숨긴다(2026-09-07 실측: Query 권한 누락으로 dedup이 조용히 죽어 있었다).
 그래서 실패는 ERROR 로그 + `PERF_METRIC state_ok=false`로 남기고, 배포 뒤 `AccessDenied`를 grep한다.
+
+**그룹(design.md D10):** 보낼(NOTIFY/DEFER) 상태 전이는 그룹에 속한다. `grp#{고객사#등급}`이 열려
+있으면 그 `group_id`를 이력에 적을 뿐이고, 없거나 닫혀 있으면 조건부로 열고 Step Functions 실행을
+시작한다 — **실행은 그룹당 하나**다. 순서: 상태 → 그룹 → 이력. 그룹 처리 실패도 fail-open이다
+(`group_ok=false`): 이벤트는 그룹 없이 적재되고, 실행이 없는 열린 그룹은 다음 이벤트가 다시 시작한다.
 """
 
 import functools
@@ -35,7 +40,7 @@ import json
 import logging
 import os
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import boto3
 from boto3.dynamodb.conditions import Attr
@@ -43,10 +48,22 @@ from botocore.exceptions import ClientError
 
 from common.alarm_registry import get_severity
 from common.alert_event import STATE_CHANGE, from_eventbridge, to_item
+from common.alert_group import (
+    GROUP_TTL_DAYS,
+    STATUS_OPEN,
+    execution_arn,
+    execution_input,
+    new_group,
+    should_group,
+)
 from common.alert_state import (
+    STATE_TTL_DAYS,
     apply_event,
     fp_key,
+    group_key,
+    grp_key,
     inputs_from_state,
+    iso_utc,
     state_item,
     unchanged,
 )
@@ -72,6 +89,11 @@ _REASON_CONTENTION = "state_contention"
 def _get_ddb():
     """DynamoDB 리소스 싱글턴 (AGENTS.md AP-7)."""
     return boto3.resource("dynamodb")
+
+
+@functools.lru_cache(maxsize=None)
+def _get_sfn():
+    return boto3.client("stepfunctions")
 
 
 #: 계정→고객사 매핑 캐시 수명. 컨테이너는 몇 시간을 살므로 무기한 캐시면 새로 등록한
@@ -134,27 +156,7 @@ def _policy() -> SuppressionPolicy:
     `ALERT_AUTO_PAUSE_SEC`는 severity별 유예 JSON이며 **기본은 비어 있다** —
     값은 Phase 0 실측("N분 유예 시 억제율")으로 정한다. 비어 있으면 유예하지 않는다.
     """
-    raw = os.environ.get("ALERT_AUTO_PAUSE_SEC", "").strip()
-    pause: dict[str, int] = {}
-    if raw:
-        try:
-            pause = {str(k): int(v) for k, v in json.loads(raw).items()}
-        except (json.JSONDecodeError, TypeError, ValueError) as e:
-            logger.error("ALERT_AUTO_PAUSE_SEC is malformed, ignoring: %s", e)
-    kwargs: dict = {"auto_pause_sec": pause}
-    repeat = os.environ.get("ALERT_REPEAT_INTERVAL_SEC", "")
-    if repeat.isdigit():
-        kwargs["repeat_interval_sec"] = int(repeat)
-    quarantine = os.environ.get("ALERT_FLAPPING_QUARANTINE_SEC", "")
-    if quarantine.isdigit():
-        kwargs["flapping_quarantine_sec"] = int(quarantine)
-    window = os.environ.get("ALERT_FLAPPING_WINDOW_DAYS", "")
-    try:
-        if window:
-            kwargs["flapping_window_days"] = float(window)
-    except ValueError:
-        logger.error("ALERT_FLAPPING_WINDOW_DAYS is malformed, ignoring: %r", window)
-    return SuppressionPolicy(**kwargs)
+    return SuppressionPolicy.from_env()
 
 
 def _read_state(table, key: str):
@@ -167,7 +169,8 @@ def _read_state(table, key: str):
     return resp.get("Item"), True
 
 
-def _write_state(table, key: str, state: dict, expected_version, wall: datetime):
+def _write_state(table, key: str, state: dict, expected_version, wall: datetime, *,
+                 ttl_days: int = STATE_TTL_DAYS):
     """조건부 저장. True=성공, False=조건 충돌(재판정 필요), None=그 외 실패(판정은 유지)."""
     if expected_version is None:
         condition = Attr("state_key").not_exists()
@@ -176,7 +179,7 @@ def _write_state(table, key: str, state: dict, expected_version, wall: datetime)
         condition = Attr("version").eq(int(expected_version))
         version = int(expected_version) + 1
     try:
-        table.put_item(Item=state_item(key, state, now=wall, version=version),
+        table.put_item(Item=state_item(key, state, now=wall, version=version, ttl_days=ttl_days),
                        ConditionExpression=condition)
         return True
     except ClientError as e:
@@ -220,6 +223,64 @@ def _decide_with_state(table, key: str, alert, policy: SuppressionPolicy,
     return Decision(NOTIFY, _REASON_CONTENTION), False
 
 
+def _start_execution(sfn, state_machine_arn: str, group: dict):
+    """그룹 실행 시작. 같은 이름이 이미 있으면(연 쪽이 죽었다가 재시도 등) 그 ARN을 돌려준다."""
+    name = str(group["group_id"])
+    try:
+        resp = sfn.start_execution(stateMachineArn=state_machine_arn, name=name,
+                                   input=json.dumps(execution_input(group)))
+        return resp["executionArn"]
+    except ClientError as e:
+        if e.response.get("Error", {}).get("Code") == "ExecutionAlreadyExists":
+            return execution_arn(state_machine_arn, name)
+        logger.error("StartExecution failed for group %s: %s", name, e)
+        return None
+
+
+def _resolve_group(state_table, sfn, state_machine_arn: str, alert, policy: SuppressionPolicy,
+                   wall: datetime) -> tuple[str, bool]:
+    """이 이벤트가 속할 그룹 ID. 없으면 열고 실행을 시작한다. (group_id, 처리 성공 여부)."""
+    gk = group_key(alert)
+    key = grp_key(gk)
+    for _ in range(STATE_MAX_ATTEMPTS):
+        item, read_ok = _read_state(state_table, key)
+        if not read_ok:
+            return "", False
+
+        if item and item.get("status") == STATUS_OPEN:
+            gid = str(item.get("group_id", ""))
+            if not item.get("execution_arn"):
+                # 연 쪽이 StartExecution 전에 죽었다 — 같은 이름으로 내가 시작한다(멱등)
+                arn = _start_execution(sfn, state_machine_arn, item)
+                if arn:
+                    _write_state(state_table, key, {**item, "execution_arn": arn},
+                                 item.get("version"), wall, ttl_days=GROUP_TTL_DAYS)
+                return gid, arn is not None
+            return gid, True
+
+        # 없거나 닫힘 → 조건부로 연다. 조건 충돌이면 남이 방금 열었으니 다시 읽어 합류한다.
+        group = new_group(gk, alert, opened_at=iso_utc(wall), group_wait_sec=policy.group_wait_sec)
+        if item and item.get("group_id") == group["group_id"]:
+            # 같은 초에 닫혔다 다시 열리면 이름이 같아져 옛 실행에 조용히 붙는다 — 1초 뒤 스탬프로 피한다
+            group = new_group(gk, alert, opened_at=iso_utc(wall + timedelta(seconds=1)),
+                              group_wait_sec=policy.group_wait_sec)
+        expected = item.get("version") if item else None
+        wrote = _write_state(state_table, key, group, expected, wall, ttl_days=GROUP_TTL_DAYS)
+        if wrote is None:
+            return "", False
+        if not wrote:
+            continue
+        arn = _start_execution(sfn, state_machine_arn, group)
+        if arn:
+            _write_state(state_table, key, {**group, "execution_arn": arn},
+                         1 if expected is None else int(expected) + 1, wall, ttl_days=GROUP_TTL_DAYS)
+        # arn이 없으면 열린 그룹에 실행이 없는 상태 — 다음 이벤트가 재시작한다
+        return group["group_id"], arn is not None
+
+    logger.warning("group contention on %s after %d attempts — ungrouped", key, STATE_MAX_ATTEMPTS)
+    return "", False
+
+
 def lambda_handler(event, context):
     """EventBridge 이벤트 1건을 정규화해 적재한다."""
     table_name = os.environ.get("EVENT_HISTORY_TABLE", "")
@@ -239,6 +300,7 @@ def lambda_handler(event, context):
     now = alert.occurred_dt or wall
     policy = _policy()
 
+    state_table = None
     if alert.event_type != STATE_CHANGE:
         # 알람 생성/수정/삭제는 상태에 관여하지 않는다 — 읽기·쓰기 모두 건너뛴다
         decision, state_ok = decide(alert, policy=policy, now=now), True
@@ -250,10 +312,21 @@ def lambda_handler(event, context):
         decision, state_ok = _decide_with_state(
             state_table, fp_key(fingerprint(alert)), alert, policy, now, wall)
 
-    # Shadow: 판정을 기록만 한다. DEFER는 타이머(Step Functions, tasks 1.4.3b)가 붙기 전까지
-    # 실행할 수 없으므로 억제로 세지 않는다 — 세면 억제율이 과대 집계된다.
+    # Shadow: 판정을 기록만 한다. DEFER의 최종 판정(유예 뒤 해소/발송)은 그룹 워커가
+    # `final_action`으로 write-back 한다 — 적재 시점엔 억제로 세지 않는다.
     alert.suppressed = decision.action not in (NOTIFY, DEFER)
     alert.suppression_reason = decision.reason
+
+    # 그룹 — 보낼 이벤트만. 실행은 그룹당 하나(D10).
+    group_ok = True
+    if should_group(alert, decision):
+        state_machine_arn = os.environ.get("ALERT_GROUP_STATE_MACHINE_ARN", "")
+        if state_machine_arn and state_table is not None:
+            alert.group_id, group_ok = _resolve_group(
+                state_table, _get_sfn(), state_machine_arn, alert, policy, wall)
+        else:
+            group_ok = False
+            logger.error("grouping disabled — ALERT_GROUP_STATE_MACHINE_ARN or state table missing")
 
     _get_ddb().Table(table_name).put_item(Item=to_item(alert))
 
@@ -267,12 +340,15 @@ def lambda_handler(event, context):
         reason=decision.reason or "-",
         parsed=not alert.parse_error,
         state_ok=state_ok,
+        group_ok=group_ok,
+        grouped=bool(alert.group_id),
     )
     logger.info(
-        "Ingested %s: alarm=%s state=%s verdict=%s(%s) series=%s%s%s",
+        "Ingested %s: alarm=%s state=%s verdict=%s(%s) series=%s group=%s%s%s%s",
         alert.event_type, alert.alarm_name, alert.state,
-        decision.action, decision.reason or "-", alert.series_id,
+        decision.action, decision.reason or "-", alert.series_id, alert.group_id or "-",
         "" if state_ok else " (state_ok=false)",
+        "" if group_ok else " (group_ok=false)",
         f" (parse_error={alert.parse_error})" if alert.parse_error else "",
     )
     return {
@@ -283,4 +359,6 @@ def lambda_handler(event, context):
         "reason": decision.reason,
         "suppressed": alert.suppressed,
         "state_ok": state_ok,
+        "group_id": alert.group_id,
+        "group_ok": group_ok,
     }

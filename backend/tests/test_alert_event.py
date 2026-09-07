@@ -231,6 +231,13 @@ class TestToItem:
         assert item["suppression_reason"] == "auto_pause"
         assert item["incident_id"] == "inc-123"
 
+    def test_group_id_is_recorded_only_when_set(self):
+        """group_id-index는 sparse다 — 그룹에 속한 이벤트만 속성을 갖는다."""
+        ev = from_eventbridge(state_change_event())
+        assert "group_id" not in to_item(ev, now=NOW)
+        ev.group_id = "g-abc-20260902101530"
+        assert to_item(ev, now=NOW)["group_id"] == "g-abc-20260902101530"
+
     def test_raw_is_preserved_as_compact_json(self):
         ev = from_eventbridge(state_change_event())
         item = to_item(ev, now=NOW)

@@ -22,10 +22,15 @@
 
 from __future__ import annotations
 
+import json
+import logging
+import os
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 from common.alert_event import AlertEvent
+
+logger = logging.getLogger(__name__)
 
 NOTIFY = "notify"
 SUPPRESS = "suppress"
@@ -86,8 +91,38 @@ class SuppressionPolicy:
     #: 격리 시간. 격리 중에도 에피소드는 기록되므로 만료 시 아직 flapping이면 다시 격리된다.
     flapping_quarantine_sec: int = 3600
 
+    #: 그룹이 열린 뒤 구성원을 모으는 시간 (Alertmanager group_wait 기본 30s, design.md D10)
+    group_wait_sec: int = 30
+
     def pause_for(self, severity: str) -> int:
         return int(self.auto_pause_sec.get(severity, 0))
+
+    @classmethod
+    def from_env(cls, environ=None) -> "SuppressionPolicy":
+        """환경변수에서 정책을 읽는다 (R3-9의 DB화 전까지). 오타는 로그만 남기고 기본값을 쓴다 —
+        설정 실수가 수집을 멈추면 안 된다. 인제스터와 그룹 워커가 같은 함수를 쓴다."""
+        env = os.environ if environ is None else environ
+        kwargs: dict = {}
+        raw = env.get("ALERT_AUTO_PAUSE_SEC", "").strip()
+        if raw:
+            try:
+                kwargs["auto_pause_sec"] = {str(k): int(v) for k, v in json.loads(raw).items()}
+            except (json.JSONDecodeError, TypeError, ValueError, AttributeError) as e:
+                logger.error("ALERT_AUTO_PAUSE_SEC is malformed, ignoring: %s", e)
+        for name, key, cast in (
+            ("ALERT_REPEAT_INTERVAL_SEC", "repeat_interval_sec", int),
+            ("ALERT_FLAPPING_QUARANTINE_SEC", "flapping_quarantine_sec", int),
+            ("ALERT_FLAPPING_WINDOW_DAYS", "flapping_window_days", float),
+            ("ALERT_GROUP_WAIT_SEC", "group_wait_sec", int),
+        ):
+            value = env.get(name, "").strip()
+            if not value:
+                continue
+            try:
+                kwargs[key] = cast(value)
+            except ValueError:
+                logger.error("%s is malformed, ignoring: %r", name, value)
+        return cls(**kwargs)
 
 
 @dataclass(frozen=True)

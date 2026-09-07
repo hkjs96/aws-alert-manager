@@ -85,8 +85,12 @@ def _parse(ts) -> datetime | None:
     return d if d.tzinfo else d.replace(tzinfo=timezone.utc)
 
 
-def _iso(d: datetime) -> str:
+def iso_utc(d: datetime) -> str:
+    """이벤트 시각과 같은 형식(초 단위, Z) — 문자열 비교가 시간순이 되게 한다."""
     return d.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+_iso = iso_utc
 
 
 def _episodes_in_window(state: dict | None, ev: AlertEvent, *, now: datetime,

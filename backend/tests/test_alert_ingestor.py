@@ -13,65 +13,63 @@ Alert Ingestor (alert_ingestor/lambda_handler.py) 테스트
 - 가짜 DynamoDB(조건식 해석)로 25번 토글 시나리오를 핸들러 수준에서 재현
 """
 
+import re
 from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 
 import pytest
 from botocore.exceptions import ClientError
 
+from common.alarm_naming import _build_alarm_description
+from fakes_ddb import FakeSfn, FakeStateTable, conditional_failure as _conditional_failure
 from tests.test_alert_event import state_change_event
+
+SM_ARN = "arn:aws:states:us-east-1:111122223333:stateMachine:aws-monitoring-alert-group-test"
+ACCOUNTS = [{"account_id": "111122223333", "customer_id": "cust-1"}]
 
 
 @pytest.fixture(autouse=True)
 def _reset_caches():
     from alert_ingestor import lambda_handler as lh
     lh._get_ddb.cache_clear()
+    lh._get_sfn.cache_clear()
     lh._reset_account_cache()
     lh._policy.cache_clear()
     yield
     lh._get_ddb.cache_clear()
+    lh._get_sfn.cache_clear()
     lh._reset_account_cache()
     lh._policy.cache_clear()
 
 
 @pytest.fixture
 def env(monkeypatch):
+    """그룹은 꺼진 상태(상태 머신 ARN 없음) — 그룹 테스트는 `grouping` 픽스처를 쓴다."""
     monkeypatch.setenv("EVENT_HISTORY_TABLE", "event-history-test")
     monkeypatch.setenv("ACCOUNTS_TABLE", "accounts-test")
     monkeypatch.setenv("ALERT_STATE_TABLE", "alert-state-test")
+    monkeypatch.delenv("ALERT_GROUP_STATE_MACHINE_ARN", raising=False)
 
 
-def _conditional_failure():
-    return ClientError({"Error": {"Code": "ConditionalCheckFailedException", "Message": "x"}},
-                       "PutItem")
+@pytest.fixture
+def grouping(env, monkeypatch):
+    """그룹 켜짐: 상태 머신 ARN + 가짜 Step Functions."""
+    monkeypatch.setenv("ALERT_GROUP_STATE_MACHINE_ARN", SM_ARN)
+    monkeypatch.setenv("ALERT_GROUP_WAIT_SEC", "30")
+    from alert_ingestor import lambda_handler as lh
+    lh._policy.cache_clear()
+    sfn = FakeSfn()
+    with patch.object(lh, "_get_sfn", return_value=sfn):
+        yield sfn
 
 
-class FakeStateTable:
-    """조건식을 해석하는 인메모리 상태 테이블 — 낙관적 잠금 동작을 실제처럼 검증하기 위해."""
-
-    def __init__(self):
-        self.items: dict[str, dict] = {}
-        self.puts = 0
-
-    def get_item(self, Key, **_):
-        it = self.items.get(Key["state_key"])
-        return {"Item": dict(it)} if it else {}
-
-    def put_item(self, Item, ConditionExpression=None, **_):
-        cur = self.items.get(Item["state_key"])
-        if ConditionExpression is not None:
-            expr = ConditionExpression.get_expression()
-            op, values = expr["operator"], expr["values"]
-            if op == "attribute_not_exists":
-                ok = cur is None
-            elif op == "=":
-                ok = cur is not None and cur.get(values[0].name) == values[1]
-            else:
-                raise AssertionError(f"unsupported condition {op}")
-            if not ok:
-                raise _conditional_failure()
-        self.items[Item["state_key"]] = dict(Item)
-        self.puts += 1
+def _series_event(i: int, **over):
+    """서로 다른 리소스(= 서로 다른 지문)의 발화 이벤트."""
+    e = state_change_event(id=f"ev-{i}", **over)
+    e["detail"]["alarmName"] = f"[EC2] web-{i} CPUUtilization > 80% (TagName: i-{i:04d})"
+    e["detail"]["configuration"]["description"] = _build_alarm_description(
+        "EC2", f"i-{i:04d}", "CPUUtilization", "auto")
+    return e
 
 
 def _ddb_with(accounts_items=None, history=None, state_item=None, state=None):
@@ -563,3 +561,172 @@ class TestScenarioB1ThroughHandler:
         assert not any(v[2] == "state_contention" for v in verdicts)
         assert hist.put_item.call_count == 50                    # 이력은 전량
         assert len(fake.items) == 1 and fake.items[next(iter(fake.items))]["version"] == 50
+
+
+class TestGrouping:
+    """실행은 그룹당 하나 (design.md D10). 구성원 자격은 적재 시 이력의 group_id로 정한다."""
+
+    def test_first_notify_opens_group_and_starts_execution(self, grouping):
+        from alert_ingestor import lambda_handler as lh
+
+        fake = FakeStateTable()
+        ddb, hist = _ddb_with(accounts_items=ACCOUNTS, state=fake)
+        with patch.object(lh, "_get_ddb", return_value=ddb):
+            r = lh.lambda_handler(state_change_event(), None)
+
+        assert r["action"] == "notify" and r["group_ok"] is True
+        assert len(grouping.calls) == 1
+        call = grouping.calls[0]
+        assert call["name"] == r["group_id"]
+        assert re.fullmatch(r"g-[0-9a-f]{16}-\d{14}", call["name"])
+        assert call["stateMachineArn"] == SM_ARN
+        item = hist.put_item.call_args.kwargs["Item"]
+        assert item["group_id"] == call["name"]
+        assert call["input"]["group_key"] == f"cust-1#{item['severity']}"
+        assert call["input"]["customer_id"] == "cust-1" and call["input"]["group_wait_sec"] == 30
+
+        grp = fake.by_prefix("grp#")
+        assert len(grp) == 1
+        g = next(iter(grp.values()))
+        assert g["status"] == "open" and g["group_id"] == call["name"]
+        assert g["execution_arn"].endswith(":" + call["name"]) and g["version"] == 2
+
+    def test_later_events_join_without_new_execution(self, grouping):
+        from alert_ingestor import lambda_handler as lh
+
+        fake = FakeStateTable()
+        ddb, hist = _ddb_with(accounts_items=ACCOUNTS, state=fake)
+        with patch.object(lh, "_get_ddb", return_value=ddb):
+            results = [lh.lambda_handler(_series_event(i), None) for i in range(3)]
+
+        assert len(grouping.calls) == 1
+        assert {r["group_id"] for r in results} == {grouping.calls[0]["name"]}
+        assert all(r["group_ok"] for r in results)
+        assert len(fake.by_prefix("fp#")) == 3 and len(fake.by_prefix("grp#")) == 1
+
+    def test_suppressed_event_is_not_grouped(self, grouping):
+        from alert_ingestor import lambda_handler as lh
+
+        fake = FakeStateTable()
+        fake.items["fp#111122223333#i-0abc#CPUUtilization"] = {
+            "state_key": "fp#111122223333#i-0abc#CPUUtilization", "version": 1,
+            "last_notified_at": "2026-09-02T10:10:00Z", "episode_open": False,
+            "recent_episodes": ["2026-09-02T10:10:00Z"]}
+        ddb, hist = _ddb_with(accounts_items=ACCOUNTS, state=fake)
+        with patch.object(lh, "_get_ddb", return_value=ddb):
+            r = lh.lambda_handler(state_change_event(), None)
+
+        assert r["reason"] == "dedup" and r["group_id"] == ""
+        assert not grouping.calls and not fake.by_prefix("grp#")
+        assert "group_id" not in hist.put_item.call_args.kwargs["Item"]
+
+    def test_clearing_notify_is_grouped(self, grouping):
+        from alert_ingestor import lambda_handler as lh
+
+        fake = FakeStateTable()
+        fake.items["fp#111122223333#i-0abc#CPUUtilization"] = {
+            "state_key": "fp#111122223333#i-0abc#CPUUtilization", "version": 1,
+            "episode_open": True, "episode_notified": True}
+        e = state_change_event()
+        e["detail"]["state"]["value"], e["detail"]["previousState"]["value"] = "OK", "ALARM"
+        ddb, _ = _ddb_with(accounts_items=ACCOUNTS, state=fake)
+        with patch.object(lh, "_get_ddb", return_value=ddb):
+            r = lh.lambda_handler(e, None)
+
+        assert r["reason"] == "cleared" and r["action"] == "notify"
+        assert len(grouping.calls) == 1 and r["group_id"] == grouping.calls[0]["name"]
+
+    def test_open_group_without_execution_is_restarted(self, grouping):
+        """연 쪽이 StartExecution 전에 죽었다 — 다음 이벤트가 같은 이름으로 시작한다."""
+        from alert_ingestor import lambda_handler as lh
+
+        fake = FakeStateTable()
+        ddb, hist = _ddb_with(accounts_items=ACCOUNTS, state=fake)
+        with patch.object(lh, "_get_ddb", return_value=ddb):
+            first = lh.lambda_handler(_series_event(1), None)
+            gk = [k for k in fake.items if k.startswith("grp#")][0]
+            fake.items[gk].pop("execution_arn")                  # 죽은 척
+            second = lh.lambda_handler(_series_event(2), None)
+
+        assert second["group_id"] == first["group_id"] and second["group_ok"] is True
+        # 두 번째 시도는 같은 이름 → ExecutionAlreadyExists → 성공으로 처리
+        assert len(grouping.calls) == 1
+        assert fake.items[gk]["execution_arn"].endswith(":" + first["group_id"])
+
+    def test_start_execution_failure_fails_open(self, grouping):
+        from alert_ingestor import lambda_handler as lh
+
+        grouping.fail_with = "AccessDeniedException"
+        fake = FakeStateTable()
+        ddb, hist = _ddb_with(accounts_items=ACCOUNTS, state=fake)
+        with patch.object(lh, "_get_ddb", return_value=ddb):
+            r = lh.lambda_handler(state_change_event(), None)
+
+        assert r["action"] == "notify" and r["group_ok"] is False
+        assert r["group_id"]                                      # 그룹은 열렸다 — 다음 이벤트가 재시작
+        g = next(iter(fake.by_prefix("grp#").values()))
+        assert g["status"] == "open" and "execution_arn" not in g
+        assert hist.put_item.call_args.kwargs["Item"]["group_id"] == r["group_id"]
+
+    def test_closed_group_reopens_with_new_id(self, grouping):
+        from alert_ingestor import lambda_handler as lh
+
+        fake = FakeStateTable()
+        ddb, hist = _ddb_with(accounts_items=ACCOUNTS, state=fake)
+        with patch.object(lh, "_get_ddb", return_value=ddb):
+            first = lh.lambda_handler(_series_event(1), None)
+            gk = [k for k in fake.items if k.startswith("grp#")][0]
+            fake.items[gk]["status"] = "closed"                  # 워커가 닫은 척 (group_id는 진짜 이름 그대로)
+            second = lh.lambda_handler(_series_event(2), None)
+
+        # 같은 초에 다시 열려도 이름이 겹치지 않는다 — 겹치면 옛 실행에 조용히 붙는다
+        assert second["group_id"] != first["group_id"] and second["group_ok"] is True
+        assert fake.items[gk]["status"] == "open" and fake.items[gk]["version"] == 4
+        assert fake.items[gk]["group_id"] == second["group_id"]
+        assert len(grouping.calls) == 2
+
+    def test_grouping_disabled_without_state_machine_env(self, env):
+        from alert_ingestor import lambda_handler as lh
+
+        ddb, hist = _ddb_with(accounts_items=ACCOUNTS, state=FakeStateTable())
+        with patch.object(lh, "_get_ddb", return_value=ddb):
+            r = lh.lambda_handler(state_change_event(), None)
+
+        assert r["action"] == "notify" and r["group_ok"] is False and r["group_id"] == ""
+        assert "group_id" not in hist.put_item.call_args.kwargs["Item"]
+
+    def test_state_then_group_then_history_order(self, grouping):
+        from alert_ingestor import lambda_handler as lh
+
+        fake = FakeStateTable()
+        spy = MagicMock(wraps=fake)
+        ddb, hist = _ddb_with(accounts_items=ACCOUNTS, state=spy)
+        order = MagicMock()
+        order.attach_mock(spy.put_item, "state_put")
+        order.attach_mock(hist.put_item, "history_put")
+        with patch.object(lh, "_get_ddb", return_value=ddb):
+            lh.lambda_handler(state_change_event(), None)
+
+        names = [c[0] for c in order.mock_calls]
+        assert names == ["state_put", "state_put", "state_put", "history_put"]     # fp#, grp# 열기, arn, 이력
+        assert order.mock_calls[0].kwargs["Item"]["state_key"].startswith("fp#")
+
+    def test_storm_500_events_one_execution(self, grouping):
+        """받아들임 기준: 같은 고객사·등급으로 500건 → 실행 1개, 이력 전부 같은 group_id."""
+        from alert_ingestor import lambda_handler as lh
+
+        fake = FakeStateTable()
+        ddb, hist = _ddb_with(accounts_items=ACCOUNTS, state=fake)
+        t0 = datetime(2026, 9, 2, 10, 0, tzinfo=timezone.utc)
+        with patch.object(lh, "_get_ddb", return_value=ddb):
+            results = [
+                lh.lambda_handler(_series_event(
+                    i, time=(t0 + timedelta(milliseconds=120 * i)).strftime("%Y-%m-%dT%H:%M:%SZ")), None)
+                for i in range(500)
+            ]
+
+        assert len(grouping.calls) == 1
+        gid = grouping.calls[0]["name"]
+        assert all(r["action"] == "notify" and r["group_ok"] for r in results)
+        assert {c.kwargs["Item"]["group_id"] for c in hist.put_item.call_args_list} == {gid}
+        assert len(fake.by_prefix("fp#")) == 500 and len(fake.by_prefix("grp#")) == 1

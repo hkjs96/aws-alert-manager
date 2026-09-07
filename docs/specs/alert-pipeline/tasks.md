@@ -92,20 +92,24 @@
   - flapping 기본: 창 1일 · 3회 · 격리 1h (`ALERT_FLAPPING_QUARANTINE_SEC` / `ALERT_FLAPPING_WINDOW_DAYS`)
   - [x] 테스트: 억제 항목이 아무리 쌓여도 dedup 창이 유지됨 (핸들러 + 조건식 해석 가짜 테이블로 25번 토글)
   - [x] 테스트: 조건부 갱신 실패 시 재판정 → dedup / 소진 → fail-open / 상태→이력 순서
-- [ ] 1.4.3 Grouping — **타이머보다 먼저** (design.md **D10**, review S2) — 계획 `plan-state-grouping.md` §B
-  - 받아들임 기준(라이브): **1분 500건 → 실행 1개**, 이력 500건 전부 같은 `group_id`
-  - 그룹은 **닫고 나서 조회**한다 — 늦게 온 이벤트가 어느 쪽에도 안 잡히는 빈틈 방지
-  - 새 Lambda `alert_group_worker` (권한·예약 동시성을 인제스터와 분리)
-  - 그룹 키 `{customer_id}#{severity}` (U3에서 조정 가능), `grp#` 상태 항목으로 열림/닫힘 관리
-  - 첫 이벤트만 실행을 연다. 후속 이벤트는 이력 적재만 — 실행에 합류시키지 않는다
-  - [ ] 테스트: group_by 축이 같은 이벤트가 1건으로 묶임
-  - [ ] 테스트: 폭풍(수천 건)에서 실행 수 = 그룹 수
-- [ ] 1.4.3b Auto-pause **실행** — 그룹 실행 안의 Wait (판정 로직은 1.4.1에 있음)
-  - 실행: Wait(group_wait) → 이력 조회 → Wait(pause) → 재조회·해소 제외 → 알림 1건 → **final_action write-back**
-  - 유예 값은 Phase 0 실측 후 설정 (1.4.6까지는 환경변수)
-  - [ ] 테스트: 유예 중 OK 수신 시 미발송
-  - [ ] 테스트: 유예 후에도 ALARM이면 발송
-  - [ ] 테스트: write-back 후 억제율 집계에 DEFER 결과가 반영됨
+- [x] 1.4.3 Grouping — **타이머보다 먼저** (design.md **D10**, review S2) — 계획 `plan-state-grouping.md` §B — ✅ 2026-09-07 배포 (v20260907T074711)
+  - [x] 받아들임 기준(라이브): 알람 250개 × (ALARM, OK) = 500건 → **실행 6개**(163초에 걸친 유입, 30초 창마다 1개), 500건 전부 `group_id`·`final_action`, 실행 전부 SUCCEEDED, 오류·경합 0
+    - "1분 500건 → 실행 1개"는 CloudWatch `SetAlarmState` 한도(~3 TPS)로 라이브 재현 불가 — 핸들러 단위 테스트(500건 → 실행 1개)가 커버. 실행 수는 **이벤트 수가 아니라 시간 창 수**에 비례한다는 것이 라이브로 확인된 사실
+  - **구성원 자격은 적재 시 이력의 `group_id`로 정한다** — 시간 창이 아니다. 창 방식은 "닫힌 직후 도착한 늦은 이벤트"가 어느 창에도 안 잡히거나 두 창에 잡힌다. `group_id-index`(sparse GSI)로 워커가 정확히 읽는다
+  - 그룹은 **닫고 → Grace 5초 → 조회**한다 — 닫히기 전에 group_id를 받은 이벤트가 적재를 마칠 시간
+  - 새 Lambda `alert_group_worker` (close/collect/finalize, 예약 동시성 20) + Step Functions Standard `aws-monitoring-alert-group-{env}` (전이 ~9/그룹)
+  - 실행 이름 = 그룹 ID = `g-{sha1(그룹키)[:16]}-{연 시각}` — 결정적. 연 쪽이 죽어도 다음 이벤트가 같은 이름으로 재시작(멱등). 같은 초 재개방은 +1초 스탬프로 충돌 회피
+  - 첫 이벤트만 실행을 연다(grp# 조건부 PutItem). 후속 이벤트는 이력에 group_id만. SUPPRESS는 그룹을 열지 않는다
+  - 자기감시: 워커 Errors 알람 + 상태 머신 ExecutionsFailed 알람 → `ErrorAlertTopic`
+  - ⚠️ 배포 주의: 기존 테이블에 GSI를 추가하면 CFN은 **백필 전에** 완료를 반환한다(확인 시점 `CREATING`). 큰 테이블이면 배포 직후 몇 분간 워커 조회가 실패할 수 있다 — 상태 머신 Retry(5/10/20초)로 일부 흡수, 그 이상은 재실행 필요
+  - [x] 테스트: group_by 축이 같은 이벤트가 1건으로 묶임 / 경합·죽은 개방자 재시작·ExecutionAlreadyExists·fail-open·재개방
+  - [x] 테스트: 폭풍(500건)에서 실행 수 = 1 (조건식 해석 가짜 테이블 + 가짜 Step Functions)
+- [x] 1.4.3b Auto-pause **실행** — 그룹 실행 안의 Wait (판정 로직은 1.4.1에 있음) — 메커니즘 배포, **유예 값은 아직 비어 있음**
+  - 실행: Wait(group_wait) → close → Grace → collect(DEFER 있으면 pause_sec) → Wait(pause) → finalize(fp# 상태로 해소 여부 판단) → **final_action write-back**
+  - 유예 값은 Phase 0 실측 후 `ALERT_AUTO_PAUSE_SEC` 설정 (1.4.6까지는 환경변수). 값이 없어 라이브에서는 DEFER 경로가 돌지 않음
+  - [x] 테스트: 유예 중 OK 수신 시 미발송 (`suppress/auto_pause`)
+  - [x] 테스트: 유예 후에도 ALARM이면 발송 (`notify/auto_pause_expired`) + fp#에 알렸음 기록
+  - [ ] 테스트: write-back 후 억제율 집계에 DEFER 결과가 반영됨 → 1.5 쿼리가 `final_action` 우선
 - [x] 1.4.4 Silence / 정비창 — 판정 구현 (고객사·리소스타입 스코프)
   - [x] 테스트: 정비 시간대 억제, 종료 후 정상화, 스코프 매칭
   - [ ] 정비창을 DB에 저장·관리하는 UI/API (현재는 정책 객체에만 존재)

@@ -73,6 +73,8 @@ class AlertEvent:
     suppressed: bool = False
     suppression_reason: str = ""
     incident_id: str = ""
+    #: 그룹 실행 이름 — 보낼(NOTIFY/DEFER) 이벤트만 갖는다 (design.md D10). 워커가 이걸로 구성원을 읽는다.
+    group_id: str = ""
 
     raw: dict = field(default_factory=dict)
     parse_error: str = ""
@@ -244,6 +246,7 @@ def to_item(ev: AlertEvent, *, now: datetime | None = None,
         ("state", ev.state), ("previous_state", ev.previous_state),
         ("state_reason", ev.state_reason), ("operation", ev.operation),
         ("suppression_reason", ev.suppression_reason), ("incident_id", ev.incident_id),
+        ("group_id", ev.group_id),
         ("parse_error", ev.parse_error), ("provider", ev.provider),
     ):
         if value:
