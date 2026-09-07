@@ -35,6 +35,8 @@ PERF_METRIC {"metric":"web_vital","vital":"LCP","page":"/dashboard","value":1234
 | `api_request` | api_handler Lambda | `route`, `status`, `cold`, `bytes` | 백엔드 API 처리 시간. 라우트는 `{id}`로 정규화돼 리소스 ID가 축을 오염시키지 않는다 |
 | `daily_stage` | daily_monitor Lambda | `stage`, `account`, `ok` + 단계별 건수 | 일일 런의 단계별 소요 (`inventory_sync`, `orphan_cleanup`, `collect_resources`) |
 | `web_vital` | Amplify SSR (브라우저 → `/api/vitals`) | `vital`, `page`, `rating`, `connection` | 실사용자 체감 (LCP·INP·CLS·TTFB·FCP + Next.js 하이드레이션) |
+| `alert_ingest` | alert_ingestor Lambda | `action`, `reason`, `severity`, `state`, `state_ok`, `group_ok`, `grouped`, `ok` | 알람 이벤트 1건의 적재까지 처리 시간과 **Shadow 정제 판정** (docs/specs/alert-pipeline/) |
+| `alert_group` | alert_group_worker Lambda | `group_id`, `customer`, `severity`, `size`, `deferred`, `notified`, `suppressed` | 그룹 실행 1건의 확정 결과 — 실행 수·크기·auto-pause 이득 |
 
 ## 로그 그룹
 
@@ -43,6 +45,8 @@ PERF_METRIC {"metric":"web_vital","vital":"LCP","page":"/dashboard","value":1234
 | API | `/aws/lambda/aws-monitoring-engine-api-handler-dev` |
 | 일일 런 | `/aws/lambda/aws-monitoring-engine-daily-monitor-dev` |
 | Web Vitals | Amplify SSR 컴퓨트 로그 (`/aws/amplify/d2ssyfndl4orxp` 계열 — 콘솔 Hosting → Monitoring에서 확인) |
+| 알림 인제스터 | `/aws/lambda/aws-monitoring-engine-alert-ingestor-dev` |
+| 알림 그룹 워커 | `/aws/lambda/aws-monitoring-engine-alert-group-worker-dev` |
 
 ## 쿼리
 
@@ -120,6 +124,54 @@ fields @timestamp, @message
 | sort vital, n desc
 ```
 
+### 7. 알림 정제 — 판정·사유 분포 (억제율, 실시간)
+
+적재 시 판정이다. DEFER의 유예 결과(그룹 워커 write-back)까지 반영된 **최종** 억제율은
+`scripts/alert_suppression_report.py`(이력 테이블 집계)가 정답이고, 이 쿼리는 "지금 흐르고 있나"를 본다.
+
+```
+fields @timestamp, @message
+| filter @message like /PERF_METRIC .*"metric":"alert_ingest"/
+| parse @message /"state":"(?<state>[^"]*)"/
+| parse @message /"action":"(?<action>[^"]*)"/
+| parse @message /"reason":"(?<reason>[^"]*)"/
+| filter state = "ALARM"
+| stats count() as n by action, reason
+| sort n desc
+```
+
+### 8. 알림 인제스터 — 처리 시간과 실패 신호
+
+`state_ok=false` / `group_ok=false`는 fail-open으로 넘어간 상태·그룹 처리 실패다 — IAM 누락이
+여기서 드러난다(2026-09-07 dedup이 조용히 죽어 있던 사례). `contention`은 같은 지문의 동시 처리.
+
+```
+fields @timestamp, @message
+| filter @message like /PERF_METRIC .*"metric":"alert_ingest"/
+| parse @message /"duration_ms":(?<ms>[0-9.]+)/
+| parse @message /"state_ok":(?<state_ok>true|false)/
+| parse @message /"group_ok":(?<group_ok>true|false)/
+| parse @message /"ok":(?<ok>true|false)/
+| stats count() as n, pct(ms,50) as p50, pct(ms,95) as p95, max(ms) as max_ms,
+        sum(state_ok = "false") as state_failures, sum(group_ok = "false") as group_failures,
+        sum(ok = "false") as put_failures
+```
+
+### 9. 알림 그룹 — 실행 수·크기·auto-pause 이득
+
+```
+fields @timestamp, @message
+| filter @message like /PERF_METRIC .*"metric":"alert_group"/
+| parse @message /"size":(?<size>[0-9]+)/
+| parse @message /"deferred":(?<deferred>[0-9]+)/
+| parse @message /"notified":(?<notified>[0-9]+)/
+| parse @message /"suppressed":(?<suppressed>[0-9]+)/
+| stats count() as groups, sum(size) as events, avg(size) as avg_size, max(size) as max_size,
+        sum(deferred) as deferred_total, sum(suppressed) as suppressed_after_pause by bin(1d)
+```
+
+`groups`가 `events`에 비례하면 그룹이 깨진 것이다 — 실행은 (고객사×등급)×시간 창 수만큼만 생겨야 한다(design.md D10).
+
 ## 베이스라인 잡는 법
 
 1. **트래픽을 만든다.** dev는 14일간 API 요청이 3건뿐이라 데이터가 없다. 실제 화면을 몇 분
@@ -141,3 +193,4 @@ fields @timestamp, @message
 - Logs Insights 쿼리는 스캔한 데이터 기준 과금이나, 수 MB 규모라 사실상 $0.
 - Web Vitals 전송은 페이지뷰당 1요청(sendBeacon). Amplify SSR 무료 구간 50만 요청/월.
   트래픽이 늘면 `WebVitals.tsx`의 `SAMPLE_RATE`를 낮춰 조절한다.
+- 알림 계측은 이벤트당 로그 1줄(~300B). 하루 2,368건 기준 월 21MB → $0.01. 그룹 로그는 그보다 두 자릿수 적다.

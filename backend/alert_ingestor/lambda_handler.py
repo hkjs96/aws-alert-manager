@@ -289,6 +289,7 @@ def lambda_handler(event, context):
                      (event or {}).get("id", ""))
         return {"status": "skipped", "reason": "no_table"}
 
+    t0 = time.perf_counter()
     customer_id = _account_to_customer().get(str((event or {}).get("account", "")), "")
     alert = from_eventbridge(event, customer_id=customer_id)
     # 알람 이벤트에는 태그가 실리지 않는다 — 메트릭 키의 기본 등급을 쓴다.
@@ -328,10 +329,8 @@ def lambda_handler(event, context):
             group_ok = False
             logger.error("grouping disabled — ALERT_GROUP_STATE_MACHINE_ARN or state table missing")
 
-    _get_ddb().Table(table_name).put_item(Item=to_item(alert))
-
-    log_perf(
-        "alert_ingest", 0,
+    # 처리 시간은 적재까지 잰다. 적재 실패도 ok=false로 남긴다 — 느린 실패도 측정 대상이다.
+    fields = dict(
         event_type=alert.event_type,
         state=alert.state or "-",
         resource_type=alert.resource_type or "-",
@@ -343,6 +342,12 @@ def lambda_handler(event, context):
         group_ok=group_ok,
         grouped=bool(alert.group_id),
     )
+    try:
+        _get_ddb().Table(table_name).put_item(Item=to_item(alert))
+    except ClientError:
+        log_perf("alert_ingest", (time.perf_counter() - t0) * 1000, ok=False, **fields)
+        raise
+    log_perf("alert_ingest", (time.perf_counter() - t0) * 1000, ok=True, **fields)
     logger.info(
         "Ingested %s: alarm=%s state=%s verdict=%s(%s) series=%s group=%s%s%s%s",
         alert.event_type, alert.alarm_name, alert.state,

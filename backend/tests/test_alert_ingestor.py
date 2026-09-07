@@ -164,9 +164,19 @@ class TestIngest:
         assert item["event_type"] == "config_change" and item["operation"] == "delete"
 
 
+def _perf_lines(caplog, metric: str) -> list[dict]:
+    import json
+    out = []
+    for rec in caplog.records:
+        msg = rec.getMessage()
+        if msg.startswith("PERF_METRIC ") and f'"metric":"{metric}"' in msg:
+            out.append(json.loads(msg[len("PERF_METRIC "):]))
+    return out
+
+
 class TestFailureModes:
-    def test_put_failure_raises_so_eventbridge_retries(self, env):
-        """적재 실패를 삼키면 EventBridge 재시도·DLQ 안전망이 무력해진다."""
+    def test_put_failure_raises_so_eventbridge_retries(self, env, caplog):
+        """적재 실패를 삼키면 EventBridge 재시도·DLQ 안전망이 무력해진다. 실패도 ok=false로 계측된다."""
         from alert_ingestor import lambda_handler as lh
 
         hist = MagicMock()
@@ -174,9 +184,24 @@ class TestFailureModes:
             {"Error": {"Code": "ProvisionedThroughputExceededException", "Message": "x"}},
             "PutItem")
         ddb, _ = _ddb_with(history=hist)
-        with patch.object(lh, "_get_ddb", return_value=ddb):
+        with patch.object(lh, "_get_ddb", return_value=ddb), caplog.at_level("INFO"):
             with pytest.raises(ClientError):
                 lh.lambda_handler(state_change_event(), None)
+
+        lines = _perf_lines(caplog, "alert_ingest")
+        assert len(lines) == 1 and lines[0]["ok"] is False and lines[0]["action"] == "notify"
+
+    def test_perf_line_measures_real_duration(self, env, caplog):
+        """duration_ms=0 고정이던 계측을 실제 처리 시간으로 — Insights p95 쿼리(§8)의 전제."""
+        from alert_ingestor import lambda_handler as lh
+
+        ddb, _ = _ddb_with()
+        with patch.object(lh, "_get_ddb", return_value=ddb), caplog.at_level("INFO"):
+            lh.lambda_handler(state_change_event(), None)
+
+        line = _perf_lines(caplog, "alert_ingest")[0]
+        assert line["duration_ms"] > 0 and line["ok"] is True
+        assert line["state_ok"] is True and line["grouped"] is False
 
     def test_missing_table_env_does_not_crash(self, monkeypatch):
         from alert_ingestor import lambda_handler as lh

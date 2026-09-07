@@ -109,7 +109,7 @@
   - 유예 값은 Phase 0 실측 후 `ALERT_AUTO_PAUSE_SEC` 설정 (1.4.6까지는 환경변수). 값이 없어 라이브에서는 DEFER 경로가 돌지 않음
   - [x] 테스트: 유예 중 OK 수신 시 미발송 (`suppress/auto_pause`)
   - [x] 테스트: 유예 후에도 ALARM이면 발송 (`notify/auto_pause_expired`) + fp#에 알렸음 기록
-  - [ ] 테스트: write-back 후 억제율 집계에 DEFER 결과가 반영됨 → 1.5 쿼리가 `final_action` 우선
+  - [x] 테스트: write-back 후 억제율 집계에 DEFER 결과가 반영됨 → 리포트 `effective()`가 `final_action` 우선 (`test_alert_suppression_report.py`)
 - [x] 1.4.4 Silence / 정비창 — 판정 구현 (고객사·리소스타입 스코프)
   - [x] 테스트: 정비 시간대 억제, 종료 후 정상화, 스코프 매칭
   - [ ] 정비창을 DB에 저장·관리하는 UI/API (현재는 정책 객체에만 존재)
@@ -120,9 +120,13 @@
 
 ### 1.5 측정
 
-- [ ] 1.5.1 억제율·억제 사유별 건수 계측 (`perf_log` 규약 사용, R9-1·9-2)
-  - ⚠️ 억제율은 아직 **하한** — silence(정비창)만 미배선(1.4.4 저장소 없음). flapping·해소 알림은 1.4.2로 배선됨
-- [ ] 1.5.2 `docs/OBSERVABILITY.md`에 조회 쿼리 추가
+- [x] 1.5.1 억제율·억제 사유별 건수 계측 (`perf_log` 규약 사용, R9-1·9-2) — ✅ 2026-09-07
+  - `alert_ingest` 계측이 실제 처리 시간을 잰다(이전엔 0 고정). 적재 실패도 `ok=false`로 남긴다
+  - **`scripts/alert_suppression_report.py`** — 이력 테이블(`customer_day-index`) 집계 → `docs/reports/ALERT-SUPPRESSION-{date}.md`.
+    최종값 규칙 **`final_action` > `suppressed` > `auto_pause`(pending) > notify** — 그룹 워커의 write-back이 이긴다.
+    발화 억제율(분모: 확정된 발화)·사유별·등급별·고객사별·시끄러운 시계열 top 15·그룹 통계·auto-pause 이득·데이터 품질
+  - ⚠️ 억제율은 아직 **하한** — silence(정비창)만 미배선(1.4.4 저장소 없음). 리포트 "해석 주의"에 명시
+- [x] 1.5.2 `docs/OBSERVABILITY.md`에 조회 쿼리 추가 — §7 판정·사유 분포, §8 처리 시간·실패 신호(state_ok/group_ok/ok), §9 그룹 통계
 
 ### 1.6 검토 반영 — `review-2026-09-07.md` — ✅ 2026-09-07 배포 (v20260907T035356)
 
