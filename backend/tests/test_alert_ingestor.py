@@ -21,9 +21,11 @@ def _reset_caches():
     from alert_ingestor import lambda_handler as lh
     lh._get_ddb.cache_clear()
     lh._account_to_customer.cache_clear()
+    lh._policy.cache_clear()
     yield
     lh._get_ddb.cache_clear()
     lh._account_to_customer.cache_clear()
+    lh._policy.cache_clear()
 
 
 @pytest.fixture
@@ -32,11 +34,16 @@ def env(monkeypatch):
     monkeypatch.setenv("ACCOUNTS_TABLE", "accounts-test")
 
 
-def _ddb_with(accounts_items=None, history=None):
-    """{테이블명: mock} 매핑을 가진 DynamoDB 리소스 mock."""
+def _ddb_with(accounts_items=None, history=None, prior_events=None):
+    """{테이블명: mock} 매핑을 가진 DynamoDB 리소스 mock.
+
+    prior_events: 중복 판정에 쓰이는 `_last_notified_at` 조회가 돌려줄 과거 항목들
+    (최신순). 지정하지 않으면 과거 기록 없음.
+    """
     accounts = MagicMock()
     accounts.scan.return_value = {"Items": accounts_items or []}
     hist = history or MagicMock()
+    hist.query.return_value = {"Items": prior_events or []}
     ddb = MagicMock()
     ddb.Table.side_effect = lambda name: {
         "accounts-test": accounts, "event-history-test": hist,
@@ -193,3 +200,111 @@ class TestAccountMappingCache:
 
         assert accounts.scan.call_count == 2
         assert hist.put_item.call_args.kwargs["Item"]["customer_id"] == "c2"
+
+
+class TestShadowVerdict:
+    """정제 판정을 기록만 하고 실행하지 않는다 (Shadow). 발송자가 붙기 전에
+    실제 트래픽으로 억제율을 측정하기 위함이다."""
+
+    def test_firing_state_change_is_notify(self, env):
+        from alert_ingestor import lambda_handler as lh
+
+        ddb, hist = _ddb_with()
+        with patch.object(lh, "_get_ddb", return_value=ddb):
+            result = lh.lambda_handler(state_change_event(), None)
+
+        assert result["action"] == "notify"
+        item = hist.put_item.call_args.kwargs["Item"]
+        assert item["suppressed"] is False
+        assert "suppression_reason" not in item      # 빈 값은 넣지 않는다
+
+    def test_config_change_is_recorded_but_not_actionable(self, env):
+        """알람 생성/수정/삭제는 감사용으로 남기되 사람을 깨우지 않는다."""
+        from alert_ingestor import lambda_handler as lh
+
+        e = state_change_event()
+        e["detail-type"] = "CloudWatch Alarm Configuration Change"
+        e["detail"]["operation"] = "update"
+        ddb, hist = _ddb_with()
+        with patch.object(lh, "_get_ddb", return_value=ddb):
+            result = lh.lambda_handler(e, None)
+
+        assert result["action"] == "suppress" and result["reason"] == "not_actionable"
+        item = hist.put_item.call_args.kwargs["Item"]
+        assert item["suppressed"] is True
+        assert item["suppression_reason"] == "not_actionable"
+
+    def test_severity_is_derived_from_metric(self, env):
+        """알람 이벤트에는 태그가 없다 — 메트릭 키의 기본 등급을 쓴다."""
+        from alert_ingestor import lambda_handler as lh
+
+        ddb, hist = _ddb_with()
+        with patch.object(lh, "_get_ddb", return_value=ddb):
+            lh.lambda_handler(state_change_event(), None)
+
+        # CPUUtilization은 레지스트리 기본 등급이 있다
+        assert hist.put_item.call_args.kwargs["Item"]["severity"].startswith("SEV-")
+
+    def test_dedup_uses_prior_notified_event(self, env):
+        from alert_ingestor import lambda_handler as lh
+
+        ddb, hist = _ddb_with(prior_events=[
+            {"suppressed": False, "occurred_at": "2026-09-02T10:00:00Z"},
+        ])
+        with patch.object(lh, "_get_ddb", return_value=ddb):
+            result = lh.lambda_handler(state_change_event(), None)   # 10:15 발생
+
+        assert result["action"] == "suppress" and result["reason"] == "dedup"
+        # 조회는 최신순으로 제한된 건수만 (전체 스캔 금지)
+        kwargs = hist.query.call_args.kwargs
+        assert kwargs["ScanIndexForward"] is False and kwargs["Limit"] == 20
+
+    def test_prior_suppressed_events_do_not_count_as_notified(self, env):
+        """억제된 과거 기록은 '보낸 적 있음'이 아니다 — 세면 영구히 막힌다."""
+        from alert_ingestor import lambda_handler as lh
+
+        ddb, hist = _ddb_with(prior_events=[
+            {"suppressed": True, "occurred_at": "2026-09-02T10:00:00Z"},
+        ])
+        with patch.object(lh, "_get_ddb", return_value=ddb):
+            result = lh.lambda_handler(state_change_event(), None)
+
+        assert result["action"] == "notify"
+
+    def test_last_notified_lookup_failure_does_not_suppress(self, env):
+        """조회가 실패하면 중복 위험을 감수하고 보낸다 — 알림을 잃는 것보다 낫다."""
+        from alert_ingestor import lambda_handler as lh
+
+        hist = MagicMock()
+        hist.query.side_effect = ClientError(
+            {"Error": {"Code": "AccessDeniedException", "Message": "x"}}, "Query")
+        ddb, _ = _ddb_with(history=hist)
+        with patch.object(lh, "_get_ddb", return_value=ddb):
+            result = lh.lambda_handler(state_change_event(), None)
+
+        assert result["action"] == "notify" and hist.put_item.called
+
+    def test_deferred_is_not_counted_as_suppressed(self, env, monkeypatch):
+        """DEFER는 타이머가 붙기 전까지 실행 불가 — 억제로 세면 억제율이 과대 집계된다."""
+        from alert_ingestor import lambda_handler as lh
+
+        monkeypatch.setenv("ALERT_AUTO_PAUSE_SEC", '{"SEV-3": 300, "SEV-5": 300}')
+        lh._policy.cache_clear()
+        ddb, hist = _ddb_with()
+        with patch.object(lh, "_get_ddb", return_value=ddb):
+            result = lh.lambda_handler(state_change_event(), None)
+
+        assert result["action"] == "defer"
+        assert hist.put_item.call_args.kwargs["Item"]["suppressed"] is False
+
+    def test_malformed_pause_config_is_ignored(self, env, monkeypatch):
+        """설정 오타가 수집을 멈추면 안 된다."""
+        from alert_ingestor import lambda_handler as lh
+
+        monkeypatch.setenv("ALERT_AUTO_PAUSE_SEC", "{not json")
+        lh._policy.cache_clear()
+        ddb, hist = _ddb_with()
+        with patch.object(lh, "_get_ddb", return_value=ddb):
+            result = lh.lambda_handler(state_change_event(), None)
+
+        assert result["action"] == "notify" and hist.put_item.called

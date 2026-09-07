@@ -83,6 +83,20 @@ class AlertEvent:
         return f"{self.occurred_at}#{self.event_id[:8]}"
 
     @property
+    def occurred_dt(self) -> datetime | None:
+        """발생 시각(datetime). 파싱 불가면 None.
+
+        정제 판정은 **벽시계가 아니라 이 시각**을 기준으로 해야 한다 — 재시도로 늦게
+        처리된 이벤트의 중복 판정이 어긋나지 않고, 과거 이벤트를 새 규칙으로 재현(R2-5)할 수 있다.
+        """
+        if not self.occurred_at:
+            return None
+        try:
+            return datetime.fromisoformat(self.occurred_at.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+
+    @property
     def is_firing(self) -> bool:
         return self.state == "ALARM"
 

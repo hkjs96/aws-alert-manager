@@ -114,6 +114,15 @@ class TestStateChange:
         e["detail"]["previousState"]["value"] = "ALARM"
         assert from_eventbridge(e).is_clearing is True
 
+    def test_occurred_dt_parses_event_time(self):
+        """정제 판정은 벽시계가 아니라 이 시각을 쓴다 — 재시도·재현 시 결과가 흔들리지 않게."""
+        ev = from_eventbridge(state_change_event())
+        assert ev.occurred_dt == datetime(2026, 9, 2, 10, 15, 30, tzinfo=timezone.utc)
+
+    def test_occurred_dt_is_none_when_unparseable(self):
+        assert from_eventbridge(state_change_event(time="nonsense")).occurred_dt is None
+        assert AlertEvent().occurred_dt is None
+
     def test_long_reason_is_truncated(self):
         e = state_change_event()
         e["detail"]["state"]["reason"] = "x" * 2000
