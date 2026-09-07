@@ -17,6 +17,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
 
 from analyze_alarm_history import (  # noqa: E402
+    HISTORY_RETENTION_DAYS,
     analyze,
     build_episodes,
     concentration,
@@ -229,3 +230,37 @@ class TestEndToEnd:
         a = analyze([], {}, T0, END)
         out = render(a, "1", "r")
         assert "이 창에 발화가 없다" in out
+
+
+class TestRetentionClamp:
+    """CloudWatch는 알람 이력을 14일만 보관한다 — 더 긴 창으로 나누면 비율이 과소 산출된다
+    (review-2026-09-07 B3). flapping 후보가 기준(3회/일)에 안 걸리는 실수로 이어진다."""
+
+    def test_window_longer_than_retention_is_clamped(self):
+        a = analyze([], {}, END - timedelta(days=30), END)
+        assert a["clamped"] is True
+        assert abs(a["days"] - HISTORY_RETENTION_DAYS) < 1e-9
+        assert a["window_start"] == END - timedelta(days=HISTORY_RETENTION_DAYS)
+
+    def test_window_within_retention_is_untouched(self):
+        a = analyze([], {}, T0, END)
+        assert a["clamped"] is False and abs(a["days"] - 1) < 1e-9
+
+    def test_rate_uses_clamped_denominator(self):
+        """14일 동안 45회 발화 = 3.2회/일(flapping). 30일로 나누면 1.5회/일로 놓친다."""
+        name = "[EC2] toggler CPU > 80 (TagName: i-9)"
+        items = []
+        for i in range(45):
+            base = END - timedelta(hours=i * 7 + 2)
+            items.append({"AlarmName": name, "Timestamp": base,
+                          "HistoryData": '{"newState":{"stateValue":"ALARM"}}'})
+            items.append({"AlarmName": name, "Timestamp": base + timedelta(hours=1),
+                          "HistoryData": '{"newState":{"stateValue":"OK"}}'})
+        a = analyze(items, {}, END - timedelta(days=30), END)
+        assert a["episodes"] == 45
+        assert a["episodes_per_day"] > 3
+        assert name in a["flapping"]
+
+    def test_render_warns_when_clamped(self):
+        out = render(analyze([], {}, END - timedelta(days=30), END), "1", "r")
+        assert "보존" in out and str(HISTORY_RETENTION_DAYS) in out

@@ -37,6 +37,11 @@ PAUSE_CANDIDATES_MIN = (1, 2, 3, 5, 10, 15)
 # 하루 평균 이 횟수 이상 ALARM으로 진입하면 flapping 후보로 본다.
 FLAPPING_PER_DAY = 3
 
+# CloudWatch가 알람 이력을 보관하는 기간(일). 더 긴 창을 요청해도 API는 이만큼만 돌려주는데,
+# 분모를 요청 창으로 잡으면 일당 발화율·flapping 판정이 과소 산출된다(review-2026-09-07 B3).
+# 더 긴 창이 필요하면 EventHistoryTable(90일)에서 읽는다.
+HISTORY_RETENTION_DAYS = 14
+
 _ALARM_STATES = ("ALARM",)
 _CLEAR_STATES = ("OK", "INSUFFICIENT_DATA")
 
@@ -206,6 +211,12 @@ def fetch_history(cw, start: datetime, end: datetime) -> list[dict]:
 # ──────────────────────────────────────────────
 
 def analyze(items: list[dict], meta: dict[str, dict], start: datetime, end: datetime) -> dict:
+    # 보존 한계보다 긴 창은 데이터가 없는 구간을 분모에 넣는 셈이다 — 창을 줄이고 표시한다.
+    clamped = False
+    retention_start = end - timedelta(days=HISTORY_RETENTION_DAYS)
+    if start < retention_start:
+        start, clamped = retention_start, True
+
     by_alarm: dict[str, list[tuple[datetime, str]]] = defaultdict(list)
     for it in items:
         state = parse_state(it.get("HistoryData", ""))
@@ -238,7 +249,7 @@ def analyze(items: list[dict], meta: dict[str, dict], start: datetime, end: date
 
     resolved = [e["duration_sec"] for e in all_episodes if e["resolved"]]
     return {
-        "window_start": start, "window_end": end, "days": days,
+        "window_start": start, "window_end": end, "days": days, "clamped": clamped,
         "raw_transitions": len(items),
         "alarms_with_activity": len(fires),
         "episodes": len(all_episodes),
@@ -260,6 +271,9 @@ def render(a: dict, account: str, region: str) -> str:
     w("")
     w(f"- 대상: 계정 `{account}` / 리전 `{region}`")
     w(f"- 창: {a['days']:.1f}일 · 상태 전이 원본 {a['raw_transitions']:,}건")
+    if a.get("clamped"):
+        w(f"- ⚠️ CloudWatch 알람 이력 보존은 **{HISTORY_RETENTION_DAYS}일**이다. 요청 창을 "
+          f"{HISTORY_RETENTION_DAYS}일로 줄여 계산했다 — 더 긴 창은 EventHistoryTable(90일)에서 조회할 것.")
     w(f"- 발화 에피소드: **{a['episodes']:,}건** (하루 {a['episodes_per_day']:.0f}건), "
       f"활동한 알람 {a['alarms_with_activity']:,}개")
     w(f"- 창 끝까지 미해소: {a['unresolved']:,}건")
@@ -366,12 +380,17 @@ def render(a: dict, account: str, region: str) -> str:
 
 def main() -> int:
     p = argparse.ArgumentParser(description="CloudWatch 알람 이력 노이즈 분석 (읽기 전용)")
-    p.add_argument("--days", type=int, default=7, help="조회 기간(일). 기본 7")
+    p.add_argument("--days", type=int, default=7,
+                   help=f"조회 기간(일). 기본 7, 최대 {HISTORY_RETENTION_DAYS}(CloudWatch 보존 한계)")
     p.add_argument("--region", default=os.environ.get("AWS_REGION", "ap-northeast-2"))
     p.add_argument("--role-arn", default="", help="크로스 어카운트 조회용 역할 ARN")
     p.add_argument("--output", default="", help="출력 경로. 기본 docs/reports/ALARM-NOISE-{today}.md")
     args = p.parse_args()
 
+    if args.days > HISTORY_RETENTION_DAYS:
+        print(f"! CloudWatch 알람 이력은 {HISTORY_RETENTION_DAYS}일만 보관된다: "
+              f"--days {args.days} → {HISTORY_RETENTION_DAYS}", file=sys.stderr)
+        args.days = HISTORY_RETENTION_DAYS
     end = datetime.now(timezone.utc)
     start = end - timedelta(days=args.days)
 

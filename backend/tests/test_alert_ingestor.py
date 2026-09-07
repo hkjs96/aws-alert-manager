@@ -20,11 +20,11 @@ from tests.test_alert_event import state_change_event
 def _reset_caches():
     from alert_ingestor import lambda_handler as lh
     lh._get_ddb.cache_clear()
-    lh._account_to_customer.cache_clear()
+    lh._reset_account_cache()
     lh._policy.cache_clear()
     yield
     lh._get_ddb.cache_clear()
-    lh._account_to_customer.cache_clear()
+    lh._reset_account_cache()
     lh._policy.cache_clear()
 
 
@@ -200,6 +200,64 @@ class TestAccountMappingCache:
 
         assert accounts.scan.call_count == 2
         assert hist.put_item.call_args.kwargs["Item"]["customer_id"] == "c2"
+
+    def test_mapping_refreshes_after_ttl(self, env):
+        """새 고객사 등록이 컨테이너 수명 동안 묻히면 안 된다 (review-2026-09-07 Q2)."""
+        from alert_ingestor import lambda_handler as lh
+
+        accounts = MagicMock()
+        accounts.scan.side_effect = [
+            {"Items": []},                                                       # 처음엔 미등록
+            {"Items": [{"account_id": "111122223333", "customer_id": "new-cust"}]},
+        ]
+        hist = MagicMock()
+        ddb = MagicMock()
+        ddb.Table.side_effect = lambda name: {
+            "accounts-test": accounts, "event-history-test": hist}[name]
+        clock = [1000.0]
+
+        with patch.object(lh, "_get_ddb", return_value=ddb), \
+                patch.object(lh, "_monotonic", side_effect=lambda: clock[0]):
+            lh.lambda_handler(state_change_event(), None)
+            assert hist.put_item.call_args.kwargs["Item"].get("customer_id") is None
+
+            clock[0] += lh.ACCOUNT_CACHE_TTL_SEC - 1
+            lh.lambda_handler(state_change_event(), None)          # TTL 안 — 재스캔 없음
+            assert accounts.scan.call_count == 1
+
+            clock[0] += 2
+            lh.lambda_handler(state_change_event(), None)          # TTL 경과 — 재스캔
+        assert accounts.scan.call_count == 2
+        assert hist.put_item.call_args.kwargs["Item"]["customer_id"] == "new-cust"
+
+    def test_scan_failure_keeps_previous_mapping(self, env):
+        """일시 장애에 빈 매핑으로 덮으면 그동안 모든 이벤트가 고객사를 잃는다."""
+        from alert_ingestor import lambda_handler as lh
+
+        accounts = MagicMock()
+        accounts.scan.side_effect = [
+            {"Items": [{"account_id": "111122223333", "customer_id": "cust-1"}]},
+            ClientError({"Error": {"Code": "ProvisionedThroughputExceededException",
+                                   "Message": "slow down"}}, "Scan"),
+            {"Items": [{"account_id": "111122223333", "customer_id": "cust-1"}]},
+        ]
+        hist = MagicMock()
+        ddb = MagicMock()
+        ddb.Table.side_effect = lambda name: {
+            "accounts-test": accounts, "event-history-test": hist}[name]
+        clock = [1000.0]
+
+        with patch.object(lh, "_get_ddb", return_value=ddb), \
+                patch.object(lh, "_monotonic", side_effect=lambda: clock[0]):
+            lh.lambda_handler(state_change_event(), None)
+            clock[0] += lh.ACCOUNT_CACHE_TTL_SEC + 1
+            lh.lambda_handler(state_change_event(), None)          # 스캔 실패 → 이전 매핑 유지
+            assert hist.put_item.call_args.kwargs["Item"]["customer_id"] == "cust-1"
+            lh.lambda_handler(state_change_event(), None)          # 실패 직후엔 재시도하지 않는다
+            assert accounts.scan.call_count == 2
+            clock[0] += lh.ACCOUNT_CACHE_TTL_SEC + 1
+            lh.lambda_handler(state_change_event(), None)          # TTL 뒤 재시도
+        assert accounts.scan.call_count == 3
 
 
 class TestShadowVerdict:

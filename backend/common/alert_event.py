@@ -28,6 +28,11 @@ logger = logging.getLogger(__name__)
 #: 이벤트 이력 보관 기간. Phase 4 AIOps 학습에 3개월치가 필요하다(design.md D5).
 RETENTION_DAYS = 90
 
+#: 원본(`raw`) 보존 상한. DynamoDB 항목 한도(400KB) 안에서 넉넉히 잡는다.
+#: 넘으면 **잘라내지 않고** 부피가 큰 부분부터 덜어낸다 — 중간에서 잘린 JSON은 파싱이 안 돼
+#: 재현(R2-5)에 쓸 수 없다(review-2026-09-07 Q3).
+RAW_MAX_BYTES = 64 * 1024
+
 #: EventBridge detail-type → 우리 이벤트 종류
 STATE_CHANGE = "state_change"
 CONFIG_CHANGE = "config_change"
@@ -74,8 +79,14 @@ class AlertEvent:
 
     @property
     def series_id(self) -> str:
-        """MetricHistoryTable과 동일한 시계열 키. 셋 중 하나라도 비면 조인이 안 되므로 그대로 둔다."""
-        return f"{self.account_id}#{self.resource_id}#{self.metric_key}"
+        """MetricHistoryTable과 동일한 시계열 키.
+
+        해석에 실패해 `resource_id`가 비면 그 자리에 알람 ARN(없으면 이름)을 쓴다. 비워두면
+        계정의 모든 미관리 알람이 한 파티션(`"{account}##"`)에 몰리고, 중복 판정 조회가
+        남의 알람 이벤트를 돌려준다(review-2026-09-07 B2). 해석 성공 케이스의 조인 규약은 그대로다.
+        """
+        resource = self.resource_id or self.alarm_arn or self.alarm_name
+        return f"{self.account_id}#{resource}#{self.metric_key}"
 
     @property
     def event_key(self) -> str:
@@ -166,6 +177,44 @@ def from_eventbridge(event: dict, *, customer_id: str = "") -> AlertEvent:
     return ev
 
 
+def _dumps(obj) -> str:
+    return json.dumps(obj, ensure_ascii=False, separators=(",", ":"))
+
+
+def serialize_raw(raw) -> tuple[str, bool]:
+    """원본 → (JSON 문자열, 원본이 온전하지 않은가).
+
+    **항상 유효한 JSON**을 돌려준다. 상한을 넘으면 알람 이벤트에서 부피의 대부분을 차지하는
+    `detail.configuration`(메트릭 정의)을 먼저 덜어내고, 그래도 크면 봉투와 식별 필드만 남긴다.
+    """
+    try:
+        s = _dumps(raw)
+    except (TypeError, ValueError):
+        return _dumps({"_unserializable": str(raw)[: RAW_MAX_BYTES // 2]}), True
+    if len(s.encode("utf-8")) <= RAW_MAX_BYTES:
+        return s, False
+    if not isinstance(raw, dict):
+        return _dumps({"_truncated": True}), True
+
+    detail = raw.get("detail") if isinstance(raw.get("detail"), dict) else {}
+    slim_detail = {k: v for k, v in detail.items() if k != "configuration"}
+    slim = {**raw, "detail": slim_detail, "_truncated": True}
+    s = _dumps(slim)
+    if len(s.encode("utf-8")) <= RAW_MAX_BYTES:
+        return s, True
+
+    minimal = {k: raw.get(k) for k in
+               ("id", "time", "account", "region", "source", "detail-type", "resources")}
+    minimal["detail"] = {
+        "alarmName": detail.get("alarmName"),
+        "operation": detail.get("operation"),
+        "state": {"value": (detail.get("state") or {}).get("value")},
+        "previousState": {"value": (detail.get("previousState") or {}).get("value")},
+    }
+    minimal["_truncated"] = True
+    return _dumps(minimal), True
+
+
 def to_item(ev: AlertEvent, *, now: datetime | None = None,
             retention_days: int = RETENTION_DAYS) -> dict:
     """AlertEvent → EventHistoryTable 항목.
@@ -203,8 +252,7 @@ def to_item(ev: AlertEvent, *, now: datetime | None = None,
     # 원본 보존 — 정제 규칙을 바꾼 뒤 과거 판단을 소급 검증하려면 필요하다(R2-5).
     # DynamoDB는 float를 거부하므로 JSON 문자열로 넣는다.
     if ev.raw:
-        try:
-            item["raw"] = json.dumps(ev.raw, ensure_ascii=False, separators=(",", ":"))[:8000]
-        except (TypeError, ValueError):
-            item["raw"] = str(ev.raw)[:8000]
+        item["raw"], truncated = serialize_raw(ev.raw)
+        if truncated:
+            item["raw_truncated"] = True     # 재현 시 이 항목은 원본이 온전하지 않다
     return item

@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 
 from common.alert_event import (
     CONFIG_CHANGE,
+    RAW_MAX_BYTES,
     RETENTION_DAYS,
     STATE_CHANGE,
     UNKNOWN,
@@ -178,6 +179,31 @@ class TestUnmanagedAndMalformed:
         e["resources"] = []
         assert from_eventbridge(e).alarm_arn == ""
 
+    def test_unmanaged_alarms_do_not_share_a_series(self):
+        """해석 실패 알람이 계정 안에서 한 파티션에 몰리면 안 된다 (review-2026-09-07 B2).
+
+        몰리면 폭풍 시 핫 파티션이 되고, 중복 판정 조회가 남의 알람 이벤트를 돌려준다.
+        """
+        def unmanaged(name):
+            e = state_change_event()
+            e["detail"]["alarmName"] = name
+            e["detail"]["configuration"].pop("description")
+            e["resources"] = [f"arn:aws:cloudwatch:ap-northeast-2:111122223333:alarm:{name}"]
+            return from_eventbridge(e)
+
+        a, b = unmanaged("customer-alarm-A"), unmanaged("customer-alarm-B")
+        assert a.resource_id == "" and b.resource_id == ""      # 해석은 여전히 실패지만
+        assert a.series_id != b.series_id                       # 키는 알람마다 다르다
+        assert "##" not in a.series_id
+        assert a.series_id == ("111122223333#arn:aws:cloudwatch:ap-northeast-2:111122223333"
+                               ":alarm:customer-alarm-A#CPUUtilization")
+
+    def test_series_falls_back_to_name_when_arn_missing(self):
+        e = state_change_event(resources=[])
+        e["detail"]["alarmName"] = "customer-alarm"
+        e["detail"]["configuration"].pop("description")
+        assert from_eventbridge(e).series_id == "111122223333#customer-alarm#CPUUtilization"
+
 
 class TestToItem:
     def test_keys_and_ttl(self):
@@ -211,9 +237,37 @@ class TestToItem:
         assert json.loads(item["raw"])["detail-type"] == "CloudWatch Alarm State Change"
         assert '", "' not in item["raw"]     # compact
 
-    def test_raw_is_capped(self):
-        ev = AlertEvent(raw={"big": "x" * 20000})
-        assert len(to_item(ev, now=NOW)["raw"]) <= 8000
+    def test_raw_under_cap_is_kept_whole_and_not_flagged(self):
+        item = to_item(from_eventbridge(state_change_event()), now=NOW)
+        assert "raw_truncated" not in item
+        assert json.loads(item["raw"])["detail"]["configuration"]      # 통째로 남는다
+
+    def test_raw_over_cap_drops_configuration_but_stays_valid_json(self):
+        """중간에서 자르면 JSON이 깨져 재현(R2-5)이 불가능하다 — 덜어내되 항상 파싱돼야 한다."""
+        e = state_change_event()
+        e["detail"]["configuration"]["metrics"] = [{"pad": "x" * 100_000}]
+        item = to_item(from_eventbridge(e), now=NOW)
+        assert len(item["raw"].encode("utf-8")) <= RAW_MAX_BYTES
+        assert item["raw_truncated"] is True
+        parsed = json.loads(item["raw"])
+        assert parsed["_truncated"] is True
+        assert parsed["detail"]["alarmName"].startswith("[EC2] web-01")  # 식별 정보는 남고
+        assert parsed["detail"]["state"]["value"] == "ALARM"
+        assert "configuration" not in parsed["detail"]                   # 부피만 빠진다
+
+    def test_raw_huge_outside_configuration_falls_back_to_minimal(self):
+        e = state_change_event()
+        e["detail"]["state"]["reason"] = "x" * 100_000
+        item = to_item(from_eventbridge(e), now=NOW)
+        assert len(item["raw"].encode("utf-8")) <= RAW_MAX_BYTES
+        parsed = json.loads(item["raw"])
+        assert parsed["_truncated"] is True
+        assert parsed["id"] == e["id"] and parsed["detail"]["state"]["value"] == "ALARM"
+
+    def test_raw_non_dict_over_cap_does_not_raise(self):
+        ev = AlertEvent(raw={"big": "x" * 100_000})
+        item = to_item(ev, now=NOW)
+        assert json.loads(item["raw"])["_truncated"] is True
 
     def test_unserializable_raw_does_not_raise(self):
         ev = AlertEvent(raw={"obj": object()})

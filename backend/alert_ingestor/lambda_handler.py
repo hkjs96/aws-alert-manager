@@ -22,6 +22,7 @@ import functools
 import json
 import logging
 import os
+import time
 from datetime import datetime
 
 import boto3
@@ -44,14 +45,32 @@ def _get_ddb():
     return boto3.resource("dynamodb")
 
 
-@functools.lru_cache(maxsize=1)
-def _account_to_customer() -> dict[str, str]:
-    """계정 ID → 고객사 ID 매핑.
+#: 계정→고객사 매핑 캐시 수명. 컨테이너는 몇 시간을 살므로 무기한 캐시면 새로 등록한
+#: 고객사의 이벤트가 그동안 customer_id 없이 적재돼 리포트에서 보이지 않는다(review-2026-09-07 Q2).
+ACCOUNT_CACHE_TTL_SEC = 300
+_account_cache: dict = {"at": None, "map": {}}
+_monotonic = time.monotonic      # 테스트에서 시계를 바꿔 끼우기 위한 간접 참조
 
-    이벤트에는 고객사 정보가 없으므로 계정으로 역참조한다. 컨테이너 수명 동안 캐시한다 —
-    계정 등록은 드물고, 놓쳐도 다음 콜드 스타트에 반영된다. 매핑이 없으면 빈 문자열로
-    남기고 이벤트는 그대로 적재한다(고객사 미지정 이벤트가 유실되면 안 된다).
+
+def _reset_account_cache() -> None:
+    _account_cache["at"] = None
+    _account_cache["map"] = {}
+
+
+def _account_to_customer() -> dict[str, str]:
+    """계정 ID → 고객사 ID 매핑 (TTL 캐시).
+
+    이벤트에는 고객사 정보가 없으므로 계정으로 역참조한다. 매핑이 없으면 빈 문자열로 남기고
+    이벤트는 그대로 적재한다(고객사 미지정 이벤트가 유실되면 안 된다).
+
+    스캔이 실패하면 **이전 매핑을 유지**하고 TTL 뒤에 다시 시도한다 — 빈 매핑으로 덮으면
+    일시 장애 동안 모든 이벤트가 고객사를 잃고, 이벤트마다 재시도하면 장애 중 부하를 키운다.
     """
+    now = _monotonic()
+    at = _account_cache["at"]
+    if at is not None and now - at < ACCOUNT_CACHE_TTL_SEC:
+        return _account_cache["map"]
+
     table_name = os.environ.get("ACCOUNTS_TABLE", "")
     if not table_name:
         return {}
@@ -70,7 +89,12 @@ def _account_to_customer() -> dict[str, str]:
                 break
             kwargs["ExclusiveStartKey"] = last
     except ClientError as e:
-        logger.error("Account→customer mapping lookup failed: %s", e)
+        logger.error("Account→customer mapping lookup failed, keeping previous mapping: %s", e)
+        _account_cache["at"] = now
+        return _account_cache["map"]
+
+    _account_cache["at"] = now
+    _account_cache["map"] = mapping
     return mapping
 
 

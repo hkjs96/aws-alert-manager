@@ -422,6 +422,10 @@ Resources:
       Runtime: !FindInMap [LambdaConfig, Settings, Runtime]
       Timeout: 30
       MemorySize: 256
+      # 폭풍 상한. 정상 부하는 동시 2~3이지만, 하류(DynamoDB)가 느려져 호출이 30초까지 늘면
+      # 33건/초 × 30초 = 계정 동시성 전부를 먹고 api_handler까지 스로틀된다 — 장애 중에 UI가 죽는다.
+      # 50을 넘는 이벤트는 EventBridge가 재시도(24h)하므로 유실이 아니라 지연이다(review-2026-09-07 S1).
+      ReservedConcurrentExecutions: 50
       Handler: lambda_handler.lambda_handler
       Role: !GetAtt AlertIngestorRole.Arn
       Layers:
@@ -523,6 +527,78 @@ Resources:
                 aws:SourceArn:
                   - !GetAtt AlertIngestCustomBusRule.Arn
                   - !GetAtt AlertIngestDefaultBusRule.Arn
+
+  # 자기 감시 — 알림 파이프라인 자신의 고장은 파이프라인 **밖**(SNS 직결)으로 알린다.
+  # 이 알람들을 인제스터로 보내면 "인제스터가 죽었다"는 알림이 죽은 인제스터로 가서 DLQ에 쌓인다.
+  # (review-2026-09-07 Q1) 알람 3개 = $0.30/월.
+  AlertIngestDLQAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub
+        - "[AlertIngestDLQ] 기록되지 않은 알람 이벤트 축적 (${EnvShort})"
+        - EnvShort: !FindInMap [EnvShortName, !Ref Environment, short]
+      AlarmDescription: "알람 이벤트가 인제스터 재시도까지 실패해 DLQ에 쌓임. 이력에 없는 알람이 생기고 있다 — 즉시 확인."
+      Namespace: AWS/SQS
+      MetricName: ApproximateNumberOfMessagesVisible
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt AlertIngestDLQ.QueueName
+      Statistic: Maximum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref ErrorAlertTopic
+      OKActions:
+        - !Ref ErrorAlertTopic
+
+  AlertIngestorErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub
+        - "[AlertIngestor] 실행 오류 (${EnvShort})"
+        - EnvShort: !FindInMap [EnvShortName, !Ref Environment, short]
+      AlarmDescription: "인제스터 Lambda 오류. 적재 실패는 예외로 올라오므로 여기서 먼저 잡힌다 — DLQ 알람의 선행 신호."
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref AlertIngestorFunction
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref ErrorAlertTopic
+      OKActions:
+        - !Ref ErrorAlertTopic
+
+  AlertIngestorThrottlesAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub
+        - "[AlertIngestor] 예약 동시성 초과로 지연 (${EnvShort})"
+        - EnvShort: !FindInMap [EnvShortName, !Ref Environment, short]
+      AlarmDescription: "인제스터가 예약 동시성(50)에 걸려 지연 중. EventBridge가 재시도하므로 유실은 아니지만 이력 적재가 늦어진다 — 알람 폭풍 신호."
+      Namespace: AWS/Lambda
+      MetricName: Throttles
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref AlertIngestorFunction
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref ErrorAlertTopic
+      OKActions:
+        - !Ref ErrorAlertTopic
 
   AlertIngestorCustomBusPermission:
     Type: AWS::Lambda::Permission

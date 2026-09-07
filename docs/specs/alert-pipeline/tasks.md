@@ -114,19 +114,24 @@
   - ⚠️ 1.4.2 전까지 억제율은 **하한**이다 — flapping·silence·해소 알림이 미배선 (review §4). 리포트에 명시
 - [ ] 1.5.2 `docs/OBSERVABILITY.md`에 조회 쿼리 추가
 
-### 1.6 검토 반영 — `review-2026-09-07.md` (즉시, 배포 1회)
+### 1.6 검토 반영 — `review-2026-09-07.md` — ✅ 2026-09-07 배포 (v20260907T035356)
 
-- [ ] 1.6.1 DLQ `ApproximateNumberOfMessagesVisible ≥ 1` + 인제스터 `Errors`/`Throttles` 알람 → **`ErrorAlertTopic` 직결** (Q1)
+- [x] 1.6.1 DLQ `ApproximateNumberOfMessagesVisible ≥ 1` + 인제스터 `Errors`/`Throttles` 알람 → **`ErrorAlertTopic` 직결** (Q1)
   - 우리 파이프라인을 태우지 않는다 — 자기 감시는 감시 대상에 의존하면 안 된다
-- [ ] 1.6.2 인제스터 `ReservedConcurrentExecutions: 50` (S1) — 느린 하류 + 폭풍이 계정 전체를 멈추지 않게
-- [ ] 1.6.3 미관리 알람 `series_id` 폴백 — `resource_id` 비면 알람 ARN (B2)
-  - [ ] 테스트: 해석 실패 알람 둘의 키가 다름 / 해석 성공 키는 불변
-- [ ] 1.6.4 계정→고객사 캐시 5분 TTL (Q2)
-  - [ ] 테스트: TTL 경과 후 새 계정이 매핑됨
-- [ ] 1.6.5 `raw` 64KB 상한 + `raw_truncated` 플래그, 잘라도 JSON 유지 (Q3)
-  - [ ] 테스트: 상한 초과 시 `detail`만 보존되고 `json.loads` 성공
-- [ ] 1.6.6 Phase 0 스크립트 `--days` 14 클램프 + 실효 창은 응답 최초 항목 기준 (B3)
-  - [ ] 테스트: 30일 요청 시 경고 + 14일로 계산
+  - ⚠️ **`ErrorAlertTopic` 구독이 0건** — 알람은 울리지만 받는 사람이 없다. 이메일/Slack 구독은
+    확인 절차가 있는 수동 운영 작업이라 여기 묶지 않았다. 구독 전까지 이 알람들은 콘솔에서만 보인다
+- [x] 1.6.2 인제스터 `ReservedConcurrentExecutions: 50` (S1) — 라이브 확인
+- [x] 1.6.3 미관리 알람 `series_id` 폴백 — `resource_id` 비면 알람 ARN, 그것도 없으면 이름 (B2)
+  - [x] 테스트: 해석 실패 알람 둘의 키가 다름 / 해석 성공 키는 불변
+  - [x] 라이브: 미관리 알람이 `…#arn:aws:cloudwatch:…:alarm:NAME#metric` 아래 기록, 예전 키(`##`) 0건
+- [x] 1.6.4 계정→고객사 캐시 5분 TTL (Q2) — 스캔 실패 시 **이전 매핑 유지**, TTL 뒤 재시도
+  - [x] 테스트: TTL 경과 후 새 계정이 매핑됨 / 실패 시 이전 매핑 유지·즉시 재시도 안 함
+- [x] 1.6.5 `raw` 64KB 상한 + `raw_truncated` 플래그 — 자르지 않고 `configuration`부터 덜어낸다 (Q3)
+  - [x] 테스트: 상한 초과 시 식별 필드 보존 + `json.loads` 성공 (2단계 축소, 비-dict 방어)
+- [x] 1.6.6 Phase 0 스크립트 `--days` 14 클램프 (B3)
+  - 검토안의 "실효 창 = 응답 최초 항목"은 **채택하지 않았다** — 조용한 기간을 분모에서 빼면 반대로
+    과대 산출된다. 분모는 min(요청, 14일)로 고정하고 리포트에 클램프 사실을 표시한다
+  - [x] 테스트: 30일 요청 시 14일로 계산, 14일간 45회 발화가 flapping(≥3/일)으로 잡힘
 
 ### Phase 2 진입 조건 (review §5)
 
