@@ -47,6 +47,7 @@ from boto3.dynamodb.conditions import Attr
 from botocore.exceptions import ClientError
 
 from common.alarm_registry import get_severity
+from common.alert_config import load_cached as load_policy
 from common.alert_event import STATE_CHANGE, from_eventbridge, to_item
 from common.alert_group import (
     GROUP_TTL_DAYS,
@@ -150,13 +151,23 @@ def _account_to_customer() -> dict[str, str]:
 
 
 @functools.lru_cache(maxsize=1)
-def _policy() -> SuppressionPolicy:
-    """정제 설정. 지금은 환경변수, 이후 DB로 옮긴다 (R3-9, tasks 1.4.6).
+def _base_policy() -> SuppressionPolicy:
+    """환경변수 기준 정책. DB 값이 이 위에 얹힌다 — DB가 비어도 이전과 똑같이 동작한다.
 
     `ALERT_AUTO_PAUSE_SEC`는 severity별 유예 JSON이며 **기본은 비어 있다** —
     값은 Phase 0 실측("N분 유예 시 억제율")으로 정한다. 비어 있으면 유예하지 않는다.
     """
     return SuppressionPolicy.from_env()
+
+
+def _policy() -> tuple[SuppressionPolicy, bool]:
+    """정제 설정 (R3-9, tasks 1.4.6). DB(60초 캐시) > 환경변수 > 코드 기본값.
+
+    정비창(silence)은 여기서만 온다 — 테이블이 없거나 읽기에 실패하면 정비창이 비고,
+    그러면 억제가 **덜** 될 뿐 실수로 더 되지는 않는다.
+    """
+    name = os.environ.get("ALERT_POLICY_TABLE", "")
+    return load_policy(_get_ddb().Table(name) if name else None, _base_policy())
 
 
 def _read_state(table, key: str):
@@ -299,7 +310,7 @@ def lambda_handler(event, context):
     # 중복·정비창 판정이 흔들리지 않고, 과거 이벤트 재현도 같은 결과가 나온다.
     wall = datetime.now(timezone.utc)
     now = alert.occurred_dt or wall
-    policy = _policy()
+    policy, config_ok = _policy()
 
     state_table = None
     if alert.event_type != STATE_CHANGE:
@@ -340,6 +351,7 @@ def lambda_handler(event, context):
         parsed=not alert.parse_error,
         state_ok=state_ok,
         group_ok=group_ok,
+        config_ok=config_ok,
         grouped=bool(alert.group_id),
     )
     try:

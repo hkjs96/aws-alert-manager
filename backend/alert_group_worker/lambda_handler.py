@@ -29,6 +29,7 @@ import boto3
 from boto3.dynamodb.conditions import Attr, Key
 from botocore.exceptions import ClientError
 
+from common.alert_config import load_cached as load_policy
 from common.alert_group import STATUS_CLOSED, STATUS_OPEN
 from common.alert_state import fp_key, grp_key, iso_utc, state_item
 from common.alert_suppression import REASON_AUTO_PAUSE, SuppressionPolicy
@@ -49,8 +50,15 @@ def _get_ddb():
 
 
 @functools.lru_cache(maxsize=1)
-def _policy() -> SuppressionPolicy:
+def _base_policy() -> SuppressionPolicy:
     return SuppressionPolicy.from_env()
+
+
+def _policy() -> SuppressionPolicy:
+    """인제스터와 같은 설정 소스 — 유예 값이 두 곳에서 달라지면 그룹이 엉뚱한 시간을 기다린다."""
+    name = os.environ.get("ALERT_POLICY_TABLE", "")
+    policy, _ = load_policy(_get_ddb().Table(name) if name else None, _base_policy())
+    return policy
 
 
 def _tables():

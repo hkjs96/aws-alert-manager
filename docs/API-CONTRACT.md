@@ -533,6 +533,116 @@ Response `200`:
 }
 ```
 
+## GET /api/alert/policy
+
+Alert suppression policy actually in effect (env defaults merged with the stored record).
+
+Response `200`:
+
+```json
+{
+  "policy": {
+    "auto_pause_sec": {},
+    "repeat_interval_sec": 900,
+    "exempt_severities": ["SEV-1"],
+    "flapping_window_days": 1.0,
+    "flapping_per_day": 3,
+    "flapping_quarantine_sec": 3600,
+    "group_wait_sec": 30
+  },
+  "source": "env",
+  "updated_at": "",
+  "updated_by": ""
+}
+```
+
+`source` is `db` once a record exists, `env` otherwise.
+
+## PUT /api/alert/policy
+
+**Admin only** when `ADMIN_EMAILS` is configured — a bad policy can suppress every alert.
+Omitted fields keep their current value.
+
+Request:
+
+```json
+{
+  "repeat_interval_sec": 900,
+  "auto_pause_sec": { "SEV-3": 300 }
+}
+```
+
+Ranges (outside → `400 VALIDATION_ERROR`):
+
+| Field | Range |
+| --- | --- |
+| `repeat_interval_sec` | 0 – 86400 |
+| `auto_pause_sec[*]` | 0 – 3600 |
+| `flapping_quarantine_sec` | 0 – 86400 |
+| `flapping_per_day` | 1 – 1000 |
+| `flapping_window_days` | 0.0417 – 30 |
+| `group_wait_sec` | 0 – 300 |
+
+Response `200`: `{ "policy": { ... }, "updated_at": "2026-09-07T09:00:00Z" }`
+
+Changes reach the ingestor within 60 seconds (config cache TTL).
+
+## GET /api/alert/silences
+
+Query:
+
+| Name | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `include_expired` | boolean | no | Default `false`. |
+
+Response `200`:
+
+```json
+{
+  "silences": [
+    {
+      "id": "20260907T090000-1a2b3c4d",
+      "starts_at": "2026-09-07T09:00:00Z",
+      "ends_at": "2026-09-07T11:00:00Z",
+      "customer_id": "EMU-EM2",
+      "resource_type": "",
+      "reason": "DB patching",
+      "created_by": "ops@example.com",
+      "created_at": "2026-09-07T08:55:00Z",
+      "active": true,
+      "expired": false
+    }
+  ],
+  "active": 1
+}
+```
+
+## POST /api/alert/silences
+
+Suppresses matching alerts for a window. Empty `customer_id` or `resource_type` means "all",
+and a silence with no `customer_id` is global — **admin only**.
+
+Request:
+
+```json
+{
+  "starts_at": "2026-09-07T09:00:00Z",
+  "ends_at": "2026-09-07T11:00:00Z",
+  "customer_id": "EMU-EM2",
+  "resource_type": "RDS",
+  "reason": "DB patching"
+}
+```
+
+`starts_at` defaults to now. `ends_at` is required, must be in the future, and the window may not
+exceed 30 days — a silence that never ends deletes alerts forever.
+
+Response `201`: the created silence (same shape as the list entry).
+
+## DELETE /api/alert/silences/{id}
+
+Admin only for global silences. Response `200`: `{ "id": "...", "deleted": true, "was_active": true }`.
+
 ## POST /api/bulk/monitoring
 
 Current backend request shape:

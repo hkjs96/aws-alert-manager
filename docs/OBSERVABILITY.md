@@ -35,7 +35,7 @@ PERF_METRIC {"metric":"web_vital","vital":"LCP","page":"/dashboard","value":1234
 | `api_request` | api_handler Lambda | `route`, `status`, `cold`, `bytes` | 백엔드 API 처리 시간. 라우트는 `{id}`로 정규화돼 리소스 ID가 축을 오염시키지 않는다 |
 | `daily_stage` | daily_monitor Lambda | `stage`, `account`, `ok` + 단계별 건수 | 일일 런의 단계별 소요 (`inventory_sync`, `orphan_cleanup`, `collect_resources`) |
 | `web_vital` | Amplify SSR (브라우저 → `/api/vitals`) | `vital`, `page`, `rating`, `connection` | 실사용자 체감 (LCP·INP·CLS·TTFB·FCP + Next.js 하이드레이션) |
-| `alert_ingest` | alert_ingestor Lambda | `action`, `reason`, `severity`, `state`, `state_ok`, `group_ok`, `grouped`, `ok` | 알람 이벤트 1건의 적재까지 처리 시간과 **Shadow 정제 판정** (docs/specs/alert-pipeline/) |
+| `alert_ingest` | alert_ingestor Lambda | `action`, `reason`, `severity`, `state`, `state_ok`, `group_ok`, `config_ok`, `grouped`, `ok` | 알람 이벤트 1건의 적재까지 처리 시간과 **Shadow 정제 판정** (docs/specs/alert-pipeline/) |
 | `alert_group` | alert_group_worker Lambda | `group_id`, `customer`, `severity`, `size`, `deferred`, `notified`, `suppressed` | 그룹 실행 1건의 확정 결과 — 실행 수·크기·auto-pause 이득 |
 
 ## 로그 그룹
@@ -142,8 +142,9 @@ fields @timestamp, @message
 
 ### 8. 알림 인제스터 — 처리 시간과 실패 신호
 
-`state_ok=false` / `group_ok=false`는 fail-open으로 넘어간 상태·그룹 처리 실패다 — IAM 누락이
-여기서 드러난다(2026-09-07 dedup이 조용히 죽어 있던 사례). `contention`은 같은 지문의 동시 처리.
+`state_ok=false` / `group_ok=false` / `config_ok=false`는 fail-open으로 넘어간 상태·그룹·설정
+처리 실패다 — IAM 누락이 여기서 드러난다(2026-09-07 dedup이 조용히 죽어 있던 사례).
+`config_ok=false`가 지속되면 **정비창이 적용되지 않고 있다**는 뜻이다. `contention`은 같은 지문의 동시 처리.
 
 ```
 fields @timestamp, @message
@@ -151,10 +152,11 @@ fields @timestamp, @message
 | parse @message /"duration_ms":(?<ms>[0-9.]+)/
 | parse @message /"state_ok":(?<state_ok>true|false)/
 | parse @message /"group_ok":(?<group_ok>true|false)/
+| parse @message /"config_ok":(?<config_ok>true|false)/
 | parse @message /"ok":(?<ok>true|false)/
 | stats count() as n, pct(ms,50) as p50, pct(ms,95) as p95, max(ms) as max_ms,
         sum(state_ok = "false") as state_failures, sum(group_ok = "false") as group_failures,
-        sum(ok = "false") as put_failures
+        sum(config_ok = "false") as config_failures, sum(ok = "false") as put_failures
 ```
 
 ### 9. 알림 그룹 — 실행 수·크기·auto-pause 이득

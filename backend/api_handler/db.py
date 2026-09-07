@@ -49,6 +49,11 @@ def user_preferences_table():
     return _get_dynamodb().Table(os.environ["USER_PREFERENCES_TABLE"])
 
 
+def alert_policy_table():
+    """알림 정제 정책 + 정비창 (docs/specs/alert-pipeline/ tasks 1.4.4·1.4.6)."""
+    return _get_dynamodb().Table(os.environ["ALERT_POLICY_TABLE"])
+
+
 def scan_all(table) -> list[dict]:
     """페이지네이션 처리한 전체 스캔. 소규모 테이블(고객사/어카운트)용."""
     items = []

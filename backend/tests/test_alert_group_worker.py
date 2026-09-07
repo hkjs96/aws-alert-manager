@@ -11,7 +11,8 @@ from unittest.mock import patch
 
 import pytest
 
-from fakes_ddb import FakeHistoryTable, FakeStateTable
+from fakes_ddb import FakeConfigTable, FakeHistoryTable, FakeStateTable
+from common import alert_config
 from tests.test_alert_event import state_change_event
 
 SM = "arn:aws:states:us-east-1:111:stateMachine:grp-test"
@@ -27,10 +28,12 @@ def _env(monkeypatch):
     monkeypatch.delenv("ALERT_AUTO_PAUSE_SEC", raising=False)
     from alert_group_worker import lambda_handler as w
     w._get_ddb.cache_clear()
-    w._policy.cache_clear()
+    w._base_policy.cache_clear()
+    alert_config.reset_cache()
     yield
     w._get_ddb.cache_clear()
-    w._policy.cache_clear()
+    w._base_policy.cache_clear()
+    alert_config.reset_cache()
 
 
 @pytest.fixture
@@ -84,7 +87,7 @@ class TestCollect:
         from alert_group_worker import lambda_handler as w
         hist, _ = tables
         monkeypatch.setenv("ALERT_AUTO_PAUSE_SEC", '{"SEV-3": 300}')
-        w._policy.cache_clear()
+        w._base_policy.cache_clear()
         hist.put_item(Item=_member("1#i-1#CPU", "2026-09-02T10:15:30Z#a"))
         hist.put_item(Item=_member("1#i-2#CPU", "2026-09-02T10:15:31Z#b"))
         hist.put_item(Item=_member("1#i-9#CPU", "2026-09-02T10:15:32Z#c", gid="g-other"))
@@ -95,7 +98,7 @@ class TestCollect:
         from alert_group_worker import lambda_handler as w
         hist, _ = tables
         monkeypatch.setenv("ALERT_AUTO_PAUSE_SEC", '{"SEV-3": 300}')
-        w._policy.cache_clear()
+        w._base_policy.cache_clear()
         hist.put_item(Item=_member("1#i-1#CPU", "2026-09-02T10:15:30Z#a", reason="auto_pause"))
         out = w.lambda_handler({"action": "collect", "group": GROUP}, None)
         assert out == {"count": 1, "deferred": 1, "pause_sec": 300}

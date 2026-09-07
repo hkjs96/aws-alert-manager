@@ -38,7 +38,7 @@ def _route_name(method: str, pattern: re.Pattern) -> str:
 
 from api_handler.routes import (
     customers, accounts, dashboard, resources, alarms, thresholds, jobs, bulk,
-    monitor_runs, sync, preferences,
+    monitor_runs, sync, preferences, alert_policy,
 )
 
 
@@ -141,6 +141,13 @@ _ROUTES: list[tuple[str, re.Pattern, object]] = [
     ("GET",    re.compile(r"^/jobs/(?P<id>[^/]+)$"),                  jobs.get_job),
     # Monitor runs
     ("GET",    re.compile(r"^/monitor-runs$"),                        monitor_runs.list_monitor_runs),
+
+    # 알림 정제 설정 (tasks 1.4.4·1.4.6). 정책 변경과 전역 정비창은 관리자 전용.
+    ("GET",    re.compile(r"^/alert/policy$"),                        alert_policy.get_policy),
+    ("PUT",    re.compile(r"^/alert/policy$"),                        alert_policy.put_policy),
+    ("GET",    re.compile(r"^/alert/silences$"),                      alert_policy.list_silences),
+    ("POST",   re.compile(r"^/alert/silences$"),                      alert_policy.create_silence),
+    ("DELETE", re.compile(r"^/alert/silences/(?P<id>[^/]+)$"),        alert_policy.delete_silence),
     # Bulk
     ("POST",   re.compile(r"^/bulk/monitoring$"),                     bulk.bulk_monitoring),
 ]

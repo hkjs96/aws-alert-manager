@@ -420,6 +420,34 @@ Resources:
         - Key: ManagedBy
           Value: AlarmManager
 
+  # 알림 정제 설정 — 정책과 정비창 (R3-9, tasks 1.4.4·1.4.6).
+  # 알람을 고치지 않고 정제를 바꿀 수 있어야 한다는 요구(R3-9)의 저장소다.
+  # 상태(AlertStateTable)와 분리한다: 이쪽은 사람이 쓰는 설정이고 TTL로 사라지면 안 된다
+  # (정비창만 예외 — 끝난 뒤 7일 지나면 스스로 정리된다).
+  AlertPolicyTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub
+        - aws-monitoring-alert-policy-${EnvShort}
+        - EnvShort: !FindInMap [EnvShortName, !Ref Environment, short]
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: config_type   # "policy" | "silence"
+          AttributeType: S
+        - AttributeName: config_id     # policy → "default", silence → "{생성시각}-{난수}"
+          AttributeType: S
+      KeySchema:
+        - AttributeName: config_type
+          KeyType: HASH
+        - AttributeName: config_id
+          KeyType: RANGE
+      TimeToLiveSpecification:
+        AttributeName: ttl             # 정비창만 설정된다(종료 + 7일). 정책 항목엔 없다
+        Enabled: true
+      Tags:
+        - Key: ManagedBy
+          Value: AlarmManager
+
   # ════════════════════════════════════════════
   # 알림 파이프라인 — 이벤트 수집 (docs/specs/alert-pipeline/ Phase 1)
   # ════════════════════════════════════════════
@@ -482,6 +510,7 @@ Resources:
         Variables:
           EVENT_HISTORY_TABLE: !Ref EventHistoryTable
           ALERT_STATE_TABLE: !Ref AlertStateTable
+          ALERT_POLICY_TABLE: !Ref AlertPolicyTable
           ACCOUNTS_TABLE: !Ref AccountsTable
           # 그룹 실행 (D10). group_wait는 Alertmanager 기본 30s.
           ALERT_GROUP_STATE_MACHINE_ARN: !Ref AlertGroupStateMachine
@@ -520,6 +549,13 @@ Resources:
                   - dynamodb:GetItem
                   - dynamodb:PutItem
                 Resource: !GetAtt AlertStateTable.Arn
+              # 정제 설정·정비창 읽기 (60초 캐시). 실패해도 환경변수로 동작하지만
+              # 그동안 정비창이 비므로 억제가 덜 된다 — 배포 뒤 config_ok=false를 확인할 것.
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:Query
+                Resource: !GetAtt AlertPolicyTable.Arn
               # 그룹을 여는 이벤트만 실행을 시작한다 — 그룹당 1회 (D10)
               - Effect: Allow
                 Action:
@@ -688,6 +724,7 @@ Resources:
         Variables:
           EVENT_HISTORY_TABLE: !Ref EventHistoryTable
           ALERT_STATE_TABLE: !Ref AlertStateTable
+          ALERT_POLICY_TABLE: !Ref AlertPolicyTable
 
   AlertGroupWorkerRole:
     Type: AWS::IAM::Role
@@ -723,6 +760,12 @@ Resources:
                   - dynamodb:GetItem
                   - dynamodb:PutItem
                 Resource: !GetAtt AlertStateTable.Arn
+              # 유예(auto_pause) 값을 인제스터와 같은 소스에서 읽는다
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:Query
+                Resource: !GetAtt AlertPolicyTable.Arn
 
   AlertGroupStateMachineRole:
     Type: AWS::IAM::Role
@@ -921,6 +964,7 @@ Resources:
           JOB_STATUS_TABLE: !Ref JobStatusTable
           MONITOR_RUN_HISTORY_TABLE: !Ref MonitorRunHistoryTable
           RESOURCE_INVENTORY_TABLE: !Ref ResourceInventoryTable
+          ALERT_POLICY_TABLE: !Ref AlertPolicyTable
           BULK_OPERATION_QUEUE_URL: !Ref BulkOperationQueue
           API_STAGE: !FindInMap [EnvShortName, !Ref Environment, short]
           DAILY_MONITOR_FUNCTION_NAME: !Ref DailyMonitorFunction
@@ -968,6 +1012,7 @@ Resources:
                   - !Sub "${MonitorRunHistoryTable.Arn}/index/*"
                   - !GetAtt ResourceInventoryTable.Arn
                   - !Sub "${ResourceInventoryTable.Arn}/index/*"
+                  - !GetAtt AlertPolicyTable.Arn
               - Effect: Allow
                 Action:
                   - sqs:SendMessage

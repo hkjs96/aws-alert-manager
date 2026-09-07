@@ -110,13 +110,23 @@
   - [x] 테스트: 유예 중 OK 수신 시 미발송 (`suppress/auto_pause`)
   - [x] 테스트: 유예 후에도 ALARM이면 발송 (`notify/auto_pause_expired`) + fp#에 알렸음 기록
   - [x] 테스트: write-back 후 억제율 집계에 DEFER 결과가 반영됨 → 리포트 `effective()`가 `final_action` 우선 (`test_alert_suppression_report.py`)
-- [x] 1.4.4 Silence / 정비창 — 판정 구현 (고객사·리소스타입 스코프)
+- [x] 1.4.4 Silence / 정비창 — 판정 + **저장소·API** — ✅ 2026-09-07 배포 (v20260907T085417)
   - [x] 테스트: 정비 시간대 억제, 종료 후 정상화, 스코프 매칭
-  - [ ] 정비창을 DB에 저장·관리하는 UI/API (현재는 정책 객체에만 존재)
+  - [x] `AlertPolicyTable`에 저장, 인제스터가 60초 캐시로 읽는다 — **여기서 처음으로 실제 적용된다**
+        (그전까지 `policy.silences`는 항상 비어 있어 정비 시간대에도 알림이 나갔다)
+  - [x] API `GET/POST /alert/silences`, `DELETE /alert/silences/{id}` — 고객사 미지정(전역)은 관리자 전용
+  - [x] 상한 30일 — 끝나지 않는 정비창은 알림을 영원히 지운다
+  - [x] 판정은 **이벤트 발생 시각** 기준 — 재시도로 늦게 처리돼도 그때 정비 중이었으면 억제 (R2-5)
+  - [ ] 관리 UI → Phase 2 채널 설정 화면과 함께 (같은 "알림 설정" 영역)
 - [x] 1.4.5 Flapping 판정 함수 (`is_flapping`) — 실측 스크립트와 같은 기준식
   - [x] 격리 상태 저장·해제 → 1.4.2 상태 테이블의 `recent_episodes`/`quarantined_until` (라이브: 3번째 발화부터 격리)
-- [ ] 1.4.6 정제 설정을 DB에서 읽기 (R3-9) — 현재는 환경변수
-  (`ALERT_AUTO_PAUSE_SEC`, `ALERT_REPEAT_INTERVAL_SEC`)
+- [x] 1.4.6 정제 설정을 DB에서 읽기 (R3-9) — ✅ 2026-09-07 배포 (v20260907T085417)
+  - `common/alert_config.py` — 우선순위 **DB > 환경변수 > 코드 기본값**, 있는 필드만 덮어쓰는 부분 저장
+  - 인제스터와 그룹 워커가 **같은 로더**를 쓴다 — 유예 값이 두 곳에서 갈리면 그룹이 엉뚱한 시간을 기다린다
+  - 범위 밖 값은 **로더가 클램프**(런타임 계속 동작) / **API가 거절**(사람에게 알림) — 역할이 다르다
+  - 읽기 실패는 환경변수로 폴백하고 `PERF_METRIC config_ok=false`로 드러난다. 그동안 정비창은 비므로
+    억제가 **덜** 되지 실수로 더 되지 않는다
+  - API `GET/PUT /alert/policy` — 변경은 관리자 전용, 60초 안에 반영
 
 ### 1.5 측정
 
@@ -125,7 +135,8 @@
   - **`scripts/alert_suppression_report.py`** — 이력 테이블(`customer_day-index`) 집계 → `docs/reports/ALERT-SUPPRESSION-{date}.md`.
     최종값 규칙 **`final_action` > `suppressed` > `auto_pause`(pending) > notify** — 그룹 워커의 write-back이 이긴다.
     발화 억제율(분모: 확정된 발화)·사유별·등급별·고객사별·시끄러운 시계열 top 15·그룹 통계·auto-pause 이득·데이터 품질
-  - ⚠️ 억제율은 아직 **하한** — silence(정비창)만 미배선(1.4.4 저장소 없음). 리포트 "해석 주의"에 명시
+  - 1.4.4 완료로 정제 규칙 5종이 모두 배선됐다 — 억제율이 더 이상 구조적 하한이 아니다
+    (리포트 "해석 주의"의 silence 문구는 정비창을 실제로 등록한 뒤 갱신)
 - [x] 1.5.2 `docs/OBSERVABILITY.md`에 조회 쿼리 추가 — §7 판정·사유 분포, §8 처리 시간·실패 신호(state_ok/group_ok/ok), §9 그룹 통계
 
 ### 1.6 검토 반영 — `review-2026-09-07.md` — ✅ 2026-09-07 배포 (v20260907T035356)

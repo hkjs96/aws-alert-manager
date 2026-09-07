@@ -130,7 +130,8 @@ class TestRender:
         assert "`dedup`" in out and "`flapping`" in out
         assert "auto-pause 이득" in out
         assert "미관리 알람" in out and "1건" in out
-        assert "하한" in out                                           # silence 미배선 주의
+        assert "재발화 병합 창" in out                                 # dedup 창의 의미(U6)
+        assert "GET /api/alert/policy" in out                          # 지금 값 확인 경로
 
     def test_empty_window_warns(self):
         out = render(aggregate([]), start=T0, end=T1, customers=[])

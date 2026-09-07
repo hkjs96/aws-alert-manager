@@ -21,7 +21,8 @@ import pytest
 from botocore.exceptions import ClientError
 
 from common.alarm_naming import _build_alarm_description
-from fakes_ddb import FakeSfn, FakeStateTable, conditional_failure as _conditional_failure
+from fakes_ddb import FakeConfigTable, FakeSfn, FakeStateTable, conditional_failure as _conditional_failure
+from common import alert_config
 from tests.test_alert_event import state_change_event
 
 SM_ARN = "arn:aws:states:us-east-1:111122223333:stateMachine:aws-monitoring-alert-group-test"
@@ -34,12 +35,14 @@ def _reset_caches():
     lh._get_ddb.cache_clear()
     lh._get_sfn.cache_clear()
     lh._reset_account_cache()
-    lh._policy.cache_clear()
+    lh._base_policy.cache_clear()
+    alert_config.reset_cache()
     yield
     lh._get_ddb.cache_clear()
     lh._get_sfn.cache_clear()
     lh._reset_account_cache()
-    lh._policy.cache_clear()
+    lh._base_policy.cache_clear()
+    alert_config.reset_cache()
 
 
 @pytest.fixture
@@ -57,7 +60,7 @@ def grouping(env, monkeypatch):
     monkeypatch.setenv("ALERT_GROUP_STATE_MACHINE_ARN", SM_ARN)
     monkeypatch.setenv("ALERT_GROUP_WAIT_SEC", "30")
     from alert_ingestor import lambda_handler as lh
-    lh._policy.cache_clear()
+    lh._base_policy.cache_clear()
     sfn = FakeSfn()
     with patch.object(lh, "_get_sfn", return_value=sfn):
         yield sfn
@@ -72,16 +75,17 @@ def _series_event(i: int, **over):
     return e
 
 
-def _ddb_with(accounts_items=None, history=None, state_item=None, state=None):
+def _ddb_with(accounts_items=None, history=None, state_item=None, state=None, policy=None):
     """{테이블명: mock} 매핑을 가진 DynamoDB 리소스 mock. 상태 테이블은 `state`로 주입하거나
-    `state_item`으로 GetItem 응답만 고정한다."""
+    `state_item`으로 GetItem 응답만 고정한다. `policy`는 정제 설정 테이블(1.4.6)."""
     accounts = MagicMock()
     accounts.scan.return_value = {"Items": accounts_items or []}
     hist = history or MagicMock()
     st = state if state is not None else MagicMock()
     if state is None:
         st.get_item.return_value = {"Item": state_item} if state_item else {}
-    tables = {"accounts-test": accounts, "event-history-test": hist, "alert-state-test": st}
+    tables = {"accounts-test": accounts, "event-history-test": hist, "alert-state-test": st,
+              "alert-policy-test": policy if policy is not None else FakeConfigTable()}
     ddb = MagicMock()
     ddb.Table.side_effect = lambda name: tables[name]
     return ddb, hist
@@ -369,7 +373,7 @@ class TestShadowVerdict:
         from alert_ingestor import lambda_handler as lh
 
         monkeypatch.setenv("ALERT_AUTO_PAUSE_SEC", '{"SEV-3": 300, "SEV-5": 300}')
-        lh._policy.cache_clear()
+        lh._base_policy.cache_clear()
         ddb, hist = _ddb_with()
         with patch.object(lh, "_get_ddb", return_value=ddb):
             result = lh.lambda_handler(state_change_event(), None)
@@ -382,7 +386,7 @@ class TestShadowVerdict:
         from alert_ingestor import lambda_handler as lh
 
         monkeypatch.setenv("ALERT_AUTO_PAUSE_SEC", "{not json")
-        lh._policy.cache_clear()
+        lh._base_policy.cache_clear()
         ddb, hist = _ddb_with()
         with patch.object(lh, "_get_ddb", return_value=ddb):
             result = lh.lambda_handler(state_change_event(), None)
@@ -394,32 +398,47 @@ class TestShadowVerdict:
 
         monkeypatch.setenv("ALERT_FLAPPING_QUARANTINE_SEC", "120")
         monkeypatch.setenv("ALERT_FLAPPING_WINDOW_DAYS", "0.5")
-        lh._policy.cache_clear()
-        p = lh._policy()
+        lh._base_policy.cache_clear()
+        p, config_ok = lh._policy()
         assert p.flapping_quarantine_sec == 120 and p.flapping_window_days == 0.5
+        assert config_ok is True          # 설정 테이블 미구성은 결함이 아니다
 
 
 class TestStateDecisions:
     """판정 재료는 상태 테이블에서 온다 (design.md D9). 이력은 더 이상 조회하지 않는다."""
 
+    def _prior_notify(self, at: str):
+        return {"state_key": "fp#111122223333#i-0abc#CPUUtilization", "version": 3,
+                "last_notified_at": at, "episode_open": False, "episode_notified": True,
+                "recent_episodes": [at]}
+
     def test_dedup_uses_state_last_notified(self, env):
         from alert_ingestor import lambda_handler as lh
 
-        ddb, hist = _ddb_with(state_item={
-            "state_key": "fp#111122223333#i-0abc#CPUUtilization", "version": 3,
-            "last_notified_at": "2026-09-02T10:00:00Z",
-            "episode_open": False, "episode_notified": True,
-            "recent_episodes": ["2026-09-02T10:00:00Z"],
-        })
+        # 이벤트는 10:15:30 발생. 10:10 알림 → 재알림 창(15분, U6) 안이라 병합한다.
+        ddb, hist = _ddb_with(state_item=self._prior_notify("2026-09-02T10:10:00Z"))
         with patch.object(lh, "_get_ddb", return_value=ddb):
-            result = lh.lambda_handler(state_change_event(), None)     # 10:15 발생
+            result = lh.lambda_handler(state_change_event(), None)
 
         assert result["action"] == "suppress" and result["reason"] == "dedup"
         assert not hist.query.called                                    # 이력 스캔 없음
         put = _state_of(ddb).put_item.call_args.kwargs
         assert put["Item"]["version"] == 4 and "ConditionExpression" in put
-        assert put["Item"]["last_notified_at"] == "2026-09-02T10:00:00Z"   # dedup은 창을 안 건드린다
+        assert put["Item"]["last_notified_at"] == "2026-09-02T10:10:00Z"   # dedup은 창을 안 건드린다
         assert put["Item"]["episode_open"] is True                          # 새 에피소드는 열린다
+
+    def test_refire_after_window_is_not_buried(self, env):
+        """U6의 이유 — 해소 뒤 한참 있다 다시 터진 것은 새 장애다.
+
+        옛 4시간 창에서는 이 재발화가 조용히 묻혔다(그동안 아무 이벤트도 오지 않는다).
+        """
+        from alert_ingestor import lambda_handler as lh
+
+        ddb, _ = _ddb_with(state_item=self._prior_notify("2026-09-02T09:45:00Z"))   # 30분 전
+        with patch.object(lh, "_get_ddb", return_value=ddb):
+            result = lh.lambda_handler(state_change_event(), None)
+
+        assert result["action"] == "notify"
 
     def test_first_occurrence_creates_state(self, env):
         from alert_ingestor import lambda_handler as lh
@@ -586,6 +605,117 @@ class TestScenarioB1ThroughHandler:
         assert not any(v[2] == "state_contention" for v in verdicts)
         assert hist.put_item.call_count == 50                    # 이력은 전량
         assert len(fake.items) == 1 and fake.items[next(iter(fake.items))]["version"] == 50
+
+
+class TestConfigFromDb:
+    """정책과 정비창을 DB에서 읽는다 (tasks 1.4.4·1.4.6).
+
+    정비창은 여기까지 와야 처음으로 **실제로 적용된다** — 그전까지 `policy.silences`는
+    항상 비어 있어 정비 시간대에도 알림이 나갔다.
+    """
+
+    @pytest.fixture
+    def config(self, env, monkeypatch):
+        monkeypatch.setenv("ALERT_POLICY_TABLE", "alert-policy-test")
+        return FakeConfigTable()
+
+    def _silence(self, table, **over):
+        item = {"config_type": "silence", "config_id": "s1",
+                "starts_at": "2026-09-02T10:00:00Z", "ends_at": "2026-09-02T11:00:00Z",
+                "customer_id": "cust-1"}
+        item.update(over)
+        table.put_item(Item=item)
+
+    def test_silence_suppresses_firing(self, config):
+        from alert_ingestor import lambda_handler as lh
+
+        self._silence(config)                      # 이벤트 발생 시각 10:15:30이 창 안이다
+        ddb, hist = _ddb_with(accounts_items=ACCOUNTS, state=FakeStateTable(), policy=config)
+        with patch.object(lh, "_get_ddb", return_value=ddb):
+            result = lh.lambda_handler(state_change_event(), None)
+
+        assert result["action"] == "suppress" and result["reason"] == "silence"
+        assert hist.put_item.call_args.kwargs["Item"]["suppression_reason"] == "silence"
+
+    def test_silence_outside_window_does_not_suppress(self, config):
+        from alert_ingestor import lambda_handler as lh
+
+        self._silence(config, starts_at="2026-09-02T08:00:00Z", ends_at="2026-09-02T09:00:00Z")
+        ddb, _ = _ddb_with(accounts_items=ACCOUNTS, state=FakeStateTable(), policy=config)
+        with patch.object(lh, "_get_ddb", return_value=ddb):
+            assert lh.lambda_handler(state_change_event(), None)["action"] == "notify"
+
+    def test_silence_scoped_to_another_customer_does_not_apply(self, config):
+        from alert_ingestor import lambda_handler as lh
+
+        self._silence(config, customer_id="other")
+        ddb, _ = _ddb_with(accounts_items=ACCOUNTS, state=FakeStateTable(), policy=config)
+        with patch.object(lh, "_get_ddb", return_value=ddb):
+            assert lh.lambda_handler(state_change_event(), None)["action"] == "notify"
+
+    def test_silence_uses_event_time_not_wall_clock(self, config):
+        """재시도로 늦게 처리돼도 그 이벤트가 정비창 안이었으면 억제다 (R2-5 재현 가능성)."""
+        from alert_ingestor import lambda_handler as lh
+
+        self._silence(config)
+        ddb, _ = _ddb_with(accounts_items=ACCOUNTS, state=FakeStateTable(), policy=config)
+        with patch.object(lh, "_get_ddb", return_value=ddb):
+            result = lh.lambda_handler(state_change_event(), None)
+        assert result["reason"] == "silence"       # 실제 지금 시각은 2026-09-02가 아니다
+
+    def test_sev1_is_exempt_from_silence(self, config):
+        """정비 중이라도 SEV-1은 나간다 (R3-8) — 순서가 뒤집히면 가장 중요한 알람이 사라진다."""
+        from alert_ingestor import lambda_handler as lh
+
+        self._silence(config)
+        config.put_item(Item={"config_type": "policy", "config_id": "default",
+                              "exempt_severities": ["SEV-1", "SEV-3"]})
+        ddb, _ = _ddb_with(accounts_items=ACCOUNTS, state=FakeStateTable(), policy=config)
+        with patch.object(lh, "_get_ddb", return_value=ddb):
+            assert lh.lambda_handler(state_change_event(), None)["action"] == "notify"
+
+    def test_db_policy_overrides_env(self, config, monkeypatch):
+        from alert_ingestor import lambda_handler as lh
+
+        monkeypatch.setenv("ALERT_REPEAT_INTERVAL_SEC", "60")
+        lh._base_policy.cache_clear()
+        config.put_item(Item={"config_type": "policy", "config_id": "default",
+                              "repeat_interval_sec": 86_400})
+        state = FakeStateTable()
+        state.items["fp#111122223333#i-0abc#CPUUtilization"] = {
+            "state_key": "fp#111122223333#i-0abc#CPUUtilization", "version": 1,
+            "last_notified_at": "2026-09-02T09:00:00Z", "episode_open": False,
+            "recent_episodes": ["2026-09-02T09:00:00Z"]}
+        ddb, _ = _ddb_with(accounts_items=ACCOUNTS, state=state, policy=config)
+        with patch.object(lh, "_get_ddb", return_value=ddb):
+            result = lh.lambda_handler(state_change_event(), None)
+
+        # 환경변수(60초)였다면 75분 전 알림은 창 밖이라 notify였을 것이다
+        assert result["action"] == "suppress" and result["reason"] == "dedup"
+
+    def test_config_read_failure_falls_back_and_is_visible(self, env, monkeypatch, caplog):
+        from alert_ingestor import lambda_handler as lh
+
+        monkeypatch.setenv("ALERT_POLICY_TABLE", "alert-policy-test")
+        broken = MagicMock()
+        broken.get_item.side_effect = ClientError(
+            {"Error": {"Code": "AccessDeniedException", "Message": "x"}}, "GetItem")
+        ddb, hist = _ddb_with(accounts_items=ACCOUNTS, state=FakeStateTable(), policy=broken)
+        with patch.object(lh, "_get_ddb", return_value=ddb), caplog.at_level("INFO"):
+            result = lh.lambda_handler(state_change_event(), None)
+
+        assert result["action"] == "notify"                    # 정비창 없이 계속 동작
+        assert _perf_lines(caplog, "alert_ingest")[0]["config_ok"] is False
+        assert hist.put_item.called
+
+    def test_no_policy_table_is_env_mode(self, env, caplog):
+        from alert_ingestor import lambda_handler as lh
+
+        ddb, _ = _ddb_with(accounts_items=ACCOUNTS, state=FakeStateTable())
+        with patch.object(lh, "_get_ddb", return_value=ddb), caplog.at_level("INFO"):
+            lh.lambda_handler(state_change_event(), None)
+
+        assert _perf_lines(caplog, "alert_ingest")[0]["config_ok"] is True   # 미구성은 결함이 아니다
 
 
 class TestGrouping:

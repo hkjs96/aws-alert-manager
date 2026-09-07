@@ -44,8 +44,15 @@ REASON_AUTO_PAUSE = "auto_pause"
 REASON_CLEARED = "cleared"
 REASON_NOT_ACTIONABLE = "not_actionable"
 
-#: Alertmanager 기본값을 출발점으로 삼는다 (design.md D4).
-DEFAULT_REPEAT_INTERVAL_SEC = 4 * 3600
+#: 같은 알람을 다시 알리기까지의 최소 간격 = **해소 후 재발화 병합 창** (design.md U6).
+#:
+#: Alertmanager의 `repeat_interval` 4시간을 그대로 쓰려다 바꿨다. Alertmanager는 "아직 울리는
+#: 알람을 주기적으로 다시 알리는" 간격이지만, CloudWatch는 **전이만** 보낸다 — ALARM이 지속돼도
+#: 이벤트가 더 오지 않으므로 우리 dedup이 실제로 막는 것은 "해소 뒤 재발화"뿐이다.
+#: 4시간이면 10:00 발화·10:10 해소·10:30 재발화가 3시간 지속돼도 14:00까지 아무도 모른다.
+#: 진짜 재발을 묻는 값이라 15분으로 줄인다. 짧은 토글 반복은 flapping 격리가 따로 잡는다.
+#: (4시간은 Phase 3의 "미해소 인시던트 리마인더"로 옮긴다 — 그건 우리가 타이머를 갖고 있어야 한다.)
+DEFAULT_REPEAT_INTERVAL_SEC = 15 * 60
 
 
 @dataclass(frozen=True)

@@ -249,6 +249,38 @@ Merged API DTO:
 
 Frontend interface: `frontend/types/api.ts::ThresholdOverride`.
 
+## AlertPolicy / Silence
+
+Persistent entities in `ALERT_POLICY_TABLE` (`docs/specs/alert-pipeline/`, tasks 1.4.4·1.4.6).
+Composite key: `config_type` (hash) + `config_id` (range).
+
+Policy item — `config_type: "policy"`, `config_id: "default"`:
+
+| Field | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `auto_pause_sec` | map | no | Severity → grace seconds before deciding. Empty = no grace. |
+| `repeat_interval_sec` | number | no | Re-fire merge window. Default 900 (see U6 in design.md). |
+| `exempt_severities` | list | no | Severities that skip every suppression rule (R3-8). |
+| `flapping_window_days` | string | no | Stored as string — DynamoDB rejects float. |
+| `flapping_per_day` | number | no | Episodes per day that trigger quarantine. |
+| `flapping_quarantine_sec` | number | no | Quarantine duration. |
+| `group_wait_sec` | number | no | Group collection window (design.md D10). |
+| `updated_at` / `updated_by` | string | yes | Audit. |
+
+Silence item — `config_type: "silence"`, `config_id: "{YYYYMMDDTHHMMSS}-{random}"`:
+
+| Field | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `starts_at` / `ends_at` | string | yes | ISO8601 UTC. Window may not exceed 30 days. |
+| `customer_id` | string | no | Empty = all customers (global, admin only). |
+| `resource_type` | string | no | Empty = all types. |
+| `reason` | string | no | Max 200 chars. |
+| `created_by` / `created_at` | string | yes | Audit. |
+| `ttl` | number | yes | `ends_at` + 7 days — expired silences clean themselves up. |
+
+Values out of range are clamped by the runtime loader and rejected by the API: the runtime must
+keep working with whatever is already stored, while a person entering a bad value must be told.
+
 ## JobStatus
 
 Persistent entity in `JOB_STATUS_TABLE`.

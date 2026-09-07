@@ -88,6 +88,45 @@ class FakeHistoryTable:
                       key=lambda i: i["event_key"])
 
 
+class FakeConfigTable:
+    """(config_type, config_id) 복합 키 테이블 — 정제 정책과 정비창."""
+
+    def __init__(self):
+        self.items: dict[tuple, dict] = {}
+        self.queries = 0
+        self.gets = 0
+        self.page_size = 0          # >0이면 그만큼씩 나눠 돌려준다(페이지네이션 검증용)
+
+    def get_item(self, Key, **_):
+        self.gets += 1
+        it = self.items.get((Key["config_type"], Key["config_id"]))
+        return {"Item": dict(it)} if it else {}
+
+    def put_item(self, Item, **_):
+        self.items[(Item["config_type"], Item["config_id"])] = dict(Item)
+
+    def delete_item(self, Key, **_):
+        self.items.pop((Key["config_type"], Key["config_id"]), None)
+
+    def query(self, KeyConditionExpression=None, ExclusiveStartKey=None, **_):
+        self.queries += 1
+        expr = KeyConditionExpression.get_expression()
+        assert expr["operator"] == "=", expr
+        wanted = expr["values"][1]
+        rows = [dict(v) for k, v in sorted(self.items.items()) if k[0] == wanted]
+        if not self.page_size:
+            return {"Items": rows}
+        start = 0
+        if ExclusiveStartKey:
+            ids = [r["config_id"] for r in rows]
+            start = ids.index(ExclusiveStartKey["config_id"]) + 1
+        page = rows[start:start + self.page_size]
+        out: dict = {"Items": page}
+        if start + self.page_size < len(rows) and page:
+            out["LastEvaluatedKey"] = {"config_type": wanted, "config_id": page[-1]["config_id"]}
+        return out
+
+
 class FakeSfn:
     """StartExecution 기록. 같은 이름은 ExecutionAlreadyExists — 실제와 같다."""
 

@@ -254,8 +254,11 @@ def render(a: dict, *, start: datetime, end: datetime, customers: list[str]) -> 
     w("")
     w("## 해석 주의")
     w("")
-    w("- 정비창(silence)은 아직 저장소가 없어 미배선(tasks 1.4.4) — 억제율은 **하한**이다.")
-    w("- dedup 창은 4시간(U6 미결) — 해소 뒤 재발화가 4시간 안이면 억제로 잡힌다.")
+    w("- 정제 규칙 5종(중복·flapping·정비창·auto-pause·해소)이 모두 배선돼 있다. 다만 정비창은 등록된")
+    w("  구간이 없으면 억제에 기여하지 않으므로, `silence` 사유가 0이라고 규칙이 죽은 것은 아니다.")
+    w("- `dedup`은 **해소 후 재발화 병합 창**이다(기본 15분, design.md U6). CloudWatch는 전이만 보내므로")
+    w("  지속 중인 알람은 재알림 대상이 아니다 — 미해소 리마인더는 Phase 3에서 붙는다.")
+    w("- 지금 적용 중인 값은 `GET /api/alert/policy`로 확인한다(정책은 DB, tasks 1.4.6).")
     return "\n".join(L)
 
 
