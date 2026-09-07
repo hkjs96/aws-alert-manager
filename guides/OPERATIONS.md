@@ -103,6 +103,57 @@ infrastructure/test-stacks/
 These stacks are for integration, E2E, and resource validation work. Do not mix
 them with the deployable backend stack.
 
+## Alert Delivery to Slack (AWS Chatbot)
+
+**Managed outside CloudFormation.** AWS Chatbot requires a one-time OAuth
+authorization of the Slack workspace in the AWS console, which cannot be
+automated, so the channel configuration is maintained by hand — like the
+customer onboarding S3 bucket.
+
+Current dev wiring (account `949501913924`):
+
+| | |
+| --- | --- |
+| Workspace | `Project WS` (`T07U8210ZUN`) |
+| Channel | `msu-monitoring-channel-poc` (`C0AKEPP49NF`) |
+| Configuration | `arn:aws:chatbot::949501913924:chat-configuration/slack-channel/msu-monitoring-channel-poc` |
+| Subscribed topics | `aws-monitoring-engine-alert-dev`, `aws-monitoring-engine-error-dev` |
+
+The Chatbot API lives in `us-east-2` even though the topics are in `us-east-1`.
+
+Add a topic (the list replaces, so repeat every ARN you want to keep):
+
+```bash
+aws chatbot update-slack-channel-configuration --region us-east-2 \
+  --chat-configuration-arn "arn:aws:chatbot::949501913924:chat-configuration/slack-channel/msu-monitoring-channel-poc" \
+  --slack-channel-id "C0AKEPP49NF" \
+  --sns-topic-arns \
+    "arn:aws:sns:us-east-1:949501913924:aws-monitoring-engine-alert-dev" \
+    "arn:aws:sns:us-east-1:949501913924:aws-monitoring-engine-error-dev"
+```
+
+Chatbot creates and confirms the SNS subscription itself — do not subscribe a
+Slack Incoming Webhook URL to a topic directly. Slack never answers the SNS
+confirmation handshake, so such a subscription sits in `PendingConfirmation`
+forever and delivers nothing.
+
+Verify end to end by driving a real alarm rather than publishing a raw message
+(Chatbot renders CloudWatch alarm payloads; arbitrary text may not appear):
+
+```bash
+aws cloudwatch set-alarm-state --alarm-name "<alarm>" --state-value ALARM \
+  --state-reason "delivery test"
+aws cloudwatch set-alarm-state --alarm-name "<alarm>" --state-value OK \
+  --state-reason "test over"
+# then confirm the action fired:
+aws cloudwatch describe-alarm-history --alarm-name "<alarm>" --history-item-type Action
+```
+
+> `ErrorAlertTopic` carries the pipeline's **self-monitoring** alarms (ingestor
+> errors and throttles, ingest DLQ, group worker errors, group execution
+> failures) plus the remediation DLQ. It must never be routed through the alert
+> pipeline itself — a failure there would take its own alarm down with it.
+
 ## Frontend Deployment
 
 Frontend deployment is infrastructure from an ownership perspective, but hosting
