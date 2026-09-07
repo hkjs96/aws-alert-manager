@@ -82,24 +82,57 @@
   - [x] 라이브 실증(2026-09-07): 발화→NOTIFY, 해소→cleared 억제, 재발화→**dedup 억제** 확인
   - 발송자(2.2)가 붙기 전에 실제 트래픽으로 억제율(R9-1)을 측정하고 규칙을 검증한다
   - DEFER는 타이머가 없어 실행 불가 → 억제로 세지 않는다(과대 집계 방지)
-- [ ] 1.4.2 Auto-pause **실행** — Step Functions Wait 기반 (판정 로직은 1.4.1에 있음)
-  - 유예 값은 Phase 0 실측 후 `ALERT_AUTO_PAUSE_SEC`로 설정
+- [ ] 1.4.2 **상태 테이블** `AlertStateTable` (design.md **D9**, review-2026-09-07 B1)
+  - 지문별 `last_notified_at` / `recent_episodes` / `quarantined_until` / `version`
+  - 이력 Query 스캔(Limit=20) 제거 — 억제 20건 뒤 dedup이 풀리는 버그의 근본 해소
+  - `is_flapping` / `already_notified`를 여기서 채워 `decide()`에 전달 (현재 항상 False)
+  - 갱신은 `version` 조건부 — 동시 처리에서 한쪽만 알린다
+  - [ ] 테스트: 억제 항목이 아무리 쌓여도 dedup 창이 유지됨
+  - [ ] 테스트: 조건부 갱신 실패 시 dedup으로 판정
+- [ ] 1.4.3 Grouping — **타이머보다 먼저** (design.md **D10**, review S2)
+  - 그룹 키 `{customer_id}#{severity}` (U3에서 조정 가능), `grp#` 상태 항목으로 열림/닫힘 관리
+  - 첫 이벤트만 실행을 연다. 후속 이벤트는 이력 적재만 — 실행에 합류시키지 않는다
+  - [ ] 테스트: group_by 축이 같은 이벤트가 1건으로 묶임
+  - [ ] 테스트: 폭풍(수천 건)에서 실행 수 = 그룹 수
+- [ ] 1.4.3b Auto-pause **실행** — 그룹 실행 안의 Wait (판정 로직은 1.4.1에 있음)
+  - 실행: Wait(group_wait) → 이력 조회 → Wait(pause) → 재조회·해소 제외 → 알림 1건 → **final_action write-back**
+  - 유예 값은 Phase 0 실측 후 설정 (1.4.6까지는 환경변수)
   - [ ] 테스트: 유예 중 OK 수신 시 미발송
   - [ ] 테스트: 유예 후에도 ALARM이면 발송
-- [ ] 1.4.3 Grouping — `group_wait` 내 도착 이벤트 병합
-  - [ ] 테스트: group_by 축이 같은 이벤트가 1건으로 묶임
+  - [ ] 테스트: write-back 후 억제율 집계에 DEFER 결과가 반영됨
 - [x] 1.4.4 Silence / 정비창 — 판정 구현 (고객사·리소스타입 스코프)
   - [x] 테스트: 정비 시간대 억제, 종료 후 정상화, 스코프 매칭
   - [ ] 정비창을 DB에 저장·관리하는 UI/API (현재는 정책 객체에만 존재)
 - [x] 1.4.5 Flapping 판정 함수 (`is_flapping`) — 실측 스크립트와 같은 기준식
-  - [ ] 격리 상태 저장·해제 (현재는 호출자가 판정 결과를 넘겨야 함)
+  - [ ] 격리 상태 저장·해제 → 1.4.2 상태 테이블의 `recent_episodes`/`quarantined_until`
 - [ ] 1.4.6 정제 설정을 DB에서 읽기 (R3-9) — 현재는 환경변수
   (`ALERT_AUTO_PAUSE_SEC`, `ALERT_REPEAT_INTERVAL_SEC`)
 
 ### 1.5 측정
 
 - [ ] 1.5.1 억제율·억제 사유별 건수 계측 (`perf_log` 규약 사용, R9-1·9-2)
+  - ⚠️ 1.4.2 전까지 억제율은 **하한**이다 — flapping·silence·해소 알림이 미배선 (review §4). 리포트에 명시
 - [ ] 1.5.2 `docs/OBSERVABILITY.md`에 조회 쿼리 추가
+
+### 1.6 검토 반영 — `review-2026-09-07.md` (즉시, 배포 1회)
+
+- [ ] 1.6.1 DLQ `ApproximateNumberOfMessagesVisible ≥ 1` + 인제스터 `Errors`/`Throttles` 알람 → **`ErrorAlertTopic` 직결** (Q1)
+  - 우리 파이프라인을 태우지 않는다 — 자기 감시는 감시 대상에 의존하면 안 된다
+- [ ] 1.6.2 인제스터 `ReservedConcurrentExecutions: 50` (S1) — 느린 하류 + 폭풍이 계정 전체를 멈추지 않게
+- [ ] 1.6.3 미관리 알람 `series_id` 폴백 — `resource_id` 비면 알람 ARN (B2)
+  - [ ] 테스트: 해석 실패 알람 둘의 키가 다름 / 해석 성공 키는 불변
+- [ ] 1.6.4 계정→고객사 캐시 5분 TTL (Q2)
+  - [ ] 테스트: TTL 경과 후 새 계정이 매핑됨
+- [ ] 1.6.5 `raw` 64KB 상한 + `raw_truncated` 플래그, 잘라도 JSON 유지 (Q3)
+  - [ ] 테스트: 상한 초과 시 `detail`만 보존되고 `json.loads` 성공
+- [ ] 1.6.6 Phase 0 스크립트 `--days` 14 클램프 + 실효 창은 응답 최초 항목 기준 (B3)
+  - [ ] 테스트: 30일 요청 시 경고 + 14일로 계산
+
+### Phase 2 진입 조건 (review §5)
+
+- [ ] 1.4.2 상태 테이블 · 1.4.3 grouping · 1.4.3b 타이머 — 위
+- [ ] 이력 put에 `attribute_not_exists(event_key)` 조건 — 중복 전달 시 발송 생략 (P1)
+- [ ] `AlarmDescription` 메타데이터에 `severity` — 레지스트리 드리프트 방지 (P2)
 
 ## Phase 2 — 인시던트 + 고객사별 다중 채널
 

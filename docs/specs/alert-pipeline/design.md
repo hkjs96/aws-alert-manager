@@ -257,7 +257,7 @@ KMS 암호화와 읽기 감사가 붙지만, 위 1번대로 보호 대상의 가
 억제율 리포트(R9)와 기간 집계용이다. 고객사 단독을 PK로 쓰면 큰 고객사의 이벤트가 한 파티션에
 누적되므로 **일 단위로 쪼갠다** — 폭풍이 와도 그날 파티션 하나에만 몰린다.
 
-**원본 보존:** 항목에 `raw`(원본 이벤트 JSON, 8KB 상한)를 함께 넣는다. 정제 규칙을 바꾼 뒤
+**원본 보존:** 항목에 `raw`(원본 이벤트 JSON, 64KB 상한 — 초과 시 `detail`만 + `raw_truncated`)를 함께 넣는다. 정제 규칙을 바꾼 뒤
 "그 규칙이었다면 과거 이벤트를 어떻게 처리했을까"를 소급 검증하려면(R2-5) 파싱 결과만으로는 부족하다.
 90일 보관 기준 저장 비용은 $0.2/월 수준이라 원본을 버릴 이유가 없다.
 
@@ -265,7 +265,48 @@ KMS 암호화와 읽기 감사가 붙지만, 위 1번대로 보호 대상의 가
 `AlertEvent`를 반환하고, 해석 실패는 `parse_error`에 남긴다. 이벤트 유실은 되돌릴 수 없고,
 우리가 관리하지 않는 알람(고객사 자체 알람 등)도 이력으로는 남겨야 하기 때문이다(R2-1).
 
----
+**해석 실패 시 키 폴백(review-2026-09-07 B2):** `resource_id`가 비면 그 자리에 알람 ARN을 쓴다.
+비워두면 계정의 모든 미관리 알람이 한 파티션(`"{account}##"`)에 몰리고 dedup 조회가 남의
+이벤트를 돌려준다. 해석 성공 케이스의 MetricHistory 조인 규약은 그대로다.
+
+### D9. 상태와 이력을 분리한다 — `AlertStateTable`
+
+**결정:** "마지막으로 알린 시각", "flapping 격리 여부", "이 발화에 이미 알렸는가"는 **상태**이고,
+지문(fingerprint)별 항목으로 따로 둔다. `EventHistoryTable`은 append-only **이력**(감사·재현·학습)으로만 쓴다.
+
+```
+AlertStateTable  PK: state_key                                  TTL 30일
+  fp#{fingerprint}   last_notified_at, episode_started_at, recent_episodes[≤30],
+                     quarantined_until, incident_id, version
+  grp#{group_id}     execution_arn, opened_at, status           ← D10
+```
+
+**근거:** 처음 구현은 상태를 이력에서 역순 Query(`Limit=20`)로 복원했다. 억제 항목이 20건 쌓이면
+NOTIFY가 조회 창 밖으로 밀려 dedup이 **조용히 풀린다** — 가장 시끄러운 알람에서 가장 먼저.
+`Limit`을 키워도 그 뒤에서 같은 일이 난다. 이력이 길수록 틀리는 구조는 상태 저장소가 아니다.
+
+- `GetItem` 1회로 dedup·flapping·already_notified가 모두 결정된다.
+- `version` 조건부 갱신 — 같은 series의 이벤트가 동시에 처리돼도 한쪽만 알린다(at-least-once 대비).
+- 비용: 이벤트당 읽기 1 + 쓰기 1. 월 7만 이벤트 기준 $0.1 미만.
+
+### D10. 타이머는 그룹 단위다 — 이벤트 단위가 아니다
+
+**결정:** Step Functions 실행은 **그룹당 하나**다. 그룹 키는 우선 `{customer_id}#{severity}`
+(Alertmanager 기본 축; U3에서 조정). 실행 하나가 `group_wait`와 auto-pause를 순차로 처리한다.
+
+```
+첫 이벤트: grp# 없음 → StartExecution + grp# 기록
+후속 이벤트: 이력 적재만 — 실행에 합류시키지 않는다
+
+실행: Wait(group_wait) → 이력에서 opened_at 이후 이벤트 조회
+    → Wait(auto_pause) → 재조회, 해소된 것 제외
+    → 알림 1건 → 이벤트들의 final_action write-back → grp# 닫음
+```
+
+**근거:** 이벤트마다 실행을 만들면 폭풍 한 번(2만 건)에 실행 2만 개다. 비용($2.5)보다
+`StartExecution` 한도가 문제고, 무엇보다 **유예가 끝나면 2만 개가 각자 알림을 보낸다** —
+유예의 목적을 정면으로 어긴다. 그룹 단위면 실행은 고객사×등급 조합 수(수십)로 끝난다.
+실행이 깨어날 때 이력을 읽으므로 이벤트가 실행에 메시지를 보낼 필요가 없다 — 경쟁 조건이 없다.
 
 ---
 
