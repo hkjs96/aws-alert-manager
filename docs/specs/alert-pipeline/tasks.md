@@ -82,14 +82,19 @@
   - [x] 라이브 실증(2026-09-07): 발화→NOTIFY, 해소→cleared 억제, 재발화→**dedup 억제** 확인
   - 발송자(2.2)가 붙기 전에 실제 트래픽으로 억제율(R9-1)을 측정하고 규칙을 검증한다
   - DEFER는 타이머가 없어 실행 불가 → 억제로 세지 않는다(과대 집계 방지)
-- [ ] 1.4.2 **상태 테이블** `AlertStateTable` (design.md **D9**, review-2026-09-07 B1)
+- [ ] 1.4.2 **상태 테이블** `AlertStateTable` (design.md **D9**, review-2026-09-07 B1) — 계획 `plan-state-grouping.md` §A
+  - 받아들임 기준(라이브): **25번 토글 → NOTIFY 1건** (현재 코드는 ~10번마다 1건)
+  - 상태 먼저, 이력 나중 — 재시도에 안전한 순서. 이력 Query(Limit=20)와 그 IAM은 제거
   - 지문별 `last_notified_at` / `recent_episodes` / `quarantined_until` / `version`
   - 이력 Query 스캔(Limit=20) 제거 — 억제 20건 뒤 dedup이 풀리는 버그의 근본 해소
   - `is_flapping` / `already_notified`를 여기서 채워 `decide()`에 전달 (현재 항상 False)
   - 갱신은 `version` 조건부 — 동시 처리에서 한쪽만 알린다
   - [ ] 테스트: 억제 항목이 아무리 쌓여도 dedup 창이 유지됨
   - [ ] 테스트: 조건부 갱신 실패 시 dedup으로 판정
-- [ ] 1.4.3 Grouping — **타이머보다 먼저** (design.md **D10**, review S2)
+- [ ] 1.4.3 Grouping — **타이머보다 먼저** (design.md **D10**, review S2) — 계획 `plan-state-grouping.md` §B
+  - 받아들임 기준(라이브): **1분 500건 → 실행 1개**, 이력 500건 전부 같은 `group_id`
+  - 그룹은 **닫고 나서 조회**한다 — 늦게 온 이벤트가 어느 쪽에도 안 잡히는 빈틈 방지
+  - 새 Lambda `alert_group_worker` (권한·예약 동시성을 인제스터와 분리)
   - 그룹 키 `{customer_id}#{severity}` (U3에서 조정 가능), `grp#` 상태 항목으로 열림/닫힘 관리
   - 첫 이벤트만 실행을 연다. 후속 이벤트는 이력 적재만 — 실행에 합류시키지 않는다
   - [ ] 테스트: group_by 축이 같은 이벤트가 1건으로 묶임
