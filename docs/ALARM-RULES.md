@@ -51,6 +51,7 @@
 | `TCP_Client_Reset_Count` | AWS/NetworkELB | `LoadBalancer` | LB 전용 |
 | `TCP_Target_Reset_Count` | AWS/NetworkELB | `LoadBalancer` | LB 전용 |
 | `StatusCheckFailed` | AWS/EC2 | `InstanceId` | 인스턴스 레벨 |
+| `StatusCheckFailed_Application` | AWS/EC2 | `InstanceId` | 인스턴스 레벨 (옵트인) |
 | `ReadLatency` | AWS/RDS | `DBInstanceIdentifier` | 인스턴스 레벨 |
 | `WriteLatency` | AWS/RDS | `DBInstanceIdentifier` | 인스턴스 레벨 |
 
@@ -103,6 +104,13 @@
 | Threshold_Memory | Memory | mem_used_percent | CWAgent | 80 | % |
 | Threshold_Disk_{path} | Disk_{path} | disk_used_percent | CWAgent | 80 | % |
 | Threshold_StatusCheckFailed | StatusCheckFailed | StatusCheckFailed | AWS/EC2 | 0 | Count |
+| Threshold_StatusCheckFailed_Application | StatusCheckFailed_Application | StatusCheckFailed_Application | AWS/EC2 | 0 | Count |
+
+> **`StatusCheckFailed_Application`은 옵트인이다.** EC2 애플리케이션 상태 검사(2026-08 출시)를
+> 설정한 인스턴스만 이 지표를 발행하므로, 태그가 있을 때만 알람을 만든다. `treat_missing_data`는
+> **`notBreaching`** — 검사를 안 쓰는 인스턴스는 데이터가 없어서 `breaching`이면 전부 알람이 된다
+> (시스템 검사 `StatusCheckFailed`가 `breaching`인 것과 반대). 설계·주의사항은
+> `docs/specs/ec2-application-status-checks/design.md`.
 
 ### RDS
 
@@ -346,7 +354,7 @@ SEV-1, SEV-2는 "Major Incident"로 분류하여 인시던트 대응 프로세�
 
 | 등급 | 메트릭 | 기준 |
 |------|--------|------|
-| SEV-1 | StatusCheckFailed, HealthyHostCount(<1), TunnelState(<1), ClusterStatusRed, ConnectionState(<1), HealthCheckStatus(<1) | 서비스 완전 중단 또는 접근 불가 |
+| SEV-1 | StatusCheckFailed, StatusCheckFailed_Application, HealthyHostCount(<1), TunnelState(<1), ClusterStatusRed, ConnectionState(<1), HealthCheckStatus(<1) | 서비스 완전 중단 또는 접근 불가 |
 | SEV-2 | ELB5XX(>임계치), CLB5XX, Errors(Lambda), UnHealthyHostCount(>임계치) | 에러 급증, 서비스 품질 심각 저하 |
 | SEV-3 | CPU, Memory, Disk, FreeMemoryGB, FreeStorageGB, FreeLocalStorageGB, EngineCPU, ACUUtilization, DaysToExpiry | 리소스 포화 근접, 조치 안 하면 장애 가능 |
 | SEV-4 | ReadLatency, WriteLatency, TargetResponseTime, TGResponseTime, Duration, ApiLatency | 성능 저하, 사용자 체감 가능하나 서비스 중단 아님 |

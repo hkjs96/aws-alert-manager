@@ -39,6 +39,7 @@ _METRIC_DISPLAY = {
     "ActiveFlowCount": ("ActiveFlowCount", ">", ""),
     "NewFlowCount": ("NewFlowCount", ">", ""),
     "StatusCheckFailed": ("StatusCheckFailed", ">", ""),
+    "StatusCheckFailed_Application": ("StatusCheckFailed_Application", ">", ""),
     "ReadLatency": ("ReadLatency", ">", "s"),
     "WriteLatency": ("WriteLatency", ">", "s"),
     "HTTPCode_ELB_5XX_Count": ("HTTPCode_ELB_5XX_Count", ">", ""),
@@ -187,6 +188,39 @@ _EC2_ALARMS = [
         "treat_missing_data": "breaching",
     },
 ]
+#: EC2 애플리케이션 상태 검사(2026-08 출시)의 인스턴스 단위 집계 지표.
+#: AWS가 VPC 내 관리형 ENI로 앱의 HTTP 엔드포인트를 60초마다 찔러 보고 0/1로 발행한다.
+APP_STATUS_METRIC_KEY = "StatusCheckFailed_Application"
+
+_EC2_APP_STATUS_ALARM = {
+    "metric": APP_STATUS_METRIC_KEY,
+    "namespace": "AWS/EC2",
+    "metric_name": APP_STATUS_METRIC_KEY,
+    "dimension_key": "InstanceId",
+    "stat": "Maximum",
+    "comparison": "GreaterThanThreshold",
+    # 지표가 1분 주기이고, 디바운스(연속 2회 실패)는 AWS 검사 쪽에 이미 있다.
+    # 여기서 M-of-N을 또 얹으면 가용성 장애 감지가 그만큼 늦어진다.
+    "period": 60,
+    "evaluation_periods": 1,
+    # **반드시 notBreaching.** 상태 검사가 연결되지 않은 인스턴스는 이 지표를 아예 발행하지
+    # 않는다 — breaching이면 검사를 안 쓰는 인스턴스 전부가 즉시 알람이 된다.
+    # (시스템 검사 StatusCheckFailed가 breaching인 것과 반대다.)
+    "treat_missing_data": "notBreaching",
+}
+
+
+def _get_ec2_alarm_defs(resource_tags: dict) -> list[dict]:
+    """EC2 알람 정의. 애플리케이션 상태 검사 알람은 **옵트인**한 인스턴스에만 붙인다.
+
+    검사를 만들지 않은 인스턴스는 지표가 없으므로, 기본 생성하면 전 인스턴스에 데이터 없는
+    알람이 하나씩 생겨 요금(개당 월 $0.10)만 늘고 얻는 게 없다. `Threshold_...` 태그가 있으면
+    켠다 — 값이 `off`면 정의는 남고 하위 경로가 생성을 건너뛰고 기존 알람을 지운다(다른 지표와 동일).
+    """
+    if (resource_tags or {}).get(f"Threshold_{APP_STATUS_METRIC_KEY}", "").strip():
+        return [*_EC2_ALARMS, _EC2_APP_STATUS_ALARM]
+    return _EC2_ALARMS
+
 
 _RDS_ALARMS = [
     {
@@ -1545,7 +1579,7 @@ def _get_alarm_defs(resource_type: str, resource_tags: dict | None = None) -> li
 
 def _get_alarm_defs_raw(resource_type: str, resource_tags: dict | None = None) -> list[dict]:
     if resource_type == "EC2":
-        return _EC2_ALARMS
+        return _get_ec2_alarm_defs(resource_tags or {})
     elif resource_type == "RDS":
         return _RDS_ALARMS
     elif resource_type == "AuroraRDS":
@@ -1613,6 +1647,9 @@ def _get_alarm_defs_raw(resource_type: str, resource_tags: dict | None = None) -
 
 # resource_type별 하드코딩 메트릭 키 (metric_key 기준; tag_key = Threshold_{metric_key})
 _HARDCODED_METRIC_KEYS: dict[str, set[str]] = {
+    # StatusCheckFailed_Application은 여기 없다 — 이 표는 **기본** 알람 집합이고 그 지표는
+    # 태그 옵트인이다. 동적 알람 중복은 `_get_hardcoded_metric_keys()`가 막는다(태그를 함께 보므로
+    # 옵트인 시 자동으로 포함된다).
     "EC2": {"CPUUtilization", "mem_used_percent", "disk_used_percent", "StatusCheckFailed"},
     "RDS": {"CPUUtilization", "FreeableMemory", "FreeStorageSpace", "DatabaseConnections", "ReadLatency", "WriteLatency", "ConnectionAttempts"},
     "ALB": {"RequestCount", "HTTPCode_ELB_5XX_Count", "TargetResponseTime", "ELB4XX", "TargetConnectionError"},
@@ -1772,6 +1809,7 @@ def _metric_name_to_key(cw_name: str) -> str:
 _DEFAULT_SEVERITY: dict[str, str] = {
     # SEV-1: 서비스 완전 중단 또는 접근 불가
     "StatusCheckFailed":  "SEV-1",
+    "StatusCheckFailed_Application": "SEV-1",   # 앱이 응답하지 않음 — 시스템 검사와 같은 급
     "HealthyHostCount":   "SEV-1",
     "TunnelState":        "SEV-1",
     "ConnectionState":    "SEV-1",

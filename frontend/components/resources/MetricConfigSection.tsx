@@ -25,6 +25,9 @@ export const METRICS_BY_TYPE: Record<string, MetricRow[]> = {
     { key: "Memory", name: "mem_used_percent", threshold: 80, unit: "%", direction: ">", enabled: true },
     { key: "Disk", name: "disk_used_percent", threshold: 80, unit: "%", direction: ">", enabled: true },
     { key: "StatusCheck", name: "StatusCheckFailed", threshold: 0, unit: "", direction: ">", enabled: true },
+    // 애플리케이션 상태 검사는 인스턴스마다 별도 설정이 필요하고, 없으면 지표가 발행되지 않는다 —
+    // 기본은 꺼짐(옵트인). docs/specs/ec2-application-status-checks/design.md
+    { key: "AppStatusCheck", name: "StatusCheckFailed_Application", threshold: 0, unit: "", direction: ">", enabled: false },
   ],
   RDS: [
     { key: "CPU", name: "CPUUtilization", threshold: 80, unit: "%", direction: ">", enabled: true },

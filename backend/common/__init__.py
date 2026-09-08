@@ -38,6 +38,7 @@ HARDCODED_DEFAULTS: dict[str, float] = {
     "ActiveFlowCount": 10000.0,
     "NewFlowCount": 5000.0,
     "StatusCheckFailed": 0.0,
+    "StatusCheckFailed_Application": 0.0,
     "ReadLatency": 0.02,
     "WriteLatency": 0.02,
     "HTTPCode_ELB_5XX_Count": 50.0,
