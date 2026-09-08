@@ -1,10 +1,13 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >
   Alarm Manager - customer account onboarding stack.
-  Creates a single IAM Role that lets the central (monitoring) account use STS
+  Creates (1) an IAM Role that lets the central (monitoring) account use STS
   AssumeRole to read this account's resources and manage CloudWatch alarms
-  (tag-based). No heavy resources (Lambda/DB) are created in the customer
-  account - lightweight onboarding.
+  (tag-based), and (2) an EventBridge rule + role that forwards this account's
+  CloudWatch alarm events to the central alert event bus (alert pipeline D1).
+  No heavy resources (Lambda/DB) are created - lightweight onboarding.
+  Deploy this stack in the region where your CloudWatch alarms live (the same
+  region as your monitored resources), so the forwarding rule can see them.
 
 Parameters:
   CentralAccountId:
@@ -16,6 +19,14 @@ Parameters:
     Type: String
     Default: AlarmManagerMonitoringRole
     Description: Name of the IAM Role to create. After creation, use the RoleArn output to register this account in the app.
+
+  CentralAlertBusArn:
+    Type: String
+    Default: "arn:aws:events:us-east-1:949501913924:event-bus/aws-monitoring-alert-prod"
+    AllowedPattern: "^arn:aws:events:[a-z0-9-]+:[0-9]{12}:event-bus/.+$"
+    Description: >
+      ARN of the central alert event bus that receives this account's CloudWatch
+      alarm events. Default is the production bus; override for a non-prod central stack.
 
 Resources:
   MonitoringRole:
@@ -142,7 +153,52 @@ Resources:
         - Key: ManagedBy
           Value: AlarmManager
 
+  # ── Alert forwarding: this account's CloudWatch alarm events → central alert bus ──
+  # One rule covers every alarm regardless of count (EventBridge bus-to-bus, alert pipeline D1).
+  # Cross-account PutEvents also needs the central bus to allow this account as a principal;
+  # the app grants that automatically when you register the account (events:PutPermission).
+  AlertForwardRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${RoleName}-AlertForward"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: ForwardToCentralAlertBus
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: events:PutEvents
+                Resource: !Ref CentralAlertBusArn
+      Tags:
+        - Key: ManagedBy
+          Value: AlarmManager
+
+  AlertForwardRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: alarm-manager-forward-to-central
+      Description: Forward CloudWatch alarm state and configuration changes to the central alert bus.
+      State: ENABLED
+      EventPattern:
+        source:
+          - aws.cloudwatch
+      Targets:
+        - Id: central-alert-bus
+          Arn: !Ref CentralAlertBusArn
+          RoleArn: !GetAtt AlertForwardRole.Arn
+
 Outputs:
   RoleArn:
     Description: Role ARN to use when registering this account (account_id, role_arn) in the app.
     Value: !GetAtt MonitoringRole.Arn
+
+  AlertForwardRoleArn:
+    Description: Role that lets EventBridge forward this account's alarm events to the central bus.
+    Value: !GetAtt AlertForwardRole.Arn

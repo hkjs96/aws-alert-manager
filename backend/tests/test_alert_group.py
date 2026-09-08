@@ -88,3 +88,26 @@ class TestGroupItem:
         from decimal import Decimal
         inp = execution_input({"group_id": "g", "group_wait_sec": Decimal("45")})
         assert inp["group_wait_sec"] == 45 and inp["group_key"] == ""
+
+
+class TestGroupKeyFallback:
+    """미등록 계정(customer_id 없음)은 account_id로 그룹을 나눈다 (review-personas F5)."""
+
+    def test_registered_account_uses_customer_id(self):
+        from common.alert_state import group_key
+        from tests.test_alert_event import state_change_event
+        from common.alert_event import from_eventbridge
+        ev = from_eventbridge(state_change_event(account="111122223333"), customer_id="cust-1")
+        ev.severity = "SEV-3"
+        assert group_key(ev) == "cust-1#SEV-3"
+
+    def test_unregistered_account_falls_back_to_account_id(self):
+        from common.alert_state import group_key
+        from tests.test_alert_event import state_change_event
+        from common.alert_event import from_eventbridge
+        a = from_eventbridge(state_change_event(account="111122223333"), customer_id="")
+        b = from_eventbridge(state_change_event(account="999988887777"), customer_id="")
+        a.severity = b.severity = "SEV-1"
+        assert group_key(a) == "111122223333#SEV-1"
+        assert group_key(b) == "999988887777#SEV-1"
+        assert group_key(a) != group_key(b)     # 서로 다른 미등록 계정은 안 뭉친다

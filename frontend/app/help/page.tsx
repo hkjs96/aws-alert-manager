@@ -239,8 +239,9 @@ CloudWatch 알람 발생 ─▶ SNS Topic ─▶ 알림(Slack·이메일·운영
               </div>
               <ol className="ml-4 mt-3 list-decimal space-y-1">
                 <li><b>CloudFormation 스택 생성 (원클릭)</b> 클릭 — 콘솔에 템플릿과 파라미터(<Code>CentralAccountId</Code>=중앙 계정)가 <b>자동으로 채워져</b> 열립니다.</li>
-                <li>하단 <b>“IAM 리소스 생성 승인”</b>(CAPABILITY_NAMED_IAM) 체크 → <b>스택 생성</b>. (IAM은 글로벌이라 리전 무관)</li>
-                <li>생성 후 <b>Outputs의 <Code>RoleArn</Code></b> 복사 → 앱 <b>Settings → 계정 등록</b>(account_id, role_arn, 고객사).</li>
+                <li><b>콘솔 우측 상단에서 리전을 알람이 있는 리전(보통 서울 <Code>ap-northeast-2</Code>)으로 바꾸세요.</b> IAM 역할은 글로벌이지만 알람 이벤트 전달 룰은 <b>리전 리소스</b>라, 알람이 있는 리전에 있어야 그 알람을 봅니다. 알람이 여러 리전에 있으면 리전마다 스택을 하나씩 만듭니다(역할 이름 충돌을 피하려면 <Code>RoleName</Code>을 바꿔 주세요).</li>
+                <li>하단 <b>“IAM 리소스 생성 승인”</b>(CAPABILITY_NAMED_IAM) 체크 → <b>스택 생성</b>.</li>
+                <li>생성 후 <b>Outputs의 <Code>RoleArn</Code></b> 복사 → 앱 <b>Settings → 계정 등록</b>(account_id, role_arn, 고객사). 등록하면 중앙 이벤트 버스가 이 계정의 알람 이벤트를 받도록 <b>자동으로 허용</b>됩니다.</li>
               </ol>
               <details className="mt-2">
                 <summary className="cursor-pointer text-xs font-medium text-slate-500 hover:text-slate-700">CLI로 배포 (대안)</summary>
@@ -252,10 +253,11 @@ aws cloudformation deploy \\
   --parameter-overrides CentralAccountId=<중앙 계정 ID>`}</Block>
               </details>
               <p className="mt-2">
-                생성물은 IAM Role 하나뿐(리소스 read + CloudWatch 알람 CRUD + 태그 write),
-                신뢰는 중앙 계정만. 이후 중앙 Lambda가 등록된 <Code>role_arn</Code>을{" "}
+                생성물은 IAM Role(리소스 read + CloudWatch 알람 CRUD + 태그 write, 신뢰는 중앙 계정만)과
+                알람 이벤트 전달용 EventBridge 룰·역할뿐입니다. Lambda·DB는 만들지 않습니다.
+                이후 중앙 Lambda가 등록된 <Code>role_arn</Code>을{" "}
                 <Code>AssumeRole</Code>(세션명 <Code>MonitoringEngine</Code>)해 그 계정의
-                리소스를 조회·알람합니다.
+                리소스를 조회·알람하고, 알람 상태 변화는 전달 룰을 통해 중앙 버스로 들어옵니다.
               </p>
             </div>
           </>

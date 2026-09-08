@@ -58,8 +58,12 @@ def fp_key(fingerprint: str) -> str:
 
 
 def group_key(ev: AlertEvent) -> str:
-    """그룹 축 — 고객사 × 등급 (Alertmanager 기본 축; design.md U3에서 조정)."""
-    return f"{ev.customer_id}#{ev.severity}"
+    """그룹 축 — 고객사 × 등급 (Alertmanager 기본 축; design.md U3에서 조정).
+
+    고객사 매핑이 없는 계정은 `customer_id`가 비어 account_id로 대체한다. 안 그러면 미등록
+    계정들의 알람이 전부 `#SEV-x` 한 그룹으로 뭉쳐 서로의 발송을 흡수한다(review-personas F5).
+    """
+    return f"{ev.customer_id or ev.account_id}#{ev.severity}"
 
 
 def grp_key(group: str) -> str:

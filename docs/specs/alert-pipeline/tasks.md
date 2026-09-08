@@ -48,9 +48,17 @@
   - `AlertEventBus` + `AlertEventBusPolicy`(파라미터 `AlertBusSourceAccounts`, 비면 단일 계정 모드)
   - `AlertIngestDLQ` — 인제스터가 재시도까지 실패한 이벤트 (비어 있어야 정상)
   - 룰 2개: 커스텀 버스(크로스 어카운트) + 기본 버스(단일 계정 모드)
-  - [ ] **후속:** 고객사 계정 등록 시 버스 정책을 자동 갱신 — 현재는 파라미터 수동 관리
-- [ ] 1.2.2 고객사 온보딩 템플릿에 EventBridge 룰 + 전달 역할 추가
-  - 온보딩 템플릿 3곳 동기화 (`infrastructure/customer-onboarding/` → `frontend/public/` → 공개 S3, `text/yaml`)
+  - [x] **후속:** 고객사 계정 등록 시 버스 정책 자동 갱신 — ✅ 2026-09-08. `POST /accounts`가
+        `events:PutPermission`(Sid `acct-<id>`), `DELETE /accounts/{id}`가 마지막 참조일 때만
+        `RemovePermission`. 결과는 항목·응답의 `alert_forwarding`(granted/self/skipped/grant_failed)로
+        드러난다 — 조용한 실패 금지. 파라미터 `AlertBusSourceAccounts`는 정적 폴백으로 유지
+- [x] 1.2.2 고객사 온보딩 템플릿에 EventBridge 룰 + 전달 역할 추가 — ✅ 2026-09-08 (코드·배포 완료,
+      **실 고객사 계정 라이브 검증은 미실시** — 대상 계정·승인 필요)
+  - `AlertForwardRole`(events.amazonaws.com 신뢰, 중앙 버스 PutEvents) + `AlertForwardRule`
+    (기본 버스, `source: aws.cloudwatch` 전량 → 중앙 버스). 파라미터 `CentralAlertBusArn`(기본 prod)
+  - **스택은 알람이 있는 리전에 배포해야 한다** — EventBridge 룰은 리전 리소스다(IAM 역할은 글로벌).
+    여러 리전에 알람이 있으면 리전마다 스택이 필요하다
+  - 온보딩 템플릿 3곳 동기화 완료 (`infrastructure/customer-onboarding/` → `frontend/public/` → 공개 S3, `text/yaml`)
 - [x] 1.2.3 `EventHistoryTable` — PK `series_id` / SK `event_key`, GSI `customer_day-index`, TTL 90일 (design.md **D8**)
 - [x] 1.2.4 인제스터 IAM (`EventHistoryTable` PutItem+**Query** + `AccountsTable` Scan)
   - ⚠️ Query를 빠뜨려 dedup이 **조용히 동작하지 않았다** (2026-09-07 실측에서 발견).
@@ -172,6 +180,8 @@
       `identify_alarm().severity` → 인제스터가 레지스트리보다 우선. 옛 형식은 폴백. `docs/ALARM-RULES.md` §13-4 보완
 - [x] 라이브 검증(2026-09-08, v20260908T014154): 설명에 SEV-1 박은 알람 → 이력 severity SEV-1, 기본 알람 → SEV-3(레지스트리);
       같은 이벤트 2회 호출 → 2차 `duplicate=true`·행 1개·미리 심은 `final_action` 보존
+- [x] F5 미등록 계정 그룹 키(review-personas, 2026-09-08): `group_key`가 `customer_id`가 비면
+      `account_id`로 대체한다 — 미등록 계정들이 `#SEV-x` 한 그룹으로 뭉쳐 서로의 발송을 흡수하던 것
 - [x] P2 보완(review-personas F1·F2·F3, 2026-09-08): UI 등급 지정·변경 경로가 설명도 함께 쓰고
       (`set_description_severity`), 설명의 등급은 SEV-1~5만 인정하며, 옛 알람은 일일 동기화가 재생성 없이
       제자리에서 설명을 채운다. 미결 F8(재생성 시 태그 리셋)은 제품 결정

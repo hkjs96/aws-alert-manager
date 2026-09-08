@@ -9,6 +9,8 @@ POST   /accounts/{id}/test        → AWS 연결 테스트 (STS AssumeRole)
 
 import functools
 import json
+import logging
+import os
 from datetime import datetime, UTC
 
 import boto3
@@ -16,10 +18,64 @@ from botocore.exceptions import ClientError
 
 from api_handler.db import accounts_table, scan_all, query_by_pk
 
+logger = logging.getLogger(__name__)
+
 
 @functools.lru_cache(maxsize=1)
 def _current_account_id() -> str:
     return boto3.client("sts").get_caller_identity().get("Account", "")
+
+
+@functools.lru_cache(maxsize=1)
+def _events_client():
+    return boto3.client("events")
+
+
+def _forward_statement_id(account_id: str) -> str:
+    return f"acct-{account_id}"
+
+
+def _grant_alert_forwarding(account_id: str) -> str:
+    """등록된 계정이 알림 이벤트 버스로 알람 이벤트를 보낼 수 있게 PutEvents 권한을 준다.
+
+    버스 정책이 없으면 고객사 계정의 전달 룰이 조용히 막힌다(교차계정 PutEvents는 발신 룰의
+    역할 + 수신 버스의 정책 둘 다 필요). 실패해도 등록 자체는 성공시키되 상태를 남겨 드러낸다 —
+    조용히 삼키면 온보딩 후 "이벤트가 안 온다"의 원인이 감춰진다.
+    """
+    bus = os.environ.get("ALERT_EVENT_BUS_NAME", "")
+    if not bus or not account_id:
+        return "skipped"
+    if account_id == _current_account_id():
+        return "self"     # 우리 계정은 기본 버스 룰로 들어온다 — 교차계정 정책 불필요
+    try:
+        _events_client().put_permission(
+            EventBusName=bus, Action="events:PutEvents",
+            Principal=account_id, StatementId=_forward_statement_id(account_id))
+        return "granted"
+    except ClientError as e:
+        logger.error("Failed to grant alert forwarding to %s on bus %s: %s", account_id, bus, e)
+        return "grant_failed"
+
+
+def _revoke_alert_forwarding_if_orphan(account_id: str) -> None:
+    """다른 고객사 행이 이 계정을 더 쓰지 않을 때만 버스 권한을 회수한다."""
+    bus = os.environ.get("ALERT_EVENT_BUS_NAME", "")
+    if not bus or not account_id or account_id == _current_account_id():
+        return
+    try:
+        remaining = scan_all(accounts_table())
+    except ClientError as e:
+        logger.warning("Could not check remaining accounts before revoke of %s: %s", account_id, e)
+        return
+    if any((a.get("account_id") or "") == account_id for a in remaining):
+        return
+    try:
+        _events_client().remove_permission(
+            EventBusName=bus, StatementId=_forward_statement_id(account_id))
+    except ClientError as e:
+        if e.response.get("Error", {}).get("Code") == "ResourceNotFoundException":
+            return
+        logger.warning("Failed to revoke alert forwarding for %s on bus %s: %s", account_id, bus, e)
 
 
 def list_accounts(event: dict) -> dict:
@@ -74,6 +130,7 @@ def create_account(event: dict) -> dict:
         "connection_status": "untested",
         "created_at": datetime.now(UTC).isoformat(),
     }
+    item["alert_forwarding"] = _grant_alert_forwarding(account_id)
     try:
         table.put_item(Item=item)
     except ClientError as e:
@@ -98,6 +155,7 @@ def delete_account(event: dict) -> dict:
     except ClientError as e:
         return _err(500, "DB_ERROR", str(e))
 
+    _revoke_alert_forwarding_if_orphan(account_id)
     return {"statusCode": 204, "body": ""}
 
 

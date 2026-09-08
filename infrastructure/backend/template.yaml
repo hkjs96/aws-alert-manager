@@ -1000,6 +1000,7 @@ Resources:
         Variables:
           CUSTOMERS_TABLE: !Ref CustomersTable
           ACCOUNTS_TABLE: !Ref AccountsTable
+          ALERT_EVENT_BUS_NAME: !Ref AlertEventBus
           THRESHOLD_OVERRIDES_TABLE: !Ref ThresholdOverridesTable
           JOB_STATUS_TABLE: !Ref JobStatusTable
           MONITOR_RUN_HISTORY_TABLE: !Ref MonitorRunHistoryTable
@@ -1057,6 +1058,13 @@ Resources:
                 Action:
                   - sqs:SendMessage
                 Resource: !GetAtt BulkOperationQueue.Arn
+              # 계정 등록/삭제 시 알림 버스 정책에 PutEvents 권한을 자동 부여/회수 (1.2.2)
+              - Effect: Allow
+                Action:
+                  - events:PutPermission
+                  - events:RemovePermission
+                  - events:DescribeEventBus
+                Resource: !GetAtt AlertEventBus.Arn
               - Effect: Allow
                 Action:
                   - cloudwatch:DescribeAlarms

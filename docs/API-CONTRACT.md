@@ -446,7 +446,15 @@ Request:
 }
 ```
 
-Response `201`: Account entity.
+Response `201`: Account entity, plus `alert_forwarding` describing whether the
+account was granted `events:PutEvents` on the central alert event bus:
+
+| Value | Meaning |
+| --- | --- |
+| `granted` | Bus policy updated; the account's forwarding rule can now deliver alarm events |
+| `self` | The central account itself; its events arrive on the default bus, no grant needed |
+| `skipped` | No alert bus configured for this deployment |
+| `grant_failed` | Registration succeeded but the bus grant did not; alarm events will not arrive until it is fixed |
 
 ## DELETE /api/accounts/{id}
 
@@ -456,7 +464,8 @@ Query:
 | --- | --- | --- |
 | `customer_id` | string | yes |
 
-Response `204` with empty body.
+Response `204` with empty body. When no other customer still references the
+account, its `events:PutEvents` grant on the alert event bus is removed.
 
 ## POST /api/accounts/{id}/test
 
