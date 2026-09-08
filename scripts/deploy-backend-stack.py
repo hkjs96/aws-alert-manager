@@ -114,20 +114,30 @@ def _changed_paths_from_git(base_ref: str) -> list[str]:
     return [line.strip() for line in result.stdout.splitlines() if line.strip()]
 
 
+#: 아직 없는 스택(새 환경)의 "현재 버전". 아티팩트를 새로 올리므로 실제로 쓰이지 않는다.
+NO_STACK_VERSION = "(none)"
+
+
 def _current_code_version(profile: str, region: str, stack: str) -> str:
-    result = _run(
-        _aws(profile, region)
-        + [
-            "cloudformation",
-            "describe-stacks",
-            "--stack-name",
-            stack,
-            "--query",
-            "Stacks[0].Parameters[?ParameterKey==`CodeVersion`].ParameterValue",
-            "--output",
-            "text",
-        ]
-    )
+    """배포된 CodeVersion. 스택이 아직 없으면 NO_STACK_VERSION — 새 환경을 세우는 경우다."""
+    try:
+        result = _run(
+            _aws(profile, region)
+            + [
+                "cloudformation",
+                "describe-stacks",
+                "--stack-name",
+                stack,
+                "--query",
+                "Stacks[0].Parameters[?ParameterKey==`CodeVersion`].ParameterValue",
+                "--output",
+                "text",
+            ]
+        )
+    except DeployError as exc:
+        if "does not exist" in str(exc):
+            return NO_STACK_VERSION
+        raise
     version = result.stdout.strip()
     if not version:
         raise DeployError("current stack CodeVersion is empty")
@@ -221,7 +231,7 @@ def _deploy(
     바이트 그대로 S3에 올리고 TemplateURL로 changeset을 만들면 인코딩 경로가 없다.
     """
     import boto3
-    from botocore.exceptions import WaiterError
+    from botocore.exceptions import WaiterError, ClientError
 
     session = boto3.Session(profile_name=profile, region_name=region)
     s3 = session.client("s3")
@@ -248,7 +258,17 @@ def _deploy(
         if value is not None:
             overrides[param_name] = value
 
-    existing = cfn.describe_stacks(StackName=stack)["Stacks"][0].get("Parameters", [])
+    try:
+        existing = cfn.describe_stacks(StackName=stack)["Stacks"][0].get("Parameters", [])
+        stack_exists = True
+    except ClientError as exc:
+        if "does not exist" not in str(exc):
+            raise
+        # 새 환경을 처음 세우는 경우. UsePreviousValue는 쓸 수 없고(이전 값이 없다)
+        # 템플릿 기본값이 없는 파라미터는 반드시 지정해야 한다.
+        existing, stack_exists = [], False
+        print(f"[deploy] stack {stack} does not exist - creating it")
+
     existing_keys = [p["ParameterKey"] for p in existing]
     parameters = []
     for k in existing_keys:
@@ -268,7 +288,7 @@ def _deploy(
         Parameters=parameters,
         Capabilities=["CAPABILITY_IAM", "CAPABILITY_NAMED_IAM"],
         ChangeSetName=changeset,
-        ChangeSetType="UPDATE",
+        ChangeSetType="CREATE" if not stack_exists else "UPDATE",
     )
     try:
         cfn.get_waiter("change_set_create_complete").wait(
@@ -285,13 +305,16 @@ def _deploy(
         raise DeployError(f"changeset failed: {reason}")
 
     cfn.execute_change_set(StackName=stack, ChangeSetName=changeset)
+    # 생성은 리소스가 많아 업데이트보다 오래 걸린다 — 대기 한도를 넉넉히 준다.
+    waiter = "stack_create_complete" if not stack_exists else "stack_update_complete"
     try:
-        cfn.get_waiter("stack_update_complete").wait(
-            StackName=stack, WaiterConfig={"Delay": 10, "MaxAttempts": 120},
+        cfn.get_waiter(waiter).wait(
+            StackName=stack, WaiterConfig={"Delay": 15, "MaxAttempts": 160},
         )
     except WaiterError as exc:
         status = cfn.describe_stacks(StackName=stack)["Stacks"][0].get("StackStatus", "?")
-        raise DeployError(f"stack update did not complete: {status} ({exc})") from exc
+        raise DeployError(f"stack {'create' if not stack_exists else 'update'} "
+                          f"did not complete: {status} ({exc})") from exc
 
 
 def _parse_args() -> argparse.Namespace:
@@ -335,6 +358,10 @@ def main() -> int:
         return 0
 
     current_version = _current_code_version(args.profile, args.region, args.stack)
+    if current_version == NO_STACK_VERSION and not args.all_artifacts:
+        print("[deploy] new stack needs every artifact - enabling --all-artifacts")
+        args.all_artifacts = True
+        targets = _artifact_targets(paths, all_artifacts=True)
     version = current_version
     if targets:
         version = "v" + dt.datetime.now(tz=dt.UTC).strftime("%Y%m%dT%H%M%S")
