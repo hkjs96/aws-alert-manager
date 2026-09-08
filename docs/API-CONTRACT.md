@@ -261,6 +261,11 @@ Request:
 }
 ```
 
+`severity` is optional (default `SEV-5`) and must be one of `SEV-1`..`SEV-5`.
+The value is written to both the alarm's `Severity` tag and the description
+metadata; the alert pipeline reads the description. The same validation applies
+to `configs[].severity` on the alarm update route.
+
 Response `201`:
 
 ```json
@@ -274,6 +279,7 @@ Response `201`:
 Errors:
 
 - `400 MISSING_PARAM`
+- `400 INVALID_BODY` — malformed JSON, or `severity` outside `SEV-1`..`SEV-5`
 - `404 NOT_FOUND`
 - `404 NO_METRIC`
 - `500 CW_ERROR`

@@ -189,11 +189,50 @@ def _build_alarm_description(
         "resource_type": resource_type,
         "severity": severity or get_severity(metric_key),
     }, separators=(",", ":"))
-    if human_prefix:
-        desc = f"{human_prefix} | {metadata}"
-    else:
-        desc = metadata
-    return desc[:1024]
+    if not human_prefix:
+        return metadata[:1024]
+    # 1024자 제한은 접두어를 줄여서 맞춘다 — 뒤를 자르면 메타데이터 JSON이 깨져
+    # 알람이 관리 대상에서 빠지고 파이프라인은 이름 폴백으로 떨어진다.
+    room = 1024 - len(metadata) - 3
+    if room <= 0:
+        return metadata[:1024]
+    return f"{human_prefix[:room]} | {metadata}"
+
+
+def set_description_severity(
+    description: str,
+    severity: str,
+    *,
+    resource_type: str = "",
+    resource_id: str = "",
+    metric_key: str = "",
+) -> str:
+    """설명 메타데이터의 severity를 `severity`로 바꾼 새 설명. 사람용 접두어는 보존한다.
+
+    Severity 태그를 바꾸는 경로는 반드시 이 함수로 설명도 같이 바꾼다 — 알림 파이프라인은
+    태그가 아니라 설명을 읽으므로 둘이 갈라지면 SEV-1 면제가 엉뚱한 등급에 걸린다
+    (docs/specs/alert-pipeline/review-personas-2026-09-08.md F1).
+
+    메타데이터가 없는 설명(옛 형식·이름만 관리 포맷)은 정체성 세 값이 다 주어졌을 때만
+    기존 설명 전체를 접두어로 삼아 새로 만든다. 정체성을 모르면 손대지 않는다 — 그 알람은
+    파이프라인이 레지스트리 기본값으로 폴백한다.
+    """
+    description = description or ""
+    metadata = _parse_alarm_metadata(description)
+    if metadata:
+        idx = description.rfind(" | {")
+        prefix = description[:idx] if idx >= 0 else ""
+        return _build_alarm_description(
+            str(metadata.get("resource_type") or resource_type),
+            str(metadata.get("resource_id") or resource_id),
+            str(metadata.get("metric_key") or metric_key),
+            prefix, severity,
+        )
+    if resource_type and resource_id and metric_key:
+        return _build_alarm_description(
+            resource_type, resource_id, metric_key, description.strip(), severity,
+        )
+    return description
 
 
 def _parse_alarm_metadata(description: str) -> dict | None:

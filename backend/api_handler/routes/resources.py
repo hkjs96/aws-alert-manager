@@ -24,6 +24,7 @@ from common.alarm_manager import sync_alarms_for_resource, delete_alarms_for_res
 from common.alarm_naming import (
     _build_alarm_description,
     _pretty_alarm_name,
+    set_description_severity,
     strip_alarm_name_decorations,
 )
 from common.alarm_registry import (
@@ -32,6 +33,7 @@ from common.alarm_registry import (
     _METRIC_DISPLAY,
     _NAMESPACE_MAP,
     _metric_name_to_key,
+    is_valid_severity,
 )
 
 logger = logging.getLogger(__name__)
@@ -308,6 +310,8 @@ def create_resource_alarm(event: dict) -> dict:
     severity = body.get("severity", "SEV-5")
     if not metric_name or threshold is None:
         return _err(400, "MISSING_PARAM", "metric_name and threshold are required")
+    if not is_valid_severity(severity):
+        return _err(400, "INVALID_BODY", "severity must be one of SEV-1..SEV-5")
     if metric_name == "disk_used_percent" and not mount_path:
         return _err(400, "MISSING_PARAM", "mount_path is required for disk_used_percent")
 
@@ -342,7 +346,8 @@ def create_resource_alarm(event: dict) -> dict:
         metric_key = _metric_name_to_key(metric_name) or metric_name
 
     alarm_name = _pretty_alarm_name(resource_type, resource_id, resource_name, metric_key, float(threshold))
-    description = _build_alarm_description(resource_type, resource_id, metric_key)
+    # 태그(아래 Tags)와 설명 메타데이터에 같은 등급을 쓴다 — 알림 파이프라인은 설명을 읽는다.
+    description = _build_alarm_description(resource_type, resource_id, metric_key, severity=severity)
     sns_arn = os.environ.get("SNS_TOPIC_ARN_ALERT", "")
 
     try:
@@ -952,6 +957,18 @@ def _metric_alarm_update_kwargs(alarm: dict, config: dict) -> dict:
         kwargs["Unit"] = config["unit"]
     if "Statistic" not in kwargs and "ExtendedStatistic" not in kwargs:
         kwargs["Statistic"] = "Average"
+    severity = config.get("severity")
+    if severity:
+        if not is_valid_severity(str(severity)):
+            raise ValueError("severity must be one of SEV-1..SEV-5")
+        # 태그만 바꾸면 알림 파이프라인(설명을 읽는다)은 옛 등급을 본다 — 설명도 같이 바꾼다.
+        identity = identify_alarm(alarm)
+        kwargs["AlarmDescription"] = set_description_severity(
+            alarm.get("AlarmDescription") or "", str(severity),
+            resource_type=identity.resource_type if identity else "",
+            resource_id=identity.resource_id if identity else "",
+            metric_key=_alarm_metric_key(alarm, config),
+        )
     return kwargs
 
 
@@ -1002,10 +1019,15 @@ def _alarm_tags(alarm: dict, config: dict) -> list[dict]:
 
 
 def _alarm_arn_for_name(alarm: dict, alarm_name: str) -> str | None:
+    """같은 계정·리전의 `alarm_name` ARN. 관리 알람 이름은 `(TagName: ...)` 때문에 콜론을 품으므로
+    마지막 콜론으로 자르면 안 된다 — `:alarm:` 구분자로 자른다(review-personas F9)."""
     alarm_arn = alarm.get("AlarmArn")
     if not alarm_arn:
         return None
-    return alarm_arn.rsplit(":", 1)[0] + f":{alarm_name}"
+    prefix, sep, _ = alarm_arn.partition(":alarm:")
+    if not sep:
+        return None
+    return f"{prefix}:alarm:{alarm_name}"
 
 
 def _comparison_operator(direction: str | None, alarm: dict) -> str:

@@ -18,6 +18,12 @@ from hypothesis import strategies as st
 from patch_helpers import alarm_config_fields
 
 from common.alarm_manager import sync_alarms_for_resource
+from common.alarm_naming import _build_alarm_description
+
+
+def _desc(iid, metric_key):
+    """현재 형식의 설명(severity 포함) — 옛 형식이면 동기화가 설명 갱신(put)을 한 번 더 한다."""
+    return _build_alarm_description("EC2", iid, metric_key, "Auto-created")
 
 _ENV = {"ENVIRONMENT": "prod", "SNS_TOPIC_ARN_ALERT": ""}
 
@@ -105,6 +111,7 @@ class TestAllAlarmsOkPreservation:
             "MetricAlarms": [
                 {
                     "AlarmName": cpu_name,
+                    "AlarmDescription": _desc(iid, "CPUUtilization"),
                     "MetricName": "CPUUtilization",
                     **alarm_config_fields("EC2", "CPUUtilization"),
                     "Threshold": float(cpu_thr),
@@ -112,6 +119,7 @@ class TestAllAlarmsOkPreservation:
                 },
                 {
                     "AlarmName": mem_name,
+                    "AlarmDescription": _desc(iid, "mem_used_percent"),
                     "MetricName": "mem_used_percent",
                     **alarm_config_fields("EC2", "mem_used_percent"),
                     "Threshold": float(mem_thr),
@@ -119,6 +127,7 @@ class TestAllAlarmsOkPreservation:
                 },
                 {
                     "AlarmName": disk_name,
+                    "AlarmDescription": _desc(iid, "Disk_root"),
                     "MetricName": "disk_used_percent",
                     **alarm_config_fields("EC2", "disk_used_percent"),
                     "Threshold": 80.0,
@@ -129,6 +138,7 @@ class TestAllAlarmsOkPreservation:
                 },
                 {
                     "AlarmName": status_name,
+                    "AlarmDescription": _desc(iid, "StatusCheckFailed"),
                     "MetricName": "StatusCheckFailed",
                     **alarm_config_fields("EC2", "StatusCheckFailed"),
                     "Threshold": 0.0,
@@ -187,6 +197,7 @@ class TestOkAlarmsPreservedAfterSync:
             "MetricAlarms": [
                 {
                     "AlarmName": cpu_name,
+                    "AlarmDescription": _desc(iid, "CPUUtilization"),
                     "MetricName": "CPUUtilization",
                     **alarm_config_fields("EC2", "CPUUtilization"),
                     "Threshold": float(cpu_thr),
@@ -194,6 +205,7 @@ class TestOkAlarmsPreservedAfterSync:
                 },
                 {
                     "AlarmName": mem_name,
+                    "AlarmDescription": _desc(iid, "mem_used_percent"),
                     "MetricName": "mem_used_percent",
                     **alarm_config_fields("EC2", "mem_used_percent"),
                     "Threshold": 80.0,
@@ -201,6 +213,7 @@ class TestOkAlarmsPreservedAfterSync:
                 },
                 {
                     "AlarmName": disk_name,
+                    "AlarmDescription": _desc(iid, "Disk_root"),
                     "MetricName": "disk_used_percent",
                     **alarm_config_fields("EC2", "disk_used_percent"),
                     "Threshold": 80.0,
@@ -211,6 +224,7 @@ class TestOkAlarmsPreservedAfterSync:
                 },
                 {
                     "AlarmName": status_name,
+                    "AlarmDescription": _desc(iid, "StatusCheckFailed"),
                     "MetricName": "StatusCheckFailed",
                     **alarm_config_fields("EC2", "StatusCheckFailed"),
                     "Threshold": 0.0,

@@ -20,6 +20,7 @@ import re
 from dataclasses import dataclass
 
 from common.alarm_naming import _parse_alarm_metadata
+from common.alarm_registry import is_valid_severity
 
 # [EC2] label metric > threshold (TagName: resource_id)
 _MARK_NAME_RE = re.compile(r"^\[(\w+)\]\s+.+\(TagName:\s*(.+)\)$")
@@ -40,7 +41,8 @@ class AlarmIdentity:
     tag_name: str
     metric_key: str | None
     source: str
-    #: 설명 메타데이터의 등급. 메타데이터가 없거나 옛 형식이면 "" — 호출자가 레지스트리로 폴백한다.
+    #: 설명 메타데이터의 등급. 메타데이터가 없거나 옛 형식이거나 값이 SEV-1~5 밖이면 "" —
+    #: 호출자가 레지스트리로 폴백한다. 설명은 PutMetricAlarm 권한이면 누구나 고치므로 값을 믿지 않는다.
     severity: str = ""
 
     @property
@@ -88,7 +90,8 @@ def identify_alarm(alarm: dict) -> AlarmIdentity | None:
     if metadata:
         rid = str(metadata.get("resource_id") or "")
         rtype = str(metadata.get("resource_type") or "")
-        severity = str(metadata.get("severity") or "")
+        raw_severity = metadata.get("severity")
+        severity = raw_severity if is_valid_severity(raw_severity) else ""
         if rid and rtype:
             return AlarmIdentity(
                 rtype, rid,

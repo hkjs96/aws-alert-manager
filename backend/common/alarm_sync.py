@@ -16,8 +16,14 @@ from common.alarm_builder import (
     _recreate_alarm_by_name,
     _resolve_metric_key,
 )
+from common.alarm_naming import _parse_alarm_metadata, set_description_severity
 from common.dimension_builder import _get_disk_dimensions
-from common.alarm_registry import _get_alarm_defs, get_dynamic_eval_policy
+from common.alarm_registry import (
+    _get_alarm_defs,
+    get_dynamic_eval_policy,
+    get_severity,
+    is_valid_severity,
+)
 from common.alarm_search import (
     _delete_alarm_names,
     _delete_all_alarms_for_resource,
@@ -69,6 +75,86 @@ def _config_drift(alarm_info: dict, alarm_def: dict) -> list[str]:
         if alarm_info.get(cw_key) != expected:
             drifted.append(cw_key)
     return drifted
+
+
+def _description_has_severity(alarm_info: dict) -> bool:
+    metadata = _parse_alarm_metadata(alarm_info.get("AlarmDescription", "") or "")
+    return bool(metadata) and is_valid_severity(metadata.get("severity"))
+
+
+def _note_description_refresh(alarm_info: dict, result: dict[str, list]) -> None:
+    """설정은 맞지만 설명에 등급이 없는(옛 형식) 알람 — 재생성 없이 설명만 고친다.
+
+    알림 파이프라인은 설명의 등급을 읽으므로, 이게 없으면 그 알람은 영원히 레지스트리
+    폴백이다(review-personas F3). 재생성은 상태·이력을 지우고 태그를 기본값으로 되돌리므로
+    쓰지 않는다 — `_refresh_alarm_description`이 제자리에서 설명만 바꾼다.
+    """
+    if not _description_has_severity(alarm_info):
+        result.setdefault("refreshed", []).append(alarm_info["AlarmName"])
+
+
+# describe_alarms 항목 중 put_metric_alarm에 그대로 넘길 수 있는 필드. 있는 것만 복사한다 —
+# 메트릭 수식 알람(Metrics)은 MetricName/Namespace가 없고, 그 반대도 마찬가지다.
+_PUT_ALARM_FIELDS = (
+    "AlarmName", "ActionsEnabled", "OKActions", "AlarmActions", "InsufficientDataActions",
+    "MetricName", "Namespace", "Statistic", "ExtendedStatistic", "Dimensions", "Period", "Unit",
+    "EvaluationPeriods", "DatapointsToAlarm", "Threshold", "ComparisonOperator", "TreatMissingData",
+    "EvaluateLowSampleCountPercentile", "Metrics", "ThresholdMetricId",
+)
+
+
+def _tagged_severity(cw, alarm_arn: str) -> str:
+    """알람의 Severity 태그(정본). 없거나 조회 실패면 "" — 호출자가 레지스트리로 폴백한다."""
+    if not alarm_arn:
+        return ""
+    try:
+        tags = cw.list_tags_for_resource(ResourceARN=alarm_arn).get("Tags", [])
+    except ClientError as e:
+        logger.warning("Failed to read tags of %s: %s", alarm_arn, e)
+        return ""
+    value = next((t.get("Value") for t in tags if t.get("Key") == "Severity"), "")
+    return value if is_valid_severity(value) else ""
+
+
+def _refresh_alarm_description(
+    alarm_name: str,
+    resource_id: str,
+    resource_type: str,
+    *,
+    cw=None,
+) -> bool:
+    """설명 메타데이터에 등급을 채워 넣는다 — 삭제·재생성 없이 제자리 갱신. 바꿨으면 True.
+
+    등급은 Severity 태그를 우선하고(UI에서 바꾼 값 보존), 없으면 레지스트리 기본값.
+    put_metric_alarm은 기존 알람을 덮어쓰되 상태는 유지하고 태그는 건드리지 않는다.
+    """
+    cw = cw or _clients._get_cw_client()
+    try:
+        existing = cw.describe_alarms(AlarmNames=[alarm_name]).get("MetricAlarms", [])
+    except ClientError as e:
+        logger.error("Failed to describe alarm %s for description refresh: %s", alarm_name, e)
+        return False
+    if not existing:
+        return False
+    info = existing[0]
+    metric_key = _resolve_metric_key(info)
+    severity = _tagged_severity(cw, info.get("AlarmArn", "")) or get_severity(metric_key)
+    current = info.get("AlarmDescription") or ""
+    new_desc = set_description_severity(
+        current, severity,
+        resource_type=resource_type, resource_id=resource_id, metric_key=metric_key,
+    )
+    if new_desc == current:
+        return False
+    kwargs = {k: info[k] for k in _PUT_ALARM_FIELDS if info.get(k) is not None}
+    kwargs["AlarmDescription"] = new_desc
+    try:
+        cw.put_metric_alarm(**kwargs)
+    except ClientError as e:
+        logger.error("Failed to refresh description of %s: %s", alarm_name, e)
+        return False
+    logger.info("Refreshed description of %s (severity=%s)", alarm_name, severity)
+    return True
 
 
 def _sync_disk_alarms(
@@ -129,6 +215,7 @@ def _sync_disk_alarms(
             changed = True
             continue
 
+        _note_description_refresh(alarm_info, result)
         result["ok"].append(name)
     return changed
 
@@ -173,6 +260,7 @@ def _sync_standard_alarms(
         result["updated"].append(name)
         return True
 
+    _note_description_refresh(alarm_info, result)
     result["ok"].append(name)
     return False
 
@@ -281,6 +369,7 @@ def _sync_dynamic_alarms(
             )
             result["updated"].append(name)
         else:
+            _note_description_refresh(alarm_info, result)
             result["ok"].append(name)
 
 

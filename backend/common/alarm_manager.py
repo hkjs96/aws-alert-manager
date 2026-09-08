@@ -111,6 +111,7 @@ from common.alarm_sync import (  # noqa: E402, F401
     _sync_off_hardcoded,
     _sync_dynamic_alarms,
     _apply_sync_changes,
+    _refresh_alarm_description,
 )
 
 
@@ -332,5 +333,9 @@ def sync_alarms_for_resource(
 
     if needs_recreate:
         _apply_sync_changes(result, resource_id, resource_type, resource_tags, existing_names, **_fwd)
+
+    # 설정은 맞지만 설명에 등급이 없는 옛 알람 — 제자리에서 설명만 채운다(재생성 아님).
+    for name in result.get("refreshed", []):
+        _refresh_alarm_description(name, resource_id, resource_type, **_fwd)
 
     return result

@@ -14,6 +14,7 @@ import pytest
 from patch_helpers import alarm_config_fields
 
 from common.alarm_index import AlarmIndex
+from common.alarm_naming import _build_alarm_description
 from common.alarm_manager import sync_alarms_for_resource
 
 
@@ -131,11 +132,8 @@ class TestSyncWithIndex:
 
     @staticmethod
     def _desc(mk):
-        meta = json.dumps(
-            {"metric_key": mk, "resource_id": "i-001", "resource_type": "EC2"},
-            separators=(",", ":"),
-        )
-        return f"Auto-created | {meta}"
+        # 현재 형식(설명에 severity 포함). 옛 형식이면 동기화가 설명 갱신을 위해 describe를 한 번 더 한다.
+        return _build_alarm_description("EC2", "i-001", mk, "Auto-created")
 
     def _managed_alarms(self):
         # (알람 이름, CW metric_name, 메타데이터 metric_key, 임계치)

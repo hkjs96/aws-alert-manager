@@ -1845,6 +1845,14 @@ _DEFAULT_SEVERITY: dict[str, str] = {
 }
 
 
+SEVERITIES: tuple[str, ...] = ("SEV-1", "SEV-2", "SEV-3", "SEV-4", "SEV-5")
+
+
+def is_valid_severity(value) -> bool:
+    """`SEV-1`~`SEV-5`인가. 태그·설명 메타데이터·API 입력 모두 이 집합 밖은 받지 않는다."""
+    return isinstance(value, str) and value in SEVERITIES
+
+
 def get_severity(metric_key: str) -> str:
     """메트릭 키에 대한 기본 Severity 등급 반환.
 
