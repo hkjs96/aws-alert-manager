@@ -303,8 +303,10 @@ def lambda_handler(event, context):
     t0 = time.perf_counter()
     customer_id = _account_to_customer().get(str((event or {}).get("account", "")), "")
     alert = from_eventbridge(event, customer_id=customer_id)
-    # 알람 이벤트에는 태그가 실리지 않는다 — 메트릭 키의 기본 등급을 쓴다.
-    alert.severity = get_severity(alert.metric_key) if alert.metric_key else ""
+    # 등급: 알람 설명 메타데이터(생성 시점 값) > 레지스트리 기본값(옛 형식 알람).
+    # 알람 이벤트에는 태그가 실리지 않으므로 설명에 박힌 값이 유일한 정본이다(review P2).
+    if not alert.severity:
+        alert.severity = get_severity(alert.metric_key) if alert.metric_key else ""
 
     # 벽시계가 아니라 이벤트 발생 시각으로 판정한다 — 재시도로 늦게 처리돼도
     # 중복·정비창 판정이 흔들리지 않고, 과거 이벤트 재현도 같은 결과가 나온다.
@@ -354,16 +356,25 @@ def lambda_handler(event, context):
         config_ok=config_ok,
         grouped=bool(alert.group_id),
     )
+    # 이력은 한 번만 쓴다(review P1). EventBridge는 at-least-once라 같은 이벤트가 다시 올 수 있는데,
+    # 그때 덮어쓰면 그룹 워커가 적어 둔 final_action이 지워진다. 조건 실패는 "이미 처리한 이벤트"이지
+    # 오류가 아니다 — 예외를 올리면 EventBridge가 같은 것을 또 재시도한다.
+    duplicate = False
     try:
-        _get_ddb().Table(table_name).put_item(Item=to_item(alert))
-    except ClientError:
-        log_perf("alert_ingest", (time.perf_counter() - t0) * 1000, ok=False, **fields)
-        raise
-    log_perf("alert_ingest", (time.perf_counter() - t0) * 1000, ok=True, **fields)
+        _get_ddb().Table(table_name).put_item(
+            Item=to_item(alert), ConditionExpression=Attr("event_key").not_exists())
+    except ClientError as e:
+        if e.response.get("Error", {}).get("Code") == "ConditionalCheckFailedException":
+            duplicate = True
+        else:
+            log_perf("alert_ingest", (time.perf_counter() - t0) * 1000, ok=False, **fields)
+            raise
+    log_perf("alert_ingest", (time.perf_counter() - t0) * 1000, ok=True, duplicate=duplicate, **fields)
     logger.info(
-        "Ingested %s: alarm=%s state=%s verdict=%s(%s) series=%s group=%s%s%s%s",
+        "Ingested %s: alarm=%s state=%s verdict=%s(%s) series=%s group=%s%s%s%s%s",
         alert.event_type, alert.alarm_name, alert.state,
         decision.action, decision.reason or "-", alert.series_id, alert.group_id or "-",
+        " (duplicate — history kept)" if duplicate else "",
         "" if state_ok else " (state_ok=false)",
         "" if group_ok else " (group_ok=false)",
         f" (parse_error={alert.parse_error})" if alert.parse_error else "",
@@ -378,4 +389,5 @@ def lambda_handler(event, context):
         "state_ok": state_ok,
         "group_id": alert.group_id,
         "group_ok": group_ok,
+        "duplicate": duplicate,
     }

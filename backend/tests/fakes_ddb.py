@@ -65,8 +65,11 @@ class FakeHistoryTable:
     def __init__(self):
         self.items: dict[tuple, dict] = {}
 
-    def put_item(self, Item, **_):
-        self.items[(Item["series_id"], Item["event_key"])] = dict(Item)
+    def put_item(self, Item, ConditionExpression=None, **_):
+        key = (Item["series_id"], Item["event_key"])
+        if ConditionExpression is not None and not _eval(ConditionExpression, self.items.get(key)):
+            raise conditional_failure()
+        self.items[key] = dict(Item)
 
     def query(self, IndexName=None, KeyConditionExpression=None, **_):
         expr = KeyConditionExpression.get_expression()

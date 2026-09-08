@@ -9,7 +9,7 @@ import logging
 import os
 import re
 
-from common.alarm_registry import _METRIC_DISPLAY
+from common.alarm_registry import _METRIC_DISPLAY, get_severity
 
 logger = logging.getLogger(__name__)
 
@@ -171,16 +171,23 @@ def _build_alarm_description(
     resource_id: str,
     metric_key: str,
     human_prefix: str = "",
+    severity: str = "",
 ) -> str:
     """AlarmDescription에 JSON 메타데이터를 포함하여 생성.
 
-    포맷: {human_prefix} | {"metric_key":"CPU","resource_id":"i-xxx","resource_type":"EC2"}
+    포맷: {human_prefix} | {"metric_key":"CPU","resource_id":"i-xxx","resource_type":"EC2","severity":"SEV-3"}
     최대 1024자 (CloudWatch API 제한).
+
+    `severity`는 생성 시점의 등급을 **알람 자체에 박아 둔다** — 알람 이벤트에는 태그가 실리지
+    않으므로 알림 파이프라인은 이 값을 읽는다(docs/specs/alert-pipeline/ review P2). 비우면
+    Severity 태그와 같은 규칙(`get_severity`)으로 채운다. 나중에 레지스트리 기본값이 바뀌어도
+    기존 알람은 만들 때의 등급을 유지한다 — SEV-1 면제(R3-8)가 이 값에 걸려 있다.
     """
     metadata = json.dumps({
         "metric_key": metric_key,
         "resource_id": resource_id,
         "resource_type": resource_type,
+        "severity": severity or get_severity(metric_key),
     }, separators=(",", ":"))
     if human_prefix:
         desc = f"{human_prefix} | {metadata}"

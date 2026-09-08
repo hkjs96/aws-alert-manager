@@ -167,6 +167,8 @@ def from_eventbridge(event: dict, *, customer_id: str = "") -> AlertEvent:
             ev.resource_id = identity.resource_id
             ev.resource_type = identity.resource_type
             ev.metric_key = identity.metric_key or _metric_key_from_configuration(detail)
+            # 생성 시점의 등급(알람에 박힌 값). 옛 형식이면 비고, 인제스터가 레지스트리로 폴백한다.
+            ev.severity = identity.severity or ""
         else:
             # 우리가 관리하지 않는 알람(고객사 자체 알람, 인프라 알람 등)도 버리지 않는다 —
             # 억제·라우팅 대상은 아니지만 이력으로는 남긴다.

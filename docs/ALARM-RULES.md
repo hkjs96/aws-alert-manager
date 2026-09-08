@@ -20,7 +20,7 @@
   - `AlarmDescription`의 `resource_id` 필드에는 항상 전체 ARN(Full_ARN)을 저장한다 (매칭/역추적용)
 - 알람 이름 최대 255자 (CloudWatch API 제한). 초과 시 label → display_metric 순으로 truncate (`...` 접미사)
 - 알람 매칭: 알람 메타데이터(Namespace, MetricName, Dimensions) 기반. 이름 문자열 매칭 금지 (AP-3)
-- 알람 생성 시 `AlarmDescription`에 메트릭 키를 포함하여 역추적 가능하게 한다 (최대 1024자)
+- 알람 생성 시 `AlarmDescription`에 메트릭 키와 **생성 시점 severity**를 포함하여 역추적 가능하게 한다 (최대 1024자, §13-4)
 - 새 포맷 알람 검색: resource_id prefix 기반 검색. 전체 알람 풀스캔 금지 (AP-4)
 - 알람 검색 시 ALB/NLB/TG는 Short_ID suffix와 레거시 Full_ARN suffix 모두 검색하여 호환성 유지
 
@@ -371,6 +371,13 @@ Phase2: DB 도입 후 고객사별/리소스별 오버라이드 지원
 ### 13-4. Severity 저장: CloudWatch 알람 태그
 
 Severity는 AlarmDescription이 아닌 CloudWatch 알람 태그(Tags)에 저장한다.
+
+> **2026-09-08 보완 — 설명 메타데이터에도 `severity`를 함께 적는다.** 알람 관리(목록·필터·수정)의
+> 정본은 여전히 태그다. 그러나 EventBridge 알람 이벤트에는 태그가 실리지 않으므로 **알림 파이프라인**은
+> `AlarmDescription` JSON의 `severity`를 읽는다. `_build_alarm_description()`이 태그와 같은 규칙
+> (`get_severity`)으로 채우므로 생성 시점엔 두 값이 같고, 이후 레지스트리 기본값이 바뀌어도 기존 알람은
+> 만들 때의 등급을 유지한다 — SEV-1 면제(R3-8)가 이 값에 걸려 있다. 옛 형식(필드 없음) 알람은
+> 파이프라인이 레지스트리 기본값으로 폴백한다. 근거: `docs/specs/alert-pipeline/review-2026-09-07.md` P2.
 
 ```python
 # 알람 생성 시

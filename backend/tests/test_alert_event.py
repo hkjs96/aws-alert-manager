@@ -91,6 +91,25 @@ class TestStateChange:
         assert ev.resource_id == ALB_ARN
         assert ev.series_id == f"111122223333#{ALB_ARN}#HTTPCode_ELB_5XX_Count"
 
+    def test_severity_comes_from_description_metadata(self):
+        """알람 이벤트에는 태그가 없다 — 설명에 박힌 생성 시점 등급이 정본이다 (review P2)."""
+        from common.alarm_registry import get_severity
+        ev = from_eventbridge(state_change_event())
+        assert ev.severity == get_severity("CPUUtilization")          # 기본: 태그와 같은 규칙
+
+        e = state_change_event()
+        e["detail"]["configuration"]["description"] = _build_alarm_description(
+            "EC2", "i-0abc", "CPUUtilization", "auto", severity="SEV-1")
+        assert from_eventbridge(e).severity == "SEV-1"                 # 명시값 우선
+
+    def test_legacy_description_without_severity_leaves_it_empty(self):
+        """옛 형식 알람은 등급을 비워 두고 인제스터가 레지스트리로 폴백한다."""
+        e = state_change_event()
+        e["detail"]["configuration"]["description"] = (
+            'x | {"metric_key":"CPUUtilization","resource_id":"i-0abc","resource_type":"EC2"}')
+        ev = from_eventbridge(e)
+        assert ev.resource_id == "i-0abc" and ev.severity == ""
+
     def test_falls_back_to_name_when_description_missing(self):
         e = state_change_event()
         e["detail"]["configuration"].pop("description")

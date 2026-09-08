@@ -40,6 +40,8 @@ class AlarmIdentity:
     tag_name: str
     metric_key: str | None
     source: str
+    #: 설명 메타데이터의 등급. 메타데이터가 없거나 옛 형식이면 "" — 호출자가 레지스트리로 폴백한다.
+    severity: str = ""
 
     @property
     def match_keys(self) -> frozenset[str]:
@@ -86,18 +88,20 @@ def identify_alarm(alarm: dict) -> AlarmIdentity | None:
     if metadata:
         rid = str(metadata.get("resource_id") or "")
         rtype = str(metadata.get("resource_type") or "")
+        severity = str(metadata.get("severity") or "")
         if rid and rtype:
             return AlarmIdentity(
                 rtype, rid,
                 by_name.tag_name if by_name else "",
                 metadata.get("metric_key"),
                 SOURCE_METADATA,
+                severity,
             )
-        # 불완전한 메타데이터 — 이름 폴백에 metric_key만 얹는다
+        # 불완전한 메타데이터 — 이름 폴백에 metric_key(와 severity)만 얹는다
         if by_name and metadata.get("metric_key"):
             return AlarmIdentity(
                 by_name.resource_type, by_name.resource_id, by_name.tag_name,
-                metadata.get("metric_key"), by_name.source,
+                metadata.get("metric_key"), by_name.source, severity,
             )
     return by_name
 

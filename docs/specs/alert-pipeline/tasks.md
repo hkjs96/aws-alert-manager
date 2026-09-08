@@ -160,9 +160,13 @@
 
 ### Phase 2 진입 조건 (review §5)
 
-- [ ] 1.4.2 상태 테이블 · 1.4.3 grouping · 1.4.3b 타이머 — 위
-- [ ] 이력 put에 `attribute_not_exists(event_key)` 조건 — 중복 전달 시 발송 생략 (P1)
-- [ ] `AlarmDescription` 메타데이터에 `severity` — 레지스트리 드리프트 방지 (P2)
+- [x] 1.4.2 상태 테이블 · 1.4.3 grouping · 1.4.3b 타이머 — 위
+- [x] 이력 put에 `attribute_not_exists(event_key)` 조건 — ✅ 2026-09-08. 재전달은 예외 없이 `duplicate=true`로
+      끝난다(예외면 EventBridge가 또 재시도). 첫 기록과 워커의 `final_action` write-back이 보존된다
+- [x] `AlarmDescription` 메타데이터에 `severity` — ✅ 2026-09-08. 빌더가 태그와 같은 규칙으로 채우고
+      `identify_alarm().severity` → 인제스터가 레지스트리보다 우선. 옛 형식은 폴백. `docs/ALARM-RULES.md` §13-4 보완
+
+**→ Phase 2 진입 조건 충족.** 남은 선행 결정: U2(채널 등록 주체)·U3(필터 범위) — design.md §5
 
 ## Phase 2 — 인시던트 + 고객사별 다중 채널
 

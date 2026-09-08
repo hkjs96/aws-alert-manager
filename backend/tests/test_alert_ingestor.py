@@ -674,6 +674,19 @@ class TestConfigFromDb:
         with patch.object(lh, "_get_ddb", return_value=ddb):
             assert lh.lambda_handler(state_change_event(), None)["action"] == "notify"
 
+    def test_sev1_stamped_on_the_alarm_is_exempt_even_if_registry_says_otherwise(self, config):
+        """레지스트리가 SEV-3이어도 알람에 SEV-1로 박혀 있으면 SEV-1이다 — 드리프트 방지 (review P2)."""
+        from alert_ingestor import lambda_handler as lh
+
+        self._silence(config)                                   # 기본 면제는 SEV-1뿐
+        e = state_change_event()
+        e["detail"]["configuration"]["description"] = _build_alarm_description(
+            "EC2", "i-0abc", "CPUUtilization", "auto", severity="SEV-1")
+        ddb, _ = _ddb_with(accounts_items=ACCOUNTS, state=FakeStateTable(), policy=config)
+        with patch.object(lh, "_get_ddb", return_value=ddb):
+            r = lh.lambda_handler(e, None)
+        assert r["action"] == "notify"
+
     def test_db_policy_overrides_env(self, config, monkeypatch):
         from alert_ingestor import lambda_handler as lh
 
@@ -716,6 +729,81 @@ class TestConfigFromDb:
             lh.lambda_handler(state_change_event(), None)
 
         assert _perf_lines(caplog, "alert_ingest")[0]["config_ok"] is True   # 미구성은 결함이 아니다
+
+
+class TestSeveritySource:
+    """등급은 설명 메타데이터(생성 시점) > 레지스트리 기본값 (review P2)."""
+
+    def test_description_severity_wins_over_registry(self, env):
+        from alert_ingestor import lambda_handler as lh
+
+        e = state_change_event()
+        e["detail"]["configuration"]["description"] = _build_alarm_description(
+            "EC2", "i-0abc", "CPUUtilization", "auto", severity="SEV-1")
+        ddb, hist = _ddb_with(state=FakeStateTable())
+        with patch.object(lh, "_get_ddb", return_value=ddb):
+            lh.lambda_handler(e, None)
+        assert hist.put_item.call_args.kwargs["Item"]["severity"] == "SEV-1"
+
+    def test_legacy_description_falls_back_to_registry(self, env):
+        from alert_ingestor import lambda_handler as lh
+        from common.alarm_registry import get_severity
+
+        e = state_change_event()
+        e["detail"]["configuration"]["description"] = (
+            'x | {"metric_key":"CPUUtilization","resource_id":"i-0abc","resource_type":"EC2"}')
+        ddb, hist = _ddb_with(state=FakeStateTable())
+        with patch.object(lh, "_get_ddb", return_value=ddb):
+            lh.lambda_handler(e, None)
+        assert hist.put_item.call_args.kwargs["Item"]["severity"] == get_severity("CPUUtilization")
+
+
+class TestDuplicateDelivery:
+    """EventBridge는 at-least-once — 재전달이 첫 기록(과 워커의 final_action)을 덮어쓰면 안 된다 (review P1)."""
+
+    def test_duplicate_is_acknowledged_not_retried(self, env, caplog):
+        from alert_ingestor import lambda_handler as lh
+
+        hist = MagicMock()
+        hist.put_item.side_effect = _conditional_failure()
+        ddb, _ = _ddb_with(history=hist, state=FakeStateTable())
+        with patch.object(lh, "_get_ddb", return_value=ddb), caplog.at_level("INFO"):
+            result = lh.lambda_handler(state_change_event(), None)   # 예외 없음 — 재시도 유발 금지
+
+        assert result["status"] == "ok" and result["duplicate"] is True
+        assert "ConditionExpression" in hist.put_item.call_args.kwargs
+        line = _perf_lines(caplog, "alert_ingest")[0]
+        assert line["ok"] is True and line["duplicate"] is True
+
+    def test_first_record_survives_redelivery(self, env):
+        """워커가 확정해 둔 final_action이 늦은 재전달에 지워지지 않는다."""
+        from alert_ingestor import lambda_handler as lh
+        from fakes_ddb import FakeHistoryTable
+
+        hist = FakeHistoryTable()
+        ddb, _ = _ddb_with(history=hist, state=FakeStateTable())
+        with patch.object(lh, "_get_ddb", return_value=ddb):
+            first = lh.lambda_handler(state_change_event(), None)
+            row = hist.by_series("111122223333#i-0abc#CPUUtilization")[0]
+            hist.update_item(Key={"series_id": row["series_id"], "event_key": row["event_key"]},
+                             UpdateExpression="SET final_action = :a",
+                             ExpressionAttributeValues={":a": "notify"})     # 워커가 확정한 척
+            second = lh.lambda_handler(state_change_event(), None)             # 같은 event id 재전달
+
+        assert first["duplicate"] is False and second["duplicate"] is True
+        rows = hist.by_series("111122223333#i-0abc#CPUUtilization")
+        assert len(rows) == 1 and rows[0]["final_action"] == "notify"
+
+    def test_other_put_errors_still_raise(self, env):
+        from alert_ingestor import lambda_handler as lh
+
+        hist = MagicMock()
+        hist.put_item.side_effect = ClientError(
+            {"Error": {"Code": "ProvisionedThroughputExceededException", "Message": "x"}}, "PutItem")
+        ddb, _ = _ddb_with(history=hist, state=FakeStateTable())
+        with patch.object(lh, "_get_ddb", return_value=ddb):
+            with pytest.raises(ClientError):
+                lh.lambda_handler(state_change_event(), None)
 
 
 class TestGrouping:

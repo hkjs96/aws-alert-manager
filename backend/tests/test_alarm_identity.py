@@ -12,6 +12,7 @@ import re
 
 import pytest
 
+from common.alarm_naming import _build_alarm_description, _parse_alarm_metadata
 from common.alarm_identity import (
     AlarmIdentity,
     group_alarms_by_resource,
@@ -182,3 +183,30 @@ def test_no_alarm_name_regex_outside_identity_module():
         if _TAGNAME_REGEX_LITERAL.search(path.read_text(encoding="utf-8")):
             offenders.append(rel)
     assert offenders == [], f"alarm-name regex outside common/alarm_identity.py: {offenders}"
+
+
+class TestSeverityInMetadata:
+    """설명 메타데이터의 severity — 생성 시점 등급을 알람 자체에 박는다 (alert-pipeline review P2)."""
+
+    def test_builder_fills_severity_like_the_tag(self):
+        from common.alarm_registry import get_severity
+        desc = _build_alarm_description("EC2", "i-1", "CPUUtilization", "auto")
+        assert _parse_alarm_metadata(desc)["severity"] == get_severity("CPUUtilization")
+
+    def test_builder_accepts_explicit_severity(self):
+        desc = _build_alarm_description("EC2", "i-1", "CPUUtilization", severity="SEV-1")
+        assert _parse_alarm_metadata(desc)["severity"] == "SEV-1"
+
+    def test_identity_surfaces_severity(self):
+        alarm = {"AlarmName": "[EC2] web CPUUtilization > 80% (TagName: i-1)",
+                 "AlarmDescription": _build_alarm_description("EC2", "i-1", "CPUUtilization", severity="SEV-2")}
+        assert identify_alarm(alarm).severity == "SEV-2"
+
+    def test_legacy_metadata_has_empty_severity(self):
+        alarm = {"AlarmName": "[EC2] web CPUUtilization > 80% (TagName: i-1)",
+                 "AlarmDescription": 'x | {"metric_key":"CPUUtilization","resource_id":"i-1","resource_type":"EC2"}'}
+        identity = identify_alarm(alarm)
+        assert identity.resource_id == "i-1" and identity.severity == ""
+
+    def test_name_only_identity_has_empty_severity(self):
+        assert identify_alarm({"AlarmName": "[EC2] web CPUUtilization > 80% (TagName: i-1)"}).severity == ""
