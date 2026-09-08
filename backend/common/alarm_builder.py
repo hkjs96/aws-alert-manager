@@ -23,6 +23,7 @@ from common.alarm_registry import (
     _get_alarm_defs,
     get_dynamic_eval_policy,
     get_severity,
+    is_valid_severity,
 )
 from common.dimension_builder import (
     _build_dimensions,
@@ -79,13 +80,15 @@ def _get_aws_account_id() -> str:
     return boto3.client("sts").get_caller_identity()["Account"]
 
 
-def _tag_alarm_with_severity(alarm_name: str, metric_key: str, cw) -> None:
+def _tag_alarm_with_severity(alarm_name: str, metric_key: str, cw, severity: str = "") -> None:
     """알람 생성 직후 Severity + ManagedBy 태그를 부여한다.
 
+    `severity`가 있으면(재생성 때 보존한 수동 등급) 그 값을, 없으면 레지스트리 기본값을 쓴다 —
+    설명 메타데이터(`_build_alarm_description`)와 같은 값이어야 한다.
     tag_resource 실패는 알람 생성 성공에 영향을 주지 않도록 예외를 흡수한다.
     BotoCoreError: NoCredentialsError 등 자격증명 문제 포함.
     """
-    severity = get_severity(metric_key)
+    severity = severity or get_severity(metric_key)
     try:
         region = cw.meta.region_name
         account_id = _get_aws_account_id()
@@ -101,6 +104,47 @@ def _tag_alarm_with_severity(alarm_name: str, metric_key: str, cw) -> None:
         logger.warning("Failed to tag alarm %s with severity: %s", alarm_name, e)
 
 
+def _alarm_arn(cw, alarm_name: str) -> str:
+    return f"arn:aws:cloudwatch:{cw.meta.region_name}:{_get_aws_account_id()}:alarm:{alarm_name}"
+
+
+def _tagged_severity(cw, alarm_arn: str) -> str:
+    """알람의 Severity 태그(정본). 없거나 조회 실패·허용 밖 값이면 "" — 호출자가 레지스트리로 폴백한다."""
+    if not alarm_arn:
+        return ""
+    try:
+        tags = cw.list_tags_for_resource(ResourceARN=alarm_arn).get("Tags", [])
+    except (ClientError, BotoCoreError) as e:
+        logger.warning("Failed to read tags of %s: %s", alarm_arn, e)
+        return ""
+    value = next((t.get("Value") for t in tags if t.get("Key") == "Severity"), "")
+    return value if is_valid_severity(value) else ""
+
+
+def _severity_overrides(cw, alarm_infos) -> dict[str, str]:
+    """재생성 전에 보존할 수동 등급 — {metric_key: severity}. 태그가 레지스트리 기본값과 다를 때만.
+
+    사용자 결정(2026-09-08, review-personas F8): **수동 등급이 레지스트리 기본값을 이긴다.** 재생성은
+    알람을 지우고 다시 만들므로, 지우기 전에 태그를 읽어 두었다가 새 알람의 태그와 설명에 그대로 쓴다.
+    ARN이 없는 항목(인덱스 스냅샷)은 이름으로 만든다. 읽기 실패는 기본값으로 떨어진다(기존 동작).
+    """
+    overrides: dict[str, str] = {}
+    for info in alarm_infos:
+        name = str(info.get("AlarmName", "") or "")
+        try:
+            arn = str(info.get("AlarmArn") or "") or (_alarm_arn(cw, name) if name else "")
+        except (ClientError, BotoCoreError) as e:
+            logger.warning("Cannot build ARN for %s — severity not preserved: %s", name, e)
+            continue
+        if not arn:
+            continue
+        metric_key = _resolve_metric_key(info)
+        severity = _tagged_severity(cw, arn)
+        if severity and severity != get_severity(metric_key):
+            overrides[metric_key] = severity
+    return overrides
+
+
 def _create_disk_alarms(
     resource_id: str,
     resource_type: str,
@@ -109,6 +153,7 @@ def _create_disk_alarms(
     alarm_def: dict,
     cw,
     sns_arn: str,
+    severity_overrides: dict[str, str] | None = None,
 ) -> list[str]:
     """Disk 알람 생성 로직 (CWAgent 디멘션 동적 조회)."""
     created: list[str] = []
@@ -149,6 +194,7 @@ def _create_disk_alarms(
         desc = _build_alarm_description(
             resource_type, resource_id, alarm_metric,
             f"Auto-created by AWS Monitoring Engine for EC2 {resource_id} disk {path}",
+            severity=(severity_overrides or {}).get(alarm_metric, ""),
         )
         try:
             cw.put_metric_alarm(
@@ -170,7 +216,7 @@ def _create_disk_alarms(
             )
             logger.info("Created disk alarm: %s (path=%s, threshold=%.2f)", name, path, disk_threshold)
             created.append(name)
-            _tag_alarm_with_severity(name, alarm_metric, cw)
+            _tag_alarm_with_severity(name, alarm_metric, cw, (severity_overrides or {}).get(alarm_metric, ""))
         except ClientError as e:
             logger.error("Failed to create disk alarm %s: %s", name, e)
     return created
@@ -182,6 +228,7 @@ def _create_standard_alarm(
     resource_type: str,
     resource_tags: dict,
     cw,
+    severity_overrides: dict[str, str] | None = None,
 ) -> str | None:
     """단일 표준(하드코딩) 알람 생성. 성공 시 알람 이름 반환."""
     sns_arn = _get_sns_alert_arn()
@@ -213,6 +260,7 @@ def _create_standard_alarm(
     desc = _build_alarm_description(
         resource_type, resource_id, metric_key,
         f"Auto-created by AWS Monitoring Engine for {resource_type} {resource_id}",
+        severity=(severity_overrides or {}).get(metric_key, ""),
     )
     try:
         cw.put_metric_alarm(
@@ -233,7 +281,7 @@ def _create_standard_alarm(
             **_optional_alarm_params(alarm_def),
         )
         logger.info("Created alarm: %s (threshold=%.2f)", name, threshold)
-        _tag_alarm_with_severity(name, alarm_def.get("metric_key") or alarm_def["metric"], cw)
+        _tag_alarm_with_severity(name, metric_key, cw, (severity_overrides or {}).get(metric_key, ""))
         return name
     except ClientError as e:
         logger.error("Failed to create alarm %s: %s", name, e)
@@ -251,6 +299,7 @@ def _create_dynamic_alarm(
     created: list[str],
     comparison: str = "GreaterThanThreshold",
     resource_tags: dict | None = None,
+    severity_overrides: dict[str, str] | None = None,
 ) -> None:
     """동적 태그 메트릭에 대한 알람 생성.
 
@@ -302,6 +351,7 @@ def _create_dynamic_alarm(
             AlarmDescription=_build_alarm_description(
                 resource_type, resource_id, metric_name,
                 f"Auto-created dynamic alarm for {resource_type} {resource_id} metric={metric_name}",
+                severity=(severity_overrides or {}).get(metric_name, ""),
             ),
             Namespace=namespace,
             MetricName=metric_name,
@@ -317,7 +367,7 @@ def _create_dynamic_alarm(
             OKActions=[sns_arn] if sns_arn else [],
             TreatMissingData="notBreaching",
         )
-        _tag_alarm_with_severity(name, metric_name, cw)
+        _tag_alarm_with_severity(name, metric_name, cw, (severity_overrides or {}).get(metric_name, ""))
         logger.info(
             "Created dynamic alarm: %s (metric=%s, threshold=%.2f, comparison=%s)",
             name, metric_name, threshold, comparison,
@@ -464,6 +514,7 @@ def _recreate_alarm_by_name(
     resource_tags: dict,
     *,
     cw=None,
+    severity_overrides: dict[str, str] | None = None,
 ) -> None:
     """알람 이름에서 메트릭 타입을 파악하여 해당 알람만 삭제 후 재생성.
 
@@ -488,6 +539,9 @@ def _recreate_alarm_by_name(
     alarm_info = existing[0]
     metric_key = _resolve_metric_key(alarm_info)
     existing_dims = alarm_info.get("Dimensions", [])
+    if severity_overrides is None:
+        # 지우기 전에 수동 등급을 읽어 둔다 — 재생성된 알람도 같은 등급을 갖는다(F8).
+        severity_overrides = _severity_overrides(cw, [alarm_info])
 
     # 2. 알람 정의를 **삭제 전에** 확보한다. 삭제를 먼저 하면 정의를 못 찾았을 때
     #    알람이 영구 소실된다. Disk_{suffix} 계열은 레지스트리에 disk_used_percent
@@ -518,11 +572,13 @@ def _recreate_alarm_by_name(
         _recreate_disk_alarm(
             alarm_def, existing_dims, resource_id, resource_type,
             resource_name, resource_tags, cw, sns_arn,
+            severity_overrides=severity_overrides,
         )
     else:
         _recreate_standard_alarm(
             alarm_def, metric_key, resource_id, resource_type,
             resource_name, resource_tags, cw, sns_arn,
+            severity_overrides=severity_overrides,
         )
 
 
@@ -535,6 +591,7 @@ def _recreate_disk_alarm(
     resource_tags: dict,
     cw,
     sns_arn: str,
+    severity_overrides: dict[str, str] | None = None,
 ) -> None:
     """Disk 알람 재생성 (기존 Dimensions 재사용)."""
     path = next((d["Value"] for d in existing_dims if d["Name"] == "path"), "/")
@@ -550,6 +607,7 @@ def _recreate_disk_alarm(
     desc = _build_alarm_description(
         resource_type, resource_id, f"Disk_{suffix}",
         f"Auto-created by AWS Monitoring Engine for EC2 {resource_id} disk {path}",
+        severity=(severity_overrides or {}).get(f"Disk_{suffix}", ""),
     )
     try:
         cw.put_metric_alarm(
@@ -570,7 +628,7 @@ def _recreate_disk_alarm(
             **_optional_alarm_params(alarm_def),
         )
         logger.info("Recreated disk alarm: %s (path=%s, threshold=%.2f)", name, path, threshold)
-        _tag_alarm_with_severity(name, f"Disk_{suffix}", cw)
+        _tag_alarm_with_severity(name, f"Disk_{suffix}", cw, (severity_overrides or {}).get(f"Disk_{suffix}", ""))
     except ClientError as e:
         logger.error("Failed to recreate disk alarm %s: %s", name, e)
 
@@ -584,6 +642,7 @@ def _recreate_standard_alarm(
     resource_tags: dict,
     cw,
     sns_arn: str,
+    severity_overrides: dict[str, str] | None = None,
 ) -> None:
     """표준(하드코딩) 알람 재생성."""
     # region 필드가 있으면 해당 리전의 CloudWatch 클라이언트 사용
@@ -608,6 +667,7 @@ def _recreate_standard_alarm(
     desc = _build_alarm_description(
         resource_type, resource_id, metric_key,
         f"Auto-created by AWS Monitoring Engine for {resource_type} {resource_id}",
+        severity=(severity_overrides or {}).get(metric_key, ""),
     )
     try:
         cw.put_metric_alarm(
@@ -631,6 +691,6 @@ def _recreate_standard_alarm(
         # 재생성 시에도 ManagedBy/Severity 태그를 다시 부여해야 한다. 누락 시 임계치
         # 변경으로 새 이름의 알람이 태그 없이 생성되어, 이후 daily가 조건부 DeleteAlarms로
         # 정리하지 못하고 고착된다(생성 경로와 동일하게 태깅 필수).
-        _tag_alarm_with_severity(name, metric_key, cw)
+        _tag_alarm_with_severity(name, metric_key, cw, (severity_overrides or {}).get(metric_key, ""))
     except ClientError as e:
         logger.error("Failed to recreate alarm %s: %s", name, e)

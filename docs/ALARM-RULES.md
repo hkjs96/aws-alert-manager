@@ -382,9 +382,10 @@ Severity는 AlarmDescription이 아닌 CloudWatch 알람 태그(Tags)에 저장�
 > **2026-09-08 추가 — 태그를 바꾸는 경로는 설명도 같이 바꾼다.** 커스텀 알람 생성(POST)과 등급 변경(PUT)은
 > `set_description_severity()`로 설명 메타데이터의 `severity`를 태그와 같은 값으로 다시 쓴다. 설명에 등급이
 > 없는 옛 알람은 일일 동기화가 재생성 없이 제자리(`put_metric_alarm`)에서 채운다 — 값은 Severity 태그 우선,
-> 없으면 레지스트리. 설명의 `severity`는 `SEV-1`~`SEV-5` 밖이면 무시한다(`is_valid_severity`). 단, 동기화의
-> **재생성** 경로(`_recreate_alarm_by_name`)는 태그를 레지스트리 기본값으로 되돌린다 — 기존 동작이며 미결
-> (review-personas F8). 근거: `docs/specs/alert-pipeline/review-personas-2026-09-08.md` F1·F2·F3.
+> 없으면 레지스트리. 설명의 `severity`는 `SEV-1`~`SEV-5` 밖이면 무시한다(`is_valid_severity`).
+> **재생성**(이름별·전체·동적 드리프트)도 지우기 전에 Severity 태그를 읽어 새 알람의 태그·설명에 그대로 쓴다
+> (`_severity_overrides`) — **수동 등급이 레지스트리 기본값을 이긴다**(사용자 결정 2026-09-08, review-personas F8).
+> 근거: `docs/specs/alert-pipeline/review-personas-2026-09-08.md` F1·F2·F3·F8.
 
 ```python
 # 알람 생성 시

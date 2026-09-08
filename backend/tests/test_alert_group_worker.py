@@ -181,3 +181,97 @@ class TestInvocation:
         from alert_group_worker import lambda_handler as w
         with pytest.raises(ValueError):
             w.lambda_handler({"action": "close", "group": {"group_id": "g"}}, None)
+
+
+class TestSweep:
+    """실행이 죽은 그룹은 워커가 실패 이벤트를 받아 대신 닫고 확정한다 (review-personas F4)."""
+
+    @staticmethod
+    def _failure_event(status="FAILED", group=GROUP, raw_input=None):
+        import json
+        return {
+            "source": "aws.states", "detail-type": "Step Functions Execution Status Change",
+            "detail": {"status": status, "stateMachineArn": SM,
+                       "executionArn": SM.replace(":stateMachine:", ":execution:") + ":" + group["group_id"],
+                       "input": json.dumps(group) if raw_input is None else raw_input},
+        }
+
+    def test_sweep_closes_open_group_and_finalizes_members(self, tables):
+        from alert_group_worker import lambda_handler as w
+        hist, state = tables
+        state.items["grp#cust-1#SEV-3"] = {"state_key": "grp#cust-1#SEV-3", "status": "open",
+                                           "group_id": GROUP["group_id"], "version": 2}
+        hist.put_item(Item=_member("1#i-1#CPU", "2026-09-02T10:15:30Z#a"))
+        hist.put_item(Item=_member("1#i-2#CPU", "2026-09-02T10:15:31Z#b", reason="auto_pause",
+                                   occurred_at="2026-09-02T10:15:31Z"))
+        state.items["fp#1#i-2#CPU"] = {"state_key": "fp#1#i-2#CPU", "episode_open": True,
+                                       "episode_started_at": "2026-09-02T10:15:31Z", "version": 1}
+
+        out = w.lambda_handler(self._failure_event("FAILED"), None)
+
+        assert out["swept"] is True and out["was_open"] is True
+        assert (out["count"], out["notified"], out["suppressed"], out["skipped"]) == (2, 2, 0, 0)
+        assert state.items["grp#cust-1#SEV-3"]["status"] == "closed"
+        r1 = hist.by_series("1#i-1#CPU")[0]
+        assert r1["final_action"] == "notify" and r1["final_reason"] == "swept:failed"
+        r2 = hist.by_series("1#i-2#CPU")[0]
+        assert r2["final_action"] == "notify" and r2["final_reason"] == "auto_pause_expired;swept:failed"
+        assert state.items["fp#1#i-2#CPU"]["last_notified_at"] == "2026-09-02T10:15:31Z"
+
+    def test_sweep_after_close_only_finalizes(self, tables):
+        """close 뒤(Collect/Finalize)에서 죽은 실행 — 그룹은 이미 닫혀 있고 구성원만 남았다."""
+        from alert_group_worker import lambda_handler as w
+        hist, state = tables
+        state.items["grp#cust-1#SEV-3"] = {"state_key": "grp#cust-1#SEV-3", "status": "closed",
+                                           "group_id": GROUP["group_id"], "version": 3}
+        hist.put_item(Item=_member("1#i-1#CPU", "2026-09-02T10:15:30Z#a"))
+        out = w.lambda_handler(self._failure_event("TIMED_OUT"), None)
+        assert out["was_open"] is False and out["notified"] == 1
+        assert hist.by_series("1#i-1#CPU")[0]["final_reason"] == "swept:timed_out"
+        assert state.items["grp#cust-1#SEV-3"]["version"] == 3
+
+    def test_sweep_skips_already_finalized_rows(self, tables):
+        from alert_group_worker import lambda_handler as w
+        hist, _ = tables
+        done = {**_member("1#i-1#CPU", "2026-09-02T10:15:30Z#a"), "final_action": "notify", "final_reason": ""}
+        hist.put_item(Item=done)
+        hist.put_item(Item=_member("1#i-2#CPU", "2026-09-02T10:15:31Z#b"))
+        out = w.lambda_handler(self._failure_event("ABORTED"), None)
+        assert (out["notified"], out["skipped"]) == (1, 1)
+        assert hist.by_series("1#i-1#CPU")[0]["final_reason"] == ""       # 손대지 않았다
+        assert hist.by_series("1#i-2#CPU")[0]["final_reason"] == "swept:aborted"
+
+    def test_sweep_does_not_touch_a_newer_open_group(self, tables):
+        from alert_group_worker import lambda_handler as w
+        _, state = tables
+        state.items["grp#cust-1#SEV-3"] = {"state_key": "grp#cust-1#SEV-3", "status": "open",
+                                           "group_id": "g-newer", "version": 7}
+        out = w.lambda_handler(self._failure_event("FAILED"), None)
+        assert out["was_open"] is False and out["count"] == 0
+        assert state.items["grp#cust-1#SEV-3"]["status"] == "open"
+
+    @pytest.mark.parametrize("raw", ["{}", "not json", '{"group_id": "x"}'])
+    def test_sweep_without_group_input_is_a_noop(self, tables, raw):
+        from alert_group_worker import lambda_handler as w
+        hist, _ = tables
+        hist.put_item(Item=_member("1#i-1#CPU", "2026-09-02T10:15:30Z#a"))
+        out = w.lambda_handler(self._failure_event("FAILED", raw_input=raw), None)
+        assert out == {"swept": False, "reason": "no_group_input"}
+        assert "final_action" not in hist.by_series("1#i-1#CPU")[0]
+
+    def test_manual_sweep_action(self, tables):
+        from alert_group_worker import lambda_handler as w
+        hist, _ = tables
+        hist.put_item(Item=_member("1#i-1#CPU", "2026-09-02T10:15:30Z#a"))
+        out = w.lambda_handler({"action": "sweep", "group": GROUP}, None)
+        assert out["swept"] is True
+        assert hist.by_series("1#i-1#CPU")[0]["final_reason"] == "swept:manual"
+
+    def test_regular_finalize_output_is_unchanged(self, tables):
+        """sweep 필드는 청소 때만 — 기존 실행 경로의 출력 계약은 그대로."""
+        from alert_group_worker import lambda_handler as w
+        hist, _ = tables
+        hist.put_item(Item=_member("1#i-1#CPU", "2026-09-02T10:15:30Z#a"))
+        out = w.lambda_handler({"action": "finalize", "group": GROUP}, None)
+        assert out == {"count": 1, "deferred": 0, "notified": 1, "suppressed": 0}
+        assert hist.by_series("1#i-1#CPU")[0]["final_reason"] == ""

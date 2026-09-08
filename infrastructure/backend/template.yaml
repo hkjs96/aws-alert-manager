@@ -622,6 +622,7 @@ Resources:
                 aws:SourceArn:
                   - !GetAtt AlertIngestCustomBusRule.Arn
                   - !GetAtt AlertIngestDefaultBusRule.Arn
+                  - !GetAtt AlertGroupFailureRule.Arn
 
   # 자기 감시 — 알림 파이프라인 자신의 고장은 파이프라인 **밖**(SNS 직결)으로 알린다.
   # 이 알람들을 인제스터로 보내면 "인제스터가 죽었다"는 알림이 죽은 인제스터로 가서 DLQ에 쌓인다.
@@ -792,6 +793,7 @@ Resources:
   # 실행 하나 = 그룹 하나. 전이 ~9개/그룹 (Standard $0.025/1k 전이).
   # 닫고 나서(Grace 뒤) 조회한다 — 닫히기 전 도착한 이벤트는 Grace 동안 적재를 마치고,
   # 닫힌 뒤 도착한 이벤트는 새 그룹을 연다. 빈틈이 없다.
+  # TimeoutSeconds: 대기(≤300)+Grace+유예(≤3600)보다 넉넉한 2시간. 넘기면 TIMED_OUT → 아래 실패 룰이 sweep.
   AlertGroupStateMachine:
     Type: AWS::StepFunctions::StateMachine
     Properties:
@@ -804,6 +806,7 @@ Resources:
         - |
           {
             "Comment": "Alert group: wait, close, grace, collect, optional auto-pause, finalize (design.md D10)",
+            "TimeoutSeconds": 7200,
             "StartAt": "GroupWait",
             "States": {
               "GroupWait": {
@@ -916,6 +919,43 @@ Resources:
       Action: lambda:InvokeFunction
       Principal: events.amazonaws.com
       SourceArn: !GetAtt AlertIngestDefaultBusRule.Arn
+
+  # 실행이 FAILED/TIMED_OUT/ABORTED로 끝나면 그룹은 확정되지 않은 채 남고, 열려 있었다면 이후 이벤트가
+  # 그 죽은 그룹에 계속 붙는다(review-personas F4). 워커가 실패 이벤트를 받아 대신 닫고 확정한다(sweep).
+  # 인제스터도 기한을 넘긴 열린 그룹은 새로 연다 — 두 겹이다.
+  AlertGroupFailureRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub
+        - aws-monitoring-alert-group-failed-${EnvShort}
+        - EnvShort: !FindInMap [EnvShortName, !Ref Environment, short]
+      Description: Sweep alert groups whose state machine execution did not finish
+      State: ENABLED
+      EventPattern:
+        source:
+          - aws.states
+        detail-type:
+          - Step Functions Execution Status Change
+        detail:
+          status:
+            - FAILED
+            - TIMED_OUT
+            - ABORTED
+          stateMachineArn:
+            - !Ref AlertGroupStateMachine
+      Targets:
+        - Id: sweeper
+          Arn: !GetAtt AlertGroupWorkerFunction.Arn
+          DeadLetterConfig:
+            Arn: !GetAtt AlertIngestDLQ.Arn
+
+  AlertGroupFailurePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt AlertGroupWorkerFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt AlertGroupFailureRule.Arn
 
   BulkOperationDLQ:
     Type: AWS::SQS::Queue

@@ -36,7 +36,7 @@ PERF_METRIC {"metric":"web_vital","vital":"LCP","page":"/dashboard","value":1234
 | `daily_stage` | daily_monitor Lambda | `stage`, `account`, `ok` + 단계별 건수 | 일일 런의 단계별 소요 (`inventory_sync`, `orphan_cleanup`, `collect_resources`) |
 | `web_vital` | Amplify SSR (브라우저 → `/api/vitals`) | `vital`, `page`, `rating`, `connection` | 실사용자 체감 (LCP·INP·CLS·TTFB·FCP + Next.js 하이드레이션) |
 | `alert_ingest` | alert_ingestor Lambda | `action`, `reason`, `severity`, `state`, `state_ok`, `group_ok`, `config_ok`, `grouped`, `ok` | 알람 이벤트 1건의 적재까지 처리 시간과 **Shadow 정제 판정** (docs/specs/alert-pipeline/) |
-| `alert_group` | alert_group_worker Lambda | `group_id`, `customer`, `severity`, `size`, `deferred`, `notified`, `suppressed` | 그룹 실행 1건의 확정 결과 — 실행 수·크기·auto-pause 이득 |
+| `alert_group` | alert_group_worker Lambda | `group_id`, `customer`, `severity`, `size`, `deferred`, `notified`, `suppressed`, `swept` | 그룹 실행 1건의 확정 결과 — 실행 수·크기·auto-pause 이득. `swept=true`는 죽은 실행을 워커가 대신 확정한 것 |
 
 ## 로그 그룹
 
@@ -173,6 +173,16 @@ fields @timestamp, @message
 ```
 
 `groups`가 `events`에 비례하면 그룹이 깨진 것이다 — 실행은 (고객사×등급)×시간 창 수만큼만 생겨야 한다(design.md D10).
+
+**죽은 실행 청소(sweep)와 고착 그룹 대체** — 둘 다 0이어야 정상이다. 0이 아니면 워커 오류 알람·실행 실패 원인을 본다.
+
+```
+fields @timestamp, @message
+| filter @message like /PERF_METRIC .*"metric":"alert_group".*"swept":true/
+   or @message like /PERF_METRIC .*"metric":"alert_ingest".*"stale_group":true/
+| parse @message /"metric":"(?<metric>[a-z_]+)"/
+| stats count() as n by metric, bin(1h)
+```
 
 ## 베이스라인 잡는 법
 

@@ -323,6 +323,15 @@ Step Functions Standard. 라이브: 알람 250개 × (ALARM, OK) 500건이 163�
 실행 수는 이벤트 수가 아니라 **시간 창 수**에 비례한다. 유예(auto-pause) 경로는 값이 비어 있어
 단위 테스트로만 검증됨 — Phase 0 실측 후 `ALERT_AUTO_PAUSE_SEC`를 채우면 그대로 동작한다.
 
+**자기 치유(2026-09-08, review-personas F4):** 실행이 죽으면 그룹은 확정되지 않은 채 남고, 열려 있었다면
+이후 이벤트가 그 죽은 그룹에 계속 붙어 TTL(1일)까지 알림이 사라진다. 두 겹으로 막는다.
+① EventBridge `Step Functions Execution Status Change`(FAILED/TIMED_OUT/ABORTED, 상태 머신 ARN 필터)가
+워커를 `sweep`으로 호출 — 열려 있으면 닫고, 유예 없이 finalize(이미 확정된 구성원은 건너뜀,
+`final_reason`에 `swept:<status>` 표식). 상태 머신 `TimeoutSeconds`=7200으로 무한 대기도 TIMED_OUT이 된다.
+② 인제스터는 `opened_at + group_wait_sec + STALE_MARGIN_SEC(300)`을 넘긴 열린 그룹을 고착으로 보고 새 그룹을
+연다(`stale_group=true`). 라이브: 실행을 ABORTED로 끊자 워커가 구성원 2건을 `notify/swept:aborted`로 확정하고
+grp#를 닫았다; 20분 전에 연 가짜 열린 그룹에 이벤트를 넣자 인제스터가 새 그룹·새 실행을 열었다.
+
 ---
 
 ## 3. 외부 도구 조사 결과 — 채택하지 않음

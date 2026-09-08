@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+from datetime import datetime, timedelta, timezone
 
 from common.alert_event import STATE_CHANGE, AlertEvent
 from common.alert_suppression import DEFER, NOTIFY, Decision
@@ -26,6 +27,32 @@ GROUP_TTL_DAYS = 1
 
 STATUS_OPEN = "open"
 STATUS_CLOSED = "closed"
+
+#: 열린 그룹이 (연 시각 + 대기 + 이 여유)를 넘겨도 닫히지 않으면 실행이 죽은 것이다 — 인제스터가 새 그룹을
+#: 연다(review-personas F4). 정상이면 close는 대기 직후 몇 초 안에 닫는다. 대기 상한(300초)과 같은 크기.
+STALE_MARGIN_SEC = 300
+
+
+def group_deadline(group: dict) -> datetime | None:
+    """이 시각까지 닫히지 않은 열린 그룹은 고착으로 본다. opened_at이 없거나 깨졌으면 None(판단 불가)."""
+    raw = str(group.get("opened_at", "") or "")
+    try:
+        opened = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if opened.tzinfo is None:
+        opened = opened.replace(tzinfo=timezone.utc)
+    try:
+        wait = int(group.get("group_wait_sec", 0) or 0)
+    except (TypeError, ValueError):
+        wait = 0
+    return opened + timedelta(seconds=wait + STALE_MARGIN_SEC)
+
+
+def is_stale(group: dict, *, now: datetime) -> bool:
+    """열린 그룹이 기한을 넘겼는가. 판단 불가(opened_at 없음)는 False — 멀쩡한 그룹을 버리지 않는다."""
+    deadline = group_deadline(group)
+    return deadline is not None and now >= deadline
 
 #: 실행 이름 제약: ≤80자, 공백·`#`·`:`·`/` 등 금지. 그룹 키는 `#`를 포함하므로 해시한다.
 _NAME_RE = re.compile(r"^[A-Za-z0-9_-]{1,80}$")

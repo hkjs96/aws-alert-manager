@@ -973,3 +973,65 @@ class TestGrouping:
         assert all(r["action"] == "notify" and r["group_ok"] for r in results)
         assert {c.kwargs["Item"]["group_id"] for c in hist.put_item.call_args_list} == {gid}
         assert len(fake.by_prefix("fp#")) == 500 and len(fake.by_prefix("grp#")) == 1
+
+
+class TestStaleGroupRecovery:
+    """실행이 죽어 close가 오지 않는 열린 그룹은 기한을 넘기면 새 그룹으로 대체한다 (review-personas F4)."""
+
+    @staticmethod
+    def _open_and_age(lh, fake, ddb, *, age_sec):
+        """이벤트 1건으로 그룹을 열고, grp# 항목의 연 시각을 age_sec만큼 과거로 돌린다."""
+        from datetime import datetime, timedelta, timezone
+        from common.alert_state import iso_utc
+        with patch.object(lh, "_get_ddb", return_value=ddb):
+            first = lh.lambda_handler(_series_event(1), None)
+        key, item = next(iter(fake.by_prefix("grp#").items()))
+        opened = datetime.now(timezone.utc) - timedelta(seconds=age_sec)
+        fake.items[key] = {**item, "opened_at": iso_utc(opened)}
+        return first, key, item
+
+    def test_stale_open_group_is_replaced(self, grouping):
+        from alert_ingestor import lambda_handler as lh
+        from common.alert_group import STALE_MARGIN_SEC
+
+        fake = FakeStateTable()
+        ddb, _ = _ddb_with(accounts_items=ACCOUNTS, state=fake)
+        first, key, item = self._open_and_age(lh, fake, ddb, age_sec=30 + STALE_MARGIN_SEC + 60)
+        with patch.object(lh, "_get_ddb", return_value=ddb):
+            second = lh.lambda_handler(_series_event(2), None)
+
+        assert first["stale_group"] is False
+        assert second["stale_group"] is True and second["group_ok"] is True
+        assert second["group_id"] != first["group_id"]
+        assert len(grouping.calls) == 2 and grouping.calls[1]["name"] == second["group_id"]
+        g = fake.items[key]
+        assert g["status"] == "open" and g["group_id"] == second["group_id"]
+        assert g["execution_arn"].endswith(":" + second["group_id"])
+        assert g["version"] == item["version"] + 2      # 조건부 개방 + execution_arn 기록
+
+    def test_fresh_open_group_is_still_joined(self, grouping):
+        from alert_ingestor import lambda_handler as lh
+
+        fake = FakeStateTable()
+        ddb, _ = _ddb_with(accounts_items=ACCOUNTS, state=fake)
+        first, _, _ = self._open_and_age(lh, fake, ddb, age_sec=10)
+        with patch.object(lh, "_get_ddb", return_value=ddb):
+            second = lh.lambda_handler(_series_event(2), None)
+
+        assert second["stale_group"] is False
+        assert second["group_id"] == first["group_id"]
+        assert len(grouping.calls) == 1
+
+    def test_deadline_math(self):
+        from datetime import datetime, timedelta, timezone
+        from common.alert_group import STALE_MARGIN_SEC, group_deadline, is_stale
+
+        g = {"opened_at": "2026-09-08T10:00:00Z", "group_wait_sec": 30}
+        deadline = datetime(2026, 9, 8, 10, 0, 30, tzinfo=timezone.utc) + timedelta(seconds=STALE_MARGIN_SEC)
+        assert group_deadline(g) == deadline
+        assert not is_stale(g, now=deadline - timedelta(seconds=1))
+        assert is_stale(g, now=deadline)
+        # 판단 불가는 고착이 아니다 — 멀쩡한 그룹을 버리지 않는다
+        assert group_deadline({"opened_at": "garbage"}) is None
+        assert not is_stale({}, now=deadline + timedelta(days=1))
+        assert not is_stale({"opened_at": "", "group_wait_sec": "x"}, now=deadline + timedelta(days=1))

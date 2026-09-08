@@ -11,6 +11,9 @@ Step Functions 상태 머신이 호출한다. 실행 하나 = 그룹 하나.
 - finalize 구성원마다 최종 판정을 이력에 write-back(`final_action`/`final_reason`).
            유예 중 스스로 해소된 DEFER는 `suppress/auto_pause` — auto-pause의 실제 이득이 여기서 잡힌다.
            아직 울리는 DEFER는 `notify`로 확정하고 fp# 상태에 "알렸음"을 남긴다(dedup 창 일관성).
+- sweep    실행이 FAILED/TIMED_OUT/ABORTED로 끝났을 때(EventBridge "Execution Status Change") 대신 닫고
+           확정한다(review-personas F4). 유예 없이 finalize — 실행이 죽은 시점에 이미 늦었고, 구성원을
+           잃는 것보다 보내는 게 낫다(fail-open). 인제스터도 기한 넘긴 열린 그룹은 새로 연다(두 겹).
 
 **Shadow 단계에서는 발송이 없다.** finalize가 남기는 `final_action`이 억제율 집계(1.5)의 최종값이다.
 Phase 2에서 finalize 끝에 발송자가 붙는다 — claim-then-send 원칙은 상태 갱신 뒤에 보내는 것으로 지킨다.
@@ -20,6 +23,7 @@ Phase 2에서 finalize 끝에 발송자가 붙는다 — claim-then-send 원칙�
 """
 
 import functools
+import json
 import logging
 import os
 import time
@@ -160,14 +164,21 @@ def _write_back(history, item: dict, action: str, reason: str, group_id: str) ->
     )
 
 
-def finalize(group: dict) -> dict:
-    """구성원마다 최종 판정을 확정해 이력에 남긴다."""
+def finalize(group: dict, *, sweep_reason: str = "") -> dict:
+    """구성원마다 최종 판정을 확정해 이력에 남긴다.
+
+    `sweep_reason`이 있으면 죽은 실행을 대신하는 청소다(F4): 이미 확정된 구성원은 건너뛰고, 나머지
+    사유에 그 표식을 붙인다.
+    """
     history, state = _tables()
     gid = group["group_id"]
     t0 = time.perf_counter()
     members = _members(history, gid)
-    notified = suppressed = deferred = 0
+    notified = suppressed = deferred = skipped = 0
     for m in members:
+        if sweep_reason and m.get("final_action"):
+            skipped += 1
+            continue
         if _is_deferred(m):
             deferred += 1
             if _still_firing(state, m):
@@ -177,6 +188,8 @@ def finalize(group: dict) -> dict:
                 action, reason = FINAL_SUPPRESS, REASON_AUTO_PAUSE     # 유예 중 해소 — auto-pause의 이득
         else:
             action, reason = FINAL_NOTIFY, str(m.get("suppression_reason", "") or "")
+        if sweep_reason:
+            reason = f"{reason};{sweep_reason}" if reason else sweep_reason
         _write_back(history, m, action, reason, gid)
         if action == FINAL_NOTIFY:
             notified += 1
@@ -186,18 +199,55 @@ def finalize(group: dict) -> dict:
     log_perf("alert_group", (time.perf_counter() - t0) * 1000,
              group_id=gid, customer=group.get("customer_id") or "-",
              severity=group.get("severity") or "-", size=len(members),
-             deferred=deferred, notified=notified, suppressed=suppressed)
-    logger.info("Finalized group %s: size=%d deferred=%d notified=%d suppressed=%d",
-                gid, len(members), deferred, notified, suppressed)
-    return {"count": len(members), "deferred": deferred, "notified": notified, "suppressed": suppressed}
+             deferred=deferred, notified=notified, suppressed=suppressed, swept=bool(sweep_reason))
+    logger.info("Finalized group %s: size=%d deferred=%d notified=%d suppressed=%d%s",
+                gid, len(members), deferred, notified, suppressed,
+                f" ({sweep_reason}, skipped={skipped})" if sweep_reason else "")
+    out = {"count": len(members), "deferred": deferred, "notified": notified, "suppressed": suppressed}
+    if sweep_reason:
+        out.update(swept=True, skipped=skipped)
+    return out
 
 
-_ACTIONS = {"close": close, "collect": collect, "finalize": finalize}
+def sweep(group: dict, *, status: str = "manual") -> dict:
+    """죽은 실행의 그룹을 대신 확정한다 — 열려 있으면 닫고(다음 이벤트가 새 그룹을 열도록) 구성원을 finalize.
+
+    EventBridge "Step Functions Execution Status Change"(FAILED/TIMED_OUT/ABORTED)로 호출된다.
+    `{"action": "sweep", "group": ...}` 직접 호출도 받는다(운영용, status=manual).
+    """
+    closed = close(group)
+    out = finalize(group, sweep_reason=f"swept:{(status or 'manual').lower()}")
+    out["was_open"] = closed["was_open"]
+    logger.warning("Swept group %s after execution %s: was_open=%s notified=%d suppressed=%d skipped=%d",
+                   group["group_id"], status, closed["was_open"], out["notified"], out["suppressed"],
+                   out["skipped"])
+    return out
+
+
+def _sweep_from_event(event: dict) -> dict:
+    """실행 상태 변경 이벤트 → sweep. 실행 입력(`detail.input`)이 곧 그룹이다."""
+    detail = event.get("detail") or {}
+    status = str(detail.get("status", "") or "")
+    try:
+        group = json.loads(detail.get("input") or "{}")
+    except ValueError:
+        group = {}
+    if not isinstance(group, dict) or not group.get("group_id") or not group.get("group_key"):
+        logger.error("sweep: execution %s (%s) carries no group input — nothing to sweep",
+                     detail.get("executionArn", "?"), status)
+        return {"swept": False, "reason": "no_group_input"}
+    return sweep(group, status=status or "unknown")
+
+
+_ACTIONS = {"close": close, "collect": collect, "finalize": finalize, "sweep": sweep}
 
 
 def lambda_handler(event, context):
-    action = (event or {}).get("action", "")
-    group = (event or {}).get("group") or {}
+    event = event or {}
+    if event.get("source") == "aws.states":
+        return _sweep_from_event(event)
+    action = event.get("action", "")
+    group = event.get("group") or {}
     if action not in _ACTIONS or not group.get("group_id") or not group.get("group_key"):
         raise ValueError(f"bad worker invocation: action={action!r} group={group!r}")
     return _ACTIONS[action](group)

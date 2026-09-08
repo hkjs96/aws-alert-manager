@@ -54,6 +54,7 @@ from common.alert_group import (
     STATUS_OPEN,
     execution_arn,
     execution_input,
+    is_stale,
     new_group,
     should_group,
 )
@@ -249,27 +250,40 @@ def _start_execution(sfn, state_machine_arn: str, group: dict):
 
 
 def _resolve_group(state_table, sfn, state_machine_arn: str, alert, policy: SuppressionPolicy,
-                   wall: datetime) -> tuple[str, bool]:
-    """이 이벤트가 속할 그룹 ID. 없으면 열고 실행을 시작한다. (group_id, 처리 성공 여부)."""
+                   wall: datetime) -> tuple[str, bool, bool]:
+    """이 이벤트가 속할 그룹 ID. 없으면 열고 실행을 시작한다.
+
+    (group_id, 처리 성공 여부, 고착 그룹을 대체했는가).
+    """
     gk = group_key(alert)
     key = grp_key(gk)
+    stale = False
     for _ in range(STATE_MAX_ATTEMPTS):
         item, read_ok = _read_state(state_table, key)
         if not read_ok:
-            return "", False
+            return "", False, stale
 
         if item and item.get("status") == STATUS_OPEN:
-            gid = str(item.get("group_id", ""))
-            if not item.get("execution_arn"):
-                # 연 쪽이 StartExecution 전에 죽었다 — 같은 이름으로 내가 시작한다(멱등)
-                arn = _start_execution(sfn, state_machine_arn, item)
-                if arn:
-                    _write_state(state_table, key, {**item, "execution_arn": arn},
-                                 item.get("version"), wall, ttl_days=GROUP_TTL_DAYS)
-                return gid, arn is not None
-            return gid, True
+            if is_stale(item, now=wall):
+                # close가 영영 안 온다(실행이 죽었다). 계속 합류하면 하루치 알림이 사라진다(review-personas F4).
+                # 새 그룹을 연다 — 옛 그룹의 구성원은 실행 실패 이벤트를 받은 워커가 대신 확정한다(sweep).
+                stale = True
+                logger.warning(
+                    "group %s open since %s is past its deadline — presuming execution %s dead, "
+                    "opening a new group", item.get("group_id"), item.get("opened_at"),
+                    item.get("execution_arn") or "-")
+            else:
+                gid = str(item.get("group_id", ""))
+                if not item.get("execution_arn"):
+                    # 연 쪽이 StartExecution 전에 죽었다 — 같은 이름으로 내가 시작한다(멱등)
+                    arn = _start_execution(sfn, state_machine_arn, item)
+                    if arn:
+                        _write_state(state_table, key, {**item, "execution_arn": arn},
+                                     item.get("version"), wall, ttl_days=GROUP_TTL_DAYS)
+                    return gid, arn is not None, stale
+                return gid, True, stale
 
-        # 없거나 닫힘 → 조건부로 연다. 조건 충돌이면 남이 방금 열었으니 다시 읽어 합류한다.
+        # 없거나 닫혔거나 고착 → 조건부로 연다. 조건 충돌이면 남이 방금 열었으니 다시 읽어 합류한다.
         group = new_group(gk, alert, opened_at=iso_utc(wall), group_wait_sec=policy.group_wait_sec)
         if item and item.get("group_id") == group["group_id"]:
             # 같은 초에 닫혔다 다시 열리면 이름이 같아져 옛 실행에 조용히 붙는다 — 1초 뒤 스탬프로 피한다
@@ -278,7 +292,7 @@ def _resolve_group(state_table, sfn, state_machine_arn: str, alert, policy: Supp
         expected = item.get("version") if item else None
         wrote = _write_state(state_table, key, group, expected, wall, ttl_days=GROUP_TTL_DAYS)
         if wrote is None:
-            return "", False
+            return "", False, stale
         if not wrote:
             continue
         arn = _start_execution(sfn, state_machine_arn, group)
@@ -286,10 +300,10 @@ def _resolve_group(state_table, sfn, state_machine_arn: str, alert, policy: Supp
             _write_state(state_table, key, {**group, "execution_arn": arn},
                          1 if expected is None else int(expected) + 1, wall, ttl_days=GROUP_TTL_DAYS)
         # arn이 없으면 열린 그룹에 실행이 없는 상태 — 다음 이벤트가 재시작한다
-        return group["group_id"], arn is not None
+        return group["group_id"], arn is not None, stale
 
     logger.warning("group contention on %s after %d attempts — ungrouped", key, STATE_MAX_ATTEMPTS)
-    return "", False
+    return "", False, stale
 
 
 def lambda_handler(event, context):
@@ -332,11 +346,11 @@ def lambda_handler(event, context):
     alert.suppression_reason = decision.reason
 
     # 그룹 — 보낼 이벤트만. 실행은 그룹당 하나(D10).
-    group_ok = True
+    group_ok, stale_group = True, False
     if should_group(alert, decision):
         state_machine_arn = os.environ.get("ALERT_GROUP_STATE_MACHINE_ARN", "")
         if state_machine_arn and state_table is not None:
-            alert.group_id, group_ok = _resolve_group(
+            alert.group_id, group_ok, stale_group = _resolve_group(
                 state_table, _get_sfn(), state_machine_arn, alert, policy, wall)
         else:
             group_ok = False
@@ -355,6 +369,7 @@ def lambda_handler(event, context):
         group_ok=group_ok,
         config_ok=config_ok,
         grouped=bool(alert.group_id),
+        stale_group=stale_group,
     )
     # 이력은 한 번만 쓴다(review P1). EventBridge는 at-least-once라 같은 이벤트가 다시 올 수 있는데,
     # 그때 덮어쓰면 그룹 워커가 적어 둔 final_action이 지워진다. 조건 실패는 "이미 처리한 이벤트"이지
@@ -390,4 +405,5 @@ def lambda_handler(event, context):
         "group_id": alert.group_id,
         "group_ok": group_ok,
         "duplicate": duplicate,
+        "stale_group": stale_group,
     }

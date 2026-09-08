@@ -108,6 +108,11 @@
   - 실행: Wait(group_wait) → close → Grace → collect(DEFER 있으면 pause_sec) → Wait(pause) → finalize(fp# 상태로 해소 여부 판단) → **final_action write-back**
   - 유예 값은 Phase 0 실측 후 `ALERT_AUTO_PAUSE_SEC` 설정 (1.4.6까지는 환경변수). 값이 없어 라이브에서는 DEFER 경로가 돌지 않음
   - [x] 테스트: 유예 중 OK 수신 시 미발송 (`suppress/auto_pause`)
+- [x] 1.4.3c 고착 그룹 자기 치유 (review-personas **F4**) — ✅ 2026-09-08 배포 (v20260908T063707)
+  - 실행 실패 이벤트(FAILED/TIMED_OUT/ABORTED) 룰 → 워커 `sweep`(닫기 + 유예 없이 finalize, `swept:<status>`), 상태 머신 TimeoutSeconds 7200
+  - 인제스터: `opened_at+group_wait_sec+300s` 넘긴 열린 그룹은 새로 연다(`stale_group=true`)
+  - [x] 테스트: sweep(열림/닫힘/이미 확정 건너뜀/다른 그룹 무동작/입력 없음), 고착 대체·멀쩡한 그룹 합류·기한 계산
+  - [x] 라이브: ABORTED → 구성원 `notify/swept:aborted`·grp# closed; 20분 전 가짜 열린 그룹 → 새 그룹·새 실행
   - [x] 테스트: 유예 후에도 ALARM이면 발송 (`notify/auto_pause_expired`) + fp#에 알렸음 기록
   - [x] 테스트: write-back 후 억제율 집계에 DEFER 결과가 반영됨 → 리포트 `effective()`가 `final_action` 우선 (`test_alert_suppression_report.py`)
 - [x] 1.4.4 Silence / 정비창 — 판정 + **저장소·API** — ✅ 2026-09-07 배포 (v20260907T085417)

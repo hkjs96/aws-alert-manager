@@ -15,6 +15,8 @@ from common.alarm_builder import (
     _create_single_alarm,
     _recreate_alarm_by_name,
     _resolve_metric_key,
+    _severity_overrides,
+    _tagged_severity,
 )
 from common.alarm_naming import _parse_alarm_metadata, set_description_severity
 from common.dimension_builder import _get_disk_dimensions
@@ -24,6 +26,8 @@ from common.alarm_registry import (
     get_severity,
     is_valid_severity,
 )
+
+__all__ = ["_tagged_severity"]  # 설명 갱신과 재생성이 같은 태그 판독기를 쓴다(alarm_builder)
 from common.alarm_search import (
     _delete_alarm_names,
     _delete_all_alarms_for_resource,
@@ -101,19 +105,6 @@ _PUT_ALARM_FIELDS = (
     "EvaluationPeriods", "DatapointsToAlarm", "Threshold", "ComparisonOperator", "TreatMissingData",
     "EvaluateLowSampleCountPercentile", "Metrics", "ThresholdMetricId",
 )
-
-
-def _tagged_severity(cw, alarm_arn: str) -> str:
-    """알람의 Severity 태그(정본). 없거나 조회 실패면 "" — 호출자가 레지스트리로 폴백한다."""
-    if not alarm_arn:
-        return ""
-    try:
-        tags = cw.list_tags_for_resource(ResourceARN=alarm_arn).get("Tags", [])
-    except ClientError as e:
-        logger.warning("Failed to read tags of %s: %s", alarm_arn, e)
-        return ""
-    value = next((t.get("Value") for t in tags if t.get("Key") == "Severity"), "")
-    return value if is_valid_severity(value) else ""
 
 
 def _refresh_alarm_description(
@@ -361,11 +352,12 @@ def _sync_dynamic_alarms(
             or existing_dp != datapoints
         )
         if drifted:
+            overrides = _severity_overrides(cw, [alarm_info])   # 지우기 전에 수동 등급 보존(F8)
             _delete_alarm_names(cw, [name])
             _create_dynamic_alarm(
                 resource_id, resource_type, resource_name,
                 mk, tag_thr, cw, sns_arn, result["created"],
-                comparison=tag_comparison,
+                comparison=tag_comparison, severity_overrides=overrides,
             )
             result["updated"].append(name)
         else:

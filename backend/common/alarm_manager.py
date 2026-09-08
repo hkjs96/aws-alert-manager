@@ -104,6 +104,7 @@ from common.alarm_builder import (  # noqa: E402, F401
     _recreate_alarm_by_name,
     _recreate_disk_alarm,
     _recreate_standard_alarm,
+    _severity_overrides,
 )
 from common.alarm_sync import (  # noqa: E402, F401
     _sync_disk_alarms,
@@ -195,8 +196,13 @@ def create_alarms_for_resource(
     resource_tags: dict,
     *,
     cw=None,
+    severity_overrides: dict[str, str] | None = None,
 ) -> list[str]:
-    """리소스에 대한 CloudWatch Alarm을 생성한다."""
+    """리소스에 대한 CloudWatch Alarm을 생성한다.
+
+    기존 알람이 있으면 전부 지우고 다시 만든다. 그때 수동으로 바꾼 Severity 태그는 보존한다
+    (`severity_overrides`, 안 주면 지우기 전에 읽는다 — F8, 수동 등급이 기본값을 이긴다).
+    """
     # 글로벌 서비스(CloudFront/Route53)는 us-east-1 CloudWatch 클라이언트 사용
     global_region = _GLOBAL_SERVICE_REGION.get(resource_type)
     if global_region and cw is None:
@@ -208,6 +214,12 @@ def create_alarms_for_resource(
     created: list[str] = []
     resource_name = resource_tags.get("Name", "")
 
+    if severity_overrides is None:
+        # 재생성이면 지우기 전에 수동 등급을 읽어 둔다(F8) — 새 리소스면 빈 목록이라 추가 비용이 없다.
+        existing = _find_alarms_for_resource(resource_id, resource_type, cw=cw)
+        severity_overrides = (
+            _severity_overrides(cw, _describe_alarms_batch(existing, cw=cw).values()) if existing else {}
+        )
     _delete_all_alarms_for_resource(resource_id, resource_type, **_fwd)
 
     for alarm_def in alarm_defs:
@@ -215,6 +227,7 @@ def create_alarms_for_resource(
             disk_names = _create_disk_alarms(
                 resource_id, resource_type, resource_name,
                 resource_tags, alarm_def, cw, sns_arn,
+                severity_overrides=severity_overrides,
             )
             created.extend(disk_names)
         else:
@@ -227,6 +240,7 @@ def create_alarms_for_resource(
                 continue
             name = _create_standard_alarm(
                 alarm_def, resource_id, resource_type, resource_tags, cw,
+                severity_overrides=severity_overrides,
             )
             if name:
                 created.append(name)
@@ -236,7 +250,7 @@ def create_alarms_for_resource(
         _create_dynamic_alarm(
             resource_id, resource_type, resource_name,
             metric_name, threshold, cw, sns_arn, created,
-            comparison=comparison,
+            comparison=comparison, severity_overrides=severity_overrides,
         )
 
     return created
