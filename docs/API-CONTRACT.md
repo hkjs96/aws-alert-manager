@@ -447,14 +447,15 @@ Request:
 ```
 
 Response `201`: Account entity, plus `alert_forwarding` describing whether the
-account was granted `events:PutEvents` on the central alert event bus:
+account was granted `events:PutEvents` on the central alert event bus (restricted to
+CloudWatch alarm events by an `events:source` / `events:detail-type` condition):
 
 | Value | Meaning |
 | --- | --- |
 | `granted` | Bus policy updated; the account's forwarding rule can now deliver alarm events |
 | `self` | The central account itself; its events arrive on the default bus, no grant needed |
 | `skipped` | No alert bus configured for this deployment |
-| `grant_failed` | Registration succeeded but the bus grant did not; alarm events will not arrive until it is fixed |
+| `grant_failed` | Registration succeeded but the bus grant did not; alarm events will not arrive until it is fixed. A non-existent `account_id` lands here: the bus policy rejects an unknown principal. |
 
 ## DELETE /api/accounts/{id}
 

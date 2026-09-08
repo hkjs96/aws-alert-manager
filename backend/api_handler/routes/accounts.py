@@ -31,28 +31,93 @@ def _events_client():
     return boto3.client("events")
 
 
+#: 고객사 계정이 우리 버스로 보낼 수 있는 것 — 알람 이벤트뿐이다.
+#: 조건이 없으면 등록된 계정이 **아무 이벤트나** 우리 버스에 넣을 수 있다.
+ALERT_EVENT_SOURCE = "aws.cloudwatch"
+ALERT_DETAIL_TYPES = [
+    "CloudWatch Alarm State Change",
+    "CloudWatch Alarm Configuration Change",
+]
+
+
 def _forward_statement_id(account_id: str) -> str:
     return f"acct-{account_id}"
 
 
-def _grant_alert_forwarding(account_id: str) -> str:
-    """등록된 계정이 알림 이벤트 버스로 알람 이벤트를 보낼 수 있게 PutEvents 권한을 준다.
+def _forward_statement(account_id: str, bus_arn: str) -> dict:
+    return {
+        "Sid": _forward_statement_id(account_id),
+        "Effect": "Allow",
+        "Principal": {"AWS": f"arn:aws:iam::{account_id}:root"},
+        "Action": "events:PutEvents",
+        "Resource": bus_arn,
+        "Condition": {"ForAllValues:StringEquals": {
+            "events:source": ALERT_EVENT_SOURCE,
+            "events:detail-type": ALERT_DETAIL_TYPES,
+        }},
+    }
 
-    버스 정책이 없으면 고객사 계정의 전달 룰이 조용히 막힌다(교차계정 PutEvents는 발신 룰의
-    역할 + 수신 버스의 정책 둘 다 필요). 실패해도 등록 자체는 성공시키되 상태를 남겨 드러낸다 —
-    조용히 삼키면 온보딩 후 "이벤트가 안 온다"의 원인이 감춰진다.
+
+def _read_bus_policy(bus: str) -> tuple[str, list[dict]]:
+    """(버스 ARN, 현재 statement 목록). 정책이 없으면 빈 목록."""
+    desc = _events_client().describe_event_bus(Name=bus)
+    raw = desc.get("Policy") or ""
+    statements: list[dict] = []
+    if raw:
+        try:
+            statements = list(json.loads(raw).get("Statement") or [])
+        except json.JSONDecodeError:
+            logger.error("bus %s has an unparseable policy — refusing to overwrite it", bus)
+            raise ConditionalWriteError(f"bus {bus} policy is not valid JSON")
+    return str(desc.get("Arn") or ""), statements
+
+
+def _write_bus_policy(bus: str, statements: list[dict]) -> None:
+    """statement 목록을 그대로 버스 정책으로 쓴다. 비면 정책을 지운다.
+
+    **PutPermission(Policy=...)는 정책 전체를 교체한다**(실측 확인). 그래서 호출자는 반드시
+    현재 정책을 읽어 합친 뒤 넘겨야 한다 — 안 그러면 고객사를 추가할 때마다 앞 고객사의
+    권한이 조용히 사라지고, 그 계정의 알람이 그날부터 안 들어온다.
+    """
+    client = _events_client()
+    if not statements:
+        client.remove_permission(EventBusName=bus, RemoveAllPermissions=True)
+        return
+    client.put_permission(EventBusName=bus, Policy=json.dumps(
+        {"Version": "2012-10-17", "Statement": statements}))
+
+
+class ConditionalWriteError(RuntimeError):
+    """버스 정책을 안전하게 갱신할 수 없는 상태 — 덮어쓰지 않고 물러난다."""
+
+
+def _grant_alert_forwarding(account_id: str) -> str:
+    """등록된 계정이 알림 이벤트 버스로 **알람 이벤트만** 보낼 수 있게 허용한다.
+
+    교차계정 PutEvents는 발신 룰의 역할(온보딩 템플릿)과 수신 버스의 정책 둘 다 필요하다.
+    이쪽이 없으면 고객사 룰이 조용히 막힌다. 실패해도 등록 자체는 성공시키되 상태를 남겨
+    드러낸다 — 조용히 삼키면 온보딩 후 "이벤트가 안 온다"의 원인이 감춰진다.
     """
     bus = os.environ.get("ALERT_EVENT_BUS_NAME", "")
     if not bus or not account_id:
         return "skipped"
     if account_id == _current_account_id():
         return "self"     # 우리 계정은 기본 버스 룰로 들어온다 — 교차계정 정책 불필요
+    sid = _forward_statement_id(account_id)
     try:
-        _events_client().put_permission(
-            EventBusName=bus, Action="events:PutEvents",
-            Principal=account_id, StatementId=_forward_statement_id(account_id))
+        bus_arn, statements = _read_bus_policy(bus)
+        kept = [s for s in statements if s.get("Sid") != sid]
+        _write_bus_policy(bus, [*kept, _forward_statement(account_id, bus_arn)])
+        # 읽어서 확인한다 — 전체 교체 API라 동시 등록이 서로를 지울 수 있고,
+        # 그 손실은 "알람이 안 온다"로만 드러나 원인을 찾기 어렵다.
+        _, after = _read_bus_policy(bus)
+        got = {s.get("Sid") for s in after}
+        missing = ({s.get("Sid") for s in statements} | {sid}) - got
+        if missing:
+            logger.error("bus %s lost statements after grant: %s", bus, sorted(missing))
+            return "grant_failed"
         return "granted"
-    except ClientError as e:
+    except (ClientError, ConditionalWriteError) as e:
         logger.error("Failed to grant alert forwarding to %s on bus %s: %s", account_id, bus, e)
         return "grant_failed"
 
@@ -69,12 +134,13 @@ def _revoke_alert_forwarding_if_orphan(account_id: str) -> None:
         return
     if any((a.get("account_id") or "") == account_id for a in remaining):
         return
+    sid = _forward_statement_id(account_id)
     try:
-        _events_client().remove_permission(
-            EventBusName=bus, StatementId=_forward_statement_id(account_id))
-    except ClientError as e:
-        if e.response.get("Error", {}).get("Code") == "ResourceNotFoundException":
-            return
+        _, statements = _read_bus_policy(bus)
+        kept = [s for s in statements if s.get("Sid") != sid]
+        if len(kept) != len(statements):
+            _write_bus_policy(bus, kept)
+    except (ClientError, ConditionalWriteError) as e:
         logger.warning("Failed to revoke alert forwarding for %s on bus %s: %s", account_id, bus, e)
 
 

@@ -222,7 +222,7 @@ CloudWatch 알람 발생 ─▶ SNS Topic ─▶ 알림(Slack·이메일·운영
               <b>고객사 온보딩 (콘솔)</b>
               <div className="mt-2 flex flex-wrap gap-2">
                 <a
-                  href="https://console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacks/create/review?templateURL=https%3A%2F%2Falarm-manager-onboarding-949501913924.s3.amazonaws.com%2Fcustomer-onboarding.yaml&stackName=alarm-manager-onboarding&param_CentralAccountId=949501913924"
+                  href="https://console.aws.amazon.com/cloudformation/home?region=ap-northeast-2#/stacks/create/review?templateURL=https%3A%2F%2Falarm-manager-onboarding-949501913924.s3.amazonaws.com%2Fcustomer-onboarding.yaml&stackName=alarm-manager-onboarding&param_CentralAccountId=949501913924&param_CentralAlertBusArn=arn%3Aaws%3Aevents%3Aus-east-1%3A949501913924%3Aevent-bus%2Faws-monitoring-alert-dev"
                   target="_blank"
                   rel="noreferrer"
                   className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white transition hover:brightness-110"
@@ -238,9 +238,10 @@ CloudWatch 알람 발생 ─▶ SNS Topic ─▶ 알림(Slack·이메일·운영
                 </a>
               </div>
               <ol className="ml-4 mt-3 list-decimal space-y-1">
-                <li><b>CloudFormation 스택 생성 (원클릭)</b> 클릭 — 콘솔에 템플릿과 파라미터(<Code>CentralAccountId</Code>=중앙 계정)가 <b>자동으로 채워져</b> 열립니다.</li>
-                <li><b>콘솔 우측 상단에서 리전을 알람이 있는 리전(보통 서울 <Code>ap-northeast-2</Code>)으로 바꾸세요.</b> IAM 역할은 글로벌이지만 알람 이벤트 전달 룰은 <b>리전 리소스</b>라, 알람이 있는 리전에 있어야 그 알람을 봅니다. 알람이 여러 리전에 있으면 리전마다 스택을 하나씩 만듭니다(역할 이름 충돌을 피하려면 <Code>RoleName</Code>을 바꿔 주세요).</li>
+                <li><b>CloudFormation 스택 생성 (원클릭)</b> 클릭 — 콘솔이 <b>서울 리전</b>에서 템플릿과 파라미터(<Code>CentralAccountId</Code>, <Code>CentralAlertBusArn</Code>)가 <b>자동으로 채워진 채</b> 열립니다.</li>
+                <li>알람이 <b>서울이 아닌 리전</b>에 있다면 콘솔 우측 상단에서 그 리전으로 바꾸세요. IAM 역할은 글로벌이지만 알람 이벤트 전달 룰은 <b>리전 리소스</b>라, 알람이 있는 리전에 있어야 그 알람을 봅니다.</li>
                 <li>하단 <b>“IAM 리소스 생성 승인”</b>(CAPABILITY_NAMED_IAM) 체크 → <b>스택 생성</b>.</li>
+                <li><b>알람이 여러 리전에 있다면</b>, 리전마다 스택을 하나씩 만들되 두 번째부터는 <Code>CreateSharedRoles</Code>를 <Code>no</Code>로 두고 첫 스택의 <Code>AlertForwardRoleArn</Code> 출력값을 <Code>ExistingAlertForwardRoleArn</Code>에 넣으세요. IAM 역할은 글로벌이라 한 번만 만들면 됩니다.</li>
                 <li>생성 후 <b>Outputs의 <Code>RoleArn</Code></b> 복사 → 앱 <b>Settings → 계정 등록</b>(account_id, role_arn, 고객사). 등록하면 중앙 이벤트 버스가 이 계정의 알람 이벤트를 받도록 <b>자동으로 허용</b>됩니다.</li>
               </ol>
               <details className="mt-2">

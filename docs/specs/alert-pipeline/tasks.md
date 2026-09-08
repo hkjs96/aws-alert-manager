@@ -52,6 +52,12 @@
         `events:PutPermission`(Sid `acct-<id>`), `DELETE /accounts/{id}`가 마지막 참조일 때만
         `RemovePermission`. 결과는 항목·응답의 `alert_forwarding`(granted/self/skipped/grant_failed)로
         드러난다 — 조용한 실패 금지. 파라미터 `AlertBusSourceAccounts`는 정적 폴백으로 유지
+- [x] **고객 배포 전 점검** — ✅ 2026-09-08 (v20260908T085550), `pre-customer-checklist.md`
+  - P1 온보딩 템플릿이 **존재하지 않는 prod 버스**를 기본값으로 가리켰다(조용한 전량 유실) → 기본값 제거, 링크가 실재 버스를 채움
+  - P2·P3 버스 정책에 `events:source`/`events:detail-type` 조건. 조건을 걸려면 `PutPermission(Policy=)`가 필요한데
+    **정책 전체를 교체**한다(실측) → 읽고-합쳐-쓰기 + 쓴 뒤 재확인. 안 그러면 2번째 고객사 등록이 1번째 권한을 지운다
+  - P4 인제스트·전달 룰을 알람 detail-type 2종으로 좁힘 (버스 정책 조건과 같은 범위)
+  - P5 다중 리전 시 IAM 역할 이름 충돌 → `CreateSharedRoles=no` + `ExistingAlertForwardRoleArn`
 - [x] 1.2.2 고객사 온보딩 템플릿에 EventBridge 룰 + 전달 역할 추가 — ✅ 2026-09-08 (코드·배포 완료,
       **실 고객사 계정 라이브 검증은 미실시** — 대상 계정·승인 필요)
   - `AlertForwardRole`(events.amazonaws.com 신뢰, 중앙 버스 PutEvents) + `AlertForwardRule`
