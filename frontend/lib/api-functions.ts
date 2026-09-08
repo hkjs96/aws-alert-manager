@@ -15,6 +15,8 @@ import type {
   AlarmSummary,
   DashboardStats,
   JobStatus,
+  AlertEventsResponse,
+  AlertSilencesResponse,
 } from "@/types/api";
 import type { AlarmConfig, Resource, Customer, Account, RecentAlarm, Alarm } from "@/types/index";
 import { apiFetch, buildFilterParams, buildQueryString } from "./api";
@@ -207,4 +209,27 @@ export function syncAlarms(scope: {
 
 export function fetchJobStatus(id: string): Promise<JobStatus> {
   return apiFetch(`/api/jobs/${id}`);
+}
+
+// --- 알림 처리 내역 (review-personas F7) ---
+
+export function fetchAlertEvents(params: {
+  days?: number;
+  customerId?: string;
+  resourceId?: string;
+  action?: string;
+  limit?: number;
+} = {}): Promise<AlertEventsResponse> {
+  const qs = new URLSearchParams();
+  if (params.days) qs.set("days", String(params.days));
+  if (params.customerId) qs.set("customer_id", params.customerId);
+  if (params.resourceId) qs.set("resource_id", params.resourceId);
+  if (params.action) qs.set("action", params.action);
+  if (params.limit) qs.set("limit", String(params.limit));
+  const s = qs.toString();
+  return apiFetch(`/api/alert/events${s ? `?${s}` : ""}`);
+}
+
+export function fetchAlertSilences(): Promise<AlertSilencesResponse> {
+  return apiFetch("/api/alert/silences");
 }

@@ -2,12 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Layers, Bell, Users, Settings, HelpCircle } from "lucide-react";
+import { LayoutDashboard, Layers, Bell, BellRing, Users, Settings, HelpCircle } from "lucide-react";
 
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/resources", label: "Resources", icon: Layers },
   { href: "/alarms", label: "Alarms", icon: Bell },
+  { href: "/alerts", label: "알림 처리 내역", icon: BellRing },
   { href: "/customers", label: "Customers", icon: Users },
   { href: "/settings", label: "Settings", icon: Settings },
 ];

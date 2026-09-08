@@ -31,38 +31,19 @@ import boto3
 from boto3.dynamodb.conditions import Key
 from botocore.exceptions import BotoCoreError, ClientError
 
-NOTIFY, SUPPRESS, PENDING = "notify", "suppress", "pending"
-_CLEAR_STATES = ("OK", "INSUFFICIENT_DATA")
+# 판정 규칙은 조회 API(`/alert/events`)와 **같은 구현**을 쓴다 — 리포트와 화면의 숫자가
+# 갈리면 어느 쪽이 맞는지 아무도 모르게 된다.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
+from common.alert_verdict import (  # noqa: E402
+    NOTIFY, PENDING, SUPPRESS, effective, kind,
+)
+
 TOP_N = 15
 
 
 # ──────────────────────────────────────────────
 # 순수 로직
 # ──────────────────────────────────────────────
-
-def effective(item: dict) -> tuple[str, str]:
-    """이력 항목의 최종 판정 (action, reason)."""
-    final = item.get("final_action")
-    if final:
-        return str(final), str(item.get("final_reason", "") or "")
-    reason = str(item.get("suppression_reason", "") or "")
-    if item.get("suppressed"):
-        return SUPPRESS, reason
-    if reason == "auto_pause":
-        return PENDING, reason
-    return NOTIFY, reason
-
-
-def kind(item: dict) -> str:
-    """firing | clearing | other | config"""
-    if item.get("event_type") != "state_change":
-        return "config"
-    if item.get("state") == "ALARM":
-        return "firing"
-    if item.get("previous_state") == "ALARM" and item.get("state") in _CLEAR_STATES:
-        return "clearing"
-    return "other"
-
 
 def _rate(num: int, den: int) -> float:
     return (num / den) if den else 0.0

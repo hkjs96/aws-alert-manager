@@ -206,3 +206,71 @@ export interface AvailableMetric {
   direction: ">" | ">=" | "<" | "<=";
   needs_mount_path: boolean;
 }
+
+// --- 알림 처리 내역 (GET /api/alert/events, review-personas F7) ---
+
+/** 한 이벤트의 처리 결과. 라벨·설명은 백엔드가 정본을 준다 (`common/alert_verdict.py`). */
+export interface AlertEventRow {
+  occurred_at: string;
+  series_id: string;
+  event_key: string;
+  customer_id: string;
+  account_id: string;
+  region: string;
+  alarm_name: string;
+  resource_id: string;
+  resource_type: string;
+  metric_key: string;
+  severity: string;
+  state: string;
+  previous_state: string;
+  state_reason: string;
+  group_id: string;
+  finalized_at: string;
+  kind: "firing" | "clearing" | "config" | "other";
+  action: "notify" | "suppress" | "pending";
+  action_label: string;
+  reason: string;
+  reason_label: string;
+  explanation: string;
+  suppressed: boolean;
+  finalized: boolean;
+  /** 진동 격리가 풀리는 시각 (격리된 건에만 있다) */
+  quarantined_until?: string;
+  parse_error?: string;
+}
+
+export interface AlertEventSummary {
+  total: number;
+  notify: number;
+  suppress: number;
+  pending: number;
+  config: number;
+  suppression_rate: number;
+}
+
+export interface AlertEventsResponse {
+  events: AlertEventRow[];
+  summary: AlertEventSummary;
+  days: number;
+  truncated: boolean;
+  limit: number;
+}
+
+export interface AlertSilence {
+  id: string;
+  customer_id: string;
+  resource_id: string;
+  severity: string;
+  reason: string;
+  starts_at: string;
+  ends_at: string;
+  active: boolean;
+  expired: boolean;
+  created_by: string;
+}
+
+export interface AlertSilencesResponse {
+  silences: AlertSilence[];
+  active: number;
+}

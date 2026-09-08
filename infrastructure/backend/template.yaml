@@ -1001,6 +1001,8 @@ Resources:
           CUSTOMERS_TABLE: !Ref CustomersTable
           ACCOUNTS_TABLE: !Ref AccountsTable
           ALERT_EVENT_BUS_NAME: !Ref AlertEventBus
+          EVENT_HISTORY_TABLE: !Ref EventHistoryTable
+          ALERT_STATE_TABLE: !Ref AlertStateTable
           THRESHOLD_OVERRIDES_TABLE: !Ref ThresholdOverridesTable
           JOB_STATUS_TABLE: !Ref JobStatusTable
           MONITOR_RUN_HISTORY_TABLE: !Ref MonitorRunHistoryTable
@@ -1058,6 +1060,17 @@ Resources:
                 Action:
                   - sqs:SendMessage
                 Resource: !GetAtt BulkOperationQueue.Arn
+              # 알림 처리 결과 조회 (F7) — 이력은 GSI Query, 격리 해제 시각은 상태 GetItem
+              - Effect: Allow
+                Action:
+                  - dynamodb:Query
+                Resource:
+                  - !GetAtt EventHistoryTable.Arn
+                  - !Sub "${EventHistoryTable.Arn}/index/*"
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                Resource: !GetAtt AlertStateTable.Arn
               # 계정 등록/삭제 시 알림 버스 정책에 PutEvents 권한을 자동 부여/회수 (1.2.2)
               - Effect: Allow
                 Action:

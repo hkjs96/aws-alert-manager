@@ -54,6 +54,16 @@ def alert_policy_table():
     return _get_dynamodb().Table(os.environ["ALERT_POLICY_TABLE"])
 
 
+def event_history_table():
+    """알람 이벤트 이력 — 처리 결과·사유 조회 (review-personas F7)."""
+    return _get_dynamodb().Table(os.environ["EVENT_HISTORY_TABLE"])
+
+
+def alert_state_table():
+    """지문·그룹 상태 — 격리 해제 시각 조회용 (design.md D9)."""
+    return _get_dynamodb().Table(os.environ["ALERT_STATE_TABLE"])
+
+
 def scan_all(table) -> list[dict]:
     """페이지네이션 처리한 전체 스캔. 소규모 테이블(고객사/어카운트)용."""
     items = []

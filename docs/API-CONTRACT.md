@@ -573,6 +573,55 @@ Response `200`:
 
 `source` is `db` once a record exists, `env` otherwise.
 
+## GET /api/alert/events
+
+알람마다 알림을 보냈는지, 보내지 않았다면 왜인지. 화면은 이 응답의 라벨을 그대로 쓴다 —
+사유 문구의 정본은 백엔드(`common/alert_verdict.py`)다.
+
+Query:
+
+| Name | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `days` | int | 1 | 1–14로 잘린다 |
+| `customer_id` | string | - | 없으면 등록된 고객사 전부 + 매핑 없는 파티션 |
+| `resource_id` | string | - | |
+| `action` | string | - | `notify` / `suppress` / `pending` |
+| `limit` | int | 100 | 1–500 |
+
+Response `200`:
+
+```json
+{
+  "events": [
+    {
+      "occurred_at": "2026-09-08T08:01:00Z",
+      "series_id": "111122223333#i-1#CPUUtilization",
+      "alarm_name": "[EC2] web CPUUtilization > 80% (TagName: i-1)",
+      "resource_id": "i-1", "resource_type": "EC2", "metric_key": "CPUUtilization",
+      "severity": "SEV-3", "state": "ALARM", "previous_state": "OK", "kind": "firing",
+      "action": "suppress", "action_label": "억제",
+      "reason": "dedup", "reason_label": "중복 병합",
+      "explanation": "같은 알람을 최근에 이미 알렸습니다. ...",
+      "suppressed": true, "finalized": false,
+      "quarantined_until": "2026-09-08T12:00:00Z"
+    }
+  ],
+  "summary": {
+    "total": 5, "notify": 1, "suppress": 4, "pending": 0, "config": 0,
+    "suppression_rate": 0.8
+  },
+  "days": 1, "truncated": false, "limit": 100
+}
+```
+
+- `action`은 최종 판정이다: 그룹 실행이 확정한 `final_action`이 적재 시점 판정을 이기고,
+  유예(auto_pause) 중이라 아직 확정되지 않은 건은 `pending`이다.
+- `summary`는 필터 적용 후·건수 제한 전 값이다. `truncated`가 `true`여도 요약은 전체를 센다.
+- `suppression_rate`의 분모는 확정된 건(`notify + suppress`)이며 `pending`은 제외한다.
+- `quarantined_until`은 진동 격리된 건에만 있다.
+
+Errors: `400 VALIDATION_ERROR`, `503 STORAGE_ERROR`, `503 NOT_CONFIGURED`
+
 ## PUT /api/alert/policy
 
 **Admin only** when `ADMIN_EMAILS` is configured — a bad policy can suppress every alert.
