@@ -574,6 +574,40 @@ Response `200`:
 
 `source` is `db` once a record exists, `env` otherwise.
 
+## GET /api/alert/incidents
+
+Query: `customer_id`(선택), `status`(선택), `limit`(기본 50, 최대 200).
+
+```json
+{
+  "incidents": [
+    { "incident_id": "inc-...", "customer_id": "EMU-EM2", "severity": "SEV-2",
+      "status": "acknowledged", "title": "[EC2] i-1 CPU > 80%",
+      "triggered_at": "...", "acknowledged_at": "...", "acknowledged_by": "oncall@mz.co.kr",
+      "members": ["111#i-1#CPU"], "timeline": [{"at": "...", "kind": "alarm", "detail": "..."}],
+      "mtta_sec": 180, "event_count": 4, "is_open": true }
+  ],
+  "summary": { "total": 2, "by_status": {"acknowledged": 1, "resolved": 1},
+               "acknowledged_count": 2, "resolved_count": 1,
+               "mtta_sec_avg": 180.0, "mttr_sec_avg": 600.0 },
+  "truncated": false, "limit": 50
+}
+```
+
+`summary`는 필터 적용 후·건수 제한 전 값이다. MTTA/MTTR 평균은 각각 확인·해소된 건만 분모에 넣는다.
+
+## GET /api/alert/incidents/{id}
+
+Response `200`: 위 항목 하나(타임라인 포함). `404 NOT_FOUND`.
+
+## POST /api/alert/incidents/{id}/ack
+
+확인 처리 (R4-3). **확인자는 로그인 신원에서 온다** — 본문으로 받지 않는다.
+이미 확인된 건은 `200`으로 현재 상태를 그대로 돌려준다(첫 확인자·시각 유지).
+사람이 버튼을 두 번 눌렀다고 오류를 볼 이유는 없고, 덮어쓰면 MTTA가 거짓이 된다.
+
+Errors: `404 NOT_FOUND`, `409 ALREADY_RESOLVED`, `503 STORAGE_ERROR`
+
 ## GET /api/alert/channel-types
 
 채널 유형 카탈로그. 설정 화면은 이 응답으로 폼을 그린다 — 어댑터를 추가하면 화면이 따라온다.

@@ -101,6 +101,10 @@ class SuppressionPolicy:
     #: 그룹이 열린 뒤 구성원을 모으는 시간 (Alertmanager group_wait 기본 30s, design.md D10)
     group_wait_sec: int = 30
 
+    #: 확인(ack)만 하고 해소되지 않은 사건을 다시 띄우기까지의 시간 (R4-6).
+    #: 새벽에 확인만 누르고 잠든 경우를 잡는다. 0이면 재알림하지 않는다.
+    renotify_after_sec: int = 3600
+
     def pause_for(self, severity: str) -> int:
         return int(self.auto_pause_sec.get(severity, 0))
 
@@ -121,6 +125,7 @@ class SuppressionPolicy:
             ("ALERT_FLAPPING_QUARANTINE_SEC", "flapping_quarantine_sec", int),
             ("ALERT_FLAPPING_WINDOW_DAYS", "flapping_window_days", float),
             ("ALERT_GROUP_WAIT_SEC", "group_wait_sec", int),
+            ("ALERT_RENOTIFY_AFTER_SEC", "renotify_after_sec", int),
         ):
             value = env.get(name, "").strip()
             if not value:

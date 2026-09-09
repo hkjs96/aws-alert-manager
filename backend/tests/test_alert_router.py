@@ -466,3 +466,144 @@ class TestIncidentLifecycle:
             out = r.lambda_handler({"group": GROUP}, None)
         assert out["sent"] == 1 and out["incident_id"] == ""
         assert sent["n"].incident_id == ""
+
+
+class ScanningIncidentTable(FakeIncidentTable):
+    """`scan` + 조건부 `update_item`까지 흉내 낸다 — 재알림 선점이 여기 걸려 있다."""
+
+    def __init__(self, items=None):
+        super().__init__()
+        for i in (items or []):
+            self.items[i["incident_id"]] = dict(i)
+        self.updates = 0
+
+    def scan(self, FilterExpression=None, **_):
+        rows = [dict(v) for v in self.items.values()]
+        if FilterExpression is not None:
+            expr = FilterExpression.get_expression()
+            wanted = expr["values"][1]
+            rows = [r for r in rows if r.get("status") == wanted]
+        return {"Items": rows}
+
+    def update_item(self, Key, UpdateExpression=None, ConditionExpression=None,
+                    ExpressionAttributeValues=None, ExpressionAttributeNames=None, **_):
+        self.updates += 1
+        item = self.items[Key["incident_id"]]
+        expr = ConditionExpression.get_expression()
+        if expr["operator"] == "attribute_not_exists" and "renotified_at" in item:
+            raise conditional_failure()
+        if expr["operator"] == "=" and item.get("renotified_at") != expr["values"][1]:
+            raise conditional_failure()
+        item["renotified_at"] = ExpressionAttributeValues[":new"]
+        item["timeline"] = ExpressionAttributeValues[":tl"]
+
+
+def acked_incident(iid="inc-1", *, acked_minutes_ago=90, customer="cust-1",
+                   severity="SEV-2", renotified_at=None):
+    from datetime import datetime, timedelta, timezone
+    from common.incident import acknowledge, merge_events, new_incident
+    now = datetime.now(timezone.utc)
+    opened = now - timedelta(minutes=acked_minutes_ago + 5)
+    inc = new_incident(customer, severity, now=opened, title="[EC2] i-1 CPU > 80%")
+    inc = merge_events(inc, [{"series_id": "1#i-1#CPU", "alarm_name": "[EC2] i-1"}], now=opened)
+    inc = acknowledge(inc, by="oncall@mz.co.kr", now=now - timedelta(minutes=acked_minutes_ago))
+    inc["incident_id"] = iid
+    if renotified_at:
+        inc["renotified_at"] = renotified_at
+    return inc
+
+
+def run_renotify(incidents_items, channels, *, after_sec=3600):
+    from alert_router import lambda_handler as r
+    from common.alert_suppression import SuppressionPolicy
+    incidents = ScanningIncidentTable(incidents_items)
+    chan = FakeChannelTable(channels)
+    sent = []
+
+    def fake_deliver_all(chs, notification, **kw):
+        sent.append(notification)
+        return [DeliveryResult(channel_id=c.channel_id, channel_name=c.name,
+                               type=c.type, ok=True, status=200) for c in chs]
+
+    with patch.dict("os.environ", {"INCIDENT_TABLE": "inc"}), \
+         patch.object(r, "_tables", return_value=(None, PointerStateTable(), chan)), \
+         patch.object(r, "_incident_table", return_value=incidents), \
+         patch.object(r, "_policy", return_value=SuppressionPolicy(renotify_after_sec=after_sec)), \
+         patch.object(r, "deliver_all", side_effect=fake_deliver_all):
+        out = r.lambda_handler({"action": "renotify"}, None)
+    return out, sent, incidents
+
+
+class TestRenotify:
+    """확인만 하고 방치된 사건을 다시 띄운다 (R4-6) — 새벽에 ack만 누르고 잠든 경우."""
+
+    def test_sends_when_the_window_has_passed(self):
+        out, sent, incidents = run_renotify([acked_incident(acked_minutes_ago=90)],
+                                            [channel_item()])
+        assert out["renotified"] == 1 and out["sent"] == 1
+        note = sent[0]
+        assert "미해결" in note.title and note.incident_id == "inc-1"
+        assert "확인 후" in note.reason and "oncall@mz.co.kr" in note.reason
+        assert incidents.items["inc-1"]["renotified_at"]
+
+    def test_stays_quiet_inside_the_window(self):
+        out, sent, _ = run_renotify([acked_incident(acked_minutes_ago=30)], [channel_item()])
+        assert out["renotified"] == 0 and sent == []
+
+    def test_marking_prevents_a_second_send_next_tick(self):
+        inc = acked_incident(acked_minutes_ago=90)
+        out1, _, incidents = run_renotify([inc], [channel_item()])
+        assert out1["renotified"] == 1
+        out2, sent2, _ = run_renotify(list(incidents.items.values()), [channel_item()])
+        assert out2["renotified"] == 0 and sent2 == [], "표시했으면 다음 주기엔 조용해야 한다"
+
+    def test_renotifies_again_after_another_window(self):
+        from datetime import datetime, timedelta, timezone
+        long_ago = (datetime.now(timezone.utc) - timedelta(minutes=90)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        out, _, _ = run_renotify([acked_incident(acked_minutes_ago=300, renotified_at=long_ago)],
+                                 [channel_item()])
+        assert out["renotified"] == 1
+
+    def test_triggered_incidents_are_not_touched(self):
+        """확인조차 안 된 건은 에스컬레이션의 몫이다 — 여기서 중복으로 울리면 안 된다."""
+        from common.incident import merge_events, new_incident
+        from datetime import datetime, timezone
+        inc = new_incident("cust-1", "SEV-2", now=datetime.now(timezone.utc))
+        inc = merge_events(inc, [{"series_id": "1#i-1#CPU"}], now=datetime.now(timezone.utc))
+        inc["incident_id"] = "inc-open"
+        out, sent, _ = run_renotify([inc], [channel_item()])
+        assert out["renotified"] == 0 and sent == []
+
+    def test_disabled_when_the_policy_is_zero(self):
+        out, sent, _ = run_renotify([acked_incident(acked_minutes_ago=999)],
+                                    [channel_item()], after_sec=0)
+        assert out["renotified"] == 0 and out["reason"] == "disabled" and sent == []
+
+    def test_no_channel_means_no_claim(self):
+        """보낼 곳이 없으면 표시하지 않는다 — 채널이 생기면 그때 울려야 한다."""
+        out, sent, incidents = run_renotify(
+            [acked_incident(acked_minutes_ago=90)],
+            [channel_item(match={"severity": ["SEV-1"]})])
+        assert out["renotified"] == 0 and sent == []
+        assert "renotified_at" not in incidents.items["inc-1"]
+
+    def test_severity_conditions_still_apply(self):
+        out, sent, _ = run_renotify([acked_incident(acked_minutes_ago=90, severity="SEV-1")],
+                                    [channel_item(match={"severity": ["SEV-1"]})])
+        assert out["renotified"] == 1 and sent[0].severity == "SEV-1"
+
+    def test_scheduled_event_shape_also_triggers_it(self):
+        from alert_router import lambda_handler as r
+        from common.alert_suppression import SuppressionPolicy
+        incidents = ScanningIncidentTable([])
+        with patch.dict("os.environ", {"INCIDENT_TABLE": "inc"}), \
+             patch.object(r, "_tables", return_value=(None, PointerStateTable(), FakeChannelTable([]))), \
+             patch.object(r, "_incident_table", return_value=incidents), \
+             patch.object(r, "_policy", return_value=SuppressionPolicy()):
+            out = r.lambda_handler({"detail-type": "Scheduled Event"}, None)
+        assert out["checked"] == 0
+
+    def test_group_invocations_still_work(self):
+        """재알림 분기를 더해도 기존 발송 경로는 그대로다."""
+        out, _, _, _ = run([member()], [channel_item()])
+        assert out["sent"] == 1

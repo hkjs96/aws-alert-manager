@@ -53,9 +53,12 @@ POLICY_LIMITS: dict[str, tuple[float, float]] = {
     "flapping_per_day": (1, 1_000),
     "flapping_window_days": (1 / 24, 30),
     "group_wait_sec": (0, 300),
+    # 0 = 재알림 없음. 상한 하루 — 그보다 길면 재알림이 아니라 방치다.
+    "renotify_after_sec": (0, 86_400),
 }
 AUTO_PAUSE_LIMITS = (0, 3_600)
-_INT_FIELDS = ("repeat_interval_sec", "flapping_quarantine_sec", "flapping_per_day", "group_wait_sec")
+_INT_FIELDS = ("repeat_interval_sec", "flapping_quarantine_sec", "flapping_per_day",
+               "group_wait_sec", "renotify_after_sec")
 _FLOAT_FIELDS = ("flapping_window_days",)
 
 

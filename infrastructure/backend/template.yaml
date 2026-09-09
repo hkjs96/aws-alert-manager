@@ -884,6 +884,7 @@ Resources:
           ALERT_STATE_TABLE: !Ref AlertStateTable
           NOTIFICATION_CHANNEL_TABLE: !Ref NotificationChannelTable
           INCIDENT_TABLE: !Ref IncidentTable
+          ALERT_POLICY_TABLE: !Ref AlertPolicyTable
           ALERT_CONSOLE_URL: !Ref AlertConsoleUrl
           ALERT_EMAIL_SENDER: !Ref AlertEmailSender
 
@@ -926,12 +927,20 @@ Resources:
                   - dynamodb:UpdateItem
                   - dynamodb:DeleteItem
                 Resource: !GetAtt AlertStateTable.Arn
-              # 인시던트 열기·합치기·해소
+              # 인시던트 열기·합치기·해소 + 미해결 재알림 대상 조회(Scan)·표시(조건부 Update)
               - Effect: Allow
                 Action:
                   - dynamodb:GetItem
                   - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:Scan
                 Resource: !GetAtt IncidentTable.Arn
+              # 재알림 주기를 인제스터·워커와 같은 소스에서 읽는다
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:Query
+                Resource: !GetAtt AlertPolicyTable.Arn
               # 채널 정의 읽기 (자격증명 포함 — 여기서만 읽는다)
               - Effect: Allow
                 Action:
@@ -942,6 +951,30 @@ Resources:
                 Action:
                   - ses:SendEmail
                 Resource: "*"
+
+  # 확인만 하고 방치된 사건을 다시 띄운다 (R4-6). 새벽에 ack만 누르고 잠든 경우를 잡는다.
+  # 주기는 정책(DB)의 `renotify_after_sec`가 정하고, 이 룰은 그보다 자주 확인만 한다.
+  AlertRenotifyRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub
+        - aws-monitoring-alert-renotify-${EnvShort}
+        - EnvShort: !FindInMap [EnvShortName, !Ref Environment, short]
+      Description: Periodically re-notify incidents acknowledged but still unresolved
+      ScheduleExpression: rate(5 minutes)
+      State: ENABLED
+      Targets:
+        - Id: router
+          Arn: !GetAtt AlertRouterFunction.Arn
+          Input: '{"action": "renotify"}'
+
+  AlertRenotifyPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt AlertRouterFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt AlertRenotifyRule.Arn
 
   AlertGroupStateMachineRole:
     Type: AWS::IAM::Role

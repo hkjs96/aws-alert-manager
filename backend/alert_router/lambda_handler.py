@@ -31,9 +31,14 @@ import boto3
 from boto3.dynamodb.conditions import Attr, Key
 from botocore.exceptions import ClientError
 
+from common.alert_config import load_cached as load_policy
 from common.alert_state import fp_key, grp_key, iso_utc
 from common.incident import (
+    STATUS_ACKNOWLEDGED,
     STATUS_RESOLVED,
+    mark_renotified,
+    needs_renotify,
+    parse_dt,
     from_item as incident_from_item,
     incident_pointer,
     merge_events,
@@ -42,12 +47,14 @@ from common.incident import (
     should_resolve,
     to_item as incident_to_item,
 )
+from common.notification_adapters import Notification
 from common.notification_channel import (
     channel_from_item,
     notification_from_event,
     select,
     storage_key,
 )
+from common.alert_suppression import SuppressionPolicy
 from common.notification_send import deliver_all
 from common.perf_log import log_perf
 
@@ -318,8 +325,123 @@ def deliver_group(group: dict) -> dict:
             "results": [r.to_dict() for r in results]}
 
 
+def _policy() -> SuppressionPolicy:
+    """인제스터·워커와 같은 설정 소스. 재알림 주기를 배포 없이 바꿀 수 있어야 한다."""
+    name = os.environ.get("ALERT_POLICY_TABLE", "")
+    base = SuppressionPolicy.from_env()
+    policy, _ = load_policy(_get_ddb().Table(name) if name else None, base)
+    return policy
+
+
+def _acknowledged_incidents(incidents) -> list[dict]:
+    """확인됐지만 해소되지 않은 사건. 표는 TTL 90일이라 작다 — 스캔으로 충분하다."""
+    out, kwargs = [], {
+        "FilterExpression": Attr("status").eq(STATUS_ACKNOWLEDGED),
+    }
+    while True:
+        resp = incidents.scan(**kwargs)
+        out.extend(resp.get("Items", []))
+        last = resp.get("LastEvaluatedKey")
+        if not last:
+            return out
+        kwargs["ExclusiveStartKey"] = last
+
+
+def _claim_renotify(incidents, incident: dict, now: datetime) -> bool:
+    """재알림 권한을 한 번만 가져온다.
+
+    두 실행이 겹치면 같은 사건이 두 번 울린다. `renotified_at`이 **읽은 그대로일 때만** 쓴다.
+    """
+    previous = incident.get("renotified_at")
+    marked = mark_renotified(incident, now=now)
+    try:
+        if previous:
+            incidents.update_item(
+                Key={"incident_id": incident["incident_id"]},
+                UpdateExpression="SET renotified_at = :new, #tl = :tl",
+                ConditionExpression=Attr("renotified_at").eq(previous),
+                ExpressionAttributeNames={"#tl": "timeline"},
+                ExpressionAttributeValues={":new": marked["renotified_at"],
+                                           ":tl": marked["timeline"]})
+        else:
+            incidents.update_item(
+                Key={"incident_id": incident["incident_id"]},
+                UpdateExpression="SET renotified_at = :new, #tl = :tl",
+                ConditionExpression=Attr("renotified_at").not_exists(),
+                ExpressionAttributeNames={"#tl": "timeline"},
+                ExpressionAttributeValues={":new": marked["renotified_at"],
+                                           ":tl": marked["timeline"]})
+        return True
+    except ClientError as e:
+        if e.response.get("Error", {}).get("Code") == "ConditionalCheckFailedException":
+            return False
+        raise
+
+
+def _renotification(incident: dict, now: datetime, console: str) -> Notification:
+    since = parse_dt(incident.get("acknowledged_at"))
+    minutes = int((now - since).total_seconds() // 60) if since else 0
+    iid = str(incident.get("incident_id", ""))
+    members = list(incident.get("members") or [])
+    return Notification(
+        title=f"[미해결] {incident.get('title', '') or '인시던트'}",
+        severity=str(incident.get("severity", "") or ""),
+        customer_id=str(incident.get("customer_id", "") or ""),
+        reason=f"{incident.get('acknowledged_by', '') or '누군가'} 확인 후 {minutes}분 경과, "
+               f"아직 해소되지 않았습니다.",
+        occurred_at=str(incident.get("triggered_at", "") or ""),
+        url=f"{console}?incident={iid}" if console else "",
+        count=max(1, len(members)),
+        incident_id=iid,
+    )
+
+
+def renotify_due() -> dict:
+    """확인만 하고 방치된 사건을 다시 띄운다 (R4-6). 주기 실행으로 호출된다."""
+    if not os.environ.get("INCIDENT_TABLE"):
+        return {"checked": 0, "renotified": 0, "reason": "no_incident_table"}
+    after_sec = int(getattr(_policy(), "renotify_after_sec", 0) or 0)
+    if after_sec <= 0:
+        return {"checked": 0, "renotified": 0, "reason": "disabled"}
+
+    _, state, channel_table = _tables()
+    incidents = _incident_table()
+    now = datetime.now(timezone.utc)
+    candidates = _acknowledged_incidents(incidents)
+    renotified = sent_total = 0
+
+    for item in candidates:
+        incident = incident_from_item(item)
+        if not needs_renotify(incident, now=now, after_sec=after_sec):
+            continue
+        customer_id = str(incident.get("customer_id", "") or "")
+        channels = select(_channels(channel_table, customer_id),
+                          {"severity": incident.get("severity", ""),
+                           "customer_id": customer_id})
+        if not channels:
+            continue
+        # 보내기 전에 표시한다 — 겹친 실행이 같은 사건을 두 번 울리지 않게.
+        if not _claim_renotify(incidents, incident, now):
+            continue
+        results = deliver_all(channels,
+                              _renotification(incident, now, os.environ.get("ALERT_CONSOLE_URL", "")),
+                              sender=os.environ.get("ALERT_EMAIL_SENDER", ""))
+        ok_count = sum(1 for r in results if r.ok)
+        sent_total += ok_count
+        renotified += 1
+        logger.warning("renotified incident %s (acked by %s): channels=%d sent=%d",
+                       incident.get("incident_id"), incident.get("acknowledged_by"),
+                       len(channels), ok_count)
+
+    log_perf("alert_renotify", 0.0, checked=len(candidates), renotified=renotified,
+             sent=sent_total, after_sec=after_sec)
+    return {"checked": len(candidates), "renotified": renotified, "sent": sent_total}
+
+
 def lambda_handler(event, context):
     event = event or {}
+    if event.get("action") == "renotify" or event.get("detail-type") == "Scheduled Event":
+        return renotify_due()
     group = event.get("group") or {}
     if not group.get("group_id") or not group.get("group_key"):
         raise ValueError(f"bad router invocation: group={group!r}")
