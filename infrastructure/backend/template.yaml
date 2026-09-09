@@ -82,6 +82,21 @@ Parameters:
       Comma-separated list of admin emails. Admins may delete customers.
       Empty means no admins (delete disabled for everyone).
 
+  AlertConsoleUrl:
+    Type: String
+    Default: ""
+    Description: >
+      Link included in outgoing notifications so a recipient can open the alert history.
+      Empty means no link is attached.
+
+  AlertEmailSender:
+    Type: String
+    Default: ""
+    Description: >
+      From address for email channels (SES). The address or its domain must be verified in
+      SES, and while the account is in the SES sandbox recipients must be verified too.
+      Empty disables email delivery with a recorded error rather than silently.
+
   AlertBusSourceAccounts:
     Type: String
     Default: ""
@@ -805,6 +820,83 @@ Resources:
                   - dynamodb:Query
                 Resource: !GetAtt AlertPolicyTable.Arn
 
+  # 확정된 그룹을 채널로 내보낸다. 워커와 분리한 이유: 바깥 HTTP 호출은 느리거나 멈출 수
+  # 있는데, 그게 그룹 상태를 확정하는 워커를 붙잡으면 안 된다(tasks 2.2.3).
+  AlertRouterFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub
+        - aws-monitoring-engine-alert-router-${EnvShort}
+        - EnvShort: !FindInMap [EnvShortName, !Ref Environment, short]
+      Description: Sends finalized alert groups to the customer's notification channels
+      Runtime: !FindInMap [LambdaConfig, Settings, Runtime]
+      # 채널마다 재시도 3회 × 타임아웃 5초 + 속도 제한 간격. 넉넉히 잡되 무한은 아니게.
+      Timeout: 120
+      MemorySize: 256
+      # 그룹 수만큼만 돈다. 바깥으로 나가는 호출이라 동시성을 낮게 묶는다.
+      ReservedConcurrentExecutions: 10
+      Handler: lambda_handler.lambda_handler
+      Role: !GetAtt AlertRouterRole.Arn
+      Layers:
+        - !Ref CommonLayer
+      Code:
+        S3Bucket: !Ref DeploymentBucket
+        S3Key: !Sub ${CodeVersion}/alert_router.zip
+      Environment:
+        Variables:
+          EVENT_HISTORY_TABLE: !Ref EventHistoryTable
+          ALERT_STATE_TABLE: !Ref AlertStateTable
+          NOTIFICATION_CHANNEL_TABLE: !Ref NotificationChannelTable
+          ALERT_CONSOLE_URL: !Ref AlertConsoleUrl
+          ALERT_EMAIL_SENDER: !Ref AlertEmailSender
+
+  AlertRouterRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub
+        - aws-monitoring-engine-alert-router-role-${EnvShort}
+        - EnvShort: !FindInMap [EnvShortName, !Ref Environment, short]
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: AlertRouterAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              # 구성원 조회(group_id-index로 키 → 기본 테이블에서 일관 읽기) + 발송 결과 기록.
+              # BatchGetItem이 필요한 이유: GSI는 최종 일관성이라 방금 쓴 final_action이 안 보인다.
+              - Effect: Allow
+                Action:
+                  - dynamodb:Query
+                  - dynamodb:BatchGetItem
+                  - dynamodb:GetItem
+                  - dynamodb:UpdateItem
+                Resource:
+                  - !GetAtt EventHistoryTable.Arn
+                  - !Sub "${EventHistoryTable.Arn}/index/*"
+              # 그룹 발송권 선점(조건부 UpdateItem) — 중복 발송 방지
+              - Effect: Allow
+                Action:
+                  - dynamodb:UpdateItem
+                Resource: !GetAtt AlertStateTable.Arn
+              # 채널 정의 읽기 (자격증명 포함 — 여기서만 읽는다)
+              - Effect: Allow
+                Action:
+                  - dynamodb:Query
+                Resource: !GetAtt NotificationChannelTable.Arn
+              # 이메일 채널
+              - Effect: Allow
+                Action:
+                  - ses:SendEmail
+                Resource: "*"
+
   AlertGroupStateMachineRole:
     Type: AWS::IAM::Role
     Properties:
@@ -825,7 +917,9 @@ Resources:
             Statement:
               - Effect: Allow
                 Action: lambda:InvokeFunction
-                Resource: !GetAtt AlertGroupWorkerFunction.Arn
+                Resource:
+                  - !GetAtt AlertGroupWorkerFunction.Arn
+                  - !GetAtt AlertRouterFunction.Arn
 
   # 실행 하나 = 그룹 하나. 전이 ~9개/그룹 (Standard $0.025/1k 전이).
   # 닫고 나서(Grace 뒤) 조회한다 — 닫히기 전 도착한 이벤트는 Grace 동안 적재를 마치고,
@@ -888,11 +982,44 @@ Resources:
                 "Parameters": { "action": "finalize", "group.$": "$" },
                 "ResultPath": "$.final",
                 "Retry": [ { "ErrorEquals": ["States.ALL"], "IntervalSeconds": 5, "MaxAttempts": 3, "BackoffRate": 2 } ],
+                "Next": "Deliver"
+              },
+              "Deliver": {
+                "Type": "Task",
+                "Resource": "${RouterArn}",
+                "Parameters": { "group.$": "$" },
+                "ResultPath": "$.delivery",
+                "Retry": [ { "ErrorEquals": ["States.ALL"], "IntervalSeconds": 5, "MaxAttempts": 2, "BackoffRate": 2 } ],
                 "End": true
               }
             }
           }
         - WorkerArn: !GetAtt AlertGroupWorkerFunction.Arn
+          RouterArn: !GetAtt AlertRouterFunction.Arn
+
+  # 자기 감시 — 라우터가 죽으면 판정은 끝났는데 알림만 안 나간다. 가장 조용한 실패다.
+  AlertRouterErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub
+        - "[AlertRouter] 발송 오류 (${EnvShort})"
+        - EnvShort: !FindInMap [EnvShortName, !Ref Environment, short]
+      AlarmDescription: "라우터 Lambda 오류. 판정은 끝났는데 알림이 안 나가는 상태 — 즉시 확인."
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref AlertRouterFunction
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref ErrorAlertTopic
+      OKActions:
+        - !Ref ErrorAlertTopic
 
   # 자기 감시 — 워커가 죽거나 실행이 실패하면 그룹이 영영 확정되지 않는다.
   AlertGroupWorkerErrorsAlarm:

@@ -1,0 +1,312 @@
+"""
+Alert Router (`alert_router/lambda_handler.py`) — tasks 2.2.3
+
+그룹 하나 = 채널당 한 통. 고정하는 것:
+- 묶음: 알람 200건이 한 그룹이면 200통이 아니라 **한 통 + "외 199건"** (R6-9)
+- 대표는 **가장 심각한 것** — 묶음 제목이 SEV-5인데 안에 SEV-1이 있으면 안 된다
+- **중복 발송 방지**: 그룹을 조건부로 선점(claim)한다. 재시도·sweep이 겹쳐도 두 번 안 간다
+- 조건에 맞는 채널만 고른다. 채널이 없으면 오류가 아니라 기록만 남긴다
+- 결과는 구성원 이력에 남는다 — "왜 안 왔나"를 조사하는 첫 자리
+"""
+
+import json
+from unittest.mock import patch
+
+import pytest
+
+from fakes_ddb import FakeHistoryTable, FakeStateTable, conditional_failure
+from common.notification_send import DeliveryResult
+
+GROUP = {"group_id": "g-abc-20260909", "group_key": "cust-1#SEV-2",
+         "customer_id": "cust-1", "severity": "SEV-2"}
+
+
+class FakeChannelTable:
+    def __init__(self, items=None):
+        self.items = list(items or [])
+
+    def query(self, KeyConditionExpression=None, **_):
+        wanted = KeyConditionExpression.get_expression()["values"][1]
+        return {"Items": [dict(i) for i in self.items if i["customer_id"] == wanted]}
+
+
+class ClaimingStateTable(FakeStateTable):
+    """`update_item`에 조건부 선점을 흉내 낸다 — 라우터의 중복 방지가 여기 걸려 있다."""
+
+    def __init__(self, delivered=False):
+        super().__init__()
+        self.delivered = delivered
+        self.claims = 0
+
+    def update_item(self, Key, UpdateExpression=None, ConditionExpression=None,
+                    ExpressionAttributeValues=None, **_):
+        self.claims += 1
+        if self.delivered:
+            raise conditional_failure()
+        self.delivered = True
+
+
+def channel_item(channel_id="c1", customer_id="cust-1", match=None, ctype="slack",
+                 enabled=True, name="운영팀"):
+    config = ({"webhook_url": "https://hooks.slack.com/services/T/B/x"}
+              if ctype == "slack" else {"url": "https://example.com/h"})
+    return {"customer_id": customer_id, "channel_id": channel_id, "name": name,
+            "type": ctype, "config": config, "match": match or {}, "enabled": enabled}
+
+
+def member(series="1#i-1#CPU", key="2026-09-09T01:00:00Z#a", *, severity="SEV-2",
+           final="notify", occurred="2026-09-09T01:00:00Z", **over):
+    m = {"series_id": series, "event_key": key, "group_id": GROUP["group_id"],
+         "severity": severity, "final_action": final, "occurred_at": occurred,
+         "state": "ALARM", "resource_type": "EC2", "resource_id": "i-1",
+         "alarm_name": "[EC2] i-1 CPU > 80%", "customer_id": "cust-1"}
+    m.update(over)
+    return m
+
+
+@pytest.fixture(autouse=True)
+def _env(monkeypatch):
+    monkeypatch.setenv("EVENT_HISTORY_TABLE", "hist")
+    monkeypatch.setenv("ALERT_STATE_TABLE", "state")
+    monkeypatch.setenv("NOTIFICATION_CHANNEL_TABLE", "channels")
+    monkeypatch.setenv("ALERT_CONSOLE_URL", "https://app/alerts")
+    from alert_router import lambda_handler as r
+    r._get_ddb.cache_clear()
+    yield
+    r._get_ddb.cache_clear()
+
+
+class StaleIndexHistory(FakeHistoryTable):
+    """GSI 최종 일관성 재현 — 인덱스 사본에는 방금 쓴 `final_action`이 아직 없다.
+
+    라이브에서 이 때문에 발송이 통째로 누락됐다(상태 머신은 SUCCEEDED, 알림만 안 감).
+    기본 테이블(batch_get)은 현재 값을 준다 — 라우터는 그쪽을 봐야 한다.
+    """
+
+    name = "hist"
+
+    def query(self, IndexName=None, **kw):
+        resp = super().query(IndexName=IndexName, **kw)
+        if IndexName:
+            stale = []
+            for item in resp["Items"]:
+                copy = dict(item)
+                copy.pop("final_action", None)
+                stale.append(copy)
+            return {"Items": stale}
+        return resp
+
+    def batch_get(self, keys):
+        out = []
+        for k in keys:
+            item = self.items.get((k["series_id"], k["event_key"]))
+            if item:
+                out.append(dict(item))
+        return out
+
+
+class FakeDdbResource:
+    """`batch_get_item`만 흉내 낸다. 일관 읽기를 안 쓰면 같은 버그가 되살아난다."""
+
+    def __init__(self, history):
+        self.history = history
+
+    def batch_get_item(self, RequestItems=None):
+        table_name, spec = next(iter(RequestItems.items()))
+        assert spec.get("ConsistentRead") is True, "일관 읽기가 아니면 인덱스 지연에 다시 걸린다"
+        return {"Responses": {table_name: self.history.batch_get(spec["Keys"])}}
+
+
+def _with_base_table_reads(hist):
+    """기본 테이블 일관 읽기를 흉내 낼 수 있게 최소 속성을 붙인다."""
+    if not hasattr(hist, "name"):
+        hist.name = "hist"
+    if not hasattr(hist, "batch_get"):
+        hist.batch_get = lambda keys: [
+            dict(hist.items[(k["series_id"], k["event_key"])])
+            for k in keys if (k["series_id"], k["event_key"]) in hist.items]
+    return hist
+
+
+def run(members, channels, *, state=None, results=None, group=None, history=None):
+    from alert_router import lambda_handler as r
+    hist = _with_base_table_reads(history if history is not None else FakeHistoryTable())
+    for m in members:
+        hist.put_item(Item=m)
+    state = state or ClaimingStateTable()
+    chan = FakeChannelTable(channels)
+    sent = {}
+
+    def fake_deliver_all(chs, notification, **kw):
+        sent["channels"] = chs
+        sent["notification"] = notification
+        return results if results is not None else [
+            DeliveryResult(channel_id=c.channel_id, channel_name=c.name,
+                           type=c.type, ok=True, attempts=1, status=200) for c in chs]
+
+    with patch.object(r, "_tables", return_value=(hist, state, chan)), \
+         patch.object(r, "_get_ddb", return_value=FakeDdbResource(hist)), \
+         patch.object(r, "deliver_all", side_effect=fake_deliver_all):
+        out = r.lambda_handler({"group": group or GROUP}, None)
+    return out, sent, hist, state
+
+
+class TestBundling:
+    def test_two_hundred_members_become_one_message(self):
+        members = [member(series=f"1#i-{i}#CPU", key=f"2026-09-09T01:00:0{i % 10}Z#{i}")
+                   for i in range(200)]
+        out, sent, _, _ = run(members, [channel_item()])
+        assert out["members"] == 200 and out["channels"] == 1 and out["sent"] == 1
+        assert sent["notification"].count == 200
+        assert "외 199건" in sent["notification"].summary_line()
+
+    def test_representative_is_the_most_severe(self):
+        members = [member(series="1#a#CPU", key="k1", severity="SEV-4"),
+                   member(series="1#b#CPU", key="k2", severity="SEV-1",
+                          alarm_name="[RDS] db down"),
+                   member(series="1#c#CPU", key="k3", severity="SEV-3")]
+        _, sent, _, _ = run(members, [channel_item()])
+        assert sent["notification"].severity == "SEV-1"
+        assert sent["notification"].title == "[RDS] db down"
+
+    def test_ties_break_on_earliest(self):
+        members = [member(series="1#a#CPU", key="k1", occurred="2026-09-09T02:00:00Z",
+                          alarm_name="늦은 것"),
+                   member(series="1#b#CPU", key="k2", occurred="2026-09-09T01:00:00Z",
+                          alarm_name="이른 것")]
+        _, sent, _, _ = run(members, [channel_item()])
+        assert sent["notification"].title == "이른 것"
+
+    def test_console_url_is_attached(self):
+        _, sent, _, _ = run([member()], [channel_item()])
+        assert sent["notification"].url == "https://app/alerts"
+
+
+class TestOnlyNotifyMembersAreSent:
+    def test_suppressed_members_are_ignored(self):
+        members = [member(key="k1", final="notify"),
+                   member(series="1#b#CPU", key="k2", final="suppress")]
+        out, sent, _, _ = run(members, [channel_item()])
+        assert out["members"] == 1 and sent["notification"].count == 1
+
+    def test_group_with_nothing_to_notify_sends_nothing(self):
+        out, sent, _, state = run([member(final="suppress")], [channel_item()])
+        assert out["sent"] == 0 and out["reason"] == "nothing_to_notify"
+        assert "notification" not in sent
+        assert state.claims == 0, "보낼 게 없으면 선점도 하지 않는다"
+
+    def test_unfinalised_members_are_ignored(self):
+        out, _, _, _ = run([member(final=None)], [channel_item()])
+        assert out["reason"] == "nothing_to_notify"
+
+
+class TestChannelSelection:
+    def test_conditions_narrow_the_channels(self):
+        channels = [channel_item("all"),
+                    channel_item("sev1", match={"severity": ["SEV-1"]}),
+                    channel_item("ec2", match={"resource_type": ["EC2"]})]
+        out, sent, _, _ = run([member(severity="SEV-2")], channels)
+        assert {c.channel_id for c in sent["channels"]} == {"all", "ec2"}
+        assert out["channels"] == 2
+
+    def test_disabled_channels_are_skipped(self):
+        out, _, _, _ = run([member()], [channel_item("off", enabled=False)])
+        assert out["reason"] == "no_channel" and out["sent"] == 0
+
+    def test_global_channels_are_included(self):
+        channels = [channel_item("mine"), channel_item("noc", customer_id="__global__")]
+        _, sent, _, _ = run([member()], channels)
+        assert {c.channel_id for c in sent["channels"]} == {"mine", "noc"}
+
+    def test_other_customers_channels_are_never_used(self):
+        channels = [channel_item("mine"), channel_item("theirs", customer_id="cust-2")]
+        _, sent, _, _ = run([member()], channels)
+        assert {c.channel_id for c in sent["channels"]} == {"mine"}
+
+    def test_no_matching_channel_is_recorded_not_an_error(self):
+        out, sent, _, state = run([member()], [channel_item(match={"severity": ["SEV-1"]})])
+        assert out["reason"] == "no_channel" and out["sent"] == 0
+        assert "notification" not in sent
+        assert state.claims == 0, "안 보냈으면 선점하지 않는다 — 채널이 생기면 다시 시도할 수 있어야"
+
+    def test_channel_with_a_removed_type_is_skipped_not_fatal(self):
+        channels = [channel_item("gone", ctype="pager-that-no-longer-exists"),
+                    channel_item("ok")]
+        out, sent, _, _ = run([member()], channels)
+        assert out["sent"] == 1 and {c.channel_id for c in sent["channels"]} == {"ok"}
+
+
+class TestClaimPreventsDoubleSend:
+    def test_claims_before_sending(self):
+        _, _, _, state = run([member()], [channel_item()])
+        assert state.claims == 1 and state.delivered is True
+
+    def test_second_run_sends_nothing(self):
+        """상태 머신 재시도나 sweep이 겹쳐도 같은 알림이 두 번 가지 않는다."""
+        out, sent, _, _ = run([member()], [channel_item()],
+                              state=ClaimingStateTable(delivered=True))
+        assert out["reason"] == "already_delivered" and out["sent"] == 0
+        assert "notification" not in sent
+
+
+class TestResultsAreRecorded:
+    def test_success_is_written_to_every_member(self):
+        members = [member(key="k1"), member(series="1#b#CPU", key="k2")]
+        _, _, hist, _ = run(members, [channel_item()])
+        for row in list(hist.items.values()):
+            assert row["delivered"] is True
+            assert row["delivery_results"][0]["ok"] is True
+            assert row["delivered_at"].endswith("Z")
+
+    def test_failure_is_recorded_with_the_reason(self):
+        fail = [DeliveryResult(channel_id="c1", channel_name="운영팀", type="slack",
+                               ok=False, attempts=3, status=500, error="HTTP 500")]
+        out, _, hist, _ = run([member()], [channel_item()], results=fail)
+        assert out["sent"] == 0 and out["failed"] == 1
+        row = next(iter(hist.items.values()))
+        assert row["delivered"] is False
+        assert row["delivery_results"][0]["error"] == "HTTP 500"
+
+    def test_partial_success_still_counts_as_delivered(self):
+        mixed = [DeliveryResult(channel_id="a", channel_name="a", type="slack", ok=True),
+                 DeliveryResult(channel_id="b", channel_name="b", type="slack", ok=False,
+                                error="HTTP 404")]
+        out, _, hist, _ = run([member()], [channel_item("a"), channel_item("b")],
+                              results=mixed)
+        assert (out["sent"], out["failed"]) == (1, 1)
+        assert next(iter(hist.items.values()))["delivered"] is True
+
+    def test_results_carry_no_credential(self):
+        _, _, hist, _ = run([member()], [channel_item()])
+        blob = json.dumps(list(hist.items.values()), ensure_ascii=False, default=str)
+        assert "hooks.slack.com" not in blob
+
+
+class TestInvocation:
+    def test_rejects_a_group_without_identity(self):
+        from alert_router import lambda_handler as r
+        with pytest.raises(ValueError):
+            r.lambda_handler({"group": {}}, None)
+
+    def test_rejects_an_empty_event(self):
+        from alert_router import lambda_handler as r
+        with pytest.raises(ValueError):
+            r.lambda_handler({}, None)
+
+
+class TestIndexConsistency:
+    """GSI는 최종 일관성 — finalize 직후엔 방금 쓴 final_action이 인덱스에 없다.
+
+    라이브에서 이 때문에 발송이 통째로 누락됐다: 상태 머신은 SUCCEEDED인데 알림만 안 갔다.
+    인덱스는 **구성원 키**만 주고, 상태는 기본 테이블에서 일관되게 읽어야 한다.
+    """
+
+    def test_sends_even_when_the_index_copy_is_stale(self):
+        out, sent, _, _ = run([member()], [channel_item()], history=StaleIndexHistory())
+        assert out["sent"] == 1, "인덱스 사본을 믿으면 여기서 아무것도 안 간다"
+        assert sent["notification"].count == 1
+
+    def test_index_is_only_used_for_keys(self):
+        members = [member(series=f"1#i-{i}#CPU", key=f"k{i}") for i in range(3)]
+        out, sent, _, _ = run(members, [channel_item()], history=StaleIndexHistory())
+        assert out["members"] == 3 and sent["notification"].count == 3

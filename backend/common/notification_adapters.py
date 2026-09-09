@@ -8,6 +8,7 @@
 - 그중 무엇이 **자격증명**인가 (`secret=True`) → API 응답에서 자동으로 빠진다
 - 얼마나 빨리 보낼 수 있는가 (`rate_limit_per_sec`)
 - 알림 하나를 그 채널의 형식으로 어떻게 그리는가 (`render`)
+- **어떻게 보내는가** (`transport`) + 그 전송에 필요한 설정 필드가 무엇인지 (`endpoint_field` 등)
 
 자격증명을 "빼는 것을 기억해야 하는" 구조로 만들지 않았다. 응답 직렬화가 검증과 **같은 선언**을
 읽으므로, 필드를 추가하면서 secret 표시를 빠뜨리지 않는 한 새 채널 유형이 값을 흘릴 수 없다.
@@ -77,6 +78,11 @@ class Field:
     check: Callable[[str], str | None] | None = None
 
 
+#: 전송 방식. 새 방식이 필요할 때만 늘어난다(대부분의 채널은 HTTPS POST 하나로 끝난다).
+TRANSPORT_HTTPS = "https_post"
+TRANSPORT_EMAIL = "ses_email"
+
+
 @dataclass(frozen=True)
 class Adapter:
     type: str
@@ -85,6 +91,13 @@ class Adapter:
     render: Callable[[Notification], dict]
     #: 채널 유형별 발송 속도 상한. Slack Incoming Webhook은 초당 1건이 실질 한계다.
     rate_limit_per_sec: float = 1.0
+    transport: str = TRANSPORT_HTTPS
+    #: HTTPS 전송이 요청을 보낼 주소가 담긴 설정 필드 이름.
+    endpoint_field: str = ""
+    #: 있으면 그 설정 값을 Authorization 헤더로 보낸다.
+    auth_header_field: str = ""
+    #: 이메일 전송이 수신자를 읽을 설정 필드 이름.
+    recipients_field: str = ""
 
     @property
     def secret_fields(self) -> tuple[str, ...]:
@@ -255,6 +268,8 @@ SLACK = register(Adapter(
     render=_render_slack,
     # Slack Incoming Webhook은 초당 1건이 실질 한계 — 넘으면 429가 온다.
     rate_limit_per_sec=1.0,
+    transport=TRANSPORT_HTTPS,
+    endpoint_field="webhook_url",
 ))
 
 EMAIL = register(Adapter(
@@ -265,6 +280,8 @@ EMAIL = register(Adapter(
     ),
     render=_render_email,
     rate_limit_per_sec=5.0,
+    transport=TRANSPORT_EMAIL,
+    recipients_field="addresses",
 ))
 
 WEBHOOK = register(Adapter(
@@ -276,4 +293,7 @@ WEBHOOK = register(Adapter(
     ),
     render=_render_webhook,
     rate_limit_per_sec=5.0,
+    transport=TRANSPORT_HTTPS,
+    endpoint_field="url",
+    auth_header_field="auth_header",
 ))

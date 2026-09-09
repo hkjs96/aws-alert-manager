@@ -10,6 +10,7 @@ The backend CloudFormation stack uses one CodeVersion prefix containing:
 - sqs_worker.zip
 - alert_ingestor.zip
 - alert_group_worker.zip
+- alert_router.zip
 
 When a backend Lambda source file changes, this hook builds the affected
 artifact(s), copies unchanged artifacts from the current deployed CodeVersion,
@@ -41,6 +42,7 @@ ARTIFACTS = {
     "sqs_worker.zip",
     "alert_ingestor.zip",
     "alert_group_worker.zip",
+    "alert_router.zip",
 }
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -78,6 +80,8 @@ def _artifact_targets(path: str) -> set[str]:
         return {"alert_ingestor.zip"}
     if "/backend/alert_group_worker/" in path or path.startswith("backend/alert_group_worker/"):
         return {"alert_group_worker.zip"}
+    if "/backend/alert_router/" in path or path.startswith("backend/alert_router/"):
+        return {"alert_router.zip"}
     return set()
 
 
