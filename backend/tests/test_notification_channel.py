@@ -122,6 +122,19 @@ class TestSlackAdapter:
         assert p["text"]
         assert p["attachments"][0]["color"] == "#d32f2f"
 
+    def test_render_escapes_slack_control_characters(self):
+        """알람 이름에 비교 연산자가 들어간다 — `<…>`가 링크로 파싱돼 사라지면 안 된다 (review-phase2 M5)."""
+        n = Notification(title="[RDS] db FreeStorageSpace < 10GB & > 5%", severity="SEV-2",
+                         reason="Threshold Crossed: 1 datapoint [3.0 (09/09/26 08:00:00)] < 10",
+                         url="https://app/alerts?incident=inc-1")
+        p = A.SLACK.render(n)
+        body = p["attachments"][0]["text"]
+        assert "&lt; 10GB &amp; &gt; 5%" in body and "&lt; 10GB &amp; &gt; 5%" in p["text"]
+        assert "] &lt; 10" in body
+        assert body.count("<") == 1 and body.endswith("<https://app/alerts?incident=inc-1|자세히 보기>"), \
+            "링크 문법만 남아야 한다"
+        assert "<" not in p["text"]
+
     def test_rate_limit_is_one_per_second(self):
         assert A.SLACK.rate_limit_per_sec == 1.0
 
@@ -252,6 +265,16 @@ class TestMatching:
 
     def test_missing_event_field_does_not_match_a_narrowed_axis(self):
         assert matches(ch(match={"resource_type": ["RDS"]}), ev(resource_type="")) is False
+
+    def test_list_values_match_when_any_is_allowed(self):
+        """사건(여러 알람의 묶음)의 재알림 — 구성원 중 하나라도 조건에 맞으면 받는다 (review-phase2 M4)."""
+        c = ch(match={"account_id": ["222"]})
+        assert matches(c, {**ev(), "account_id": ["111", "222"]}) is True
+        assert matches(c, {**ev(), "account_id": ["111", "333"]}) is False
+
+    def test_empty_list_does_not_match_a_narrowed_axis(self):
+        assert matches(ch(match={"resource_type": ["RDS"]}), {**ev(), "resource_type": []}) is False
+        assert matches(ch(), {**ev(), "resource_type": []}) is True
 
     def test_unknown_stored_axis_is_ignored_not_fatal(self):
         """옛 행이 남아도 좁히지 못할 뿐 다른 고객사로 새지는 않는다 — 경계는 키가 지킨다."""

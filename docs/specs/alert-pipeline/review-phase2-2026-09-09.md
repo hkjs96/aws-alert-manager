@@ -230,6 +230,27 @@ Slack HTTP 200 → 이력 `final_reason=swept:aborted, delivered=True` → 사�
 프로브에서 배운 것: `TreatMissingData=notBreaching`인 프로브 알람은 CloudWatch가 ~15초 뒤 **스스로** OK로 되돌린다
 (알람 이력 "no datapoints … treated as NonBreaching"). 상태를 붙잡아 두려면 `missing`으로 만들 것.
 
+### 2. H2 + M3 — 인시던트 정합성 (`277af15`, dev `v20260909T085020`)
+
+- **H2** 새 모듈 `common/incident_store.py`: `load()`가 (사건, 버전)을 돌려주고 `save()`는 **읽은 버전일 때만**
+  put한다(새 항목 `attribute_not_exists(incident_id)`, 버전 없는 옛 행 `exists & attribute_not_exists(version)`,
+  그 밖 `version = n`). 충돌은 `IncidentConflict`. 라우터 `_sync_incident`·API `ack`·재알림 표시가 전부 이걸 쓰고,
+  라우터와 ack는 충돌 시 다시 읽어 재적용(3회), 재알림은 이번 틱을 건너뛴다. 정합성 틱의 UpdateItem은
+  `ADD version 1`로 다른 쓰기의 버전을 무효화한다. **새 사건은 포인터를 먼저** 조건부로 건다(`_point`: 없었으면
+  `attribute_not_exists`, 해소된 옛 사건을 가리켰으면 `incident_id = 본 값`) — 남이 먼저 걸었으면 그 사건에 합친다.
+  같은 초 재개방은 1초 뒤 스탬프. `common/incident.py`는 여전히 순수하다.
+- **M3** 포인터 축 = `group["group_key"]` 그대로(`pointer_for_axis`), 사건에 `axis`·`account_id` 저장. 매핑된
+  고객사는 기존 키와 같아 마이그레이션 없음. 옛 행은 `axis_of()`가 고객사#등급으로 되돌린다.
+- 덤: `to_dict`가 `version`을 int로 정규화하지 않아 API가 `"1"`(문자열)로 내보내던 것 — 프로브가 잡았다.
+
+**라이브 검증 (dev, 09-09 09:02 UTC):** ① 실제 DynamoDB에서 버전 조건 6/6 — 옛 행(버전 없음)→0으로 읽고 저장하면 1,
+같은 버전 재저장·새 항목 조건·stale 버전 전부 `IncidentConflict`(페이크가 아니라 실물 조건식으로 확인).
+② 알람 A 발화 → 사건 v1(`axis=EMU-EM2#SEV-3`, 포인터 일치) → API 확인 v2(MTTA 6s) → 알람 B 발화 → 라우터 병합
+후 **`acknowledged` 유지**, 구성원 2, v3 → 둘 다 OK → `resolved`(MTTR 86s) v4, 타임라인
+`[triggered, alarm, acknowledged, alarm, resolved]`, 포인터 제거. 사건은 내내 하나. `AccessDenied` 없음.
+경합 자체(같은 순간의 두 쓰기)는 라이브로 재현하기 어려워 단위 테스트(`TestIncidentRaces` 6건, ack 경합 3건,
+store 9건)로 고정했다.
+
 ## 권장 순서
 
 1. ~~**H1 + M1 + M2** — 발송 내구성~~ ✅. 셋이 같은 이야기다: "죽어도 결국 간다, 못 갔으면 5분 안에 스스로 맞춘다."

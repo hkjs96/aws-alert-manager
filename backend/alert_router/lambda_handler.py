@@ -37,6 +37,7 @@ from common.incident import (
     STATUS_RESOLVED,
     axis_of,
     mark_renotified,
+    match_fields,
     needs_renotify,
     parse_dt,
     from_item as incident_from_item,
@@ -489,9 +490,8 @@ def _renotify(incidents, channel_table, open_incidents: list[tuple[dict, int]], 
         if not needs_renotify(incident, now=now, after_sec=after_sec):
             continue
         customer_id = str(incident.get("customer_id", "") or "")
-        channels = select(_channels(channel_table, customer_id),
-                          {"severity": incident.get("severity", ""),
-                           "customer_id": customer_id})
+        # 계정·리소스 타입으로 좁힌 채널도 받는다 — 사건의 구성원 중 하나라도 조건에 맞으면 (M4)
+        channels = select(_channels(channel_table, customer_id), match_fields(incident))
         if not channels:
             continue
         # 보내기 전에 표시한다 — 겹친 실행이 같은 사건을 두 번 울리지 않게.

@@ -98,6 +98,25 @@ class TestMerge:
         merge_events(original, [ev()], now=T0)
         assert original["members"] == []
 
+    def test_collects_account_and_resource_type_axes_for_channel_matching(self):
+        """재알림이 계정·리소스 타입으로 좁힌 채널에도 가야 한다 (review-phase2 M4)."""
+        from common.incident import match_fields
+        inc = merge_events(opened(), [
+            {**ev("111#i-1#CPU"), "account_id": "111", "resource_type": "EC2"},
+            {**ev("222#db-1#Free"), "account_id": "222", "resource_type": "RDS"},
+            {**ev("111#i-2#CPU"), "account_id": "111", "resource_type": "EC2"},
+        ], now=T0)
+        assert inc["account_ids"] == ["111", "222"] and inc["resource_types"] == ["EC2", "RDS"]
+        view = match_fields(inc)
+        assert view["account_id"] == ["111", "222"] and view["resource_type"] == ["EC2", "RDS"]
+        assert view["severity"] == "SEV-2" and view["customer_id"] == "cust-1"
+
+    def test_match_fields_fall_back_to_the_single_account_of_a_legacy_row(self):
+        from common.incident import match_fields
+        legacy = {**opened(), "account_id": "111"}
+        assert match_fields(legacy)["account_id"] == ["111"]
+        assert match_fields(opened())["account_id"] == []
+
     def test_events_without_a_fingerprint_are_ignored(self):
         inc = merge_events(opened(), [{"alarm_name": "x"}], now=T0)
         assert inc["members"] == [] and inc["event_count"] == 0
@@ -196,6 +215,12 @@ class TestSerialisation:
         item = to_item(inc, now=T0)
         assert "ttl" in item
         assert from_item(item) == inc
+
+    def test_to_dict_normalises_the_version_too(self):
+        """라이브에서 드러났다 — Decimal이 문자열 "1"로 나가 클라이언트가 숫자 비교를 못 했다."""
+        from decimal import Decimal
+        out = to_dict({**opened(), "version": Decimal("3")})
+        assert out["version"] == 3 and isinstance(out["version"], int)
 
     def test_to_dict_normalises_decimals(self):
         from decimal import Decimal

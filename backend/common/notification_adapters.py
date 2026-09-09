@@ -216,9 +216,19 @@ _SEVERITY_COLOR = {
 }
 
 
+def _slack_escape(text: str) -> str:
+    """Slack은 `&` `<` `>`를 제어 문자로 읽는다 — `<…>`는 링크·멘션으로 파싱돼 사라질 수 있다.
+
+    우리 알람 이름은 비교 연산자를 담도록 만들어져 있다(`CPUUtilization > 80%`, `FreeStorageSpace < 10GB`).
+    이스케이프 없이 보내면 `<`부터 다음 `>`까지가 통째로 링크 시도가 된다(review-phase2 M5).
+    """
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
 def _render_slack(n: Notification) -> dict:
-    lines = [f"*{n.summary_line()}*"]
-    detail = [x for x in (
+    summary = _slack_escape(n.summary_line())
+    lines = [f"*{summary}*"]
+    detail = [_slack_escape(x) for x in (
         f"사건 {n.incident_id}" if n.incident_id else "",
         f"계정 {n.account_id}" if n.account_id else "",
         f"지표 {n.metric_key}" if n.metric_key else "",
@@ -228,11 +238,11 @@ def _render_slack(n: Notification) -> dict:
     if detail:
         lines.append(" | ".join(detail))
     if n.reason:
-        lines.append(n.reason)
+        lines.append(_slack_escape(n.reason))
     if n.url:
-        lines.append(f"<{n.url}|자세히 보기>")
+        lines.append(f"<{n.url}|자세히 보기>")        # 링크 문법은 이스케이프 **뒤에** 붙인다
     return {
-        "text": n.summary_line(),          # 알림 미리보기·접근성용 폴백
+        "text": summary,                    # 알림 미리보기·접근성용 폴백
         "attachments": [{
             "color": _SEVERITY_COLOR.get(n.severity, "#757575"),
             "text": "\n".join(lines),

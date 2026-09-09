@@ -111,21 +111,46 @@ def merge_events(incident: dict, events: list[dict], *, now: datetime) -> dict:
     """
     new = {**incident, "members": list(incident.get("members") or []),
            "timeline": list(incident.get("timeline") or [])}
+    # 재알림이 채널 조건(계정·리소스 타입)에 맞출 수 있게 구성원의 축 값을 집합으로 남긴다(review-phase2 M4).
+    accounts = set(incident.get("account_ids") or ()) | ({incident["account_id"]} if incident.get("account_id") else set())
+    resource_types = set(incident.get("resource_types") or ())
     added = []
     for ev in events:
         series = str(ev.get("series_id", "") or "")
         if not series:
             continue
         new["event_count"] = int(new.get("event_count", 0)) + 1
+        if ev.get("account_id"):
+            accounts.add(str(ev["account_id"]))
+        if ev.get("resource_type"):
+            resource_types.add(str(ev["resource_type"]))
         if series not in new["members"]:
             if len(new["members"]) < MAX_MEMBERS:
                 new["members"].append(series)
             added.append(ev)
+    if accounts:
+        new["account_ids"] = sorted(accounts)
+    if resource_types:
+        new["resource_types"] = sorted(resource_types)
     if added:
         names = ", ".join(str(e.get("alarm_name", "") or e.get("series_id", "")) for e in added[:3])
         more = f" 외 {len(added) - 3}건" if len(added) > 3 else ""
         new["timeline"] = _capped(new["timeline"] + [_entry(now, "alarm", f"{names}{more}")])
     return new
+
+
+def match_fields(incident: dict) -> dict:
+    """채널 조건 매칭에 넘길 사건의 축 값들. 계정·리소스 타입은 **목록**이다 — 사건은 여러 알람을
+    묶으므로 채널 조건의 값 중 하나라도 사건 안에 있으면 그 채널이 받는다(review-phase2 M4)."""
+    accounts = list(incident.get("account_ids") or ())
+    if not accounts and incident.get("account_id"):
+        accounts = [str(incident["account_id"])]
+    return {
+        "severity": str(incident.get("severity", "") or ""),
+        "customer_id": str(incident.get("customer_id", "") or ""),
+        "account_id": accounts,
+        "resource_type": list(incident.get("resource_types") or ()),
+    }
 
 
 def _capped(timeline: list) -> list:
@@ -210,7 +235,7 @@ def from_item(item: dict) -> dict:
 def to_dict(incident: dict) -> dict:
     """API 응답. 숫자는 int로 정규화한다 — DynamoDB는 Decimal로 돌려준다."""
     out = dict(incident)
-    for key in ("mtta_sec", "mttr_sec", "event_count"):
+    for key in ("mtta_sec", "mttr_sec", "event_count", "version"):
         if key in out and out[key] is not None:
             try:
                 out[key] = int(out[key])

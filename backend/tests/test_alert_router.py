@@ -857,6 +857,38 @@ class TestRenotify:
                                     [channel_item(match={"severity": ["SEV-1"]})])
         assert out["renotified"] == 1 and sent[0].severity == "SEV-1"
 
+    def test_channels_narrowed_by_account_or_resource_type_still_get_it(self):
+        """사건은 여러 알람의 묶음이다 — 구성원 중 하나라도 조건에 맞는 채널이 받는다 (review-phase2 M4)."""
+        from datetime import datetime, timedelta, timezone
+        from common.incident import acknowledge, merge_events, new_incident
+        now = datetime.now(timezone.utc)
+        inc = new_incident("cust-1", "SEV-2", now=now - timedelta(minutes=95), title="[RDS] db")
+        inc = merge_events(inc, [
+            {"series_id": "1#i-1#CPU", "account_id": "1", "resource_type": "EC2"},
+            {"series_id": "2#db-1#Free", "account_id": "2", "resource_type": "RDS"},
+        ], now=now - timedelta(minutes=95))
+        inc = acknowledge(inc, by="oncall@mz.co.kr", now=now - timedelta(minutes=90))
+        inc["incident_id"] = "inc-1"
+        channels = [channel_item("acct", match={"account_id": ["2"]}),
+                    channel_item("rds", match={"resource_type": ["RDS"]}),
+                    channel_item("other", match={"account_id": ["9"]})]
+        _, sent, _ = run_renotify([inc], channels)
+        assert len(sent) == 1
+
+        from alert_router import lambda_handler as r
+        from common.alert_suppression import SuppressionPolicy
+        got = []
+        incidents = ScanningIncidentTable([inc])
+        with patch.dict("os.environ", {"INCIDENT_TABLE": "inc"}), \
+             patch.object(r, "_tables", return_value=(None, PointerStateTable(open_fingerprints={"1#i-1#CPU"}),
+                                                      FakeChannelTable(channels))), \
+             patch.object(r, "_incident_table", return_value=incidents), \
+             patch.object(r, "_policy", return_value=SuppressionPolicy(renotify_after_sec=3600)), \
+             patch.object(r, "deliver_all",
+                          side_effect=lambda chs, n, **kw: got.extend(c.channel_id for c in chs) or []):
+            r.lambda_handler({"action": "renotify"}, None)
+        assert set(got) == {"acct", "rds"}, "좁힌 채널이 재알림에서 빠지면 그 채널만 가진 고객사는 재알림이 없다"
+
     def test_marking_bumps_the_version_and_keeps_the_timeline(self):
         _, _, incidents = run_renotify([acked_incident(acked_minutes_ago=90)], [channel_item()])
         row = incidents.items["inc-1"]

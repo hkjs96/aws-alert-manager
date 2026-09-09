@@ -240,6 +240,9 @@ def matches(ch: Channel, event: dict) -> bool:
 
     고객사 경계는 여기서 보지 않는다 — 조회가 키로 이미 나눴다(전역 채널은 모두를 받는다).
     각 축은 비어 있으면 "전부"이고, 값이 있으면 그중 하나와 같아야 한다.
+
+    이벤트 쪽 값이 **목록**이면(사건 재알림 — 여러 알람을 묶었다) 그중 하나라도 허용 목록에 있으면
+    통과다. 빈 목록은 빈 값과 같다 — 좁힌 축은 통과하지 못한다.
     """
     if not ch.enabled:
         return False
@@ -248,7 +251,11 @@ def matches(ch: Channel, event: dict) -> bool:
             continue          # 저장 시 걸러지지만, 옛 행이 남아도 좁히지 못할 뿐 새지는 않는다
         if not allowed:
             continue
-        if str(event.get(name, "") or "") not in allowed:
+        value = event.get(name, "")
+        if isinstance(value, (list, tuple, set)):
+            if not any(str(v) in allowed for v in value if v):
+                return False
+        elif str(value or "") not in allowed:
             return False
     return True
 
