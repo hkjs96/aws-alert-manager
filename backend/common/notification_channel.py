@@ -259,7 +259,8 @@ def select(channels: list[Channel], event: dict) -> list[Channel]:
     return sorted(hit, key=lambda c: (c.is_global, c.name, c.channel_id))
 
 
-def notification_from_event(event: dict, *, url: str = "", count: int = 1) -> Notification:
+def notification_from_event(event: dict, *, url: str = "", count: int = 1,
+                           incident_id: str = "") -> Notification:
     """이력 항목/이벤트 → 어댑터가 그릴 알림. 어댑터가 이벤트를 파싱하지 않게 여기서 한 번만 한다."""
     return Notification(
         title=str(event.get("alarm_name", "") or event.get("title", "") or "알람"),
@@ -274,4 +275,5 @@ def notification_from_event(event: dict, *, url: str = "", count: int = 1) -> No
         occurred_at=str(event.get("occurred_at", "") or ""),
         url=url,
         count=max(1, int(count or 1)),
+        incident_id=incident_id,
     )

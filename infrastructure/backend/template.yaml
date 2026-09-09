@@ -463,6 +463,42 @@ Resources:
         - Key: ManagedBy
           Value: AlarmManager
 
+  # 인시던트 — 알람이 아니라 **사건** 단위 (requirements R4).
+  # 축은 그룹과 같지만(고객사×등급) 수명이 다르다: 원인 알람이 모두 풀릴 때까지 산다.
+  IncidentTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub
+        - aws-monitoring-incident-${EnvShort}
+        - EnvShort: !FindInMap [EnvShortName, !Ref Environment, short]
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: incident_id
+          AttributeType: S
+        - AttributeName: customer_id
+          AttributeType: S
+        - AttributeName: triggered_at
+          AttributeType: S
+      KeySchema:
+        - AttributeName: incident_id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        # 고객사별 최신순 조회 (목록 화면·MTTA/MTTR 집계)
+        - IndexName: customer_id-index
+          KeySchema:
+            - AttributeName: customer_id
+              KeyType: HASH
+            - AttributeName: triggered_at
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+      Tags:
+        - Key: ManagedBy
+          Value: AlarmManager
+
   # 고객사별 알림 채널 (design.md D3, design-notification-channels.md).
   # 알람에 수신처를 박지 않는다 — 채널은 행이고 라우터가 조회한다. 채널을 더해도 알람을
   # 고치지 않고(R6-5), 알람당 액션 5개 제한에도 걸리지 않는다.
@@ -847,6 +883,7 @@ Resources:
           EVENT_HISTORY_TABLE: !Ref EventHistoryTable
           ALERT_STATE_TABLE: !Ref AlertStateTable
           NOTIFICATION_CHANNEL_TABLE: !Ref NotificationChannelTable
+          INCIDENT_TABLE: !Ref IncidentTable
           ALERT_CONSOLE_URL: !Ref AlertConsoleUrl
           ALERT_EMAIL_SENDER: !Ref AlertEmailSender
 
@@ -881,11 +918,20 @@ Resources:
                 Resource:
                   - !GetAtt EventHistoryTable.Arn
                   - !Sub "${EventHistoryTable.Arn}/index/*"
-              # 그룹 발송권 선점(조건부 UpdateItem) — 중복 발송 방지
+              # 그룹 발송권 선점(조건부 UpdateItem) + 인시던트 포인터(inc#)와 fp# 조회
               - Effect: Allow
                 Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
                   - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
                 Resource: !GetAtt AlertStateTable.Arn
+              # 인시던트 열기·합치기·해소
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                Resource: !GetAtt IncidentTable.Arn
               # 채널 정의 읽기 (자격증명 포함 — 여기서만 읽는다)
               - Effect: Allow
                 Action:
@@ -1168,6 +1214,7 @@ Resources:
           EVENT_HISTORY_TABLE: !Ref EventHistoryTable
           ALERT_STATE_TABLE: !Ref AlertStateTable
           NOTIFICATION_CHANNEL_TABLE: !Ref NotificationChannelTable
+          INCIDENT_TABLE: !Ref IncidentTable
           THRESHOLD_OVERRIDES_TABLE: !Ref ThresholdOverridesTable
           JOB_STATUS_TABLE: !Ref JobStatusTable
           MONITOR_RUN_HISTORY_TABLE: !Ref MonitorRunHistoryTable
@@ -1222,6 +1269,8 @@ Resources:
                   - !Sub "${ResourceInventoryTable.Arn}/index/*"
                   - !GetAtt AlertPolicyTable.Arn
                   - !GetAtt NotificationChannelTable.Arn
+                  - !GetAtt IncidentTable.Arn
+                  - !Sub "${IncidentTable.Arn}/index/*"
               - Effect: Allow
                 Action:
                   - sqs:SendMessage

@@ -53,6 +53,8 @@ class Notification:
     occurred_at: str = ""
     url: str = ""
     count: int = 1
+    #: 이 알림이 속한 인시던트. 받는 사람이 "같은 사건"임을 알아보는 축이다(R4).
+    incident_id: str = ""
 
     @property
     def is_bundle(self) -> bool:
@@ -217,6 +219,7 @@ _SEVERITY_COLOR = {
 def _render_slack(n: Notification) -> dict:
     lines = [f"*{n.summary_line()}*"]
     detail = [x for x in (
+        f"사건 {n.incident_id}" if n.incident_id else "",
         f"계정 {n.account_id}" if n.account_id else "",
         f"지표 {n.metric_key}" if n.metric_key else "",
         f"상태 {n.state}" if n.state else "",
@@ -239,7 +242,7 @@ def _render_slack(n: Notification) -> dict:
 
 def _render_email(n: Notification) -> dict:
     body = [n.summary_line(), ""]
-    for label, value in (("고객사", n.customer_id), ("계정", n.account_id),
+    for label, value in (("사건", n.incident_id), ("고객사", n.customer_id), ("계정", n.account_id),
                          ("리소스", n.resource_id), ("지표", n.metric_key),
                          ("상태", n.state), ("발생", n.occurred_at), ("사유", n.reason)):
         if value:
@@ -255,7 +258,7 @@ def _render_webhook(n: Notification) -> dict:
         "account_id": n.account_id, "resource_id": n.resource_id,
         "resource_type": n.resource_type, "metric_key": n.metric_key,
         "state": n.state, "reason": n.reason, "occurred_at": n.occurred_at,
-        "url": n.url, "count": n.count,
+        "url": n.url, "count": n.count, "incident_id": n.incident_id,
     }, ensure_ascii=False)}
 
 

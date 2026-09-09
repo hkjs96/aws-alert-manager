@@ -25,13 +25,23 @@ import json
 import logging
 import os
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import boto3
 from boto3.dynamodb.conditions import Attr, Key
 from botocore.exceptions import ClientError
 
-from common.alert_state import grp_key, iso_utc
+from common.alert_state import fp_key, grp_key, iso_utc
+from common.incident import (
+    STATUS_RESOLVED,
+    from_item as incident_from_item,
+    incident_pointer,
+    merge_events,
+    new_incident,
+    resolve as resolve_incident,
+    should_resolve,
+    to_item as incident_to_item,
+)
 from common.notification_channel import (
     channel_from_item,
     notification_from_event,
@@ -61,6 +71,80 @@ def _tables():
     return (ddb.Table(os.environ["EVENT_HISTORY_TABLE"]),
             ddb.Table(os.environ["ALERT_STATE_TABLE"]),
             ddb.Table(os.environ["NOTIFICATION_CHANNEL_TABLE"]))
+
+
+def _incident_table():
+    return _get_ddb().Table(os.environ["INCIDENT_TABLE"])
+
+
+def _open_fingerprints(state, series_ids: list[str]) -> set[str]:
+    """아직 발화 중인 지문. 인시던트를 해소해도 되는지 판단하는 근거다(R4-4)."""
+    still_open = set()
+    for series in series_ids:
+        try:
+            item = state.get_item(Key={"state_key": fp_key(series)},
+                                  ConsistentRead=True).get("Item") or {}
+        except ClientError as e:
+            # 못 읽었으면 **열려 있다고 본다** — 살아 있는 사건을 성급히 닫지 않는다
+            logger.warning("fp state unreadable for %s: %s", series, e)
+            still_open.add(series)
+            continue
+        if item.get("episode_open"):
+            still_open.add(series)
+    return still_open
+
+
+def _sync_incident(state, incidents, group: dict, firing: list[dict],
+                   all_members: list[dict], now: datetime) -> dict | None:
+    """발화가 있으면 사건을 열거나 합치고, 원인이 모두 풀렸으면 해소한다 (R4-1·R4-4).
+
+    사건의 축은 그룹과 같지만(고객사×등급) 수명이 다르다 — 30초 창이 여러 번 지나도
+    원인 알람이 살아 있는 동안은 한 사건이다. 그래야 확인 한 번이 사건 전체에 적용된다.
+    """
+    customer_id = str(group.get("customer_id", "") or "")
+    severity = str(group.get("severity", "") or "")
+    pointer = incident_pointer(customer_id, severity)
+
+    try:
+        pointed = state.get_item(Key={"state_key": pointer}, ConsistentRead=True).get("Item") or {}
+    except ClientError as e:
+        logger.error("incident pointer unreadable: %s", e)
+        return None
+    incident_id = str(pointed.get("incident_id", "") or "")
+
+    incident = None
+    if incident_id:
+        try:
+            item = incidents.get_item(Key={"incident_id": incident_id}).get("Item")
+            incident = incident_from_item(item) if item else None
+        except ClientError as e:
+            logger.error("incident %s unreadable: %s", incident_id, e)
+            return None
+
+    if firing:
+        if incident is None or incident.get("status") == STATUS_RESOLVED:
+            title = str(firing[0].get("alarm_name", "") or "")
+            incident = new_incident(customer_id, severity, now=now, title=title)
+        incident = merge_events(incident, firing, now=now)
+    elif incident is None:
+        return None        # 해소 이벤트만 왔는데 열린 사건이 없다 — 할 일이 없다
+
+    # 원인이 모두 풀렸는가. 방금 합친 발화가 있으면 당연히 아니다.
+    if not firing and should_resolve(incident, _open_fingerprints(state, incident.get("members") or [])):
+        incident = resolve_incident(incident, now=now)
+
+    try:
+        incidents.put_item(Item=incident_to_item(incident, now=now))
+        if incident.get("status") == STATUS_RESOLVED:
+            state.delete_item(Key={"state_key": pointer})
+        else:
+            state.put_item(Item={"state_key": pointer,
+                                 "incident_id": incident["incident_id"],
+                                 "ttl": int((now + timedelta(days=30)).timestamp())})
+    except ClientError as e:
+        logger.error("could not save incident: %s", e)
+        return None
+    return incident
 
 
 def _member_keys(history, group_id: str) -> list[dict]:
@@ -176,8 +260,21 @@ def deliver_group(group: dict) -> dict:
 
     customer_id = str(group.get("customer_id", "") or "")
     representative = _representative(members)
+
+    # 사건 축으로 묶는다. 실패해도 발송은 계속한다 — 알림이 사건 기록보다 급하다.
+    firing = [m for m in members if str(m.get("state", "")) == "ALARM"]
+    incident = None
+    if os.environ.get("INCIDENT_TABLE"):
+        try:
+            incident = _sync_incident(state, _incident_table(), group, firing, members, now)
+        except Exception as e:                                  # noqa: BLE001
+            logger.error("incident sync failed for group %s: %s", gid, e)
+    incident_id = str((incident or {}).get("incident_id", "") or "")
+
+    console = os.environ.get("ALERT_CONSOLE_URL", "")
+    url = f"{console}?incident={incident_id}" if console and incident_id else console
     notification = notification_from_event(
-        representative, url=os.environ.get("ALERT_CONSOLE_URL", ""), count=len(members))
+        representative, url=url, count=len(members), incident_id=incident_id)
 
     candidates = _channels(channel_table, customer_id)
     channels = select(candidates, representative)
@@ -211,11 +308,14 @@ def deliver_group(group: dict) -> dict:
              group_id=gid, customer=customer_id or "-",
              severity=str(representative.get("severity", "")) or "-",
              members=len(members), channels=len(channels), sent=sent, failed=failed,
-             claimed=True)
+             claimed=True, incident=incident_id or "-",
+             incident_status=str((incident or {}).get("status", "")) or "-")
     logger.info("Delivered group %s: members=%d channels=%d sent=%d failed=%d",
                 gid, len(members), len(channels), sent, failed)
     return {"sent": sent, "failed": failed, "channels": len(channels),
-            "members": len(members), "results": [r.to_dict() for r in results]}
+            "members": len(members), "incident_id": incident_id,
+            "incident_status": str((incident or {}).get("status", "")),
+            "results": [r.to_dict() for r in results]}
 
 
 def lambda_handler(event, context):

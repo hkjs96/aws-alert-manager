@@ -60,6 +60,11 @@ def notification_channel_table():
     return _get_dynamodb().Table(os.environ["NOTIFICATION_CHANNEL_TABLE"])
 
 
+def incident_table():
+    """인시던트 — 사건 단위 대응과 MTTA/MTTR (requirements R4)."""
+    return _get_dynamodb().Table(os.environ["INCIDENT_TABLE"])
+
+
 def event_history_table():
     """알람 이벤트 이력 — 처리 결과·사유 조회 (review-personas F7)."""
     return _get_dynamodb().Table(os.environ["EVENT_HISTORY_TABLE"])

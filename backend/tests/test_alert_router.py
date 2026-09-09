@@ -310,3 +310,159 @@ class TestIndexConsistency:
         members = [member(series=f"1#i-{i}#CPU", key=f"k{i}") for i in range(3)]
         out, sent, _, _ = run(members, [channel_item()], history=StaleIndexHistory())
         assert out["members"] == 3 and sent["notification"].count == 3
+
+
+class FakeIncidentTable:
+    def __init__(self):
+        self.items = {}
+
+    def get_item(self, Key, **_):
+        it = self.items.get(Key["incident_id"])
+        return {"Item": dict(it)} if it else {}
+
+    def put_item(self, Item, **_):
+        self.items[Item["incident_id"]] = dict(Item)
+
+
+class PointerStateTable(ClaimingStateTable):
+    """`inc#` 포인터와 `fp#` 상태를 함께 흉내 낸다."""
+
+    def __init__(self, delivered=False, open_fingerprints=()):
+        super().__init__(delivered=delivered)
+        self.open_fps = set(open_fingerprints)
+
+    def get_item(self, Key, **_):
+        key = Key["state_key"]
+        if key.startswith("fp#"):
+            series = key[3:]
+            return {"Item": {"state_key": key, "episode_open": series in self.open_fps}}
+        return super().get_item(Key)
+
+
+def run_with_incidents(members, channels, *, state=None, monkeypatch=None):
+    from alert_router import lambda_handler as r
+    hist = _with_base_table_reads(FakeHistoryTable())
+    for m in members:
+        hist.put_item(Item=m)
+    state = state or PointerStateTable()
+    chan = FakeChannelTable(channels)
+    incidents = FakeIncidentTable()
+    sent = {}
+
+    def fake_deliver_all(chs, notification, **kw):
+        sent["notification"] = notification
+        return [DeliveryResult(channel_id=c.channel_id, channel_name=c.name,
+                               type=c.type, ok=True, attempts=1, status=200) for c in chs]
+
+    with patch.dict("os.environ", {"INCIDENT_TABLE": "inc"}), \
+         patch.object(r, "_tables", return_value=(hist, state, chan)), \
+         patch.object(r, "_incident_table", return_value=incidents), \
+         patch.object(r, "_get_ddb", return_value=FakeDdbResource(hist)), \
+         patch.object(r, "deliver_all", side_effect=fake_deliver_all):
+        out = r.lambda_handler({"group": GROUP}, None)
+    return out, sent, incidents, state
+
+
+class TestIncidentLifecycle:
+    """알람이 아니라 사건 단위로 묶는다 (requirements R4)."""
+
+    def test_firing_opens_an_incident_and_stamps_the_notification(self):
+        out, sent, incidents, state = run_with_incidents([member()], [channel_item()])
+        assert out["incident_id"] and out["incident_status"] == "triggered"
+        inc = incidents.items[out["incident_id"]]
+        assert inc["members"] == ["1#i-1#CPU"] and inc["customer_id"] == "cust-1"
+        assert sent["notification"].incident_id == out["incident_id"]
+        assert state.items["inc#cust-1#SEV-2"]["incident_id"] == out["incident_id"]
+
+    def test_second_window_merges_into_the_same_incident(self):
+        """30초 창이 여러 번 지나도 원인이 살아 있으면 한 사건이다."""
+        from alert_router import lambda_handler as r
+        first, _, incidents, state = run_with_incidents(
+            [member()], [channel_item()], state=PointerStateTable(open_fingerprints={"1#i-1#CPU"}))
+
+        hist = _with_base_table_reads(FakeHistoryTable())
+        hist.put_item(Item=member(series="1#i-2#CPU", key="k2"))
+        state.delivered = False          # 새 그룹이므로 발송권을 다시 얻는다
+        sent = {}
+
+        def deliver(chs, notification, **kw):
+            sent["notification"] = notification
+            return [DeliveryResult(channel_id=c.channel_id, channel_name=c.name,
+                                   type=c.type, ok=True) for c in chs]
+
+        with patch.dict("os.environ", {"INCIDENT_TABLE": "inc"}), \
+             patch.object(r, "_tables", return_value=(hist, state, FakeChannelTable([channel_item()]))), \
+             patch.object(r, "_incident_table", return_value=incidents), \
+             patch.object(r, "_get_ddb", return_value=FakeDdbResource(hist)), \
+             patch.object(r, "deliver_all", side_effect=deliver):
+            second = r.lambda_handler({"group": GROUP}, None)
+
+        assert second["incident_id"] == first["incident_id"], "같은 사건이어야 한다"
+        inc = incidents.items[second["incident_id"]]
+        assert set(inc["members"]) == {"1#i-1#CPU", "1#i-2#CPU"}
+
+    def test_clearing_resolves_when_every_cause_is_back_to_ok(self):
+        """원인 알람이 모두 풀리면 자동 해소 (R4-4)."""
+        state = PointerStateTable(open_fingerprints={"1#i-1#CPU"})
+        _, _, incidents, state = run_with_incidents([member()], [channel_item()], state=state)
+        open_id = next(iter(incidents.items))
+
+        from alert_router import lambda_handler as r
+        hist = _with_base_table_reads(FakeHistoryTable())
+        hist.put_item(Item=member(key="k-ok", state="OK"))
+        state.open_fps = set()           # 이제 아무것도 안 울린다
+        state.delivered = False
+        with patch.dict("os.environ", {"INCIDENT_TABLE": "inc"}), \
+             patch.object(r, "_tables", return_value=(hist, state, FakeChannelTable([channel_item()]))), \
+             patch.object(r, "_incident_table", return_value=incidents), \
+             patch.object(r, "_get_ddb", return_value=FakeDdbResource(hist)), \
+             patch.object(r, "deliver_all", side_effect=lambda chs, n, **kw: [
+                 DeliveryResult(channel_id=c.channel_id, channel_name=c.name, type=c.type, ok=True)
+                 for c in chs]):
+            out = r.lambda_handler({"group": GROUP}, None)
+
+        assert out["incident_status"] == "resolved"
+        assert incidents.items[open_id]["mttr_sec"] is not None
+        assert "inc#cust-1#SEV-2" not in state.items, "포인터가 지워져야 다음 발화가 새 사건을 연다"
+
+    def test_still_firing_cause_blocks_resolution(self):
+        state = PointerStateTable(open_fingerprints={"1#i-1#CPU", "1#i-2#CPU"})
+        _, _, incidents, state = run_with_incidents(
+            [member(), member(series="1#i-2#CPU", key="k2")], [channel_item()], state=state)
+        open_id = next(iter(incidents.items))
+
+        from alert_router import lambda_handler as r
+        hist = _with_base_table_reads(FakeHistoryTable())
+        hist.put_item(Item=member(key="k-ok", state="OK"))
+        state.open_fps = {"1#i-2#CPU"}   # 하나는 아직 울린다
+        state.delivered = False
+        with patch.dict("os.environ", {"INCIDENT_TABLE": "inc"}), \
+             patch.object(r, "_tables", return_value=(hist, state, FakeChannelTable([channel_item()]))), \
+             patch.object(r, "_incident_table", return_value=incidents), \
+             patch.object(r, "_get_ddb", return_value=FakeDdbResource(hist)), \
+             patch.object(r, "deliver_all", side_effect=lambda chs, n, **kw: [
+                 DeliveryResult(channel_id=c.channel_id, channel_name=c.name, type=c.type, ok=True)
+                 for c in chs]):
+            out = r.lambda_handler({"group": GROUP}, None)
+        assert out["incident_status"] == "triggered"
+        assert incidents.items[open_id].get("resolved_at") is None
+
+    def test_delivery_continues_when_the_incident_table_is_absent(self):
+        """사건 기록보다 알림이 급하다 — 표가 없어도 발송은 된다."""
+        from alert_router import lambda_handler as r
+        hist = _with_base_table_reads(FakeHistoryTable())
+        hist.put_item(Item=member())
+        sent = {}
+        with patch.dict("os.environ", {}, clear=False), \
+             patch.object(r, "_tables", return_value=(hist, PointerStateTable(),
+                                                      FakeChannelTable([channel_item()]))), \
+             patch.object(r, "_get_ddb", return_value=FakeDdbResource(hist)), \
+             patch.object(r, "deliver_all",
+                          side_effect=lambda chs, n, **kw: (sent.update(n=n), [
+                              DeliveryResult(channel_id=c.channel_id, channel_name=c.name,
+                                             type=c.type, ok=True) for c in chs])[1]):
+            import os as _os
+            _os.environ.pop("INCIDENT_TABLE", None)
+            out = r.lambda_handler({"group": GROUP}, None)
+        assert out["sent"] == 1 and out["incident_id"] == ""
+        assert sent["n"].incident_id == ""
