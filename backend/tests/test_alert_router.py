@@ -313,6 +313,8 @@ class TestIndexConsistency:
 
 
 class FakeIncidentTable:
+    """조건부 PutItem을 해석한다 — 낙관적 잠금(version)이 여기 걸려 있다."""
+
     def __init__(self):
         self.items = {}
 
@@ -320,7 +322,11 @@ class FakeIncidentTable:
         it = self.items.get(Key["incident_id"])
         return {"Item": dict(it)} if it else {}
 
-    def put_item(self, Item, **_):
+    def put_item(self, Item, ConditionExpression=None, **_):
+        from fakes_ddb import _eval
+        cur = self.items.get(Item["incident_id"])
+        if ConditionExpression is not None and not _eval(ConditionExpression, cur):
+            raise conditional_failure()
         self.items[Item["incident_id"]] = dict(Item)
 
 
@@ -339,14 +345,14 @@ class PointerStateTable(ClaimingStateTable):
         return super().get_item(Key)
 
 
-def run_with_incidents(members, channels, *, state=None, monkeypatch=None):
+def run_with_incidents(members, channels, *, state=None, monkeypatch=None, incidents=None, group=None):
     from alert_router import lambda_handler as r
     hist = _with_base_table_reads(FakeHistoryTable())
     for m in members:
         hist.put_item(Item=m)
     state = state or PointerStateTable()
     chan = FakeChannelTable(channels)
-    incidents = FakeIncidentTable()
+    incidents = incidents if incidents is not None else FakeIncidentTable()
     sent = {}
 
     def fake_deliver_all(chs, notification, **kw):
@@ -359,8 +365,136 @@ def run_with_incidents(members, channels, *, state=None, monkeypatch=None):
          patch.object(r, "_incident_table", return_value=incidents), \
          patch.object(r, "_get_ddb", return_value=FakeDdbResource(hist)), \
          patch.object(r, "deliver_all", side_effect=fake_deliver_all):
-        out = r.lambda_handler({"group": GROUP}, None)
+        out = r.lambda_handler({"group": group or GROUP}, None)
     return out, sent, incidents, state
+
+
+class TestIncidentRaces:
+    """같은 축의 실행이 겹쳐도 사건은 하나이고, 끼어든 쓰기는 덮이지 않는다 (review-phase2 H2·M3).
+
+    auto-pause 동안 다음 창이 열리므로 겹침은 일상이다. 사람이 확인 버튼을 누르는 것도 그 순간이다.
+    """
+
+    def test_concurrent_group_joins_the_incident_the_other_run_opened(self):
+        """포인터를 읽었을 땐 없었는데 걸려고 보니 남이 걸었다 → 그 사건에 합친다. 사건은 하나."""
+        pointer = f"inc#{GROUP['group_key']}"
+        incidents = FakeIncidentTable()
+        other = {**open_incident(iid="inc-other", members=("1#i-9#CPU",)), "version": 1}
+        incidents.items["inc-other"] = dict(other)
+
+        class RacingPointerState(PointerStateTable):
+            def __init__(self):
+                super().__init__()
+                self.raced = False
+
+            def put_item(self, Item, ConditionExpression=None, **kw):
+                if Item["state_key"] == pointer and not self.raced:
+                    self.raced = True
+                    self.items[pointer] = {"state_key": pointer, "incident_id": "inc-other"}  # 남이 먼저
+                return super().put_item(Item, ConditionExpression=ConditionExpression, **kw)
+
+        out, _, incidents, state = run_with_incidents([member()], [channel_item()],
+                                                      state=RacingPointerState(), incidents=incidents)
+        assert out["sent"] == 1
+        assert out["incident_id"] == "inc-other", "둘을 만들면 하나는 영원히 triggered로 남는다"
+        assert len(incidents.items) == 1
+        assert set(incidents.items["inc-other"]["members"]) == {"1#i-9#CPU", "1#i-1#CPU"}
+        assert incidents.items["inc-other"]["version"] == 2
+        assert state.items[pointer]["incident_id"] == "inc-other"
+
+    def test_merge_is_reapplied_on_top_of_a_concurrent_ack(self):
+        """라우터가 읽은 뒤 사람이 확인했다 → 확인이 살아남고 새 구성원도 들어간다."""
+        from alert_router import lambda_handler as r
+        state = PointerStateTable(open_fingerprints={"1#i-1#CPU", "1#i-2#CPU"})
+        first, _, incidents, state = run_with_incidents([member()], [channel_item()], state=state)
+        iid = first["incident_id"]
+        assert incidents.items[iid]["version"] == 1
+
+        class AckRacingTable(FakeIncidentTable):
+            def __init__(self, base):
+                super().__init__()
+                self.items = base.items
+                self.raced = False
+
+            def put_item(self, Item, ConditionExpression=None, **kw):
+                if not self.raced and Item["incident_id"] == iid:
+                    self.raced = True          # 그새 사람이 확인했다
+                    self.items[iid].update(status="acknowledged", acknowledged_by="oncall@mz.co.kr",
+                                           acknowledged_at="2026-09-09T10:01:00Z", version=2)
+                return super().put_item(Item, ConditionExpression=ConditionExpression, **kw)
+
+        racing = AckRacingTable(incidents)
+        hist = _with_base_table_reads(FakeHistoryTable())
+        hist.put_item(Item=member(series="1#i-2#CPU", key="k2"))
+        state.delivered = False
+        with patch.dict("os.environ", {"INCIDENT_TABLE": "inc"}), \
+             patch.object(r, "_tables", return_value=(hist, state, FakeChannelTable([channel_item()]))), \
+             patch.object(r, "_incident_table", return_value=racing), \
+             patch.object(r, "_get_ddb", return_value=FakeDdbResource(hist)), \
+             patch.object(r, "deliver_all", side_effect=lambda chs, n, **kw: [
+                 DeliveryResult(channel_id=c.channel_id, channel_name=c.name, type=c.type, ok=True)
+                 for c in chs]):
+            second = r.lambda_handler({"group": GROUP}, None)
+
+        row = racing.items[iid]
+        assert second["incident_id"] == iid and second["incident_status"] == "acknowledged"
+        assert row["status"] == "acknowledged" and row["acknowledged_by"] == "oncall@mz.co.kr", "확인이 덮이면 안 된다"
+        assert set(row["members"]) == {"1#i-1#CPU", "1#i-2#CPU"}, "합친 구성원도 남아야 한다"
+        assert row["version"] == 3
+
+    def test_persistent_contention_gives_up_the_record_but_still_delivers(self):
+        class AlwaysConflict(FakeIncidentTable):
+            def put_item(self, Item, ConditionExpression=None, **kw):
+                raise conditional_failure()
+
+        out, sent, incidents, _ = run_with_incidents([member()], [channel_item()],
+                                                     incidents=AlwaysConflict())
+        assert out["sent"] == 1 and out["incident_id"] == "", "사건 기록보다 알림이 급하다"
+        assert incidents.items == {}
+
+    def test_pointer_left_on_a_resolved_incident_is_replaced(self):
+        """포인터가 해소된 사건을 가리킨 채 남았다(지우기 실패) → 새 사건이 그 자리를 가져간다."""
+        pointer = f"inc#{GROUP['group_key']}"
+        incidents = FakeIncidentTable()
+        old = {**open_incident(iid="inc-old"), "status": "resolved",
+               "resolved_at": "2026-09-09T09:00:00Z", "version": 2}
+        incidents.items["inc-old"] = old
+        state = PointerStateTable()
+        state.items[pointer] = {"state_key": pointer, "incident_id": "inc-old"}
+
+        out, _, incidents, state = run_with_incidents([member()], [channel_item()],
+                                                      state=state, incidents=incidents)
+        assert out["incident_id"] and out["incident_id"] != "inc-old"
+        assert state.items[pointer]["incident_id"] == out["incident_id"]
+        assert incidents.items["inc-old"]["status"] == "resolved", "옛 사건은 건드리지 않는다"
+
+    def test_unmapped_account_uses_the_group_key_as_the_axis(self):
+        """고객사 매핑이 없는 계정: 그룹처럼 계정별로 나뉜다 — `inc##SEV-x` 하나로 뭉치지 않는다 (M3)."""
+        group = {**GROUP, "customer_id": "", "group_key": "111#SEV-2"}
+        m = {**member(), "customer_id": "", "account_id": "111"}
+        out, _, incidents, state = run_with_incidents([m], [channel_item(customer_id="__global__")],
+                                                      group=group)
+        assert out["incident_id"]
+        inc = incidents.items[out["incident_id"]]
+        assert inc["axis"] == "111#SEV-2" and inc["account_id"] == "111"
+        assert "customer_id" not in inc, "빈 고객사는 저장하지 않는다(고객사 인덱스에서 빠진다)"
+        assert "inc#111#SEV-2" in state.items and "inc##SEV-2" not in state.items
+
+    def test_reopen_within_the_same_second_gets_a_distinct_id(self):
+        """해소 직후 같은 초에 재발화하면 ID가 같아진다 — 옛 행과 충돌하지 않게 1초 뒤 스탬프."""
+        from datetime import datetime, timezone
+        from common.incident import new_incident
+        pointer = f"inc#{GROUP['group_key']}"
+        now = datetime.now(timezone.utc)
+        same = new_incident(GROUP["customer_id"], GROUP["severity"], now=now, axis=GROUP["group_key"])
+        incidents = FakeIncidentTable()
+        incidents.items[same["incident_id"]] = {**same, "status": "resolved", "version": 1}
+        state = PointerStateTable()
+        state.items[pointer] = {"state_key": pointer, "incident_id": same["incident_id"]}
+        out, _, incidents, _ = run_with_incidents([member()], [channel_item()],
+                                                  state=state, incidents=incidents)
+        assert out["incident_id"] and out["incident_id"] != same["incident_id"]
+        assert len(incidents.items) == 2
 
 
 class TestIncidentLifecycle:
@@ -498,15 +632,14 @@ class ScanningIncidentTable(FakeIncidentTable):
         if ConditionExpression is not None and not _eval(ConditionExpression, item):
             raise conditional_failure()
         values = ExpressionAttributeValues or {}
-        if ":s" in values:                      # 정합성 회복의 해소 — 타임라인은 덧붙인다
-            item["status"] = values[":s"]
-            item["resolved_at"] = values[":at"]
-            if ":mttr" in values:
-                item["mttr_sec"] = values[":mttr"]
-            item["timeline"] = list(item.get("timeline") or []) + list(values[":entry"])
-        else:                                   # 재알림 표시
-            item["renotified_at"] = values[":new"]
-            item["timeline"] = values[":tl"]
+        assert ":s" in values, "정합성 회복만 UpdateItem을 쓴다 — 나머지는 버전 조건부 PutItem"
+        item["status"] = values[":s"]
+        item["resolved_at"] = values[":at"]
+        if ":mttr" in values:
+            item["mttr_sec"] = values[":mttr"]
+        item["timeline"] = list(item.get("timeline") or []) + list(values[":entry"])
+        if "ADD" in (UpdateExpression or ""):
+            item["version"] = int(item.get("version", 0) or 0) + 1
 
 
 def acked_incident(iid="inc-1", *, acked_minutes_ago=90, customer="cust-1",
@@ -723,6 +856,33 @@ class TestRenotify:
         out, sent, _ = run_renotify([acked_incident(acked_minutes_ago=90, severity="SEV-1")],
                                     [channel_item(match={"severity": ["SEV-1"]})])
         assert out["renotified"] == 1 and sent[0].severity == "SEV-1"
+
+    def test_marking_bumps_the_version_and_keeps_the_timeline(self):
+        _, _, incidents = run_renotify([acked_incident(acked_minutes_ago=90)], [channel_item()])
+        row = incidents.items["inc-1"]
+        assert row["version"] == 1 and row["timeline"][-1]["kind"] == "renotified"
+        assert row["timeline"][0]["kind"] == "triggered"
+
+    def test_skips_the_tick_when_the_incident_changed_underneath(self):
+        """스캔한 뒤 라우터가 합쳤거나 사람이 확인했다 → 이번 틱은 건너뛴다(덮지 않는다), 다음 틱에 다시."""
+        class Underneath(ScanningIncidentTable):
+            def put_item(self, Item, ConditionExpression=None, **kw):
+                self.items[Item["incident_id"]]["version"] = 7            # 그새 누가 썼다
+                return super().put_item(Item, ConditionExpression=ConditionExpression, **kw)
+
+        from alert_router import lambda_handler as r
+        from common.alert_suppression import SuppressionPolicy
+        incidents = Underneath([acked_incident(acked_minutes_ago=90)])
+        sent = []
+        with patch.dict("os.environ", {"INCIDENT_TABLE": "inc"}), \
+             patch.object(r, "_tables", return_value=(None, PointerStateTable(open_fingerprints={"1#i-1#CPU"}),
+                                                      FakeChannelTable([channel_item()]))), \
+             patch.object(r, "_incident_table", return_value=incidents), \
+             patch.object(r, "_policy", return_value=SuppressionPolicy(renotify_after_sec=3600)), \
+             patch.object(r, "deliver_all", side_effect=lambda chs, n, **kw: sent.append(n) or []):
+            out = r.lambda_handler({"action": "renotify"}, None)
+        assert out["renotified"] == 0 and sent == []
+        assert "renotified_at" not in incidents.items["inc-1"]
 
     def test_scheduled_event_shape_also_triggers_it(self):
         from alert_router import lambda_handler as r

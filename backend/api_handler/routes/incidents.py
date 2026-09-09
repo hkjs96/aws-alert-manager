@@ -25,8 +25,8 @@ from common.incident import (
     from_item,
     summarize,
     to_dict,
-    to_item,
 )
+from common.incident_store import MAX_ATTEMPTS, IncidentConflict, load, save
 
 logger = logging.getLogger(__name__)
 
@@ -104,7 +104,12 @@ def get_incident(event: dict) -> dict:
 
 
 def ack_incident(event: dict) -> dict:
-    """확인 처리 (R4-3). 확인자는 로그인 신원에서 온다 — 본문으로 받으면 남을 대신 확인할 수 있다."""
+    """확인 처리 (R4-3). 확인자는 로그인 신원에서 온다 — 본문으로 받으면 남을 대신 확인할 수 있다.
+
+    저장은 읽은 버전일 때만 들어간다(review-phase2 H2). 폭풍 중에 사람이 확인 버튼을 누르는 바로
+    그 순간 라우터가 새 발화를 합치고 있다 — 통째로 덮어쓰면 확인이 사라지거나 방금 합친 구성원이
+    사라진다. 충돌하면 다시 읽어 그 위에 확인을 얹는다.
+    """
     incident_id = (event.get("pathParameters") or {}).get("id", "")
     if not incident_id:
         return _err(400, "MISSING_PARAM", "인시던트 ID가 필요합니다")
@@ -113,25 +118,32 @@ def ack_incident(event: dict) -> dict:
     if not who:
         return _err(403, "FORBIDDEN", "확인자를 알 수 없습니다")
 
-    try:
-        incident = _load(incident_id)
-    except ClientError as e:
-        logger.error("incident read failed: %s", e)
-        return _err(503, "STORAGE_ERROR", "인시던트를 읽지 못했습니다")
-    if incident is None:
-        return _err(404, "NOT_FOUND", "인시던트를 찾을 수 없습니다")
-    if incident.get("status") == STATUS_RESOLVED:
-        return _err(409, "ALREADY_RESOLVED", "이미 해소된 인시던트입니다")
+    table = incident_table()
+    for _ in range(MAX_ATTEMPTS):
+        try:
+            incident, version = load(table, incident_id)
+        except ClientError as e:
+            logger.error("incident read failed: %s", e)
+            return _err(503, "STORAGE_ERROR", "인시던트를 읽지 못했습니다")
+        if incident is None:
+            return _err(404, "NOT_FOUND", "인시던트를 찾을 수 없습니다")
+        if incident.get("status") == STATUS_RESOLVED:
+            return _err(409, "ALREADY_RESOLVED", "이미 해소된 인시던트입니다")
 
-    now = datetime.now(timezone.utc)
-    updated = acknowledge(incident, by=who, now=now)
-    if updated.get("acknowledged_at") == incident.get("acknowledged_at"):
-        # 이미 확인됨 — 첫 확인자를 그대로 두고 현재 상태를 돌려준다
-        return _ok(to_dict(incident))
+        now = datetime.now(timezone.utc)
+        updated = acknowledge(incident, by=who, now=now)
+        if updated.get("acknowledged_at") == incident.get("acknowledged_at"):
+            # 이미 확인됨 — 첫 확인자를 그대로 두고 현재 상태를 돌려준다
+            return _ok(to_dict(incident))
 
-    try:
-        incident_table().put_item(Item=to_item(updated, now=now))
-    except ClientError as e:
-        logger.error("incident ack write failed: %s", e)
-        return _err(503, "STORAGE_ERROR", "확인 처리를 저장하지 못했습니다")
-    return _ok(to_dict(updated))
+        try:
+            saved = save(table, updated, now=now, expected_version=version)
+        except IncidentConflict:
+            logger.info("incident %s changed while acknowledging — re-applying", incident_id)
+            continue
+        except ClientError as e:
+            logger.error("incident ack write failed: %s", e)
+            return _err(503, "STORAGE_ERROR", "확인 처리를 저장하지 못했습니다")
+        return _ok(to_dict(saved))
+
+    return _err(409, "CONFLICT", "다른 갱신과 계속 겹칩니다 — 잠시 후 다시 시도하세요")

@@ -35,16 +35,23 @@ from common.alert_config import load_cached as load_policy
 from common.alert_state import fp_key, grp_key, iso_utc
 from common.incident import (
     STATUS_RESOLVED,
+    axis_of,
     mark_renotified,
     needs_renotify,
     parse_dt,
     from_item as incident_from_item,
-    incident_pointer,
     merge_events,
     new_incident,
+    pointer_for_axis,
     resolve as resolve_incident,
     should_resolve,
-    to_item as incident_to_item,
+)
+from common.incident_store import (
+    MAX_ATTEMPTS as INCIDENT_MAX_ATTEMPTS,
+    VERSION_FIELD,
+    IncidentConflict,
+    load as load_incident,
+    save as save_incident,
 )
 from common.notification_adapters import Notification
 from common.notification_channel import (
@@ -100,57 +107,112 @@ def _open_fingerprints(state, series_ids: list[str]) -> set[str]:
     return still_open
 
 
+def _point(state, pointer: str, incident_id: str, seen_id: str, now: datetime) -> bool:
+    """새 사건을 포인터에 건다 — **내가 읽은 그대로일 때만** (review-phase2 H2).
+
+    없었으면 여전히 없어야 하고, 해소된 옛 사건을 가리켰으면 여전히 그것을 가리켜야 한다.
+    아니면 겹친 실행이 그새 열었다는 뜻이니 False — 호출자는 다시 읽어 그 사건에 합친다.
+    두 실행이 각자 사건을 만들면 하나는 아무도 가리키지 않아 영원히 `triggered`로 남는다.
+    """
+    condition = Attr("incident_id").eq(seen_id) if seen_id else Attr("state_key").not_exists()
+    try:
+        state.put_item(Item={"state_key": pointer, "incident_id": incident_id,
+                             "ttl": int((now + timedelta(days=30)).timestamp())},
+                       ConditionExpression=condition)
+        return True
+    except ClientError as e:
+        if e.response.get("Error", {}).get("Code") == "ConditionalCheckFailedException":
+            return False
+        raise
+
+
+def _unpoint(state, pointer: str, incident_id: str) -> None:
+    """포인터가 이 사건을 가리킬 때만 지운다 — 그새 새 사건이 열렸으면 그쪽 것이다."""
+    try:
+        state.delete_item(Key={"state_key": pointer},
+                          ConditionExpression=Attr("incident_id").eq(incident_id))
+    except ClientError as e:
+        if e.response.get("Error", {}).get("Code") != "ConditionalCheckFailedException":
+            logger.warning("pointer %s not removed: %s", pointer, e)
+
+
 def _sync_incident(state, incidents, group: dict, firing: list[dict],
                    all_members: list[dict], now: datetime) -> dict | None:
     """발화가 있으면 사건을 열거나 합치고, 원인이 모두 풀렸으면 해소한다 (R4-1·R4-4).
 
-    사건의 축은 그룹과 같지만(고객사×등급) 수명이 다르다 — 30초 창이 여러 번 지나도
-    원인 알람이 살아 있는 동안은 한 사건이다. 그래야 확인 한 번이 사건 전체에 적용된다.
+    사건의 축은 **그룹 키 그대로**다(`{customer or account}#{severity}`, M3). 수명은 다르다 —
+    30초 창이 여러 번 지나도 원인 알람이 살아 있는 동안은 한 사건이다. 그래야 확인 한 번이
+    사건 전체에 적용된다.
+
+    쓰기는 읽은 버전일 때만 들어간다(H2). 같은 축의 실행은 auto-pause 동안 일상적으로 겹치고,
+    사람이 확인 버튼을 누르는 것도 그 순간이다 — 통째로 덮어쓰면 확인이 사라지거나 구성원이
+    사라져 아직 울리는데 해소된다. 충돌하면 다시 읽어 그 위에 적용하고, 계속 겹치면 발송을
+    막지 않기 위해 사건 기록을 포기한다.
     """
     customer_id = str(group.get("customer_id", "") or "")
     severity = str(group.get("severity", "") or "")
-    pointer = incident_pointer(customer_id, severity)
+    axis = str(group.get("group_key", "") or f"{customer_id}#{severity}")
+    pointer = pointer_for_axis(axis)
+    source = firing[0] if firing else (all_members[0] if all_members else {})
+    account_id = str(source.get("account_id", "") or "")
 
-    try:
-        pointed = state.get_item(Key={"state_key": pointer}, ConsistentRead=True).get("Item") or {}
-    except ClientError as e:
-        logger.error("incident pointer unreadable: %s", e)
-        return None
-    incident_id = str(pointed.get("incident_id", "") or "")
-
-    incident = None
-    if incident_id:
+    for _ in range(INCIDENT_MAX_ATTEMPTS):
         try:
-            item = incidents.get_item(Key={"incident_id": incident_id}).get("Item")
-            incident = incident_from_item(item) if item else None
+            pointed = state.get_item(Key={"state_key": pointer}, ConsistentRead=True).get("Item") or {}
         except ClientError as e:
-            logger.error("incident %s unreadable: %s", incident_id, e)
+            logger.error("incident pointer unreadable: %s", e)
+            return None
+        seen_id = str(pointed.get("incident_id", "") or "")
+
+        incident, version = None, None
+        if seen_id:
+            try:
+                incident, version = load_incident(incidents, seen_id)
+            except ClientError as e:
+                logger.error("incident %s unreadable: %s", seen_id, e)
+                return None
+
+        if firing:
+            if incident is None or incident.get("status") == STATUS_RESOLVED:
+                title = str(firing[0].get("alarm_name", "") or "")
+                fresh = new_incident(customer_id, severity, now=now, title=title,
+                                     axis=axis, account_id=account_id)
+                if incident is not None and fresh["incident_id"] == incident["incident_id"]:
+                    # 같은 초에 해소됐다 다시 열리면 ID가 같아진다 — 1초 뒤 스탬프로 피한다(그룹과 같은 수법)
+                    fresh = new_incident(customer_id, severity, now=now + timedelta(seconds=1),
+                                         title=title, axis=axis, account_id=account_id)
+                incident, version = fresh, None
+            incident = merge_events(incident, firing, now=now)
+        elif incident is None:
+            return None        # 해소 이벤트만 왔는데 열린 사건이 없다 — 할 일이 없다
+        elif incident.get("status") == STATUS_RESOLVED:
+            _unpoint(state, pointer, seen_id)      # 해소된 사건을 가리킨 채 남은 포인터 — 정리만
             return None
 
-    if firing:
-        if incident is None or incident.get("status") == STATUS_RESOLVED:
-            title = str(firing[0].get("alarm_name", "") or "")
-            incident = new_incident(customer_id, severity, now=now, title=title)
-        incident = merge_events(incident, firing, now=now)
-    elif incident is None:
-        return None        # 해소 이벤트만 왔는데 열린 사건이 없다 — 할 일이 없다
+        # 원인이 모두 풀렸는가. 방금 합친 발화가 있으면 당연히 아니다.
+        if not firing and should_resolve(incident, _open_fingerprints(state, incident.get("members") or [])):
+            incident = resolve_incident(incident, now=now)
 
-    # 원인이 모두 풀렸는가. 방금 합친 발화가 있으면 당연히 아니다.
-    if not firing and should_resolve(incident, _open_fingerprints(state, incident.get("members") or [])):
-        incident = resolve_incident(incident, now=now)
+        try:
+            # 새 사건은 포인터를 먼저 건다 — 남이 먼저 걸었으면 그 사건에 합쳐야지 둘을 만들면 안 된다
+            if version is None and not _point(state, pointer, incident["incident_id"], seen_id, now):
+                logger.info("incident pointer %s taken by a concurrent run — re-reading", pointer)
+                continue
+            saved = save_incident(incidents, incident, now=now, expected_version=version)
+        except IncidentConflict:
+            logger.info("incident %s changed underneath — re-applying", incident.get("incident_id"))
+            continue
+        except ClientError as e:
+            logger.error("could not save incident: %s", e)
+            return None
 
-    try:
-        incidents.put_item(Item=incident_to_item(incident, now=now))
-        if incident.get("status") == STATUS_RESOLVED:
-            state.delete_item(Key={"state_key": pointer})
-        else:
-            state.put_item(Item={"state_key": pointer,
-                                 "incident_id": incident["incident_id"],
-                                 "ttl": int((now + timedelta(days=30)).timestamp())})
-    except ClientError as e:
-        logger.error("could not save incident: %s", e)
-        return None
-    return incident
+        if saved.get("status") == STATUS_RESOLVED:
+            _unpoint(state, pointer, saved["incident_id"])
+        return saved
+
+    logger.warning("incident contention on %s after %d attempts — group %s delivered without a record",
+                   axis, INCIDENT_MAX_ATTEMPTS, group.get("group_id"))
+    return None
 
 
 def _member_keys(history, group_id: str) -> list[dict]:
@@ -292,7 +354,8 @@ def deliver_group(group: dict) -> dict:
                  group_id=gid, customer=customer_id or "-",
                  severity=str(representative.get("severity", "")) or "-",
                  members=len(members), channels=0, sent=0, failed=0, claimed=False)
-        return {"sent": 0, "channels": 0, "members": len(members), "reason": "no_channel"}
+        return {"sent": 0, "channels": 0, "members": len(members), "reason": "no_channel",
+                "incident_id": incident_id}
 
     if not _claim(state, group, now):
         logger.info("group %s already delivered — skipping", gid)
@@ -353,8 +416,9 @@ def _resolve_if_stale(incidents, state, incident: dict, now: datetime) -> bool:
     다시 부르지만 그것도 실패할 수 있다) 사건은 영원히 열린 채 매시간 재알림되고, 사람이 끊을 방법도
     없다. `fp#`가 진실의 원천이므로 여기서 같은 근거로 다시 판정한다 — 원인이 무엇이든 5분 안에 맞춰진다.
 
-    조건부 UpdateItem이다: 아직 열려 있을 때만 닫고 타임라인은 덧붙인다 — 같은 순간 합치고 있는
-    라우터의 쓰기를 통째로 덮지 않는다. 포인터는 이 사건을 가리킬 때만 지운다.
+    조건부 UpdateItem이다: 아직 열려 있을 때만 닫고 타임라인은 덧붙이며 버전을 올린다 — 같은 순간
+    합치고 있는 라우터의 쓰기를 덮지 않고, 라우터가 읽어 둔 버전을 무효화한다. 포인터는 이 사건을
+    가리킬 때만 지운다.
     """
     members = list(incident.get("members") or [])
     if not should_resolve(incident, _open_fingerprints(state, members)):
@@ -363,62 +427,37 @@ def _resolve_if_stale(incidents, state, incident: dict, now: datetime) -> bool:
     resolved = resolve_incident(incident, now=now, reason="정합성 점검: 원인 알람이 모두 해소됨")
     sets = ["#s = :s", "resolved_at = :at", "#tl = list_append(if_not_exists(#tl, :empty), :entry)"]
     values = {":s": STATUS_RESOLVED, ":at": resolved["resolved_at"],
-              ":entry": [resolved["timeline"][-1]], ":empty": []}
+              ":entry": [resolved["timeline"][-1]], ":empty": [], ":one": 1}
     if resolved.get("mttr_sec") is not None:
         sets.append("mttr_sec = :mttr")
         values[":mttr"] = int(resolved["mttr_sec"])
     try:
         incidents.update_item(
             Key={"incident_id": iid},
-            UpdateExpression="SET " + ", ".join(sets),
+            UpdateExpression="SET " + ", ".join(sets) + " ADD #v :one",
             ConditionExpression=Attr("status").ne(STATUS_RESOLVED),
-            ExpressionAttributeNames={"#s": "status", "#tl": "timeline"},
+            ExpressionAttributeNames={"#s": "status", "#tl": "timeline", "#v": VERSION_FIELD},
             ExpressionAttributeValues=values)
     except ClientError as e:
         if e.response.get("Error", {}).get("Code") != "ConditionalCheckFailedException":
             logger.error("reconcile: could not resolve incident %s: %s", iid, e)
         return False               # 누가 먼저 닫았다 — 그걸로 됐다
-    pointer = incident_pointer(str(incident.get("customer_id", "") or ""),
-                               str(incident.get("severity", "") or ""))
-    try:
-        state.delete_item(Key={"state_key": pointer},
-                          ConditionExpression=Attr("incident_id").eq(iid))
-    except ClientError as e:
-        if e.response.get("Error", {}).get("Code") != "ConditionalCheckFailedException":
-            logger.warning("reconcile: pointer %s not removed: %s", pointer, e)
+    _unpoint(state, pointer_for_axis(axis_of(incident)), iid)
     logger.warning("reconcile: resolved incident %s (%d members, all back to OK)", iid, len(members))
     return True
 
 
-def _claim_renotify(incidents, incident: dict, now: datetime) -> bool:
-    """재알림 권한을 한 번만 가져온다.
+def _claim_renotify(incidents, incident: dict, version: int, now: datetime) -> bool:
+    """재알림 권한을 한 번만 가져온다 — 사건이 **읽은 버전 그대로일 때만** 표시한다.
 
-    두 실행이 겹치면 같은 사건이 두 번 울린다. `renotified_at`이 **읽은 그대로일 때만** 쓴다.
+    겹친 틱이 같은 사건을 두 번 울리지 않고, 그새 라우터가 합치거나 사람이 확인한 것도 덮지 않는다.
+    충돌이면 이번 틱은 건너뛴다 — 아직 대상이면 다음 틱(5분 뒤)에 다시 본다.
     """
-    previous = incident.get("renotified_at")
-    marked = mark_renotified(incident, now=now)
     try:
-        if previous:
-            incidents.update_item(
-                Key={"incident_id": incident["incident_id"]},
-                UpdateExpression="SET renotified_at = :new, #tl = :tl",
-                ConditionExpression=Attr("renotified_at").eq(previous),
-                ExpressionAttributeNames={"#tl": "timeline"},
-                ExpressionAttributeValues={":new": marked["renotified_at"],
-                                           ":tl": marked["timeline"]})
-        else:
-            incidents.update_item(
-                Key={"incident_id": incident["incident_id"]},
-                UpdateExpression="SET renotified_at = :new, #tl = :tl",
-                ConditionExpression=Attr("renotified_at").not_exists(),
-                ExpressionAttributeNames={"#tl": "timeline"},
-                ExpressionAttributeValues={":new": marked["renotified_at"],
-                                           ":tl": marked["timeline"]})
+        save_incident(incidents, mark_renotified(incident, now=now), now=now, expected_version=version)
         return True
-    except ClientError as e:
-        if e.response.get("Error", {}).get("Code") == "ConditionalCheckFailedException":
-            return False
-        raise
+    except IncidentConflict:
+        return False
 
 
 def _renotification(incident: dict, now: datetime, console: str) -> Notification:
@@ -439,14 +478,14 @@ def _renotification(incident: dict, now: datetime, console: str) -> Notification
     )
 
 
-def _renotify(incidents, channel_table, open_incidents: list[dict], now: datetime) -> dict:
-    """확인만 하고 방치된 사건을 다시 띄운다 (R4-6)."""
+def _renotify(incidents, channel_table, open_incidents: list[tuple[dict, int]], now: datetime) -> dict:
+    """확인만 하고 방치된 사건을 다시 띄운다 (R4-6). 입력은 (사건, 읽은 버전) 쌍."""
     after_sec = int(getattr(_policy(), "renotify_after_sec", 0) or 0)
     if after_sec <= 0:
         return {"renotified": 0, "sent": 0, "reason": "disabled"}
     renotified = sent_total = 0
 
-    for incident in open_incidents:
+    for incident, version in open_incidents:
         if not needs_renotify(incident, now=now, after_sec=after_sec):
             continue
         customer_id = str(incident.get("customer_id", "") or "")
@@ -456,7 +495,7 @@ def _renotify(incidents, channel_table, open_incidents: list[dict], now: datetim
         if not channels:
             continue
         # 보내기 전에 표시한다 — 겹친 실행이 같은 사건을 두 번 울리지 않게.
-        if not _claim_renotify(incidents, incident, now):
+        if not _claim_renotify(incidents, incident, version, now):
             continue
         results = deliver_all(channels,
                               _renotification(incident, now, os.environ.get("ALERT_CONSOLE_URL", "")),
@@ -481,10 +520,11 @@ def tick() -> dict:
     _, state, channel_table = _tables()
     incidents = _incident_table()
     now = datetime.now(timezone.utc)
-    candidates = [incident_from_item(i) for i in _open_incidents(incidents)]
+    candidates = [(incident_from_item(i), int(i.get(VERSION_FIELD, 0) or 0))
+                  for i in _open_incidents(incidents)]
 
     still_open, resolved = [], 0
-    for incident in candidates:
+    for incident, version in candidates:
         try:
             closed = _resolve_if_stale(incidents, state, incident, now)
         except Exception as e:                                  # noqa: BLE001 — 한 건이 틱 전체를 막지 않는다
@@ -493,7 +533,7 @@ def tick() -> dict:
         if closed:
             resolved += 1
         else:
-            still_open.append(incident)
+            still_open.append((incident, version))
     log_perf("alert_reconcile", 0.0, open=len(candidates), resolved=resolved)
 
     out = _renotify(incidents, channel_table, still_open, now)

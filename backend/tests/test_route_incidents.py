@@ -20,6 +20,8 @@ ME = "oncall@mz.co.kr"
 
 
 class FakeIncidentTable:
+    """조건부 PutItem을 해석한다 — 확인의 낙관적 잠금(version)이 여기 걸려 있다."""
+
     def __init__(self, items=None):
         self.items = {i["incident_id"]: dict(i) for i in (items or [])}
 
@@ -27,7 +29,11 @@ class FakeIncidentTable:
         it = self.items.get(Key["incident_id"])
         return {"Item": dict(it)} if it else {}
 
-    def put_item(self, Item, **_):
+    def put_item(self, Item, ConditionExpression=None, **_):
+        from fakes_ddb import _eval, conditional_failure
+        cur = self.items.get(Item["incident_id"])
+        if ConditionExpression is not None and not _eval(ConditionExpression, cur):
+            raise conditional_failure()
         self.items[Item["incident_id"]] = dict(Item)
 
     def query(self, KeyConditionExpression=None, **_):
@@ -115,6 +121,52 @@ class TestAcknowledge:
             from api_handler.lambda_handler import lambda_handler
             resp = lambda_handler(ev, None)
         assert resp["statusCode"] == 503
+
+    # ── 확인은 읽은 버전일 때만 저장된다 (review-phase2 H2) — 라우터가 같은 순간 합치고 있다
+
+    def test_ack_is_reapplied_on_top_of_a_concurrent_merge(self):
+        """읽은 뒤 라우터가 구성원을 더했다 → 확인은 그 위에 얹히고 새 구성원도 남는다."""
+        class MergeRacing(FakeIncidentTable):
+            def __init__(self, items):
+                super().__init__(items)
+                self.raced = False
+
+            def put_item(self, Item, ConditionExpression=None, **kw):
+                if not self.raced:
+                    self.raced = True
+                    row = self.items["inc-1"]
+                    row["members"] = list(row["members"]) + ["111#i-2#CPU"]
+                    row["version"] = int(row.get("version", 0)) + 1
+                return super().put_item(Item, ConditionExpression=ConditionExpression, **kw)
+
+        table = MergeRacing([{**incident(iid="inc-1"), "version": 1}])
+        resp, b, t = call("POST", "/alert/incidents/inc-1/ack", table=table,
+                          path_params={"id": "inc-1"})
+        assert resp["statusCode"] == 200, resp["body"]
+        row = t.items["inc-1"]
+        assert row["status"] == "acknowledged" and row["acknowledged_by"] == ME
+        assert set(row["members"]) == {"111#i-1#CPU", "111#i-2#CPU"}, "합쳐진 구성원이 사라지면 조기 해소된다"
+        assert row["version"] == 3 and b["version"] == 3
+
+    def test_persistent_conflict_is_a_409_not_a_silent_overwrite(self):
+        class AlwaysRacing(FakeIncidentTable):
+            def put_item(self, Item, ConditionExpression=None, **kw):
+                self.items["inc-1"]["version"] = int(self.items["inc-1"].get("version", 0)) + 1
+                return super().put_item(Item, ConditionExpression=ConditionExpression, **kw)
+
+        table = AlwaysRacing([{**incident(iid="inc-1"), "version": 1}])
+        resp, b, t = call("POST", "/alert/incidents/inc-1/ack", table=table,
+                          path_params={"id": "inc-1"})
+        assert resp["statusCode"] == 409 and b["code"] == "CONFLICT"
+        assert t.items["inc-1"]["status"] == "triggered"
+
+    def test_legacy_row_without_a_version_is_acknowledged(self):
+        """버전을 붙이기 전의 행 — 0으로 읽고 1로 쓴다."""
+        table = FakeIncidentTable([incident(iid="inc-1")])
+        assert "version" not in table.items["inc-1"]
+        resp, b, t = call("POST", "/alert/incidents/inc-1/ack", table=table,
+                          path_params={"id": "inc-1"})
+        assert resp["statusCode"] == 200 and t.items["inc-1"]["version"] == 1
 
 
 class TestListing:

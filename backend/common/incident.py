@@ -35,13 +35,29 @@ MAX_MEMBERS = 200
 INCIDENT_TTL_DAYS = 90
 
 
+def pointer_for_axis(axis: str) -> str:
+    """열린 인시던트를 가리키는 상태 키. **축은 그룹 키와 같은 문자열**이다 (review-phase2 M3).
+
+    그룹 키는 `{customer_id or account_id}#{severity}` — 고객사 매핑이 없는 계정은 계정별로 나뉜다.
+    사건도 같은 축을 써야 미매핑 계정들이 `inc##SEV-x` 하나로 뭉치지 않고, 서로 다른 실행이 같은
+    포인터를 두고 경합하지 않는다.
+    """
+    return f"{INC_PREFIX}{axis}"
+
+
 def incident_pointer(customer_id: str, severity: str) -> str:
-    """열린 인시던트를 가리키는 상태 키. 그룹과 같은 축이다."""
-    return f"{INC_PREFIX}{customer_id}#{severity}"
+    """고객사·등급으로 축을 만드는 편의 함수. 매핑된 고객사에서는 그룹 키와 같다."""
+    return pointer_for_axis(f"{customer_id}#{severity}")
 
 
-def new_incident_id(customer_id: str, severity: str, opened_at: str) -> str:
-    digest = hashlib.sha1(f"{customer_id}#{severity}".encode("utf-8")).hexdigest()[:12]
+def axis_of(incident: dict) -> str:
+    """사건의 축. 축을 저장하기 전의 옛 행은 고객사#등급으로 되돌린다."""
+    return str(incident.get("axis") or
+               f"{incident.get('customer_id', '') or ''}#{incident.get('severity', '') or ''}")
+
+
+def new_incident_id(customer_id: str, severity: str, opened_at: str, *, axis: str = "") -> str:
+    digest = hashlib.sha1((axis or f"{customer_id}#{severity}").encode("utf-8")).hexdigest()[:12]
     stamp = re.sub(r"\D", "", opened_at)[:14] or "0"
     return f"inc-{digest}-{stamp}"
 
@@ -64,11 +80,16 @@ def _entry(at: datetime, kind: str, detail: str) -> dict:
     return {"at": _iso(at), "kind": kind, "detail": detail[:200]}
 
 
-def new_incident(customer_id: str, severity: str, *, now: datetime, title: str = "") -> dict:
+def new_incident(customer_id: str, severity: str, *, now: datetime, title: str = "",
+                 axis: str = "", account_id: str = "") -> dict:
+    """새 사건. `axis`는 그룹 키(없으면 고객사#등급). 고객사 매핑이 없는 계정은 `customer_id`가 비고
+    `account_id`만 남는다 — 저장 시 빈 값은 빠지므로 그런 사건은 고객사 인덱스에 안 잡힌다(의도)."""
     opened = _iso(now)
-    return {
-        "incident_id": new_incident_id(customer_id, severity, opened),
+    axis = axis or f"{customer_id}#{severity}"
+    incident = {
+        "incident_id": new_incident_id(customer_id, severity, opened, axis=axis),
         "customer_id": customer_id,
+        "axis": axis,
         "severity": severity,
         "status": STATUS_TRIGGERED,
         "title": (title or "알람")[:200],
@@ -77,6 +98,9 @@ def new_incident(customer_id: str, severity: str, *, now: datetime, title: str =
         "timeline": [_entry(now, "triggered", title or "인시던트 생성")],
         "event_count": 0,
     }
+    if account_id:                 # 빈 값은 저장에서 빠지므로 애초에 넣지 않는다(왕복 동일성)
+        incident["account_id"] = account_id
+    return incident
 
 
 def merge_events(incident: dict, events: list[dict], *, now: datetime) -> dict:

@@ -606,7 +606,11 @@ Response `200`: 위 항목 하나(타임라인 포함). `404 NOT_FOUND`.
 이미 확인된 건은 `200`으로 현재 상태를 그대로 돌려준다(첫 확인자·시각 유지).
 사람이 버튼을 두 번 눌렀다고 오류를 볼 이유는 없고, 덮어쓰면 MTTA가 거짓이 된다.
 
-Errors: `404 NOT_FOUND`, `409 ALREADY_RESOLVED`, `503 STORAGE_ERROR`
+저장은 읽은 `version`일 때만 들어간다(낙관적 잠금). 라우터가 같은 순간 발화를 합치고 있으면 다시
+읽어 그 위에 확인을 얹는다(최대 3회). 계속 겹치면 `409 CONFLICT` — 잠시 후 다시 누르면 된다.
+응답의 `version`은 저장된 버전이다.
+
+Errors: `404 NOT_FOUND`, `409 ALREADY_RESOLVED`, `409 CONFLICT`, `503 STORAGE_ERROR`
 
 ## GET /api/alert/channel-types
 

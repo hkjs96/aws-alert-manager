@@ -63,6 +63,22 @@ class TestCreation:
     def test_pointer_shares_the_group_axis(self):
         assert incident_pointer("cust-1", "SEV-2") == "inc#cust-1#SEV-2"
 
+    def test_axis_is_the_group_key_verbatim(self):
+        """미매핑 계정은 그룹처럼 계정별로 나뉜다 — `inc##SEV-x` 하나로 뭉치지 않는다 (review-phase2 M3)."""
+        from common.incident import axis_of, pointer_for_axis
+        inc = new_incident("", "SEV-2", now=T0, axis="111#SEV-2", account_id="111")
+        assert inc["axis"] == "111#SEV-2" and inc["account_id"] == "111"
+        assert pointer_for_axis(inc["axis"]) == "inc#111#SEV-2"
+        assert axis_of(inc) == "111#SEV-2"
+        assert new_incident_id("", "SEV-2", "2026-09-09T10:00:00Z", axis="111#SEV-2") == inc["incident_id"]
+
+    def test_axis_defaults_to_customer_and_severity(self):
+        from common.incident import axis_of
+        inc = opened()
+        assert inc["axis"] == "cust-1#SEV-2"
+        legacy = {k: v for k, v in inc.items() if k != "axis"}
+        assert axis_of(legacy) == "cust-1#SEV-2", "축을 저장하기 전의 행도 같은 포인터를 찾아야 한다"
+
 
 class TestMerge:
     def test_adds_members_and_timeline(self):
