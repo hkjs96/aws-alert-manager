@@ -481,21 +481,32 @@ class ScanningIncidentTable(FakeIncidentTable):
         rows = [dict(v) for v in self.items.values()]
         if FilterExpression is not None:
             expr = FilterExpression.get_expression()
-            wanted = expr["values"][1]
-            rows = [r for r in rows if r.get("status") == wanted]
+            op, wanted = expr["operator"], expr["values"][1]
+            if op == "=":
+                rows = [r for r in rows if r.get("status") == wanted]
+            elif op == "<>":
+                rows = [r for r in rows if r.get("status") != wanted]
+            else:
+                raise AssertionError(f"unsupported scan filter {op}")
         return {"Items": rows}
 
     def update_item(self, Key, UpdateExpression=None, ConditionExpression=None,
                     ExpressionAttributeValues=None, ExpressionAttributeNames=None, **_):
+        from fakes_ddb import _eval
         self.updates += 1
         item = self.items[Key["incident_id"]]
-        expr = ConditionExpression.get_expression()
-        if expr["operator"] == "attribute_not_exists" and "renotified_at" in item:
+        if ConditionExpression is not None and not _eval(ConditionExpression, item):
             raise conditional_failure()
-        if expr["operator"] == "=" and item.get("renotified_at") != expr["values"][1]:
-            raise conditional_failure()
-        item["renotified_at"] = ExpressionAttributeValues[":new"]
-        item["timeline"] = ExpressionAttributeValues[":tl"]
+        values = ExpressionAttributeValues or {}
+        if ":s" in values:                      # 정합성 회복의 해소 — 타임라인은 덧붙인다
+            item["status"] = values[":s"]
+            item["resolved_at"] = values[":at"]
+            if ":mttr" in values:
+                item["mttr_sec"] = values[":mttr"]
+            item["timeline"] = list(item.get("timeline") or []) + list(values[":entry"])
+        else:                                   # 재알림 표시
+            item["renotified_at"] = values[":new"]
+            item["timeline"] = values[":tl"]
 
 
 def acked_incident(iid="inc-1", *, acked_minutes_ago=90, customer="cust-1",
@@ -513,11 +524,17 @@ def acked_incident(iid="inc-1", *, acked_minutes_ago=90, customer="cust-1",
     return inc
 
 
-def run_renotify(incidents_items, channels, *, after_sec=3600):
+def run_tick(incidents_items, channels, *, after_sec=3600, open_fps=("1#i-1#CPU",),
+             pointers=(), state=None):
+    """5분 틱을 돌린다. 기본은 사건의 원인 알람(`1#i-1#CPU`)이 **아직 울리는** 상태다 —
+    안 울리면 정합성 회복이 사건을 먼저 닫아 버려 재알림이 아예 대상이 아니다."""
     from alert_router import lambda_handler as r
     from common.alert_suppression import SuppressionPolicy
     incidents = ScanningIncidentTable(incidents_items)
     chan = FakeChannelTable(channels)
+    state = state or PointerStateTable(open_fingerprints=open_fps)
+    for p in pointers:
+        state.items[p["state_key"]] = dict(p)
     sent = []
 
     def fake_deliver_all(chs, notification, **kw):
@@ -526,12 +543,127 @@ def run_renotify(incidents_items, channels, *, after_sec=3600):
                                type=c.type, ok=True, status=200) for c in chs]
 
     with patch.dict("os.environ", {"INCIDENT_TABLE": "inc"}), \
-         patch.object(r, "_tables", return_value=(None, PointerStateTable(), chan)), \
+         patch.object(r, "_tables", return_value=(None, state, chan)), \
          patch.object(r, "_incident_table", return_value=incidents), \
          patch.object(r, "_policy", return_value=SuppressionPolicy(renotify_after_sec=after_sec)), \
          patch.object(r, "deliver_all", side_effect=fake_deliver_all):
         out = r.lambda_handler({"action": "renotify"}, None)
+    return out, sent, incidents, state
+
+
+def run_renotify(incidents_items, channels, *, after_sec=3600):
+    out, sent, incidents, _ = run_tick(incidents_items, channels, after_sec=after_sec)
     return out, sent, incidents
+
+
+def open_incident(iid="inc-open", *, customer="cust-1", severity="SEV-2", members=("1#i-1#CPU",)):
+    from datetime import datetime, timedelta, timezone
+    from common.incident import merge_events, new_incident
+    opened = datetime.now(timezone.utc) - timedelta(minutes=20)
+    inc = new_incident(customer, severity, now=opened, title="[EC2] i-1 CPU > 80%")
+    inc = merge_events(inc, [{"series_id": m} for m in members], now=opened)
+    inc["incident_id"] = iid
+    return inc
+
+
+class TestReconcile:
+    """Deliver 경로가 못 닫은 사건을 5분 틱이 닫는다 (review-phase2 M1).
+
+    `fp#`가 진실이다: 원인 알람이 전부 OK로 돌아왔는데 열린 사건은 어떤 이유로든 5분 안에 닫혀야 한다 —
+    안 그러면 확인된 사건이 매시간 영원히 재알림되고 사람이 끊을 방법이 없다.
+    """
+
+    def test_resolves_when_every_cause_is_back_to_ok(self):
+        pointer = {"state_key": "inc#cust-1#SEV-2", "incident_id": "inc-1"}
+        out, sent, incidents, state = run_tick([acked_incident(acked_minutes_ago=90)], [channel_item()],
+                                               open_fps=(), pointers=[pointer])
+        assert out["resolved"] == 1 and out["checked"] == 1
+        assert out["renotified"] == 0 and sent == [], "방금 닫은 사건을 다시 띄우면 안 된다"
+        row = incidents.items["inc-1"]
+        assert row["status"] == "resolved" and row["resolved_at"]
+        assert isinstance(row["mttr_sec"], int) and row["mttr_sec"] > 0
+        assert row["timeline"][-1]["kind"] == "resolved" and "정합성" in row["timeline"][-1]["detail"]
+        assert row["timeline"][0]["kind"] == "triggered", "타임라인은 덧붙여야지 갈아끼우면 안 된다"
+        assert "inc#cust-1#SEV-2" not in state.items
+
+    def test_a_cause_still_firing_keeps_it_open(self):
+        out, sent, incidents, _ = run_tick([acked_incident(acked_minutes_ago=90)], [channel_item()],
+                                           open_fps={"1#i-1#CPU"})
+        assert out["resolved"] == 0 and incidents.items["inc-1"]["status"] == "acknowledged"
+        assert out["renotified"] == 1 and len(sent) == 1
+
+    def test_unacknowledged_incidents_are_reconciled_too(self):
+        out, sent, incidents, _ = run_tick([open_incident()], [channel_item()], open_fps=())
+        assert out["resolved"] == 1 and incidents.items["inc-open"]["status"] == "resolved"
+        assert sent == []
+
+    def test_only_one_of_two_causes_ok_is_not_enough(self):
+        inc = open_incident(members=("1#i-1#CPU", "1#i-2#CPU"))
+        out, _, incidents, _ = run_tick([inc], [channel_item()], open_fps={"1#i-2#CPU"})
+        assert out["resolved"] == 0 and incidents.items["inc-open"]["status"] == "triggered"
+
+    def test_pointer_of_a_newer_incident_is_left_alone(self):
+        """그새 같은 축에 새 사건이 열렸으면 포인터는 그쪽 것이다 — 지우면 다음 발화가 또 새 사건을 연다."""
+        pointer = {"state_key": "inc#cust-1#SEV-2", "incident_id": "inc-newer"}
+        out, _, _, state = run_tick([acked_incident(acked_minutes_ago=90)], [channel_item()],
+                                    open_fps=(), pointers=[pointer])
+        assert out["resolved"] == 1
+        assert state.items["inc#cust-1#SEV-2"]["incident_id"] == "inc-newer"
+
+    def test_unreadable_state_keeps_the_incident_open(self):
+        """fp#를 못 읽었으면 열려 있다고 본다 — 살아 있는 사건을 성급히 닫지 않는다."""
+        from botocore.exceptions import ClientError
+
+        class BrokenState(PointerStateTable):
+            def get_item(self, Key, **kw):
+                if Key["state_key"].startswith("fp#"):
+                    raise ClientError({"Error": {"Code": "ProvisionedThroughputExceededException",
+                                                 "Message": "x"}}, "GetItem")
+                return super().get_item(Key, **kw)
+
+        out, _, incidents, _ = run_tick([acked_incident(acked_minutes_ago=90)], [channel_item()],
+                                        state=BrokenState())
+        assert out["resolved"] == 0 and incidents.items["inc-1"]["status"] == "acknowledged"
+
+    def test_runs_even_when_renotify_is_disabled(self):
+        out, _, incidents, _ = run_tick([acked_incident(acked_minutes_ago=90)], [channel_item()],
+                                        open_fps=(), after_sec=0)
+        assert out["resolved"] == 1 and out["reason"] == "disabled"
+        assert incidents.items["inc-1"]["status"] == "resolved"
+
+    def test_someone_else_closing_first_is_not_an_error(self):
+        """조건부 갱신이 실패하면(라우터가 먼저 닫음) 조용히 넘어간다 — 카운트에도 안 잡힌다."""
+        class RacingTable(ScanningIncidentTable):
+            def update_item(self, Key, **kw):
+                self.items[Key["incident_id"]]["status"] = "resolved"     # 그 사이 누가 닫았다
+                return super().update_item(Key, **kw)
+
+        from alert_router import lambda_handler as r
+        from common.alert_suppression import SuppressionPolicy
+        incidents = RacingTable([acked_incident(acked_minutes_ago=90)])
+        with patch.dict("os.environ", {"INCIDENT_TABLE": "inc"}), \
+             patch.object(r, "_tables", return_value=(None, PointerStateTable(), FakeChannelTable([]))), \
+             patch.object(r, "_incident_table", return_value=incidents), \
+             patch.object(r, "_policy", return_value=SuppressionPolicy()):
+            out = r.lambda_handler({"action": "tick"}, None)
+        assert out["resolved"] == 0 and out["checked"] == 1
+
+    def test_one_broken_row_does_not_stop_the_tick(self):
+        class HalfBroken(ScanningIncidentTable):
+            def update_item(self, Key, **kw):
+                if Key["incident_id"] == "inc-bad":
+                    raise RuntimeError("boom")
+                return super().update_item(Key, **kw)
+
+        from alert_router import lambda_handler as r
+        from common.alert_suppression import SuppressionPolicy
+        incidents = HalfBroken([open_incident(iid="inc-bad"), open_incident(iid="inc-good")])
+        with patch.dict("os.environ", {"INCIDENT_TABLE": "inc"}), \
+             patch.object(r, "_tables", return_value=(None, PointerStateTable(), FakeChannelTable([]))), \
+             patch.object(r, "_incident_table", return_value=incidents), \
+             patch.object(r, "_policy", return_value=SuppressionPolicy()):
+            out = r.lambda_handler({"action": "tick"}, None)
+        assert out["resolved"] == 1 and incidents.items["inc-good"]["status"] == "resolved"
 
 
 class TestRenotify:

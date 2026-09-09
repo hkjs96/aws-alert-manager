@@ -52,7 +52,10 @@ class FakeStateTable:
         self.items[Item["state_key"]] = dict(Item)
         self.puts += 1
 
-    def delete_item(self, Key, **_):
+    def delete_item(self, Key, ConditionExpression=None, **_):
+        cur = self.items.get(Key["state_key"])
+        if ConditionExpression is not None and not _eval(ConditionExpression, cur):
+            raise conditional_failure()
         self.items.pop(Key["state_key"], None)
 
     def by_prefix(self, prefix: str) -> dict[str, dict]:

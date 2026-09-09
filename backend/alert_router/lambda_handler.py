@@ -34,7 +34,6 @@ from botocore.exceptions import ClientError
 from common.alert_config import load_cached as load_policy
 from common.alert_state import fp_key, grp_key, iso_utc
 from common.incident import (
-    STATUS_ACKNOWLEDGED,
     STATUS_RESOLVED,
     mark_renotified,
     needs_renotify,
@@ -333,10 +332,10 @@ def _policy() -> SuppressionPolicy:
     return policy
 
 
-def _acknowledged_incidents(incidents) -> list[dict]:
-    """확인됐지만 해소되지 않은 사건. 표는 TTL 90일이라 작다 — 스캔으로 충분하다."""
+def _open_incidents(incidents) -> list[dict]:
+    """해소되지 않은 사건 전부(triggered·acknowledged). 표는 TTL 90일이라 작다 — 스캔으로 충분하다."""
     out, kwargs = [], {
-        "FilterExpression": Attr("status").eq(STATUS_ACKNOWLEDGED),
+        "FilterExpression": Attr("status").ne(STATUS_RESOLVED),
     }
     while True:
         resp = incidents.scan(**kwargs)
@@ -345,6 +344,50 @@ def _acknowledged_incidents(incidents) -> list[dict]:
         if not last:
             return out
         kwargs["ExclusiveStartKey"] = last
+
+
+def _resolve_if_stale(incidents, state, incident: dict, now: datetime) -> bool:
+    """원인 알람이 전부 OK인데 열린 채 남은 사건을 닫는다 — 정합성 회복 (review-phase2 M1).
+
+    정상 경로에서는 해소 이벤트를 실은 그룹이 Deliver에서 닫는다. 그 실행이 죽으면(sweep이 라우터를
+    다시 부르지만 그것도 실패할 수 있다) 사건은 영원히 열린 채 매시간 재알림되고, 사람이 끊을 방법도
+    없다. `fp#`가 진실의 원천이므로 여기서 같은 근거로 다시 판정한다 — 원인이 무엇이든 5분 안에 맞춰진다.
+
+    조건부 UpdateItem이다: 아직 열려 있을 때만 닫고 타임라인은 덧붙인다 — 같은 순간 합치고 있는
+    라우터의 쓰기를 통째로 덮지 않는다. 포인터는 이 사건을 가리킬 때만 지운다.
+    """
+    members = list(incident.get("members") or [])
+    if not should_resolve(incident, _open_fingerprints(state, members)):
+        return False
+    iid = str(incident.get("incident_id", ""))
+    resolved = resolve_incident(incident, now=now, reason="정합성 점검: 원인 알람이 모두 해소됨")
+    sets = ["#s = :s", "resolved_at = :at", "#tl = list_append(if_not_exists(#tl, :empty), :entry)"]
+    values = {":s": STATUS_RESOLVED, ":at": resolved["resolved_at"],
+              ":entry": [resolved["timeline"][-1]], ":empty": []}
+    if resolved.get("mttr_sec") is not None:
+        sets.append("mttr_sec = :mttr")
+        values[":mttr"] = int(resolved["mttr_sec"])
+    try:
+        incidents.update_item(
+            Key={"incident_id": iid},
+            UpdateExpression="SET " + ", ".join(sets),
+            ConditionExpression=Attr("status").ne(STATUS_RESOLVED),
+            ExpressionAttributeNames={"#s": "status", "#tl": "timeline"},
+            ExpressionAttributeValues=values)
+    except ClientError as e:
+        if e.response.get("Error", {}).get("Code") != "ConditionalCheckFailedException":
+            logger.error("reconcile: could not resolve incident %s: %s", iid, e)
+        return False               # 누가 먼저 닫았다 — 그걸로 됐다
+    pointer = incident_pointer(str(incident.get("customer_id", "") or ""),
+                               str(incident.get("severity", "") or ""))
+    try:
+        state.delete_item(Key={"state_key": pointer},
+                          ConditionExpression=Attr("incident_id").eq(iid))
+    except ClientError as e:
+        if e.response.get("Error", {}).get("Code") != "ConditionalCheckFailedException":
+            logger.warning("reconcile: pointer %s not removed: %s", pointer, e)
+    logger.warning("reconcile: resolved incident %s (%d members, all back to OK)", iid, len(members))
+    return True
 
 
 def _claim_renotify(incidents, incident: dict, now: datetime) -> bool:
@@ -396,22 +439,14 @@ def _renotification(incident: dict, now: datetime, console: str) -> Notification
     )
 
 
-def renotify_due() -> dict:
-    """확인만 하고 방치된 사건을 다시 띄운다 (R4-6). 주기 실행으로 호출된다."""
-    if not os.environ.get("INCIDENT_TABLE"):
-        return {"checked": 0, "renotified": 0, "reason": "no_incident_table"}
+def _renotify(incidents, channel_table, open_incidents: list[dict], now: datetime) -> dict:
+    """확인만 하고 방치된 사건을 다시 띄운다 (R4-6)."""
     after_sec = int(getattr(_policy(), "renotify_after_sec", 0) or 0)
     if after_sec <= 0:
-        return {"checked": 0, "renotified": 0, "reason": "disabled"}
-
-    _, state, channel_table = _tables()
-    incidents = _incident_table()
-    now = datetime.now(timezone.utc)
-    candidates = _acknowledged_incidents(incidents)
+        return {"renotified": 0, "sent": 0, "reason": "disabled"}
     renotified = sent_total = 0
 
-    for item in candidates:
-        incident = incident_from_item(item)
+    for incident in open_incidents:
         if not needs_renotify(incident, now=now, after_sec=after_sec):
             continue
         customer_id = str(incident.get("customer_id", "") or "")
@@ -433,15 +468,43 @@ def renotify_due() -> dict:
                        incident.get("incident_id"), incident.get("acknowledged_by"),
                        len(channels), ok_count)
 
-    log_perf("alert_renotify", 0.0, checked=len(candidates), renotified=renotified,
+    log_perf("alert_renotify", 0.0, checked=len(open_incidents), renotified=renotified,
              sent=sent_total, after_sec=after_sec)
-    return {"checked": len(candidates), "renotified": renotified, "sent": sent_total}
+    return {"renotified": renotified, "sent": sent_total}
+
+
+def tick() -> dict:
+    """5분 주기 실행: 정합성 회복 → 재알림. **이 순서여야** 방금 닫은 사건을 다시 띄우지 않는다."""
+    if not os.environ.get("INCIDENT_TABLE"):
+        return {"checked": 0, "resolved": 0, "renotified": 0, "reason": "no_incident_table"}
+
+    _, state, channel_table = _tables()
+    incidents = _incident_table()
+    now = datetime.now(timezone.utc)
+    candidates = [incident_from_item(i) for i in _open_incidents(incidents)]
+
+    still_open, resolved = [], 0
+    for incident in candidates:
+        try:
+            closed = _resolve_if_stale(incidents, state, incident, now)
+        except Exception as e:                                  # noqa: BLE001 — 한 건이 틱 전체를 막지 않는다
+            logger.error("reconcile failed for incident %s: %s", incident.get("incident_id"), e)
+            closed = False
+        if closed:
+            resolved += 1
+        else:
+            still_open.append(incident)
+    log_perf("alert_reconcile", 0.0, open=len(candidates), resolved=resolved)
+
+    out = _renotify(incidents, channel_table, still_open, now)
+    out.update(checked=len(candidates), resolved=resolved)
+    return out
 
 
 def lambda_handler(event, context):
     event = event or {}
-    if event.get("action") == "renotify" or event.get("detail-type") == "Scheduled Event":
-        return renotify_due()
+    if event.get("action") in ("renotify", "tick") or event.get("detail-type") == "Scheduled Event":
+        return tick()
     group = event.get("group") or {}
     if not group.get("group_id") or not group.get("group_key"):
         raise ValueError(f"bad router invocation: group={group!r}")

@@ -814,6 +814,8 @@ Resources:
           EVENT_HISTORY_TABLE: !Ref EventHistoryTable
           ALERT_STATE_TABLE: !Ref AlertStateTable
           ALERT_POLICY_TABLE: !Ref AlertPolicyTable
+          # sweep이 청소한 그룹을 넘길 곳 — 죽은 실행은 Deliver 단계에 못 갔다(review-phase2 H1)
+          ALERT_ROUTER_FUNCTION: !Ref AlertRouterFunction
 
   AlertGroupWorkerRole:
     Type: AWS::IAM::Role
@@ -855,6 +857,11 @@ Resources:
                   - dynamodb:GetItem
                   - dynamodb:Query
                 Resource: !GetAtt AlertPolicyTable.Arn
+              # sweep → 라우터 비동기 호출 (죽은 실행의 그룹도 결국 발송되게)
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource: !GetAtt AlertRouterFunction.Arn
 
   # 확정된 그룹을 채널로 내보낸다. 워커와 분리한 이유: 바깥 HTTP 호출은 느리거나 멈출 수
   # 있는데, 그게 그룹 상태를 확정하는 워커를 붙잡으면 안 된다(tasks 2.2.3).
@@ -869,8 +876,9 @@ Resources:
       # 채널마다 재시도 3회 × 타임아웃 5초 + 속도 제한 간격. 넉넉히 잡되 무한은 아니게.
       Timeout: 120
       MemorySize: 256
-      # 그룹 수만큼만 돈다. 바깥으로 나가는 호출이라 동시성을 낮게 묶는다.
-      ReservedConcurrentExecutions: 10
+      # 그룹 수만큼만 돈다(고객사×계정×등급당 하나). 바깥으로 나가는 호출이라 묶되, 폭풍에서
+      # 스로틀이 곧 유실이 되지 않을 만큼은 둔다 — 10이면 고객사 20곳 폭풍에서 11번째부터 막혔다(review-phase2 M2).
+      ReservedConcurrentExecutions: 30
       Handler: lambda_handler.lambda_handler
       Role: !GetAtt AlertRouterRole.Arn
       Layers:
@@ -1068,7 +1076,11 @@ Resources:
                 "Resource": "${RouterArn}",
                 "Parameters": { "group.$": "$" },
                 "ResultPath": "$.delivery",
-                "Retry": [ { "ErrorEquals": ["States.ALL"], "IntervalSeconds": 5, "MaxAttempts": 2, "BackoffRate": 2 } ],
+                "Retry": [
+                  { "ErrorEquals": ["Lambda.TooManyRequestsException", "Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException"],
+                    "IntervalSeconds": 10, "MaxAttempts": 6, "BackoffRate": 2 },
+                  { "ErrorEquals": ["States.ALL"], "IntervalSeconds": 5, "MaxAttempts": 2, "BackoffRate": 2 }
+                ],
                 "End": true
               }
             }
@@ -1086,6 +1098,31 @@ Resources:
       AlarmDescription: "라우터 Lambda 오류. 판정은 끝났는데 알림이 안 나가는 상태 — 즉시 확인."
       Namespace: AWS/Lambda
       MetricName: Errors
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref AlertRouterFunction
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref ErrorAlertTopic
+      OKActions:
+        - !Ref ErrorAlertTopic
+
+  # 스로틀은 이제 상태 머신이 최대 ~10분 재시도하므로 곧바로 유실은 아니지만, 예약 동시성이
+  # 모자란다는 신호다 — 반복되면 값을 올린다.
+  AlertRouterThrottlesAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub
+        - "[AlertRouter] 스로틀 (${EnvShort})"
+        - EnvShort: !FindInMap [EnvShortName, !Ref Environment, short]
+      AlarmDescription: "라우터 Lambda 스로틀. 상태 머신이 재시도하지만 예약 동시성이 모자라다는 뜻 — 반복되면 올릴 것."
+      Namespace: AWS/Lambda
+      MetricName: Throttles
       Dimensions:
         - Name: FunctionName
           Value: !Ref AlertRouterFunction

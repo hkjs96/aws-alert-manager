@@ -36,7 +36,8 @@ PERF_METRIC {"metric":"web_vital","vital":"LCP","page":"/dashboard","value":1234
 | `daily_stage` | daily_monitor Lambda | `stage`, `account`, `ok` + 단계별 건수 | 일일 런의 단계별 소요 (`inventory_sync`, `orphan_cleanup`, `collect_resources`) |
 | `web_vital` | Amplify SSR (브라우저 → `/api/vitals`) | `vital`, `page`, `rating`, `connection` | 실사용자 체감 (LCP·INP·CLS·TTFB·FCP + Next.js 하이드레이션) |
 | `alert_ingest` | alert_ingestor Lambda | `action`, `reason`, `severity`, `state`, `state_ok`, `group_ok`, `config_ok`, `grouped`, `ok` | 알람 이벤트 1건의 적재까지 처리 시간과 **Shadow 정제 판정** (docs/specs/alert-pipeline/) |
-| `alert_renotify` | alert_router Lambda (5분 주기) | `checked`, `renotified`, `sent`, `after_sec` | 확인만 하고 방치된 사건의 재알림. `renotified>0`이 잦으면 사건이 오래 열려 있다는 뜻 |
+| `alert_reconcile` | alert_router Lambda (5분 주기) | `open`, `resolved` | 열린 사건 중 원인 알람이 전부 OK인데 안 닫힌 것을 닫은 수. `resolved>0`은 Deliver 경로가 못 닫은 사건이 있었다는 뜻 — 실행 실패 이력을 같이 볼 것 |
+| `alert_renotify` | alert_router Lambda (5분 주기, reconcile 뒤) | `checked`, `renotified`, `sent`, `after_sec` | 확인만 하고 방치된 사건의 재알림. `renotified>0`이 잦으면 사건이 오래 열려 있다는 뜻 |
 | `alert_delivery` | alert_router Lambda | `group_id`, `customer`, `severity`, `members`, `channels`, `sent`, `failed`, `claimed` | 그룹 하나의 발송 결과. `failed>0`이면 알림이 안 나갔다 — `claimed=false`는 채널이 없어 보내지 않은 것(오류 아님) |
 | `alert_group` | alert_group_worker Lambda | `group_id`, `customer`, `severity`, `size`, `deferred`, `notified`, `suppressed`, `swept` | 그룹 실행 1건의 확정 결과 — 실행 수·크기·auto-pause 이득. `swept=true`는 죽은 실행을 워커가 대신 확정한 것 |
 
@@ -49,6 +50,7 @@ PERF_METRIC {"metric":"web_vital","vital":"LCP","page":"/dashboard","value":1234
 | Web Vitals | Amplify SSR 컴퓨트 로그 (`/aws/amplify/d2ssyfndl4orxp` 계열 — 콘솔 Hosting → Monitoring에서 확인) |
 | 알림 인제스터 | `/aws/lambda/aws-monitoring-engine-alert-ingestor-dev` |
 | 알림 그룹 워커 | `/aws/lambda/aws-monitoring-engine-alert-group-worker-dev` |
+| 알림 라우터 | `/aws/lambda/aws-monitoring-engine-alert-router-dev` (`reconcile:`·`renotified` 로그, sweep이 넘긴 그룹의 `already_delivered`) |
 
 ## 쿼리
 

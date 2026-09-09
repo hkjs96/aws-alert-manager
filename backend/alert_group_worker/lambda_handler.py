@@ -12,8 +12,9 @@ Step Functions 상태 머신이 호출한다. 실행 하나 = 그룹 하나.
            유예 중 스스로 해소된 DEFER는 `suppress/auto_pause` — auto-pause의 실제 이득이 여기서 잡힌다.
            아직 울리는 DEFER는 `notify`로 확정하고 fp# 상태에 "알렸음"을 남긴다(dedup 창 일관성).
 - sweep    실행이 FAILED/TIMED_OUT/ABORTED로 끝났을 때(EventBridge "Execution Status Change") 대신 닫고
-           확정한다(review-personas F4). 유예 없이 finalize — 실행이 죽은 시점에 이미 늦었고, 구성원을
-           잃는 것보다 보내는 게 낫다(fail-open). 인제스터도 기한 넘긴 열린 그룹은 새로 연다(두 겹).
+           확정한 뒤 라우터로 넘긴다(review-personas F4, review-phase2 H1). 유예 없이 finalize — 실행이
+           죽은 시점에 이미 늦었고, 구성원을 잃는 것보다 보내는 게 낫다(fail-open). 인제스터도 기한 넘긴
+           열린 그룹은 새로 연다(두 겹).
 
 **Shadow 단계에서는 발송이 없다.** finalize가 남기는 `final_action`이 억제율 집계(1.5)의 최종값이다.
 Phase 2에서 finalize 끝에 발송자가 붙는다 — claim-then-send 원칙은 상태 갱신 뒤에 보내는 것으로 지킨다.
@@ -31,7 +32,7 @@ from datetime import datetime, timezone
 
 import boto3
 from boto3.dynamodb.conditions import Attr, Key
-from botocore.exceptions import ClientError
+from botocore.exceptions import BotoCoreError, ClientError
 
 from common.alert_config import load_cached as load_policy
 from common.alert_group import STATUS_CLOSED, STATUS_OPEN
@@ -56,6 +57,35 @@ def _get_ddb():
 @functools.lru_cache(maxsize=1)
 def _base_policy() -> SuppressionPolicy:
     return SuppressionPolicy.from_env()
+
+
+@functools.lru_cache(maxsize=None)
+def _lambda_client():
+    return boto3.client("lambda")
+
+
+def _hand_off_to_router(group: dict) -> str:
+    """청소한 그룹을 라우터로 넘긴다 — 죽은 실행은 Deliver 단계에 못 갔다.
+
+    finalize만 하고 끝내면 이력에는 `notify`로 남는데 알림은 영영 안 간다 — 화면은 "알림 대상"이라
+    보여 주고 실패 알람도 이미 울렸으니 아무도 다시 묻지 않는, 가장 조용한 유실이다(review-phase2 H1).
+
+    비동기 호출이다: 라우터가 밀려도 워커는 안 기다리고, 실패하면 Lambda가 두 번 더 재시도한다.
+    라우터는 그룹마다 발송권을 선점(claim)하므로 이미 배달된 그룹이면 그쪽에서 조용히 끝난다 —
+    항상 불러도 두 번 가지 않는다.
+    """
+    fn = os.environ.get("ALERT_ROUTER_FUNCTION", "")
+    if not fn:
+        logger.error("sweep: ALERT_ROUTER_FUNCTION is not set — group %s was finalized but will NOT be delivered",
+                     group.get("group_id"))
+        return "no_router"
+    try:
+        _lambda_client().invoke(FunctionName=fn, InvocationType="Event",
+                                Payload=json.dumps({"group": group}).encode("utf-8"))
+    except (ClientError, BotoCoreError) as e:
+        logger.error("sweep: could not hand group %s to the router %s: %s", group.get("group_id"), fn, e)
+        return "hand_off_failed"
+    return "handed_off"
 
 
 def _policy() -> SuppressionPolicy:
@@ -210,7 +240,8 @@ def finalize(group: dict, *, sweep_reason: str = "") -> dict:
 
 
 def sweep(group: dict, *, status: str = "manual") -> dict:
-    """죽은 실행의 그룹을 대신 확정한다 — 열려 있으면 닫고(다음 이벤트가 새 그룹을 열도록) 구성원을 finalize.
+    """죽은 실행의 그룹을 대신 확정한다 — 열려 있으면 닫고(다음 이벤트가 새 그룹을 열도록) 구성원을
+    finalize한 뒤 **라우터로 넘긴다**. 죽은 실행은 Deliver 단계에 못 갔으니 여기서 안 넘기면 알림이 영영 안 간다.
 
     EventBridge "Step Functions Execution Status Change"(FAILED/TIMED_OUT/ABORTED)로 호출된다.
     `{"action": "sweep", "group": ...}` 직접 호출도 받는다(운영용, status=manual).
@@ -218,9 +249,11 @@ def sweep(group: dict, *, status: str = "manual") -> dict:
     closed = close(group)
     out = finalize(group, sweep_reason=f"swept:{(status or 'manual').lower()}")
     out["was_open"] = closed["was_open"]
-    logger.warning("Swept group %s after execution %s: was_open=%s notified=%d suppressed=%d skipped=%d",
+    # 구성원이 하나라도 있으면 넘긴다 — 이미 확정돼 건너뛴(skipped) 행도 배달은 안 됐을 수 있다.
+    out["delivery"] = _hand_off_to_router(group) if out["count"] else "nothing_to_deliver"
+    logger.warning("Swept group %s after execution %s: was_open=%s notified=%d suppressed=%d skipped=%d delivery=%s",
                    group["group_id"], status, closed["was_open"], out["notified"], out["suppressed"],
-                   out["skipped"])
+                   out["skipped"], out["delivery"])
     return out
 
 

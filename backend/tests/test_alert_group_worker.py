@@ -25,6 +25,7 @@ GROUP = {"group_id": "g-abc-20260902101530", "group_key": "cust-1#SEV-3",
 def _env(monkeypatch):
     monkeypatch.setenv("EVENT_HISTORY_TABLE", "event-history-test")
     monkeypatch.setenv("ALERT_STATE_TABLE", "alert-state-test")
+    monkeypatch.setenv("ALERT_ROUTER_FUNCTION", "router-test")
     monkeypatch.delenv("ALERT_AUTO_PAUSE_SEC", raising=False)
     from alert_group_worker import lambda_handler as w
     w._get_ddb.cache_clear()
@@ -34,6 +35,28 @@ def _env(monkeypatch):
     w._get_ddb.cache_clear()
     w._base_policy.cache_clear()
     alert_config.reset_cache()
+
+
+class FakeLambda:
+    """sweep이 라우터를 부르는 호출만 기록한다."""
+
+    def __init__(self):
+        self.calls: list[dict] = []
+        self.fail: Exception | None = None
+
+    def invoke(self, **kwargs):
+        if self.fail is not None:
+            raise self.fail
+        self.calls.append(kwargs)
+        return {"StatusCode": 202}
+
+
+@pytest.fixture(autouse=True)
+def router():
+    from alert_group_worker import lambda_handler as w
+    fake = FakeLambda()
+    with patch.object(w, "_lambda_client", return_value=fake):
+        yield fake
 
 
 @pytest.fixture
@@ -266,6 +289,65 @@ class TestSweep:
         out = w.lambda_handler({"action": "sweep", "group": GROUP}, None)
         assert out["swept"] is True
         assert hist.by_series("1#i-1#CPU")[0]["final_reason"] == "swept:manual"
+
+    # ── 청소한 그룹은 라우터로 넘어가야 한다 (review-phase2 H1) — 죽은 실행은 Deliver에 못 갔다
+
+    def test_sweep_hands_the_group_to_the_router(self, tables, router):
+        import json
+        from alert_group_worker import lambda_handler as w
+        hist, _ = tables
+        hist.put_item(Item=_member("1#i-1#CPU", "2026-09-02T10:15:30Z#a"))
+        out = w.lambda_handler(self._failure_event("FAILED"), None)
+        assert out["delivery"] == "handed_off"
+        assert len(router.calls) == 1
+        call = router.calls[0]
+        assert call["FunctionName"] == "router-test" and call["InvocationType"] == "Event"
+        assert json.loads(call["Payload"])["group"]["group_id"] == GROUP["group_id"]
+
+    def test_already_finalized_rows_are_still_handed_off(self, tables, router):
+        """finalize는 됐는데 Deliver에서 죽은 실행 — 행은 확정돼 있지만 배달은 안 됐다."""
+        from alert_group_worker import lambda_handler as w
+        hist, _ = tables
+        hist.put_item(Item={**_member("1#i-1#CPU", "2026-09-02T10:15:30Z#a"),
+                            "final_action": "notify", "final_reason": ""})
+        out = w.lambda_handler(self._failure_event("FAILED"), None)
+        assert (out["notified"], out["skipped"]) == (0, 1)
+        assert out["delivery"] == "handed_off" and len(router.calls) == 1
+
+    def test_empty_sweep_does_not_call_the_router(self, tables, router):
+        from alert_group_worker import lambda_handler as w
+        out = w.lambda_handler(self._failure_event("FAILED"), None)
+        assert out["count"] == 0 and out["delivery"] == "nothing_to_deliver"
+        assert router.calls == []
+
+    def test_missing_router_config_is_loud_not_silent(self, tables, router, monkeypatch, caplog):
+        from alert_group_worker import lambda_handler as w
+        monkeypatch.delenv("ALERT_ROUTER_FUNCTION")
+        hist, _ = tables
+        hist.put_item(Item=_member("1#i-1#CPU", "2026-09-02T10:15:30Z#a"))
+        out = w.lambda_handler(self._failure_event("FAILED"), None)
+        assert out["swept"] is True and out["delivery"] == "no_router"
+        assert router.calls == []
+        assert "will NOT be delivered" in caplog.text
+
+    def test_router_invoke_failure_does_not_undo_the_sweep(self, tables, router):
+        from botocore.exceptions import ClientError
+        from alert_group_worker import lambda_handler as w
+        router.fail = ClientError({"Error": {"Code": "TooManyRequestsException", "Message": "x"}}, "Invoke")
+        hist, _ = tables
+        hist.put_item(Item=_member("1#i-1#CPU", "2026-09-02T10:15:30Z#a"))
+        out = w.lambda_handler(self._failure_event("FAILED"), None)
+        assert out["swept"] is True and out["notified"] == 1
+        assert out["delivery"] == "hand_off_failed"
+        assert hist.by_series("1#i-1#CPU")[0]["final_action"] == "notify"
+
+    def test_regular_finalize_does_not_call_the_router(self, tables, router):
+        """정상 실행은 상태 머신의 Deliver 단계가 라우터를 부른다 — 워커가 또 부르면 두 번 간다."""
+        from alert_group_worker import lambda_handler as w
+        hist, _ = tables
+        hist.put_item(Item=_member("1#i-1#CPU", "2026-09-02T10:15:30Z#a"))
+        w.lambda_handler({"action": "finalize", "group": GROUP}, None)
+        assert router.calls == []
 
     def test_regular_finalize_output_is_unchanged(self, tables):
         """sweep 필드는 청소 때만 — 기존 실행 경로의 출력 계약은 그대로."""
