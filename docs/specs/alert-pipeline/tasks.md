@@ -198,7 +198,7 @@
   - [x] 테스트: 최종값 규칙, 모르는 사유 보존, swept 표식, 미매핑 파티션 조회, 요약이 제한 전 전체를 셈
 
 > **2026-09-09 라이브: 알람이 실제로 Slack까지 도달했다.** 실제 알람 발화 → EventBridge → 인제스트 →
-> 그룹 → 확정 → 발송(HTTP 200) → 이력 기록 → 중복 차단까지 8개 항목 검증. 남은 것은 설정 UI(2.2.7).
+> 그룹 → 확정 → 발송(HTTP 200) → 이력 기록 → 중복 차단까지 8개 항목 검증. **2.2 채널 전체 완료(09-09).**
 
 **→ Phase 2 진입 조건 충족.** 남은 선행 결정: U2(채널 등록 주체)·U3(필터 범위) — design.md §5
 
@@ -261,8 +261,11 @@
   - 5xx·타임아웃·429만 재시도(3회, 백오프). 4xx는 설정 오류라 재시도하지 않는다
   - 결과는 구성원 이력의 `delivery_results`와 `alert_delivery` 지표에. **오류 메시지에서도 자격증명을 가린다**
   - 중복 발송 방지: `grp#`에 `delivered_at`을 조건부로 선점(claim-then-send = 최대 한 번)
-- [ ] 2.2.7 설정 UI — `frontend/components/settings/NotificationSection.tsx`
-  - 기존 `AccountSection` / `CustomerSection` / `ThresholdSection` 패턴 준용
+- [x] 2.2.7 설정 UI — `frontend/components/settings/NotificationSection.tsx` — ✅ 2026-09-09
+  - **폼을 `GET /alert/channel-types` 카탈로그로 그린다** — 어댑터를 추가하면 화면이 따라온다(프런트 수정 불필요)
+  - 자격증명 입력은 password 타입, 수정 시 **비워 두면 기존 값 유지**(백엔드 규칙과 같은 계약)
+  - 고객사 "전체" = 전역 채널(관리자 전용)임을 화면에 명시
+  - `apiFetch`가 204에서 `res.json()`을 호출해 던지던 잠재 버그 수정 — `deleteCustomer`에도 있던 문제
 
 ### 2.3 정리
 

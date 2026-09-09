@@ -17,6 +17,10 @@ import type {
   JobStatus,
   AlertEventsResponse,
   AlertSilencesResponse,
+  ChannelTypeCatalogue,
+  ChannelListResponse,
+  ChannelInput,
+  NotificationChannel,
 } from "@/types/api";
 import type { AlarmConfig, Resource, Customer, Account, RecentAlarm, Alarm } from "@/types/index";
 import { apiFetch, buildFilterParams, buildQueryString } from "./api";
@@ -232,4 +236,40 @@ export function fetchAlertEvents(params: {
 
 export function fetchAlertSilences(): Promise<AlertSilencesResponse> {
   return apiFetch("/api/alert/silences");
+}
+
+// --- 알림 채널 ---
+
+export function fetchChannelTypes(): Promise<ChannelTypeCatalogue> {
+  return apiFetch("/api/alert/channel-types");
+}
+
+export function fetchChannels(customerId?: string): Promise<ChannelListResponse> {
+  const qs = customerId === undefined ? "" : `?customer_id=${encodeURIComponent(customerId)}`;
+  return apiFetch(`/api/alert/channels${qs}`);
+}
+
+export function createChannel(input: ChannelInput): Promise<NotificationChannel> {
+  return apiFetch("/api/alert/channels", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateChannel(
+  channelId: string,
+  customerId: string,
+  input: Partial<ChannelInput>,
+): Promise<NotificationChannel> {
+  return apiFetch(
+    `/api/alert/channels/${encodeURIComponent(channelId)}?customer_id=${encodeURIComponent(customerId)}`,
+    { method: "PUT", body: JSON.stringify(input) },
+  );
+}
+
+export async function deleteChannel(channelId: string, customerId: string): Promise<void> {
+  await apiFetch(
+    `/api/alert/channels/${encodeURIComponent(channelId)}?customer_id=${encodeURIComponent(customerId)}`,
+    { method: "DELETE" },
+  );
 }

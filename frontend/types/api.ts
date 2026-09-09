@@ -274,3 +274,55 @@ export interface AlertSilencesResponse {
   silences: AlertSilence[];
   active: number;
 }
+
+// --- 알림 채널 (tasks 2.2, design-notification-channels.md) ---
+
+/** 채널 유형이 스스로 선언한 설정 필드. 화면은 이걸로 폼을 그린다. */
+export interface ChannelField {
+  name: string;
+  label: string;
+  required: boolean;
+  /** true면 값이 응답에 오지 않는다 — 화면은 "(설정됨)"만 갖는다 */
+  secret: boolean;
+  max_len: number;
+}
+
+export interface ChannelType {
+  type: string;
+  label: string;
+  rate_limit_per_sec: number;
+  fields: ChannelField[];
+}
+
+export interface ChannelTypeCatalogue {
+  types: ChannelType[];
+  match_fields: string[];
+  severities: string[];
+}
+
+export interface NotificationChannel {
+  channel_id: string;
+  customer_id: string;
+  name: string;
+  type: string;
+  type_label: string;
+  /** 자격증명 필드는 값이 아니라 "(설정됨)"이 온다 */
+  config: Record<string, string>;
+  match: Record<string, string[]>;
+  enabled: boolean;
+  is_global: boolean;
+}
+
+export interface ChannelListResponse {
+  channels: NotificationChannel[];
+  total: number;
+}
+
+export interface ChannelInput {
+  name: string;
+  type: string;
+  customer_id: string;
+  config: Record<string, string>;
+  match: Record<string, string[]>;
+  enabled: boolean;
+}

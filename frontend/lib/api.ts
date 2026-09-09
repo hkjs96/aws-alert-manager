@@ -24,6 +24,11 @@ export async function apiFetch<T>(path: string, options?: RequestInit): Promise<
       body.message ?? `요청 실패 (${res.status})`,
     );
   }
+  // 204(No Content)는 본문이 없다 — json()을 부르면 던진다.
+  // 삭제 API가 전부 204라 여기서 걸러야 호출부마다 try/catch를 두지 않는다.
+  if (res.status === 204 || res.headers.get("content-length") === "0") {
+    return undefined as T;
+  }
   return res.json() as Promise<T>;
 }
 
