@@ -58,6 +58,8 @@
     **정책 전체를 교체**한다(실측) → 읽고-합쳐-쓰기 + 쓴 뒤 재확인. 안 그러면 2번째 고객사 등록이 1번째 권한을 지운다
   - P4 인제스트·전달 룰을 알람 detail-type 2종으로 좁힘 (버스 정책 조건과 같은 범위)
   - P5 다중 리전 시 IAM 역할 이름 충돌 → `CreateSharedRoles=no` + `ExistingAlertForwardRoleArn`
+- [ ] **1.2.2 실행** — 실제 고객사 계정에 온보딩 스택 배포·검증. 절차는 `guides/CUSTOMER-ONBOARDING.md`.
+  권한 문제로 계정 소유자가 직접 실행한다. 이게 끝나야 Phase 0 실측과 진짜 억제율이 가능하다
 - [x] 1.2.2 고객사 온보딩 템플릿에 EventBridge 룰 + 전달 역할 추가 — ✅ 2026-09-08 (코드·배포 완료,
       **실 고객사 계정 라이브 검증은 미실시** — 대상 계정·승인 필요)
   - `AlertForwardRole`(events.amazonaws.com 신뢰, 중앙 버스 PutEvents) + `AlertForwardRule`
