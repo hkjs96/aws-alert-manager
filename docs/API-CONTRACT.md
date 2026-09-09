@@ -574,6 +574,60 @@ Response `200`:
 
 `source` is `db` once a record exists, `env` otherwise.
 
+## GET /api/alert/channel-types
+
+채널 유형 카탈로그. 설정 화면은 이 응답으로 폼을 그린다 — 어댑터를 추가하면 화면이 따라온다.
+
+```json
+{
+  "types": [
+    { "type": "slack", "label": "Slack", "rate_limit_per_sec": 1.0,
+      "fields": [{ "name": "webhook_url", "label": "Webhook URL",
+                   "required": true, "secret": true, "max_len": 1024 }] }
+  ],
+  "match_fields": ["severity", "resource_type", "account_id"],
+  "severities": ["SEV-1", "SEV-2", "SEV-3", "SEV-4", "SEV-5"]
+}
+```
+
+값이 아니라 **필드의 모양만** 준다. 저장된 자격증명은 여기에도 나오지 않는다.
+
+## GET /api/alert/channels
+
+Query: `customer_id` (선택). 주면 그 고객사 채널 **+ 전역 채널**을 함께 준다 — 전역 채널도
+그 고객사에 적용되기 때문이다. 없으면 전부.
+
+## POST /api/alert/channels
+
+```json
+{
+  "name": "운영팀 슬랙", "type": "slack", "customer_id": "EMU-EM2",
+  "config": { "webhook_url": "https://hooks.slack.com/services/..." },
+  "match": { "severity": ["SEV-1", "SEV-2"], "resource_type": ["RDS"] },
+  "enabled": true
+}
+```
+
+- `customer_id`를 비우면 **전역 채널**(모든 고객사의 알림)이며 **관리자 전용**이다.
+  전역 정비창과 같은 폭발 반경이라 같은 기준을 적용한다.
+- `match`는 축마다 목록이고 **비면 전부**다. 축끼리 AND, 축 안의 값끼리 OR.
+  모르는 축과 모르는 `config` 항목은 400 — 조용히 버리면 "RDS만"이라 믿는데 전부 받는다.
+- 고객사당 최대 50개.
+
+Response `201`: 채널 표현. **`config`의 자격증명 필드는 값 대신 `"(설정됨)"`이 나간다.**
+
+## PUT /api/alert/channels/{id}
+
+Query: `customer_id`. 자격증명을 **보내지 않거나 `"(설정됨)"` 그대로 보내면 저장된 값이
+유지된다** — 화면은 값을 모르므로, 이름만 고쳤는데 발송이 멈추면 안 된다. 새 값을 보내면 교체.
+
+## DELETE /api/alert/channels/{id}
+
+Query: `customer_id`. Response `204`.
+
+Errors (채널 공통): `400 VALIDATION_ERROR`, `400 LIMIT_EXCEEDED`, `403 FORBIDDEN`,
+`404 NOT_FOUND`, `503 STORAGE_ERROR`
+
 ## GET /api/alert/events
 
 알람마다 알림을 보냈는지, 보내지 않았다면 왜인지. 화면은 이 응답의 라벨을 그대로 쓴다 —

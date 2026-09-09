@@ -54,6 +54,12 @@ def alert_policy_table():
     return _get_dynamodb().Table(os.environ["ALERT_POLICY_TABLE"])
 
 
+def notification_channel_table():
+    """고객사별 알림 채널 (design-notification-channels.md). 자격증명이 여기 함께 있다 —
+    응답에 넣지 않는 책임은 `notification_channel.channel_to_dict()`가 진다(R6-8)."""
+    return _get_dynamodb().Table(os.environ["NOTIFICATION_CHANNEL_TABLE"])
+
+
 def event_history_table():
     """알람 이벤트 이력 — 처리 결과·사유 조회 (review-personas F7)."""
     return _get_dynamodb().Table(os.environ["EVENT_HISTORY_TABLE"])

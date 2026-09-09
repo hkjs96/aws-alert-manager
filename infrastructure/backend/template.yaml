@@ -448,6 +448,30 @@ Resources:
         - Key: ManagedBy
           Value: AlarmManager
 
+  # 고객사별 알림 채널 (design.md D3, design-notification-channels.md).
+  # 알람에 수신처를 박지 않는다 — 채널은 행이고 라우터가 조회한다. 채널을 더해도 알람을
+  # 고치지 않고(R6-5), 알람당 액션 5개 제한에도 걸리지 않는다.
+  NotificationChannelTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub
+        - aws-monitoring-notification-channel-${EnvShort}
+        - EnvShort: !FindInMap [EnvShortName, !Ref Environment, short]
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: customer_id   # "" = 전역 채널(모든 고객사). 경계를 조건이 아니라 키로 둔다
+          AttributeType: S
+        - AttributeName: channel_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: customer_id
+          KeyType: HASH
+        - AttributeName: channel_id
+          KeyType: RANGE
+      Tags:
+        - Key: ManagedBy
+          Value: AlarmManager
+
   # ════════════════════════════════════════════
   # 알림 파이프라인 — 이벤트 수집 (docs/specs/alert-pipeline/ Phase 1)
   # ════════════════════════════════════════════
@@ -1016,6 +1040,7 @@ Resources:
           ALERT_EVENT_BUS_NAME: !Ref AlertEventBus
           EVENT_HISTORY_TABLE: !Ref EventHistoryTable
           ALERT_STATE_TABLE: !Ref AlertStateTable
+          NOTIFICATION_CHANNEL_TABLE: !Ref NotificationChannelTable
           THRESHOLD_OVERRIDES_TABLE: !Ref ThresholdOverridesTable
           JOB_STATUS_TABLE: !Ref JobStatusTable
           MONITOR_RUN_HISTORY_TABLE: !Ref MonitorRunHistoryTable
@@ -1069,6 +1094,7 @@ Resources:
                   - !GetAtt ResourceInventoryTable.Arn
                   - !Sub "${ResourceInventoryTable.Arn}/index/*"
                   - !GetAtt AlertPolicyTable.Arn
+                  - !GetAtt NotificationChannelTable.Arn
               - Effect: Allow
                 Action:
                   - sqs:SendMessage

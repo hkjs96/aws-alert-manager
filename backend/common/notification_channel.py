@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 from common.notification_adapters import (
+    REDACTED,
     SEVERITY_ORDER,
     Adapter,
     AdapterError,
@@ -32,6 +33,11 @@ from common.notification_adapters import (
 
 #: 조건에 쓸 수 있는 축. 여기에 이름을 더하고 이벤트에서 같은 이름을 읽을 수 있으면 축이 늘어난다.
 MATCH_FIELDS: tuple[str, ...] = ("severity", "resource_type", "account_id")
+
+#: 전역 채널이 표에서 사는 파티션 키. **DynamoDB는 키 속성에 빈 문자열을 허용하지 않는다**
+#: (라이브에서 드러났다 — 가짜 테이블은 이 제약을 흉내 내지 않아 단위 테스트가 통과했다).
+#: 도메인에서는 계속 `customer_id == ""`가 전역이고, 이 변환은 저장 경계에서만 일어난다.
+GLOBAL_KEY = "__global__"
 
 #: 한 고객사가 가질 수 있는 채널 수 — 폭주한 설정이 발송을 마비시키지 않게.
 MAX_CHANNELS_PER_CUSTOMER = 50
@@ -64,6 +70,17 @@ class Channel:
 
 def new_channel_id() -> str:
     return uuid.uuid4().hex[:16]
+
+
+def storage_key(customer_id: str) -> str:
+    """도메인의 고객사 ID → 표의 파티션 키. 전역("")은 센티넬로 저장한다."""
+    return str(customer_id or "") or GLOBAL_KEY
+
+
+def customer_from_storage_key(key: str) -> str:
+    """표의 파티션 키 → 도메인의 고객사 ID."""
+    key = str(key or "")
+    return "" if key == GLOBAL_KEY else key
 
 
 # ────────────────────────────────── 검증 (API 입력 → Channel)
@@ -111,8 +128,27 @@ def validate_match(raw) -> dict:
     return out
 
 
-def validate_channel(body: dict, *, customer_id: str) -> Channel:
-    """API 입력 → Channel. 자격증명 형식까지 어댑터 선언을 따라 검사한다."""
+def _keep_existing_secrets(config: dict, adapter: Adapter, existing: Channel | None) -> dict:
+    """수정 시 자격증명을 다시 받지 않아도 되게, 빠졌거나 가림 문자열이면 저장된 값을 쓴다.
+
+    화면은 자격증명 자리에 `REDACTED`만 보여 준다(값을 모른다). 그걸 그대로 돌려보냈다고 해서
+    웹훅 URL을 지워 버리면, 사용자는 이름만 고쳤는데 발송이 조용히 멈춘다.
+    """
+    if existing is None:
+        return config
+    merged = dict(config)
+    for name in adapter.secret_fields:
+        supplied = str(merged.get(name, "") or "").strip()
+        if (not supplied or supplied == REDACTED) and name in existing.config:
+            merged[name] = existing.config[name]
+    return merged
+
+
+def validate_channel(body: dict, *, customer_id: str, existing: "Channel | None" = None) -> Channel:
+    """API 입력 → Channel. 자격증명 형식까지 어댑터 선언을 따라 검사한다.
+
+    `existing`을 주면 수정으로 본다 — 자격증명을 다시 안 보내도 저장된 값이 유지된다.
+    """
     if not isinstance(body, dict):
         raise ChannelError("요청 본문이 객체가 아닙니다")
 
@@ -123,10 +159,20 @@ def validate_channel(body: dict, *, customer_id: str) -> Channel:
         raise ChannelError(f"채널 이름은 {MAX_NAME_LEN}자를 넘을 수 없습니다")
 
     try:
-        adapter = get_adapter(body.get("type", ""))
-        config = adapter.validate_config(body.get("config") or {})
+        adapter = get_adapter(body.get("type", "") or (existing.type if existing else ""))
+        raw_config = dict(body.get("config") or {})
+        # 가림 문자열은 "안 바꿈"이라는 뜻이다 — 형식 검사에 넣으면 항상 실패한다.
+        for secret in adapter.secret_fields:
+            if str(raw_config.get(secret, "") or "").strip() == REDACTED:
+                raw_config.pop(secret, None)
+        config = adapter.validate_config(
+            _keep_existing_secrets(raw_config, adapter, existing))
     except AdapterError as e:
         raise ChannelError(str(e)) from None
+
+    if str(customer_id or "").strip() == GLOBAL_KEY:
+        # 센티넬을 고객사 ID로 쓰면 전역 채널로 위장할 수 있다.
+        raise ChannelError(f"{GLOBAL_KEY}는 고객사 ID로 쓸 수 없습니다")
 
     channel_id = str(body.get("channel_id", "") or "").strip() or new_channel_id()
     if not _ID_RE.match(channel_id):
@@ -148,7 +194,7 @@ def validate_channel(body: dict, *, customer_id: str) -> Channel:
 def channel_to_item(ch: Channel, *, created_by: str = "", now: datetime | None = None) -> dict:
     now = now or datetime.now(timezone.utc)
     return {
-        "customer_id": ch.customer_id,
+        "customer_id": storage_key(ch.customer_id),
         "channel_id": ch.channel_id,
         "name": ch.name,
         "type": ch.type,
@@ -163,7 +209,7 @@ def channel_to_item(ch: Channel, *, created_by: str = "", now: datetime | None =
 def channel_from_item(item: dict) -> Channel:
     return Channel(
         channel_id=str(item.get("channel_id", "")),
-        customer_id=str(item.get("customer_id", "") or ""),
+        customer_id=customer_from_storage_key(item.get("customer_id", "")),
         name=str(item.get("name", "")),
         type=str(item.get("type", "")),
         config=dict(item.get("config") or {}),

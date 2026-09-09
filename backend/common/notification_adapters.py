@@ -26,6 +26,9 @@ from typing import Callable
 #: 등급 표기 — 렌더링에서 색·머리말에 쓴다.
 SEVERITY_ORDER = ("SEV-1", "SEV-2", "SEV-3", "SEV-4", "SEV-5")
 
+#: 자격증명 자리에 응답으로 나가는 가림 문자열. 수정 시 이 값이 그대로 돌아오면 "안 바꿈"으로 읽는다.
+REDACTED = "(설정됨)"
+
 
 class AdapterError(ValueError):
     """어댑터 설정이 잘못됐다 — API가 400으로 돌려준다."""
@@ -126,7 +129,7 @@ class Adapter:
         for f in self.fields:
             if f.name not in config:
                 continue
-            out[f.name] = "(설정됨)" if f.secret else config[f.name]
+            out[f.name] = REDACTED if f.secret else config[f.name]
         return out
 
 
