@@ -6,12 +6,12 @@
 
 ## 요약
 
-| # | 발견 | 심각도 | 근거 |
-|---|---|---|---|
-| H1 | **죽은 실행의 그룹은 끝내 발송되지 않는다** — sweep은 finalize만 하고 Deliver를 부르지 않는다 | 높음 | `alert_group_worker/lambda_handler.py:212-224`, 워커에 라우터 호출 없음 |
-| H2 | **인시던트 갱신이 서로 덮어쓴다** — 라우터·ack·재알림이 전부 "읽고-통째로-쓰기", 포인터 생성도 경합 | 높음 | `alert_router/lambda_handler.py:104-154`, `routes/incidents.py:117-133`, `alert_router:350-378` |
-| M1 | 인시던트 해소가 "해소 그룹이 Deliver까지 도달"에만 의존 — 자가 회복 경로 없음 | 중간 | `alert_router:263-266`, `:140` |
-| M2 | Deliver 재시도가 스로틀을 못 버틴다 — 예약 동시성 10, `States.ALL` 5s·10s 두 번 → H1로 유실 | 중간 | `template.yaml:873`, `:1071` |
+| # | 발견 | 심각도 | 상태 | 근거 |
+|---|---|---|---|---|
+| H1 | **죽은 실행의 그룹은 끝내 발송되지 않는다** — sweep은 finalize만 하고 Deliver를 부르지 않는다 | 높음 | ✅ `27f20dd` | `alert_group_worker/lambda_handler.py:212-224`, 워커에 라우터 호출 없음 |
+| H2 | **인시던트 갱신이 서로 덮어쓴다** — 라우터·ack·재알림이 전부 "읽고-통째로-쓰기", 포인터 생성도 경합 | 높음 | | `alert_router/lambda_handler.py:104-154`, `routes/incidents.py:117-133`, `alert_router:350-378` |
+| M1 | 인시던트 해소가 "해소 그룹이 Deliver까지 도달"에만 의존 — 자가 회복 경로 없음 | 중간 | ✅ `27f20dd` | `alert_router:263-266`, `:140` |
+| M2 | Deliver 재시도가 스로틀을 못 버틴다 — 예약 동시성 10, `States.ALL` 5s·10s 두 번 → H1로 유실 | 중간 | ✅ `27f20dd` | `template.yaml:873`, `:1071` |
 | M3 | 인시던트 축 ≠ 그룹 축 — 미매핑 계정은 전부 `inc##SEV-x` 하나로 뭉치고 H2 경합을 키운다 | 중간 | `common/alert_state.py:66` vs `alert_router:111-113` |
 | M4 | 재알림은 등급·고객사만 매칭 — 계정/리소스 타입 조건 채널은 재알림을 못 받는다 | 중간 | `alert_router:418-420`, `notification_channel.py:246-252` |
 | M5 | Slack mrkdwn 이스케이프 누락 — 알람 이름에 `<` `>`가 들어간다 | 중간 | `notification_adapters.py:219-240` |
@@ -207,9 +207,32 @@ A의 권한이 사라지고 **둘 다 `granted`** 다. 관리자 둘이 1초 안
 
 ---
 
+## 처리 이력
+
+### 1. H1 + M1 + M2 — 발송 내구성 (`27f20dd`, dev `v20260909T075933`)
+
+- **H1** `sweep`이 finalize 뒤 라우터를 비동기 호출한다(`_hand_off_to_router`, 워커에 `lambda:InvokeFunction`
+  + `ALERT_ROUTER_FUNCTION`). 구성원이 하나라도 있으면(이미 확정된 행 포함) 넘긴다. 설정이 빠졌으면 `no_router`로
+  **크게** 남긴다 — 조용히 넘어가는 것이 이 버그의 본질이었다.
+- **M1** 5분 틱이 `tick()`이 됐다: 열린 사건 전부(`status <> resolved`)를 훑어 `fp#`로 원인이 전부 OK면 조건부
+  UpdateItem으로 닫는다(타임라인은 `list_append`, 포인터는 이 사건을 가리킬 때만 삭제). 그 **뒤에** 재알림 —
+  방금 닫은 사건을 다시 띄우지 않기 위해. 룰의 페이로드(`{"action":"renotify"}`)는 그대로다.
+- **M2** Deliver에 `Lambda.TooManyRequestsException`·`ServiceException`·`AWSLambdaException`·`SdkClientException`
+  전용 재시도(10s × 6, 최대 ~10분)를 `States.ALL` 앞에. 라우터 예약 동시성 10 → 30, `[AlertRouter] 스로틀` 알람.
+
+**라이브 검증 (dev, 09-09 08:06 UTC):** 알람 발화 → GroupWait 중 `StopExecution` → 실행 `ABORTED` →
+워커 `Swept … delivery=handed_off`(08:06:12.205) → 라우터 `claimed:true, sent=1`(08:06:12.571, 366ms 뒤) →
+Slack HTTP 200 → 이력 `final_reason=swept:aborted, delivered=True` → 사건 `triggered`. 이후 OK → 정상 Deliver가
+사건을 `resolved`(MTTR 45s). 정합성 틱: 원인이 이미 OK인 확인된 사건을 심고 룰 페이로드로 호출 →
+`resolved=1`, MTTR 산출, 타임라인 `[triggered, resolved]`, 포인터 제거; 원인이 아직 울리는 사건은 `acknowledged` 유지.
+세 함수 로그에 `AccessDenied` 없음. M2는 폭풍이 있어야 실측 가능 — 템플릿·상태 머신 정의로만 확인.
+
+프로브에서 배운 것: `TreatMissingData=notBreaching`인 프로브 알람은 CloudWatch가 ~15초 뒤 **스스로** OK로 되돌린다
+(알람 이력 "no datapoints … treated as NonBreaching"). 상태를 붙잡아 두려면 `missing`으로 만들 것.
+
 ## 권장 순서
 
-1. **H1 + M1 + M2** — 발송 내구성. 셋이 같은 이야기다: "죽어도 결국 간다, 못 갔으면 5분 안에 스스로 맞춘다."
+1. ~~**H1 + M1 + M2** — 발송 내구성~~ ✅. 셋이 같은 이야기다: "죽어도 결국 간다, 못 갔으면 5분 안에 스스로 맞춘다."
 2. **H2 + M3** — 인시던트 정합성. 버전 조건 + 포인터 조건부 생성 + 축 통일.
 3. **M4, M5** — 재알림·Slack 렌더링. 작고 독립적.
 4. **L2, L3, L4** — API 계약·dev 파라미터·리다이렉트.
