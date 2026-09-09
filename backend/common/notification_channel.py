@@ -1,0 +1,231 @@
+"""
+알림 채널 — 고객사별 채널 정의와 조건 매칭 (tasks 2.2.1~2.2.3, design.md D3)
+
+    NotificationChannelTable   PK customer_id / SK channel_id
+      customer_id = ""  →  **전역 채널**(모든 고객사의 알림을 받는다, 우리 관제 채널용)
+
+알람에 수신처를 박지 않는다. 채널은 표의 행이고 라우터가 조회한다 — 채널을 더해도 알람을
+고치지 않고(R6-5), 알람당 액션 5개 제한에도 걸리지 않는다.
+
+**고객사는 조건이 아니라 키다.** 조건(match)은 한 고객사 **안에서만** 범위를 좁힌다. 이렇게
+나눠야 조건 처리에 버그가 생겨도 A사 알림이 B사 채널로 새지 않는다 — 조건이 넓게 해석되면
+소음이 늘 뿐이고, 경계는 키가 지킨다.
+
+조건은 필드마다 **목록**이며 비어 있으면 "전부"다. 나중에 축을 더해도(예: 시간대) 기존 행은
+그 필드가 없으니 그대로 "전부"로 동작한다 — 마이그레이션이 필요 없다.
+"""
+
+from __future__ import annotations
+
+import re
+import uuid
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+
+from common.notification_adapters import (
+    SEVERITY_ORDER,
+    Adapter,
+    AdapterError,
+    Notification,
+    get as get_adapter,
+)
+
+#: 조건에 쓸 수 있는 축. 여기에 이름을 더하고 이벤트에서 같은 이름을 읽을 수 있으면 축이 늘어난다.
+MATCH_FIELDS: tuple[str, ...] = ("severity", "resource_type", "account_id")
+
+#: 한 고객사가 가질 수 있는 채널 수 — 폭주한 설정이 발송을 마비시키지 않게.
+MAX_CHANNELS_PER_CUSTOMER = 50
+MAX_NAME_LEN = 60
+_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+
+
+class ChannelError(ValueError):
+    """채널 정의가 잘못됐다 — API가 400으로 돌려준다."""
+
+
+@dataclass(frozen=True)
+class Channel:
+    channel_id: str
+    customer_id: str          # "" = 전역
+    name: str
+    type: str
+    config: dict = field(default_factory=dict)
+    match: dict = field(default_factory=dict)
+    enabled: bool = True
+
+    @property
+    def adapter(self) -> Adapter:
+        return get_adapter(self.type)
+
+    @property
+    def is_global(self) -> bool:
+        return not self.customer_id
+
+
+def new_channel_id() -> str:
+    return uuid.uuid4().hex[:16]
+
+
+# ────────────────────────────────── 검증 (API 입력 → Channel)
+
+def _clean_list(raw, field_name: str) -> list[str]:
+    if raw is None or raw == "":
+        return []
+    if isinstance(raw, str):
+        raw = [raw]
+    if not isinstance(raw, (list, tuple, set)):
+        raise ChannelError(f"{field_name} 조건은 목록이어야 합니다")
+    out: list[str] = []
+    for v in raw:
+        s = str(v).strip()
+        if s and s not in out:
+            out.append(s)
+    return out
+
+
+def validate_match(raw) -> dict:
+    """조건 검증. **모르는 축은 거절한다.**
+
+    조용히 버리면 사용자는 "RDS만"이라고 저장했다고 믿는데 실제로는 전부 받는다.
+    이걸 막아야 저장된 행에는 아는 축만 남고, 라우터가 모르는 축을 만날 일이 없다.
+    """
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        raise ChannelError("match는 객체여야 합니다")
+    unknown = sorted(set(raw) - set(MATCH_FIELDS))
+    if unknown:
+        raise ChannelError(
+            f"조건으로 쓸 수 없는 항목입니다: {', '.join(unknown)} "
+            f"(가능: {', '.join(MATCH_FIELDS)})")
+    out: dict = {}
+    for name in MATCH_FIELDS:
+        values = _clean_list(raw.get(name), name)
+        if not values:
+            continue
+        if name == "severity":
+            bad = [v for v in values if v not in SEVERITY_ORDER]
+            if bad:
+                raise ChannelError(f"등급은 {', '.join(SEVERITY_ORDER)} 중에서 고릅니다: {', '.join(bad)}")
+        out[name] = values
+    return out
+
+
+def validate_channel(body: dict, *, customer_id: str) -> Channel:
+    """API 입력 → Channel. 자격증명 형식까지 어댑터 선언을 따라 검사한다."""
+    if not isinstance(body, dict):
+        raise ChannelError("요청 본문이 객체가 아닙니다")
+
+    name = str(body.get("name", "") or "").strip()
+    if not name:
+        raise ChannelError("채널 이름이 필요합니다")
+    if len(name) > MAX_NAME_LEN:
+        raise ChannelError(f"채널 이름은 {MAX_NAME_LEN}자를 넘을 수 없습니다")
+
+    try:
+        adapter = get_adapter(body.get("type", ""))
+        config = adapter.validate_config(body.get("config") or {})
+    except AdapterError as e:
+        raise ChannelError(str(e)) from None
+
+    channel_id = str(body.get("channel_id", "") or "").strip() or new_channel_id()
+    if not _ID_RE.match(channel_id):
+        raise ChannelError("channel_id 형식이 올바르지 않습니다")
+
+    return Channel(
+        channel_id=channel_id,
+        customer_id=str(customer_id or "").strip(),
+        name=name,
+        type=adapter.type,
+        config=config,
+        match=validate_match(body.get("match")),
+        enabled=bool(body.get("enabled", True)),
+    )
+
+
+# ────────────────────────────────── 저장소 표현
+
+def channel_to_item(ch: Channel, *, created_by: str = "", now: datetime | None = None) -> dict:
+    now = now or datetime.now(timezone.utc)
+    return {
+        "customer_id": ch.customer_id,
+        "channel_id": ch.channel_id,
+        "name": ch.name,
+        "type": ch.type,
+        "config": dict(ch.config),
+        "match": dict(ch.match),
+        "enabled": ch.enabled,
+        "updated_at": now.isoformat(),
+        "updated_by": created_by,
+    }
+
+
+def channel_from_item(item: dict) -> Channel:
+    return Channel(
+        channel_id=str(item.get("channel_id", "")),
+        customer_id=str(item.get("customer_id", "") or ""),
+        name=str(item.get("name", "")),
+        type=str(item.get("type", "")),
+        config=dict(item.get("config") or {}),
+        match=dict(item.get("match") or {}),
+        enabled=bool(item.get("enabled", True)),
+    )
+
+
+def channel_to_dict(ch: Channel) -> dict:
+    """API 응답용. **자격증명 값은 절대 나가지 않는다** — 어댑터 선언이 그걸 정한다(R6-8)."""
+    return {
+        "channel_id": ch.channel_id,
+        "customer_id": ch.customer_id,
+        "name": ch.name,
+        "type": ch.type,
+        "type_label": ch.adapter.label,
+        "config": ch.adapter.public_config(ch.config),
+        "match": dict(ch.match),
+        "enabled": ch.enabled,
+        "is_global": ch.is_global,
+    }
+
+
+# ────────────────────────────────── 조건 매칭
+
+def matches(ch: Channel, event: dict) -> bool:
+    """이 채널이 이 이벤트를 받아야 하는가.
+
+    고객사 경계는 여기서 보지 않는다 — 조회가 키로 이미 나눴다(전역 채널은 모두를 받는다).
+    각 축은 비어 있으면 "전부"이고, 값이 있으면 그중 하나와 같아야 한다.
+    """
+    if not ch.enabled:
+        return False
+    for name, allowed in ch.match.items():
+        if name not in MATCH_FIELDS:
+            continue          # 저장 시 걸러지지만, 옛 행이 남아도 좁히지 못할 뿐 새지는 않는다
+        if not allowed:
+            continue
+        if str(event.get(name, "") or "") not in allowed:
+            return False
+    return True
+
+
+def select(channels: list[Channel], event: dict) -> list[Channel]:
+    """이벤트를 받을 채널 목록. 순서는 안정적이다(전역 뒤, 이름순)."""
+    hit = [c for c in channels if matches(c, event)]
+    return sorted(hit, key=lambda c: (c.is_global, c.name, c.channel_id))
+
+
+def notification_from_event(event: dict, *, url: str = "", count: int = 1) -> Notification:
+    """이력 항목/이벤트 → 어댑터가 그릴 알림. 어댑터가 이벤트를 파싱하지 않게 여기서 한 번만 한다."""
+    return Notification(
+        title=str(event.get("alarm_name", "") or event.get("title", "") or "알람"),
+        severity=str(event.get("severity", "") or ""),
+        customer_id=str(event.get("customer_id", "") or ""),
+        account_id=str(event.get("account_id", "") or ""),
+        resource_id=str(event.get("resource_id", "") or ""),
+        resource_type=str(event.get("resource_type", "") or ""),
+        metric_key=str(event.get("metric_key", "") or ""),
+        state=str(event.get("state", "") or ""),
+        reason=str(event.get("state_reason", "") or ""),
+        occurred_at=str(event.get("occurred_at", "") or ""),
+        url=url,
+        count=max(1, int(count or 1)),
+    )
