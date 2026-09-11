@@ -205,6 +205,32 @@ class TestDeliverAll:
     def test_empty_channel_list(self):
         assert deliver_all([], NOTE, transports=FakeTransports()) == []
 
+    def test_channels_past_the_deadline_are_recorded_not_sent(self):
+        """Lambda가 중간에 죽으면 어디까지 갔는지조차 안 남는다 — 예산이 다 되면 남은 채널을 기록으로 남긴다 (L5)."""
+        from unittest.mock import patch
+        import common.notification_send as ns
+
+        class Clock:
+            t = 0.0
+
+            def monotonic(self):
+                self.t += 10.0          # 호출마다 10초씩 흐른다
+                return self.t
+
+        t = FakeTransports(statuses=[200, 200, 200])
+        with patch.object(ns, "time", Clock()):
+            results = deliver_all([slack("a"), slack("b", name="b"), slack("c", name="c")], NOTE,
+                                  transports=t, sleep=lambda _: None, deadline=15.0)
+        assert results[0].ok is True
+        assert [r.error for r in results[1:]] == [ns.BUDGET_EXCEEDED] * 2
+        assert [r.channel_id for r in results] == ["a", "b", "c"], "건너뛴 채널도 결과에 남아야 한다"
+
+    def test_no_deadline_means_every_channel_is_attempted(self):
+        t = FakeTransports(statuses=[200, 200, 200])
+        results = deliver_all([slack("a"), slack("b", name="b"), slack("c", name="c")], NOTE,
+                              transports=t, sleep=lambda _: None)
+        assert all(r.ok for r in results) and len(results) == 3
+
 
 class TestRealTransportDoesNotFollowRedirects:
     """https로 검증한 URL이 http로 302하면 urllib가 Authorization을 들고 따라간다 (review-phase2 L4).

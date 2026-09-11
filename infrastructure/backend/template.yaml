@@ -984,6 +984,31 @@ Resources:
       Principal: events.amazonaws.com
       SourceArn: !GetAtt AlertRenotifyRule.Arn
 
+  # 버스 정책 드리프트 점검 (review-phase2 L1). 계정 등록의 read-back 검증은 "내 쓰기와 확인 사이"의
+  # 덮어쓰기만 잡는다 — 겹친 등록으로 사라진 권한을 한 시간 안에 되돌린다. PutPermission 권한이 이미 있는
+  # api_handler가 처리한다(HTTP 아닌 `action` 페이로드).
+  AlertForwardingReconcileRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub
+        - aws-monitoring-alert-forwarding-reconcile-${EnvShort}
+        - EnvShort: !FindInMap [EnvShortName, !Ref Environment, short]
+      Description: Re-apply alert bus PutEvents permissions for every registered account
+      ScheduleExpression: rate(1 hour)
+      State: ENABLED
+      Targets:
+        - Id: api-handler
+          Arn: !GetAtt ApiHandlerFunction.Arn
+          Input: '{"action": "reconcile-alert-forwarding"}'
+
+  AlertForwardingReconcilePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt ApiHandlerFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt AlertForwardingReconcileRule.Arn
+
   AlertGroupStateMachineRole:
     Type: AWS::IAM::Role
     Properties:

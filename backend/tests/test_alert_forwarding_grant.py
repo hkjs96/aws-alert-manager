@@ -172,6 +172,94 @@ class TestGrantOnCreate:
         events.put_permission.assert_called_once()
 
 
+def _reconcile(events, rows, *, current=CENTRAL):
+    from api_handler.routes import accounts
+    with patch.object(accounts, "accounts_table", return_value=MagicMock()), \
+         patch.object(accounts, "scan_all", return_value=rows), \
+         patch.object(accounts, "_events_client", return_value=events), \
+         patch.object(accounts, "_current_account_id", return_value=current):
+        return accounts.reconcile_alert_forwarding()
+
+
+class TestReconcile:
+    """주기 점검이 계정 표와 버스 정책을 수렴시킨다 (review-phase2 L1).
+
+    등록 경로의 read-back은 A읽→B읽→A씀✓→B씀✓ 인터리빙을 못 잡는다 — A의 권한이 사라지는데 둘 다
+    granted다. 그 손실은 "그 계정 알람이 안 온다"로만 드러나므로 한 시간 안에 되돌아와야 한다.
+    """
+
+    def test_missing_statement_is_re_added_with_conditions(self):
+        events = fake_events()
+        out = _reconcile(events, [{"account_id": "111122223333"}])
+        assert out["added"] == ["acct-111122223333"] and out["changed"] is True
+        stmt = next(s for s in events.statements["statements"] if s["Sid"] == "acct-111122223333")
+        assert stmt["Condition"]["ForAllValues:StringEquals"]["events:source"] == "aws.cloudwatch"
+
+    def test_stale_account_statement_is_removed_but_foreign_ones_are_kept(self):
+        foreign = {"Sid": "manual-ops", "Effect": "Allow",
+                   "Principal": {"AWS": "arn:aws:iam::555555555555:root"},
+                   "Action": "events:PutEvents", "Resource": BUS_ARN}
+        events = fake_events(existing=[other_statement("acct-999988887777"), foreign])
+        out = _reconcile(events, [])
+        assert out["removed"] == ["acct-999988887777"]
+        assert [s["Sid"] for s in events.statements["statements"]] == ["manual-ops"], \
+            "우리가 만들지 않은 statement는 건드리지 않는다"
+
+    def test_outdated_statement_without_conditions_is_refreshed(self):
+        events = fake_events(existing=[other_statement("acct-999988887777")])      # P2 이전 형식
+        out = _reconcile(events, [{"account_id": "999988887777"}])
+        assert out["updated"] == ["acct-999988887777"] and out["added"] == []
+        assert "Condition" in events.statements["statements"][0]
+
+    def test_no_drift_means_no_write(self):
+        from api_handler.routes import accounts
+        events = fake_events(existing=[accounts._forward_statement("111122223333", BUS_ARN)])
+        out = _reconcile(events, [{"account_id": "111122223333"}])
+        assert out["changed"] is False
+        events.put_permission.assert_not_called()
+        events.remove_permission.assert_not_called()
+
+    def test_our_own_account_is_never_added(self):
+        events = fake_events()
+        out = _reconcile(events, [{"account_id": CENTRAL}])
+        assert out["changed"] is False and events.statements["statements"] == []
+
+    def test_unparseable_policy_is_left_alone(self):
+        events = fake_events()
+        events.describe_event_bus.side_effect = lambda **_: {"Arn": BUS_ARN, "Policy": "{not json"}
+        out = _reconcile(events, [{"account_id": "111122223333"}])
+        assert "error" in out
+        events.put_permission.assert_not_called()
+
+    def test_scheduled_invocation_reaches_the_reconciler(self):
+        from api_handler.lambda_handler import lambda_handler
+        from api_handler.routes import accounts
+        events = fake_events()
+        with patch.object(accounts, "accounts_table", return_value=MagicMock()), \
+             patch.object(accounts, "scan_all", return_value=[{"account_id": "111122223333"}]), \
+             patch.object(accounts, "_events_client", return_value=events), \
+             patch.object(accounts, "_current_account_id", return_value=CENTRAL):
+            out = lambda_handler({"action": "reconcile-alert-forwarding"}, None)
+        assert out["added"] == ["acct-111122223333"]
+
+    def test_manual_route_is_admin_only(self, monkeypatch):
+        monkeypatch.setenv("ADMIN_EMAILS", "admin@mz.co.kr")
+        from api_handler.lambda_handler import lambda_handler
+        from api_handler.routes import accounts
+        ev = _event("POST", "/accounts/alert-forwarding/reconcile")
+        ev["requestContext"]["authorizer"] = {"jwt": {"claims": {"email": "member@mz.co.kr"}}}
+        events = fake_events()
+        with patch.object(accounts, "accounts_table", return_value=MagicMock()), \
+             patch.object(accounts, "scan_all", return_value=[]), \
+             patch.object(accounts, "_events_client", return_value=events), \
+             patch.object(accounts, "_current_account_id", return_value=CENTRAL):
+            denied = lambda_handler(ev, None)
+            ev["requestContext"]["authorizer"] = {"jwt": {"claims": {"email": "admin@mz.co.kr"}}}
+            allowed = lambda_handler(ev, None)
+        assert denied["statusCode"] == 403
+        assert allowed["statusCode"] == 200 and json.loads(allowed["body"])["changed"] is False
+
+
 class TestRevokeOnDelete:
     def _delete(self, events, remaining, *, current=CENTRAL):
         from api_handler.lambda_handler import lambda_handler

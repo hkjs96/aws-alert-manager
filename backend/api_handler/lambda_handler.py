@@ -135,6 +135,7 @@ _ROUTES: list[tuple[str, re.Pattern, object]] = [
     ("POST",   re.compile(r"^/accounts$"),                            accounts.create_account),
     ("DELETE", re.compile(r"^/accounts/(?P<id>[^/]+)$"),              accounts.delete_account),
     ("POST",   re.compile(r"^/accounts/(?P<id>[^/]+)/test$"),         accounts.test_connection),
+    ("POST",   re.compile(r"^/accounts/alert-forwarding/reconcile$"), accounts.reconcile_alert_forwarding_route),
     # Thresholds
     ("GET",    re.compile(r"^/thresholds/(?P<type>[^/]+)$"),          thresholds.get_thresholds),
     ("PUT",    re.compile(r"^/thresholds/(?P<type>[^/]+)$"),          thresholds.put_thresholds),
@@ -171,6 +172,12 @@ def lambda_handler(event, context):
     global _COLD
     cold, _COLD = _COLD, False
     started = time.perf_counter()
+
+    # EventBridge 주기 호출 — HTTP가 아니다. 버스 정책 드리프트 점검(review-phase2 L1)은 PutPermission
+    # 권한이 이미 있는 이 함수에 둔다(라우터에 주면 채널 자격증명과 버스 권한이 한곳에 모인다).
+    if event.get("action") == "reconcile-alert-forwarding":
+        from api_handler.routes import accounts as _accounts
+        return _accounts.reconcile_alert_forwarding()
 
     method = event.get("requestContext", {}).get("http", {}).get("method", "GET").upper()
 

@@ -154,7 +154,10 @@ def match_fields(incident: dict) -> dict:
 
 
 def _capped(timeline: list) -> list:
-    return timeline[-MAX_TIMELINE:]
+    """뒤 MAX_TIMELINE개를 남기되 **첫 항목(triggered)은 고정**한다 — 폭풍이 길어도 사건의 시작은 보여야 한다."""
+    if len(timeline) <= MAX_TIMELINE:
+        return timeline
+    return [timeline[0]] + timeline[-(MAX_TIMELINE - 1):]
 
 
 def acknowledge(incident: dict, *, by: str, now: datetime) -> dict:

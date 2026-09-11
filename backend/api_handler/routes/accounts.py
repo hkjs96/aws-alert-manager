@@ -122,6 +122,67 @@ def _grant_alert_forwarding(account_id: str) -> str:
         return "grant_failed"
 
 
+def reconcile_alert_forwarding() -> dict:
+    """계정 표와 버스 정책을 맞춘다 — 등록된 계정의 statement가 빠졌거나 옛 형식이면 다시 쓰고,
+    표에 없는 `acct-*` statement는 뗀다 (review-phase2 L1).
+
+    등록 경로의 read-back 검증은 "내 쓰기와 확인 사이"의 덮어쓰기만 잡는다. A읽→B읽→A씀✓→B씀✓이면
+    A의 권한이 사라지는데 둘 다 `granted`다. 잠금 대신 **주기 점검으로 수렴**시킨다 — 이 손실은
+    "그 계정 알람이 안 온다"로만 드러나 사람이 알아채기 어렵기 때문이다. 우리가 만들지 않은
+    statement(Sid가 `acct-`로 시작하지 않는 것)는 건드리지 않는다.
+    """
+    bus = os.environ.get("ALERT_EVENT_BUS_NAME", "")
+    if not bus:
+        return {"skipped": "no_bus"}
+    try:
+        me = _current_account_id()
+        rows = scan_all(accounts_table())
+        bus_arn, statements = _read_bus_policy(bus)
+    except (ClientError, ConditionalWriteError) as e:
+        logger.error("alert forwarding reconcile could not read state: %s", e)
+        return {"error": str(e)}
+
+    wanted = sorted({str(r.get("account_id") or "") for r in rows} - {"", me})
+    have = {str(s.get("Sid", "")): s for s in statements}
+    added, updated, removed = [], [], []
+    kept: list[dict] = []
+    for sid, statement in have.items():
+        if sid.startswith("acct-") and sid[len("acct-"):] not in wanted:
+            removed.append(sid)                  # 표에서 사라진 계정 — 권한도 회수
+            continue
+        kept.append(statement)
+    for account_id in wanted:
+        sid = _forward_statement_id(account_id)
+        expected = _forward_statement(account_id, bus_arn)
+        current = have.get(sid)
+        if current == expected:
+            continue
+        kept = [s for s in kept if s.get("Sid") != sid] + [expected]
+        (updated if current is not None else added).append(sid)
+
+    result = {"bus": bus, "accounts": len(wanted), "added": added, "updated": updated,
+              "removed": removed, "changed": bool(added or updated or removed)}
+    if not result["changed"]:
+        return result
+    try:
+        _write_bus_policy(bus, kept)
+    except ClientError as e:
+        logger.error("alert forwarding reconcile could not write policy: %s", e)
+        return {**result, "error": str(e)}
+    logger.warning("alert forwarding drift fixed on bus %s: added=%s updated=%s removed=%s",
+                   bus, added, updated, removed)
+    return result
+
+
+def reconcile_alert_forwarding_route(event: dict) -> dict:
+    """`POST /accounts/alert-forwarding/reconcile` — 관리자 수동 실행(온보딩 진단 절차용)."""
+    from api_handler.identity import admin_enforced, current_email, is_admin
+    if admin_enforced() and not is_admin(current_email(event)):
+        return _err(403, "FORBIDDEN", "버스 정책 정합성 점검은 관리자 전용입니다")
+    result = reconcile_alert_forwarding()
+    return _ok(result) if "error" not in result else _err(503, "EVENTS_ERROR", result["error"])
+
+
 def _revoke_alert_forwarding_if_orphan(account_id: str) -> None:
     """다른 고객사 행이 이 계정을 더 쓰지 않을 때만 버스 권한을 회수한다."""
     bus = os.environ.get("ALERT_EVENT_BUS_NAME", "")

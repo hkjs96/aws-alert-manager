@@ -133,6 +133,7 @@ class TestMerge:
             inc = merge_events(inc, [ev(f"111#i-{i}#CPU")], now=T0 + timedelta(seconds=i))
         assert len(inc["timeline"]) == MAX_TIMELINE
         assert inc["timeline"][-1]["kind"] == "alarm"
+        assert inc["timeline"][0]["kind"] == "triggered", "폭풍이 길어도 사건의 시작은 남아야 한다 (review-phase2 L5)"
 
 
 class TestAcknowledge:

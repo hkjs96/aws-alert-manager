@@ -9,17 +9,17 @@
 | # | 발견 | 심각도 | 상태 | 근거 |
 |---|---|---|---|---|
 | H1 | **죽은 실행의 그룹은 끝내 발송되지 않는다** — sweep은 finalize만 하고 Deliver를 부르지 않는다 | 높음 | ✅ `27f20dd` | `alert_group_worker/lambda_handler.py:212-224`, 워커에 라우터 호출 없음 |
-| H2 | **인시던트 갱신이 서로 덮어쓴다** — 라우터·ack·재알림이 전부 "읽고-통째로-쓰기", 포인터 생성도 경합 | 높음 | | `alert_router/lambda_handler.py:104-154`, `routes/incidents.py:117-133`, `alert_router:350-378` |
+| H2 | **인시던트 갱신이 서로 덮어쓴다** — 라우터·ack·재알림이 전부 "읽고-통째로-쓰기", 포인터 생성도 경합 | 높음 | ✅ `277af15` | `alert_router/lambda_handler.py:104-154`, `routes/incidents.py:117-133`, `alert_router:350-378` |
 | M1 | 인시던트 해소가 "해소 그룹이 Deliver까지 도달"에만 의존 — 자가 회복 경로 없음 | 중간 | ✅ `27f20dd` | `alert_router:263-266`, `:140` |
 | M2 | Deliver 재시도가 스로틀을 못 버틴다 — 예약 동시성 10, `States.ALL` 5s·10s 두 번 → H1로 유실 | 중간 | ✅ `27f20dd` | `template.yaml:873`, `:1071` |
-| M3 | 인시던트 축 ≠ 그룹 축 — 미매핑 계정은 전부 `inc##SEV-x` 하나로 뭉치고 H2 경합을 키운다 | 중간 | `common/alert_state.py:66` vs `alert_router:111-113` |
-| M4 | 재알림은 등급·고객사만 매칭 — 계정/리소스 타입 조건 채널은 재알림을 못 받는다 | 중간 | `alert_router:418-420`, `notification_channel.py:246-252` |
-| M5 | Slack mrkdwn 이스케이프 누락 — 알람 이름에 `<` `>`가 들어간다 | 중간 | `notification_adapters.py:219-240` |
-| L1 | 버스 정책 read-back 검증은 일부 인터리빙만 잡는다, 드리프트 점검 없음 | 낮음 | `routes/accounts.py:107-119` |
-| L2 | `POST /alert/channels`가 본문 `channel_id`를 받아 조건 없이 put — 기존 채널을 덮어쓴다 | 낮음 | `notification_channel.py:177`, `routes/notification_channels.py:164` |
-| L3 | **(라이브)** dev에 `AlertEmailSender`·`AlertConsoleUrl`이 비어 있다 — 이메일 채널은 저장되지만 못 보내고, 알림에 링크가 없다 | 낮음 | `describe-stacks` 실측 |
-| L4 | 범용 웹훅: urllib가 리다이렉트를 따라가며 `Authorization`을 들고 https→http로 내려갈 수 있다 | 낮음 | `notification_send.py:56-61` |
-| L5 | 잡동사니 — 타임라인 캡이 첫 항목을 버림, 라우터 타임아웃 예산, SES 클라이언트 매 호출 생성 | 낮음 | 아래 |
+| M3 | 인시던트 축 ≠ 그룹 축 — 미매핑 계정은 전부 `inc##SEV-x` 하나로 뭉치고 H2 경합을 키운다 | 중간 | ✅ `277af15` | `common/alert_state.py:66` vs `alert_router:111-113` |
+| M4 | 재알림은 등급·고객사만 매칭 — 계정/리소스 타입 조건 채널은 재알림을 못 받는다 | 중간 | ✅ `71aa6e2` | `alert_router:418-420`, `notification_channel.py:246-252` |
+| M5 | Slack mrkdwn 이스케이프 누락 — 알람 이름에 `<` `>`가 들어간다 | 중간 | ✅ `71aa6e2` | `notification_adapters.py:219-240` |
+| L1 | 버스 정책 read-back 검증은 일부 인터리빙만 잡는다, 드리프트 점검 없음 | 낮음 | 코드 완료(5절) | `routes/accounts.py:107-119` |
+| L2 | `POST /alert/channels`가 본문 `channel_id`를 받아 조건 없이 put — 기존 채널을 덮어쓴다 | 낮음 | ✅ `4b5b079` | `notification_channel.py:177`, `routes/notification_channels.py:164` |
+| L3 | **(라이브)** dev에 `AlertEmailSender`·`AlertConsoleUrl`이 비어 있다 — 이메일 채널은 저장되지만 못 보내고, 알림에 링크가 없다 | 낮음 | ✅ `4b5b079` (`AlertEmailSender`는 사용자 결정) | `describe-stacks` 실측 |
+| L4 | 범용 웹훅: urllib가 리다이렉트를 따라가며 `Authorization`을 들고 https→http로 내려갈 수 있다 | 낮음 | ✅ `4b5b079` | `notification_send.py:56-61` |
+| L5 | 잡동사니 — 타임라인 캡이 첫 항목을 버림, 라우터 타임아웃 예산, SES 클라이언트 매 호출 생성 | 낮음 | 코드 완료(5절) | 아래 |
 
 **잘 된 것** (바꾸지 말 것): claim-then-send로 최대 한 번(`_claim`), 자격증명이 *선언* 하나로 검증·응답 가림·오류 가림까지
 같이 움직이는 어댑터 구조, GSI 최종 일관성을 키만 읽고 기본 표에서 일관 읽기로 우회한 것, 버스 정책 read-modify-write,
@@ -262,6 +262,40 @@ store 9건)로 고정했다.
 사건(구성원 계정 = 우리 계정, 리소스 타입 EC2, 제목 `… < 10GB & > 5%`)을 심어 틱 → `renotified=1, sent=1`(계정 채널만),
 사건 `acknowledged` 유지·`version=2`·`resolved=0`. Slack 표시(`<`·`&`·`>` 글자 그대로)는 사용자 확인 대상 —
 이스케이프 자체는 단위 테스트가 고정한다.
+
+### 4. L2 + L3 + L4 — API 계약·dev 파라미터·리다이렉트 (`4b5b079`, dev `v20260911T021124`)
+
+- **L2** `POST /alert/channels`가 `attribute_not_exists(channel_id)` 조건부 put — 같은 ID면 `409 CONFLICT`, 기존 설정 유지.
+- **L3** 어댑터가 `requires_env`를 선언(이메일 = `ALERT_EMAIL_SENDER`). 카탈로그가 유형마다 `available`·
+  `unavailable_reason`을 내고, POST는 불가용 유형을 `400 TYPE_UNAVAILABLE`로 거절한다. api_handler에도
+  `ALERT_EMAIL_SENDER`를 전달(라우터와 같은 값). 설정 화면은 불가용 유형을 비활성 옵션 + 사유로 그린다.
+  배포 스크립트에 `--parameter KEY=VALUE`를 붙여 dev의 `AlertConsoleUrl`을 Amplify `/alerts`로 채웠다 —
+  알림에 "자세히 보기" 링크가 붙는다(`?incident=` 파라미터는 아직 화면이 소비하지 않는다).
+- **L4** HTTPS 전송이 리다이렉트를 따라가지 않는다(`_NoRedirect`). 3xx는 재시도 없는 실패 기록. 로컬 HTTP 서버에
+  302를 세워 **진짜 `Transports.post`** 로 검증 — 대상 경로로 두 번째 요청이 가지 않는다.
+
+**라이브 검증 (dev, 09-11 02:15 UTC):** 카탈로그 `email.available=false`(사유에 `ALERT_EMAIL_SENDER`), `slack`·`webhook`
+가용; 이메일 채널 POST → `400 TYPE_UNAVAILABLE`; 같은 ID 재POST → `409 CONFLICT`, 저장된 이름·URL 그대로; 라우터
+`ALERT_CONSOLE_URL=https://main.d2ssyfndl4orxp.amplifyapp.com/alerts`; api_handler 환경에 `ALERT_EMAIL_SENDER` 키 존재.
+`AlertEmailSender` 값 자체는 SES 검증이 선행돼야 하므로 사용자 결정으로 남겨 뒀다.
+
+배포 도중 SSO 토큰 만료(이틀 경과)로 한 번 실패 → 디바이스 코드 재로그인 후 재배포. 작업 트리 확인용
+`git stash`는 되돌리기 어려운 조작이라 거부됐고, 거부 전에 실행된 stash는 `pop`으로 복구했다.
+
+### 5. L1 + L5 — 버스 정책 드리프트 점검·잡동사니
+
+- **L1** 결정: 점검은 **api_handler**에 둔다 — `events:PutPermission`·`DescribeEventBus` 권한과 계정 표가 이미
+  거기 있고, 라우터에 주면 채널 자격증명과 버스 권한이 한 함수에 모인다. `reconcile_alert_forwarding()`:
+  계정 표(우리 계정 제외) ↔ 버스 정책의 `acct-*` statement를 비교해 빠진 것은 추가, 옛 형식(조건 없음)은 갱신,
+  표에 없는 것은 제거. **우리가 만들지 않은 statement는 건드리지 않는다.** 파싱 불가 정책은 덮어쓰지 않는다.
+  두 진입: EventBridge `rate(1 hour)` → `{"action":"reconcile-alert-forwarding"}`(HTTP 아닌 페이로드를 핸들러가 먼저
+  분기), 관리자 수동 `POST /accounts/alert-forwarding/reconcile`(온보딩 진단 5-②에 편입). `ForAllValues` →
+  `StringEquals` 교체는 하지 않았다 — `_forward_statement`가 정본이라 바꾸면 모든 기존 statement가 "옛 형식"으로
+  판정돼 한 번에 다시 써진다. 실동작엔 차이가 없고(PutEvents는 두 키가 필수), 정책 전량 재기록의 이득이 없다.
+- **L5** `_capped`가 첫 항목(`triggered`)을 고정; SES 클라이언트 모듈 캐시(`_ses()`); 발송 시간 예산 —
+  핸들러가 `context.get_remaining_time_in_millis()`에서 기록 몫 15초를 뺀 값을 `deliver_group(budget_sec=)`으로
+  넘기고, `deliver_all(deadline=)`이 예산이 다 되면 남은 채널을 **보내지 않고 `BUDGET_EXCEEDED`로 기록**한다 —
+  Lambda가 중간에 죽으면 어디까지 갔는지조차 남지 않기 때문이다. 직접 호출·테스트(컨텍스트 없음)는 무제한.
 
 ## 권장 순서
 

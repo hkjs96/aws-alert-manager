@@ -294,6 +294,51 @@ class TestInvocation:
             r.lambda_handler({}, None)
 
 
+class TestDeliveryBudget:
+    """채널 상한(50)과 Lambda 타임아웃(120초)이 서로를 모른다 — 남은 실행 시간이 발송 예산이다 (review-phase2 L5)."""
+
+    def test_budget_is_remaining_time_minus_the_record_reserve(self):
+        from alert_router import lambda_handler as r
+
+        class Ctx:
+            def get_remaining_time_in_millis(self):
+                return 65_000
+
+        assert r._budget_sec(Ctx()) == 50.0
+        assert r._budget_sec(None) is None, "직접 호출·테스트에는 제한이 없다"
+
+    def test_budget_never_goes_negative(self):
+        from alert_router import lambda_handler as r
+
+        class Ctx:
+            def get_remaining_time_in_millis(self):
+                return 3_000
+
+        assert r._budget_sec(Ctx()) == 0.0
+
+    def test_deadline_reaches_deliver_all(self):
+        from alert_router import lambda_handler as r
+        hist = _with_base_table_reads(FakeHistoryTable())
+        hist.put_item(Item=member())
+        seen = {}
+
+        def fake_deliver_all(chs, notification, **kw):
+            seen["deadline"] = kw.get("deadline")
+            return [DeliveryResult(channel_id=c.channel_id, channel_name=c.name, type=c.type, ok=True)
+                    for c in chs]
+
+        class Ctx:
+            def get_remaining_time_in_millis(self):
+                return 120_000
+
+        with patch.object(r, "_tables", return_value=(hist, ClaimingStateTable(), FakeChannelTable([channel_item()]))), \
+             patch.object(r, "_get_ddb", return_value=FakeDdbResource(hist)), \
+             patch.object(r, "deliver_all", side_effect=fake_deliver_all):
+            r.lambda_handler({"group": GROUP}, Ctx())
+        import time as _t
+        assert seen["deadline"] is not None and 0 < seen["deadline"] - _t.monotonic() <= 105.0
+
+
 class TestIndexConsistency:
     """GSI는 최종 일관성 — finalize 직후엔 방금 쓴 final_action이 인덱스에 없다.
 

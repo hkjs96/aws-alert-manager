@@ -468,6 +468,23 @@ Query:
 Response `204` with empty body. When no other customer still references the
 account, its `events:PutEvents` grant on the alert event bus is removed.
 
+## POST /api/accounts/alert-forwarding/reconcile
+
+**관리자 전용.** 계정 표와 중앙 알림 버스 정책을 맞춘다 — 등록된 계정의 `acct-<id>` statement가 빠졌거나
+옛 형식(조건 없음)이면 다시 쓰고, 표에 없는 `acct-*` statement는 뗀다. 우리가 만들지 않은 statement는
+건드리지 않는다. 같은 점검이 **EventBridge로 매시간** 자동 실행된다(`AlertForwardingReconcileRule`).
+
+왜 있나: 계정 등록의 read-back 검증은 "내 쓰기와 확인 사이"의 덮어쓰기만 잡는다. 관리자 둘이 거의 동시에
+등록하면 앞 계정의 권한이 사라지는데 둘 다 `granted`로 보인다 — 그 손실은 "그 계정 알람이 안 온다"로만
+드러난다. 온보딩 후 이벤트가 안 들어오면 5단계 진단 전에 이걸 한 번 부른다.
+
+```json
+{ "bus": "aws-monitoring-alert-dev", "accounts": 2,
+  "added": ["acct-944787763707"], "updated": [], "removed": [], "changed": true }
+```
+
+Errors: `403 FORBIDDEN`, `503 EVENTS_ERROR`(정책을 읽거나 쓰지 못함 — 파싱 불가 정책은 덮어쓰지 않는다)
+
 ## POST /api/accounts/{id}/test
 
 Query:

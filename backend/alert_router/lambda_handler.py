@@ -316,11 +316,13 @@ def _record(history, members: list[dict], results: list, now: datetime) -> None:
             logger.error("could not record delivery on %s: %s", m.get("event_key"), e)
 
 
-def deliver_group(group: dict) -> dict:
+def deliver_group(group: dict, *, budget_sec: float | None = None) -> dict:
+    """그룹 하나를 채널로 내보낸다. `budget_sec`는 발송에 쓸 수 있는 시간 — 남은 Lambda 시간에서 나온다."""
     history, state, channel_table = _tables()
     gid = str(group.get("group_id", ""))
     now = datetime.now(timezone.utc)
     t0 = time.perf_counter()
+    deadline = time.monotonic() + budget_sec if budget_sec is not None else None
 
     members = [m for m in _members(history, gid) if m.get("final_action") == FINAL_NOTIFY]
     if not members:
@@ -364,7 +366,7 @@ def deliver_group(group: dict) -> dict:
                 "reason": "already_delivered"}
 
     results = deliver_all(channels, notification,
-                          sender=os.environ.get("ALERT_EMAIL_SENDER", ""))
+                          sender=os.environ.get("ALERT_EMAIL_SENDER", ""), deadline=deadline)
     sent = sum(1 for r in results if r.ok)
     failed = len(results) - sent
     _record(history, members, results, now)
@@ -548,4 +550,19 @@ def lambda_handler(event, context):
     group = event.get("group") or {}
     if not group.get("group_id") or not group.get("group_key"):
         raise ValueError(f"bad router invocation: group={group!r}")
-    return deliver_group(group)
+    return deliver_group(group, budget_sec=_budget_sec(context))
+
+
+#: 발송을 멈추고 결과를 기록할 시간은 남겨 둔다 — 이력 갱신(구성원 수만큼 UpdateItem)과 로그.
+_RECORD_RESERVE_SEC = 15.0
+
+
+def _budget_sec(context) -> float | None:
+    """남은 Lambda 시간에서 기록 몫을 뺀 발송 예산. 컨텍스트가 없으면(직접 호출·테스트) 제한 없음."""
+    remaining = getattr(context, "get_remaining_time_in_millis", None)
+    if not callable(remaining):
+        return None
+    try:
+        return max(0.0, float(remaining()) / 1000.0 - _RECORD_RESERVE_SEC)
+    except Exception:                                           # noqa: BLE001
+        return None

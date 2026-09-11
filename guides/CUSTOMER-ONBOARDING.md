@@ -186,8 +186,11 @@ aws events describe-event-bus --name aws-monitoring-alert-dev \
   --profile tlsgks678_poc --region us-east-1 --query Policy --output text
 ```
 
-`acct-944787763707` Sid가 있어야 한다. 없으면 2단계의 `alert_forwarding`이 `granted`가 아니었다는 뜻 —
-계정을 지웠다 다시 등록하면 재시도된다.
+`acct-944787763707` Sid가 있어야 한다. 없으면 2단계의 `alert_forwarding`이 `granted`가 아니었다는 뜻이거나,
+거의 동시에 다른 계정을 등록하다 덮어쓰인 것이다. **매시간 자동 점검**(`AlertForwardingReconcileRule`)이 빠진
+Sid를 다시 붙이지만, 기다리지 말고 관리자 계정으로 정합성 점검을 바로 부른다 —
+`POST /api/accounts/alert-forwarding/reconcile` (응답의 `added`에 그 Sid가 보여야 한다). 그래도 없으면
+계정을 지웠다 다시 등록한다.
 
 > **조건이 걸려 있다.** 정책은 `events:source = aws.cloudwatch`이고 detail-type이
 > 알람 상태/구성 변경 2종일 때만 허용한다. 고객사 룰이 그보다 넓은 이벤트를 보내면 거부된다.

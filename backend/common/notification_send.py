@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import functools
 import json
 import logging
 import time
@@ -69,6 +70,16 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 _OPENER = urllib.request.build_opener(_NoRedirect())
 
 
+@functools.lru_cache(maxsize=1)
+def _ses():
+    import boto3
+    return boto3.client("ses")
+
+
+#: 시간 예산이 다 됐을 때 남은 채널에 남기는 사유. 재시도 대상이 아니라 **기록**이다 — "안 왔다"의 원인.
+BUDGET_EXCEEDED = "시간 예산 초과 — 이 채널까지 가지 못했습니다"
+
+
 class Transports:
     """바깥 세계. 테스트는 이걸 갈아 끼운다."""
 
@@ -80,8 +91,7 @@ class Transports:
             return int(resp.status)
 
     def send_email(self, sender: str, recipients: list[str], subject: str, body: str) -> None:
-        import boto3
-        boto3.client("ses").send_email(
+        _ses().send_email(
             Source=sender,
             Destination={"ToAddresses": recipients},
             Message={"Subject": {"Data": subject, "Charset": "UTF-8"},
@@ -186,17 +196,28 @@ def deliver(channel, notification: Notification, *,
 def deliver_all(channels: list, notification: Notification, *,
                 transports: Transports | None = None,
                 sender: str = "",
-                sleep=time.sleep) -> list[DeliveryResult]:
+                sleep=time.sleep,
+                deadline: float | None = None) -> list[DeliveryResult]:
     """여러 채널에 보낸다. **하나가 실패해도 나머지는 계속 간다.**
 
     같은 유형끼리는 어댑터가 선언한 속도만큼 간격을 둔다(Slack은 초당 1건). 이 간격은 한 번의
     실행 안에서만 유효하다 — 여러 실행이 동시에 같은 채널로 보내는 경우는 그룹핑이 상한을
     잡아 준다(고객사·등급당 30초 창 1건). 그걸로 부족해지면 공유 토큰 버킷이 필요하다.
+
+    `deadline`(`time.monotonic()` 기준)이 지나면 남은 채널은 보내지 않고 **기록만** 남긴다 — Lambda가
+    중간에 죽으면 어디까지 갔는지조차 남지 않는다(review-phase2 L5). 채널 상한(50)과 타임아웃(120초)이
+    서로를 모르므로 예산은 호출자가 남은 실행 시간으로 정한다.
     """
     transports = transports or Transports()
     results: list[DeliveryResult] = []
     last_sent_at: dict[str, float] = {}
-    for channel in channels:
+    for index, channel in enumerate(channels):
+        if deadline is not None and time.monotonic() >= deadline:
+            results.extend(DeliveryResult(channel_id=c.channel_id, channel_name=c.name, type=c.type,
+                                          ok=False, error=BUDGET_EXCEEDED) for c in channels[index:])
+            logger.error("delivery budget exhausted: %d of %d channels not attempted",
+                         len(channels) - index, len(channels))
+            break
         rate = max(0.0, float(channel.adapter.rate_limit_per_sec or 0))
         if rate:
             gap = 1.0 / rate
