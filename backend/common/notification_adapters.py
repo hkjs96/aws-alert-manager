@@ -100,10 +100,17 @@ class Adapter:
     auth_header_field: str = ""
     #: 이메일 전송이 수신자를 읽을 설정 필드 이름.
     recipients_field: str = ""
+    #: 이 유형이 실제로 보낼 수 있으려면 **서버(배포)에** 있어야 하는 환경변수. 비어 있으면 채널을
+    #: 저장해도 발송은 매번 실패한다 — 카탈로그가 이 선언으로 "지금은 못 씀"을 알린다(review-phase2 L3).
+    requires_env: tuple[str, ...] = ()
 
     @property
     def secret_fields(self) -> tuple[str, ...]:
         return tuple(f.name for f in self.fields if f.secret)
+
+    def missing_env(self, env) -> list[str]:
+        """비어 있는 필수 환경변수 이름들. `env`는 매핑(보통 `os.environ`) — 이 모듈은 환경을 모른다."""
+        return [name for name in self.requires_env if not str(env.get(name, "") or "").strip()]
 
     def field(self, name: str) -> Field | None:
         return next((f for f in self.fields if f.name == name), None)
@@ -295,6 +302,8 @@ EMAIL = register(Adapter(
     rate_limit_per_sec=5.0,
     transport=TRANSPORT_EMAIL,
     recipients_field="addresses",
+    # SES 보내는 주소. 스택 파라미터 `AlertEmailSender` — 검증된 주소/도메인이어야 한다.
+    requires_env=("ALERT_EMAIL_SENDER",),
 ))
 
 WEBHOOK = register(Adapter(

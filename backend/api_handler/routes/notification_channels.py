@@ -17,8 +17,9 @@ DELETE /alert/channels/{id}           → 삭제
 
 import json
 import logging
+import os
 
-from boto3.dynamodb.conditions import Key
+from boto3.dynamodb.conditions import Attr, Key
 from botocore.exceptions import ClientError
 
 from api_handler.db import notification_channel_table, scan_all
@@ -77,6 +78,19 @@ def _load(customer_id: str, channel_id: str):
     return channel_from_item(item) if item else None
 
 
+def _unavailable_reason(adapter) -> str:
+    """이 유형이 **이 배포에서** 보낼 수 없는 이유. 빈 문자열이면 쓸 수 있다.
+
+    이메일은 `ALERT_EMAIL_SENDER`(스택 파라미터)가 있어야 한다. 없는데 채널을 받으면 저장은 되고
+    발송만 매번 실패한다 — 그 실패는 이력의 `delivery_results`에만 남아 설정 화면은 모른다(review-phase2 L3).
+    """
+    missing = adapter.missing_env(os.environ)
+    if not missing:
+        return ""
+    return (f"서버 설정 {', '.join(missing)}이(가) 비어 있어 이 유형은 지금 발송할 수 없습니다 "
+            f"(스택 파라미터로 설정 후 사용)")
+
+
 def _query(customer_id: str) -> list[dict]:
     table = notification_channel_table()
     items: list[dict] = []
@@ -100,6 +114,9 @@ def list_types(event: dict) -> dict:
             "type": a.type,
             "label": a.label,
             "rate_limit_per_sec": a.rate_limit_per_sec,
+            # 이 배포에서 실제로 보낼 수 있는가 — 화면은 못 쓰는 유형을 비활성으로 그린다
+            "available": not _unavailable_reason(a),
+            "unavailable_reason": _unavailable_reason(a),
             "fields": [{
                 "name": f.name, "label": f.label,
                 "required": f.required, "secret": f.secret, "max_len": f.max_len,
@@ -155,15 +172,22 @@ def create_channel(event: dict) -> dict:
         channel = validate_channel(body, customer_id=customer_id)
     except ChannelError as e:
         return _err(400, "VALIDATION_ERROR", str(e))
+    reason = _unavailable_reason(channel.adapter)
+    if reason:
+        return _err(400, "TYPE_UNAVAILABLE", reason)
 
     try:
         existing = _query(customer_id)
         if len(existing) >= MAX_CHANNELS_PER_CUSTOMER:
             return _err(400, "LIMIT_EXCEEDED",
                         f"채널은 고객사당 최대 {MAX_CHANNELS_PER_CUSTOMER}개입니다")
+        # 같은 ID가 있으면 덮지 않는다 — POST가 PUT 노릇을 하면 자격증명이 조용히 바뀐다(review-phase2 L2)
         notification_channel_table().put_item(
-            Item=channel_to_item(channel, created_by=current_email(event)))
+            Item=channel_to_item(channel, created_by=current_email(event)),
+            ConditionExpression=Attr("channel_id").not_exists())
     except ClientError as e:
+        if e.response.get("Error", {}).get("Code") == "ConditionalCheckFailedException":
+            return _err(409, "CONFLICT", "이미 있는 채널 ID입니다 — 수정은 PUT으로")
         logger.error("channel write failed: %s", e)
         return _err(503, "STORAGE_ERROR", "채널을 저장하지 못했습니다")
 

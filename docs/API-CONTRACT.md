@@ -620,8 +620,13 @@ Errors: `404 NOT_FOUND`, `409 ALREADY_RESOLVED`, `409 CONFLICT`, `503 STORAGE_ER
 {
   "types": [
     { "type": "slack", "label": "Slack", "rate_limit_per_sec": 1.0,
+      "available": true, "unavailable_reason": "",
       "fields": [{ "name": "webhook_url", "label": "Webhook URL",
-                   "required": true, "secret": true, "max_len": 1024 }] }
+                   "required": true, "secret": true, "max_len": 1024 }] },
+    { "type": "email", "label": "이메일", "rate_limit_per_sec": 5.0,
+      "available": false,
+      "unavailable_reason": "서버 설정 ALERT_EMAIL_SENDER이(가) 비어 있어 이 유형은 지금 발송할 수 없습니다 (스택 파라미터로 설정 후 사용)",
+      "fields": [{ "name": "addresses", "label": "수신 주소", "required": true, "secret": false, "max_len": 1024 }] }
   ],
   "match_fields": ["severity", "resource_type", "account_id"],
   "severities": ["SEV-1", "SEV-2", "SEV-3", "SEV-4", "SEV-5"]
@@ -629,6 +634,8 @@ Errors: `404 NOT_FOUND`, `409 ALREADY_RESOLVED`, `409 CONFLICT`, `503 STORAGE_ER
 ```
 
 값이 아니라 **필드의 모양만** 준다. 저장된 자격증명은 여기에도 나오지 않는다.
+`available=false`인 유형은 이 배포의 서버 설정이 비어 있어 **지금은 보낼 수 없다** — 화면은 비활성으로 그리고,
+`POST /alert/channels`는 `400 TYPE_UNAVAILABLE`로 거절한다(저장만 되고 발송이 매번 실패하는 상태를 만들지 않는다).
 
 ## GET /api/alert/channels
 
@@ -651,6 +658,8 @@ Query: `customer_id` (선택). 주면 그 고객사 채널 **+ 전역 채널**�
 - `match`는 축마다 목록이고 **비면 전부**다. 축끼리 AND, 축 안의 값끼리 OR.
   모르는 축과 모르는 `config` 항목은 400 — 조용히 버리면 "RDS만"이라 믿는데 전부 받는다.
 - 고객사당 최대 50개.
+- 본문에 `channel_id`를 주면 그 ID로 만들되, **이미 있으면 `409 CONFLICT`** — POST는 덮어쓰지 않는다(수정은 PUT).
+- 카탈로그에서 `available=false`인 유형은 `400 TYPE_UNAVAILABLE`.
 
 Response `201`: 채널 표현. **`config`의 자격증명 필드는 값 대신 `"(설정됨)"`이 나간다.**
 
@@ -663,8 +672,8 @@ Query: `customer_id`. 자격증명을 **보내지 않거나 `"(설정됨)"` 그�
 
 Query: `customer_id`. Response `204`.
 
-Errors (채널 공통): `400 VALIDATION_ERROR`, `400 LIMIT_EXCEEDED`, `403 FORBIDDEN`,
-`404 NOT_FOUND`, `503 STORAGE_ERROR`
+Errors (채널 공통): `400 VALIDATION_ERROR`, `400 LIMIT_EXCEEDED`, `400 TYPE_UNAVAILABLE`, `403 FORBIDDEN`,
+`404 NOT_FOUND`, `409 CONFLICT`, `503 STORAGE_ERROR`
 
 ## GET /api/alert/events
 

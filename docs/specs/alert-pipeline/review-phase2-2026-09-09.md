@@ -251,6 +251,18 @@ Slack HTTP 200 → 이력 `final_reason=swept:aborted, delivered=True` → 사�
 경합 자체(같은 순간의 두 쓰기)는 라이브로 재현하기 어려워 단위 테스트(`TestIncidentRaces` 6건, ack 경합 3건,
 store 9건)로 고정했다.
 
+### 3. M4 + M5 — 재알림 매칭·Slack 렌더링 (`71aa6e2`)
+
+- **M4** `merge_events`가 구성원의 `account_id`·`resource_type`을 `account_ids`·`resource_types` 집합으로 누적하고,
+  `match_fields(incident)`가 그 집합을 매칭용 뷰로 낸다. `matches()`는 이벤트 값이 **목록**이면 하나라도 허용 목록에
+  있으면 통과(빈 목록은 빈 값과 같다). 재알림은 이 뷰로 채널을 고른다.
+- **M5** `_render_slack`이 `& < >`를 이스케이프한다(`_slack_escape`). 링크 문법 `<url|자세히 보기>`는 이스케이프 **뒤에** 붙인다.
+
+**라이브 검증 (dev, 09-09 09:33 UTC):** 계정 조건(`949501913924`) 채널과 RDS 조건 채널을 등록하고, 2시간 전 확인된
+사건(구성원 계정 = 우리 계정, 리소스 타입 EC2, 제목 `… < 10GB & > 5%`)을 심어 틱 → `renotified=1, sent=1`(계정 채널만),
+사건 `acknowledged` 유지·`version=2`·`resolved=0`. Slack 표시(`<`·`&`·`>` 글자 그대로)는 사용자 확인 대상 —
+이스케이프 자체는 단위 테스트가 고정한다.
+
 ## 권장 순서
 
 1. ~~**H1 + M1 + M2** — 발송 내구성~~ ✅. 셋이 같은 이야기다: "죽어도 결국 간다, 못 갔으면 5분 안에 스스로 맞춘다."

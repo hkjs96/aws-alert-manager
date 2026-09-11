@@ -206,6 +206,54 @@ class TestDeliverAll:
         assert deliver_all([], NOTE, transports=FakeTransports()) == []
 
 
+class TestRealTransportDoesNotFollowRedirects:
+    """https로 검증한 URL이 http로 302하면 urllib가 Authorization을 들고 따라간다 (review-phase2 L4).
+
+    가짜가 아니라 진짜 `Transports.post`를 로컬 서버에 쏜다 — 리다이렉트 처리는 urllib 내부라
+    가짜로는 검증이 안 된다.
+    """
+
+    def test_a_302_is_reported_not_followed(self):
+        import threading
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+        hits = []
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_POST(self):                                # noqa: N802
+                hits.append((self.path, self.headers.get("Authorization")))
+                self.rfile.read(int(self.headers.get("Content-Length", "0")))
+                if self.path == "/hook":
+                    self.send_response(302)
+                    self.send_header("Location", "/leak")
+                    self.end_headers()
+                else:
+                    self.send_response(200)
+                    self.end_headers()
+
+            def log_message(self, *_):
+                pass
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            url = f"http://127.0.0.1:{server.server_port}/hook"
+            with pytest.raises(urllib.error.HTTPError) as exc:
+                Transports().post(url, "{}", {"Authorization": "Bearer secret"}, 5)
+            assert exc.value.code == 302
+            assert [p for p, _ in hits] == ["/hook"], "리다이렉트 대상(/leak)으로 가면 안 된다"
+        finally:
+            server.shutdown()
+            server.server_close()
+
+    def test_a_302_result_is_a_recorded_failure_without_retry(self):
+        """3xx는 설정 오류다 — 재시도해도 같다."""
+        t = FakeTransports(raises=[http_error(302)])
+        r = deliver(webhook(), NOTE, transports=t, sleep=lambda _: None)
+        assert r.ok is False and r.status == 302 and r.attempts == 1
+
+
 class TestDeliveryResult:
     def test_to_dict_drops_empty_fields(self):
         d = DeliveryResult(channel_id="c", channel_name="n", type="slack", ok=True,

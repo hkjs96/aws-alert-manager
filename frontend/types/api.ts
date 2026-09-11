@@ -291,6 +291,9 @@ export interface ChannelType {
   type: string;
   label: string;
   rate_limit_per_sec: number;
+  /** 이 배포에서 실제로 보낼 수 있는가. false면 서버 설정(스택 파라미터)이 비어 있다 */
+  available?: boolean;
+  unavailable_reason?: string;
   fields: ChannelField[];
 }
 

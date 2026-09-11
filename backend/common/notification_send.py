@@ -55,6 +55,20 @@ class DeliveryResult:
         return {k: v for k, v in asdict(self).items() if v not in ("", None)}
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """리다이렉트를 따라가지 않는다.
+
+    urllib는 기본으로 3xx를 따라가며 `Authorization` 헤더를 그대로 들고 간다 — https로 검증한 URL이
+    http로 302하면 토큰이 평문으로 나간다. 3xx는 실패로 기록한다(재시도 대상도 아니다)(review-phase2 L4).
+    """
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):     # noqa: PLR0913
+        return None
+
+
+_OPENER = urllib.request.build_opener(_NoRedirect())
+
+
 class Transports:
     """바깥 세계. 테스트는 이걸 갈아 끼운다."""
 
@@ -62,7 +76,7 @@ class Transports:
         req = urllib.request.Request(
             url, data=body.encode("utf-8"), method="POST",
             headers={"Content-Type": "application/json", **headers})
-        with urllib.request.urlopen(req, timeout=timeout) as resp:   # noqa: S310 (https만 허용됨)
+        with _OPENER.open(req, timeout=timeout) as resp:              # noqa: S310 (https만 허용됨)
             return int(resp.status)
 
     def send_email(self, sender: str, recipients: list[str], subject: str, body: str) -> None:

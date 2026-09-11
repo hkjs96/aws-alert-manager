@@ -39,10 +39,14 @@ type Draft = {
   enabled: boolean;
 };
 
+function isAvailable(t: ChannelType): boolean {
+  return t.available !== false;
+}
+
 function emptyDraft(types: ChannelType[], customerId: string): Draft {
   return {
     name: "",
-    type: types[0]?.type ?? "",
+    type: (types.find(isAvailable) ?? types[0])?.type ?? "",
     customer_id: customerId,
     config: {},
     match: {},
@@ -158,9 +162,14 @@ function ChannelForm({
             onChange={(e) => onChange({ ...draft, type: e.target.value, config: {} })}
           >
             {catalogue.types.map((t) => (
-              <option key={t.type} value={t.type}>{t.label}</option>
+              <option key={t.type} value={t.type} disabled={!isAvailable(t)}>
+                {t.label}{isAvailable(t) ? "" : " (서버 설정 필요)"}
+              </option>
             ))}
           </select>
+          {type && !isAvailable(type) && (
+            <span className="mt-1 block text-xs text-amber-700">{type.unavailable_reason}</span>
+          )}
         </label>
 
         <label className="flex items-center gap-2 pt-6">

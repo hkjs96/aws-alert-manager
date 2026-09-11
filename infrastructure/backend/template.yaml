@@ -1285,6 +1285,8 @@ Resources:
           ALERT_STATE_TABLE: !Ref AlertStateTable
           NOTIFICATION_CHANNEL_TABLE: !Ref NotificationChannelTable
           INCIDENT_TABLE: !Ref IncidentTable
+          # 채널 카탈로그가 "이메일은 지금 못 씀"을 알리는 근거 — 라우터와 같은 값(review-phase2 L3)
+          ALERT_EMAIL_SENDER: !Ref AlertEmailSender
           THRESHOLD_OVERRIDES_TABLE: !Ref ThresholdOverridesTable
           JOB_STATUS_TABLE: !Ref JobStatusTable
           MONITOR_RUN_HISTORY_TABLE: !Ref MonitorRunHistoryTable

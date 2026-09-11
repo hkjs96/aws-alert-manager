@@ -43,8 +43,12 @@ class FakeTable:
         it = self.items.get((Key["customer_id"], Key["channel_id"]))
         return {"Item": dict(it)} if it else {}
 
-    def put_item(self, Item, **_):
+    def put_item(self, Item, ConditionExpression=None, **_):
+        from fakes_ddb import _eval, conditional_failure
         _reject_empty_key(Item["customer_id"], Item["channel_id"])
+        cur = self.items.get((Item["customer_id"], Item["channel_id"]))
+        if ConditionExpression is not None and not _eval(ConditionExpression, cur):
+            raise conditional_failure()
         self.items[(Item["customer_id"], Item["channel_id"])] = dict(Item)
 
     def delete_item(self, Key, **_):
@@ -144,6 +148,28 @@ class TestCreate:
         table = FakeTable([stored(channel_id=f"c{i}") for i in range(50)])
         resp, b, _ = call("POST", "/alert/channels", table=table, body=new_body())
         assert resp["statusCode"] == 400 and b["code"] == "LIMIT_EXCEEDED"
+
+    def test_existing_id_is_a_conflict_not_an_overwrite(self):
+        """POST가 PUT 노릇을 하면 자격증명이 조용히 바뀐다 (review-phase2 L2)."""
+        table = FakeTable([stored("c1")])
+        resp, b, t = call("POST", "/alert/channels", table=table,
+                          body=new_body(channel_id="c1", config={"webhook_url": SLACK_URL + "/other"}))
+        assert resp["statusCode"] == 409 and b["code"] == "CONFLICT"
+        assert t.items[("cust-1", "c1")]["config"]["webhook_url"] == SLACK_URL, "기존 값이 남아야 한다"
+
+    def test_unavailable_type_is_refused_with_the_reason(self, monkeypatch):
+        """보낼 수 없는 유형을 받으면 저장만 되고 발송은 매번 실패한다 — 그건 이력에만 남는다 (L3)."""
+        monkeypatch.delenv("ALERT_EMAIL_SENDER", raising=False)
+        resp, b, t = call("POST", "/alert/channels",
+                          body=new_body(type="email", config={"addresses": "a@mz.co.kr"}))
+        assert resp["statusCode"] == 400 and b["code"] == "TYPE_UNAVAILABLE"
+        assert "ALERT_EMAIL_SENDER" in b["message"] and t.items == {}
+
+    def test_available_type_is_accepted_once_configured(self, monkeypatch):
+        monkeypatch.setenv("ALERT_EMAIL_SENDER", "alerts@mz.co.kr")
+        resp, _, _ = call("POST", "/alert/channels",
+                          body=new_body(type="email", config={"addresses": "a@mz.co.kr"}))
+        assert resp["statusCode"] == 201
 
     def test_malformed_json_is_a_400(self):
         from api_handler.routes import notification_channels as nc
@@ -312,3 +338,17 @@ class TestTypeCatalogue:
         """카탈로그는 필드의 '모양'만 준다 — 저장된 값이 섞여 나가면 안 된다."""
         _, b, _ = call("GET", "/alert/channel-types")
         assert SLACK_URL not in json.dumps(b, ensure_ascii=False)
+
+    def test_email_is_marked_unavailable_without_a_sender(self, monkeypatch):
+        """dev에 `AlertEmailSender`가 비어 있었다 — 카탈로그에는 뜨는데 절대 못 보내던 유형 (review-phase2 L3)."""
+        monkeypatch.delenv("ALERT_EMAIL_SENDER", raising=False)
+        _, b, _ = call("GET", "/alert/channel-types")
+        by_type = {t["type"]: t for t in b["types"]}
+        assert by_type["email"]["available"] is False
+        assert "ALERT_EMAIL_SENDER" in by_type["email"]["unavailable_reason"]
+        assert by_type["slack"]["available"] is True and by_type["slack"]["unavailable_reason"] == ""
+
+    def test_email_becomes_available_with_a_sender(self, monkeypatch):
+        monkeypatch.setenv("ALERT_EMAIL_SENDER", "alerts@mz.co.kr")
+        _, b, _ = call("GET", "/alert/channel-types")
+        assert {t["type"]: t["available"] for t in b["types"]}["email"] is True

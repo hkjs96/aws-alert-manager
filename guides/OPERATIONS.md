@@ -82,6 +82,8 @@ python scripts/deploy-backend-stack.py                 # git diff 기반 변경 
 python scripts/deploy-backend-stack.py --all-artifacts # 전체 아티팩트 재빌드
 python scripts/deploy-backend-stack.py --changed-path backend/common/alarm_registry.py
 python scripts/deploy-backend-stack.py --dry-run       # 배포 계획만 출력
+python scripts/deploy-backend-stack.py --parameter AlertConsoleUrl=https://main.d2ssyfndl4orxp.amplifyapp.com/alerts
+                                                       # 스택 파라미터 덮어쓰기(반복 가능, 나머지는 이전 값 유지)
 ```
 
 The CLI also forwards auth parameters (`GOOGLE_CLIENT_ID`, `ALLOWED_EMAILS`,

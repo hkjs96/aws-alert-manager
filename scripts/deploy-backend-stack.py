@@ -226,6 +226,7 @@ def _deploy(
     stack: str,
     environment: str,
     version: str,
+    extra_parameters: dict[str, str] | None = None,
 ) -> None:
     """boto3 changeset 흐름으로 스택을 갱신한다 (aws cloudformation deploy 대체).
 
@@ -260,6 +261,8 @@ def _deploy(
         value = os.environ.get(env_name)
         if value is not None:
             overrides[param_name] = value
+    # --parameter KEY=VALUE — 이름이 정해진 것 외의 스택 파라미터(AlertConsoleUrl 등). 명시한 것만 덮는다.
+    overrides.update(extra_parameters or {})
 
     try:
         existing = cfn.describe_stacks(StackName=stack)["Stacks"][0].get("Parameters", [])
@@ -342,8 +345,26 @@ def _parse_args() -> argparse.Namespace:
         "--environment",
         default=os.environ.get("ALARM_MANAGER_ENVIRONMENT", DEFAULT_ENVIRONMENT),
     )
+    parser.add_argument(
+        "--parameter",
+        action="append",
+        default=[],
+        metavar="KEY=VALUE",
+        help="Override one stack parameter (e.g. AlertConsoleUrl=https://...). May be repeated; "
+             "parameters not given keep their previous value.",
+    )
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args()
+
+
+def _parse_parameter_overrides(raw: list[str]) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for item in raw:
+        key, sep, value = item.partition("=")
+        if not sep or not key.strip():
+            raise SystemExit(f"--parameter expects KEY=VALUE, got {item!r}")
+        out[key.strip()] = value
+    return out
 
 
 def main() -> int:
@@ -397,7 +418,8 @@ def main() -> int:
                 )
                 print(f"[deploy] copied {zip_name}")
 
-    _deploy(args.profile, args.region, args.bucket, args.stack, args.environment, version)
+    _deploy(args.profile, args.region, args.bucket, args.stack, args.environment, version,
+            extra_parameters=_parse_parameter_overrides(args.parameter))
     print(f"[deploy] stack deploy complete CodeVersion={version}")
     return 0
 
