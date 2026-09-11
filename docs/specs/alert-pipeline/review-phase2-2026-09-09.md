@@ -15,11 +15,11 @@
 | M3 | 인시던트 축 ≠ 그룹 축 — 미매핑 계정은 전부 `inc##SEV-x` 하나로 뭉치고 H2 경합을 키운다 | 중간 | ✅ `277af15` | `common/alert_state.py:66` vs `alert_router:111-113` |
 | M4 | 재알림은 등급·고객사만 매칭 — 계정/리소스 타입 조건 채널은 재알림을 못 받는다 | 중간 | ✅ `71aa6e2` | `alert_router:418-420`, `notification_channel.py:246-252` |
 | M5 | Slack mrkdwn 이스케이프 누락 — 알람 이름에 `<` `>`가 들어간다 | 중간 | ✅ `71aa6e2` | `notification_adapters.py:219-240` |
-| L1 | 버스 정책 read-back 검증은 일부 인터리빙만 잡는다, 드리프트 점검 없음 | 낮음 | 코드 완료(5절) | `routes/accounts.py:107-119` |
+| L1 | 버스 정책 read-back 검증은 일부 인터리빙만 잡는다, 드리프트 점검 없음 | 낮음 | ✅ `517b3d3` | `routes/accounts.py:107-119` |
 | L2 | `POST /alert/channels`가 본문 `channel_id`를 받아 조건 없이 put — 기존 채널을 덮어쓴다 | 낮음 | ✅ `4b5b079` | `notification_channel.py:177`, `routes/notification_channels.py:164` |
 | L3 | **(라이브)** dev에 `AlertEmailSender`·`AlertConsoleUrl`이 비어 있다 — 이메일 채널은 저장되지만 못 보내고, 알림에 링크가 없다 | 낮음 | ✅ `4b5b079` (`AlertEmailSender`는 사용자 결정) | `describe-stacks` 실측 |
 | L4 | 범용 웹훅: urllib가 리다이렉트를 따라가며 `Authorization`을 들고 https→http로 내려갈 수 있다 | 낮음 | ✅ `4b5b079` | `notification_send.py:56-61` |
-| L5 | 잡동사니 — 타임라인 캡이 첫 항목을 버림, 라우터 타임아웃 예산, SES 클라이언트 매 호출 생성 | 낮음 | 코드 완료(5절) | 아래 |
+| L5 | 잡동사니 — 타임라인 캡이 첫 항목을 버림, 라우터 타임아웃 예산, SES 클라이언트 매 호출 생성 | 낮음 | ✅ `517b3d3` | 아래 |
 
 **잘 된 것** (바꾸지 말 것): claim-then-send로 최대 한 번(`_claim`), 자격증명이 *선언* 하나로 검증·응답 가림·오류 가림까지
 같이 움직이는 어댑터 구조, GSI 최종 일관성을 키만 읽고 기본 표에서 일관 읽기로 우회한 것, 버스 정책 read-modify-write,
@@ -296,6 +296,18 @@ store 9건)로 고정했다.
   핸들러가 `context.get_remaining_time_in_millis()`에서 기록 몫 15초를 뺀 값을 `deliver_group(budget_sec=)`으로
   넘기고, `deliver_all(deadline=)`이 예산이 다 되면 남은 채널을 **보내지 않고 `BUDGET_EXCEEDED`로 기록**한다 —
   Lambda가 중간에 죽으면 어디까지 갔는지조차 남지 않기 때문이다. 직접 호출·테스트(컨텍스트 없음)는 무제한.
+
+**라이브 검증 (dev, 09-11 02:40 UTC, `517b3d3`, `v20260911T023902`):** 룰 페이로드 호출 → `changed=false`(정책 불변,
+쓰기 없음); 관리자 수동 엔드포인트 200; 주기 룰 `rate(1 hour)` ENABLED, 타깃 api_handler, 입력 일치.
+dev에 등록된 고객사 계정이 없어(`acct-*` statement 0) 추가·갱신·제거 경로는 라이브로 밟지 못했다 — 단위 테스트
+8건(`TestReconcile`)이 가짜 EventBridge의 전체 교체 의미론 위에서 고정한다. 첫 고객사 등록 뒤 한 시간 안에
+`added`가 비어 있는지(=등록 경로가 이미 붙였는지) 로그로 확인하면 된다. L5의 예산 경로는 폭풍 없이 실측 불가.
+
+## 마무리
+
+12건 전부 처리했다(H1·H2·M1~M5·L1~L5). 라이브로 확인하지 못한 것은 셋 — M2(스로틀 재시도)와 L5(발송 예산)는
+폭풍이 있어야 하고, L1의 쓰기 경로는 등록된 고객사 계정이 있어야 한다. 셋 다 단위 테스트로 고정돼 있고, 첫 고객사가
+붙으면 자연히 밟힌다. 사용자 결정으로 남긴 것: `AlertEmailSender`(SES 검증 선행), Slack 메시지의 `<`·`&`·`>` 표시 눈 확인.
 
 ## 권장 순서
 
