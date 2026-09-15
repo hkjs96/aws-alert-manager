@@ -1473,3 +1473,40 @@ class TestExtendedResourceDailyMonitorIntegration:
 
         assert alerts == 0
         mock_alert.assert_not_called()
+
+
+# ──────────────────────────────────────────────
+# 알림 방향은 레지스트리 표시명에서 파생된다 (docs/specs/resource-type-registry P4)
+# ──────────────────────────────────────────────
+
+class TestAlertDirectionFromRegistry:
+    """옛 손 목록(FreeMemoryGB·TunnelState…)이 아니라 알람 정의의 방향("<")으로 "작을수록 위험"을 판정한다."""
+
+    OLD_HAND_LIST = ("FreeMemoryGB", "FreeStorageGB", "FreeLocalStorageGB", "TunnelState", "DaysToExpiry",
+                     "OSFreeStorageSpace", "ActiveControllerCount", "HealthCheckStatus", "ConnectionState",
+                     "BurstCreditBalance")
+
+    def test_every_key_of_the_old_hand_list_is_still_lower_is_worse(self):
+        from daily_monitor.lambda_handler import _lower_is_worse
+        assert all(_lower_is_worse(k) for k in self.OLD_HAND_LIST)
+
+    def test_keys_without_a_display_entry_default_to_higher_is_worse(self):
+        from daily_monitor.lambda_handler import _lower_is_worse
+        assert not _lower_is_worse("Disk_root") and not _lower_is_worse("RequestCount") and not _lower_is_worse("CPU")
+
+    def test_healthy_host_count_below_threshold_alerts(self):
+        """대상 그룹 HealthyHostCount는 정의가 LessThanThreshold인데 옛 손 목록에 없어 방향이 뒤집혀 있었다."""
+        collector_mod = MagicMock()
+        collector_mod.get_metrics.return_value = {"HealthyHostCount": 0.0}
+        tags = {"Monitoring": "on", "_lb_arn": "arn:lb", "_lb_type": "application", "_resource_subtype": "TG"}
+        with patch("daily_monitor.lambda_handler.get_threshold", return_value=1.0), \
+             patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
+            alerts = _process_resource("arn:tg", "TG", tags, collector_mod)
+        assert alerts == 1
+        assert mock_alert.call_args.kwargs["metric_name"] == "HealthyHostCount"
+
+        collector_mod.get_metrics.return_value = {"HealthyHostCount": 3.0}
+        with patch("daily_monitor.lambda_handler.get_threshold", return_value=1.0), \
+             patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
+            assert _process_resource("arn:tg", "TG", tags, collector_mod) == 0
+        mock_alert.assert_not_called()

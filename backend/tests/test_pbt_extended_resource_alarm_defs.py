@@ -12,21 +12,21 @@ from hypothesis import strategies as st
 
 from common import HARDCODED_DEFAULTS
 from common.alarm_registry import (
-    _CLOUDFRONT_ALARMS,
     _DIMENSION_KEY_MAP,
-    _DX_ALARMS,
-    _ECS_ALARMS,
     _HARDCODED_METRIC_KEYS,
     _METRIC_DISPLAY,
-    _MSK_ALARMS,
     _NAMESPACE_MAP,
-    _ROUTE53_ALARMS,
-    _S3_ALARMS,
-    _SAGEMAKER_ALARMS,
-    _WAF_ALARMS,
     _get_alarm_defs,
     _metric_name_to_key,
 )
+from common.resource_types.cloudfront import _CLOUDFRONT_ALARMS
+from common.resource_types.dx import _DX_ALARMS
+from common.resource_types.ecs import _ECS_ALARMS
+from common.resource_types.msk import _MSK_ALARMS
+from common.resource_types.route53 import _ROUTE53_ALARMS
+from common.resource_types.s3 import _S3_ALARMS
+from common.resource_types.sagemaker import _SAGEMAKER_ALARMS
+from common.resource_types.waf import _WAF_ALARMS
 from common.dimension_builder import _build_dimensions
 
 # ──────────────────────────────────────────────

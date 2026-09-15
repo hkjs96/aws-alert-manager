@@ -31,6 +31,7 @@ from common.perf_log import Timer
 from common.tag_cache import log_tag_cache_stats, prime_tag_cache, set_active_tag_cache
 from common.alarm_index import AlarmIndex
 from common.alarm_manager import sync_alarms_for_resource
+from common.alarm_registry import _METRIC_DISPLAY
 from common.collectors.base import MetricBatch, set_active_metric_batch
 from common.resource_discovery import (
     discover_resources,
@@ -1004,6 +1005,17 @@ def _collect_resource_metrics(
     return collector_mod.get_metrics(resource_id, resource_tags)
 
 
+def _lower_is_worse(metric_name: str) -> bool:
+    """이 메트릭은 값이 임계치 **미만**일 때 위험한가 — 레지스트리 표시명의 방향("<")으로 판정한다.
+
+    2026-09까지는 손으로 적은 키 목록(FreeMemoryGB·TunnelState·DaysToExpiry…)이었고, 대상 그룹의 HealthyHostCount처럼
+    알람 정의는 LessThanThreshold인데 목록에 없는 키가 있었다(docs/specs/resource-type-registry P4). 표시명이 없는 키
+    (EC2 Disk_<suffix>, ELB RequestCount 같은 수집 전용 지표)는 "클수록 위험"이다.
+    """
+    entry = _METRIC_DISPLAY.get(metric_name)
+    return entry is not None and entry[1] == "<"
+
+
 def _process_resource(
     resource_id: str,
     resource_type: str,
@@ -1031,11 +1043,7 @@ def _process_resource(
     for metric_name, current_value in metrics.items():
         threshold = get_threshold(resource_tags, metric_name)
 
-        # FreeMemoryGB / FreeStorageGB / FreeLocalStorageGB는 값이 임계치 미만일 때 알림 (낮을수록 위험)
-        if metric_name in ("FreeMemoryGB", "FreeStorageGB", "FreeLocalStorageGB",
-                          "TunnelState", "DaysToExpiry", "OSFreeStorageSpace",
-                          "ActiveControllerCount",
-                          "HealthCheckStatus", "ConnectionState", "BurstCreditBalance"):
+        if _lower_is_worse(metric_name):
             exceeded = current_value < threshold
         else:
             exceeded = current_value > threshold

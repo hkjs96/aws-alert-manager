@@ -46,20 +46,6 @@ def _get_sns_alert_arn() -> str:
 # ──────────────────────────────────────────────
 from common.alarm_registry import (  # noqa: E402, F401
     _METRIC_DISPLAY,
-    _EC2_ALARMS,
-    _RDS_ALARMS,
-    _ALB_ALARMS,
-    _NLB_ALARMS,
-    _TG_ALARMS,
-    _AURORA_RDS_ALARMS,
-    _AURORA_READER_REPLICA_LAG,
-    _AURORA_ACU_UTILIZATION,
-    _AURORA_SERVERLESS_CAPACITY,
-    _get_aurora_alarm_defs,
-    _DOCDB_ALARMS,
-    _ELASTICACHE_ALARMS,
-    _NATGW_ALARMS,
-    _NLB_TG_EXCLUDED_METRICS,
     _get_alarm_defs,
     _HARDCODED_METRIC_KEYS,      # 재수출 — 테스트·호출부가 이 facade를 통해 가져온다
     _NAMESPACE_MAP,

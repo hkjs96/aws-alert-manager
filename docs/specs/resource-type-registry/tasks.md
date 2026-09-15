@@ -147,9 +147,17 @@
       2번(ARN→ID는 스펙 identity + `_EXTRACTORS`) 재작성.
 - [x] 4.2(2026-09-15) `docs/ALARM-RULES.md` §9-1에 스펙 `identity` 안내(remediation `_EXTRACTORS`와 같은 TagName), `backend/common/CLAUDE.md`
       온보딩 8단계 → 스펙 우선 7단계(파생 맵은 손대지 않는다), `backend/common/HOW_DOES_THIS_WORK.md` Collector 절을 범용 수집기·명단으로.
-- [x] 4.3(2026-09-15) `alarm_registry.py` 337줄 — 남은 것: 평가 정책(`_apply_eval_policy`), 파생 셋(`_derive_*`), 태그 기반 키 조회,
-      severity 표, 그리고 옛 이름 43개 **재수출**(alarm_manager facade·테스트가 그 경로로 import — 지우면 깨진다, P2.4a 함정). 수집기
-      디렉터리 3,643줄: 모듈 26개 전부 `GenericCollector` 위(테스트 `test_every_collector_module_is_on_the_generic_collector`).
+- [x] 4.3(2026-09-15) `alarm_registry.py` 337 → **309줄** — 옛 이름 41개 재수출을 지웠다. 그 경로로 import하던 테스트 7개 중 5개(13개 이름)를
+      스펙 모듈(`common.resource_types.<type>`) 직접 import로 옮기고, `alarm_manager` facade에서도 정의 이름 14개를 뺐다(facade에 남은 것은
+      파생 뷰 `_METRIC_DISPLAY`·`_HARDCODED_METRIC_KEYS`·`_NAMESPACE_MAP`·`_DIMENSION_KEY_MAP`·`_GLOBAL_SERVICE_REGION`과 조회 함수 —
+      `alarm_builder`·`dimension_builder` 등 호출부가 쓴다). 남은 것: 평가 정책, 파생 셋, 태그 기반 키 조회, severity 표. 수집기 디렉터리
+      3,643줄: 모듈 26개 전부 `GenericCollector` 위(테스트 `test_every_collector_module_is_on_the_generic_collector`).
+- [x] 4.4(2026-09-15) `daily_monitor._process_resource`의 "작을수록 위험" **손 목록 10개 → 레지스트리 표시명 방향("<")에서 파생**
+      (`_lower_is_worse`). 손 목록 10개는 전부 "<"였고, 표시명이 "<"인데 목록에 없던 키 중 수집기가 실제로 내는 것이 **대상 그룹
+      `HealthyHostCount`** 하나 — 알람 정의는 LessThanThreshold(정상 호스트 0이면 알람)인데 데일리 런은 "클수록 위험"으로 뒤집혀 있었다
+      (정상 호스트가 임계치보다 많을 때 알림). 파생으로 고쳐졌다(`TestAlertDirectionFromRegistry`). 표시명이 없는 키(EC2 `Disk_*`,
+      ELB `RequestCount`)는 전처럼 "클수록 위험". RDS 계열 오버라이드의 옛 결과 키(FreeMemoryGB…)는 `legacy.py` 표시명이 "<"라 그대로 맞다 —
+      키 이름 자체를 바꾸는 일은 이 목록이 없어진 지금 `tag_resolver._LEGACY_TAG_MAP`·GB 변환과만 얽힌다(별건).
 
 ## 하지 않는 것 (기록)
 

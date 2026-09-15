@@ -401,7 +401,7 @@ class TestAuroraAlarmVariantRouting:
         assert metrics == {"CPUUtilization", "ACUUtilization", "DatabaseConnections", "ReaderReplicaLag"}
 
     def test_aurora_reader_replica_lag_alarm_def_schema(self):
-        from common.alarm_manager import _AURORA_READER_REPLICA_LAG
+        from common.resource_types.aurora_rds import _AURORA_READER_REPLICA_LAG
         assert _AURORA_READER_REPLICA_LAG["metric"] == "ReaderReplicaLag"
         assert _AURORA_READER_REPLICA_LAG["namespace"] == "AWS/RDS"
         assert _AURORA_READER_REPLICA_LAG["metric_name"] == "AuroraReplicaLag"
@@ -412,7 +412,7 @@ class TestAuroraAlarmVariantRouting:
         assert _AURORA_READER_REPLICA_LAG["evaluation_periods"] == 1
 
     def test_aurora_acu_utilization_alarm_def_schema(self):
-        from common.alarm_manager import _AURORA_ACU_UTILIZATION
+        from common.resource_types.aurora_rds import _AURORA_ACU_UTILIZATION
         assert _AURORA_ACU_UTILIZATION["metric"] == "ACUUtilization"
         assert _AURORA_ACU_UTILIZATION["namespace"] == "AWS/RDS"
         assert _AURORA_ACU_UTILIZATION["metric_name"] == "ACUUtilization"
@@ -423,7 +423,7 @@ class TestAuroraAlarmVariantRouting:
         assert _AURORA_ACU_UTILIZATION["evaluation_periods"] == 1
 
     def test_aurora_serverless_capacity_alarm_def_schema(self):
-        from common.alarm_manager import _AURORA_SERVERLESS_CAPACITY
+        from common.resource_types.aurora_rds import _AURORA_SERVERLESS_CAPACITY
         assert _AURORA_SERVERLESS_CAPACITY["metric"] == "ServerlessDatabaseCapacity"
         assert _AURORA_SERVERLESS_CAPACITY["namespace"] == "AWS/RDS"
         assert _AURORA_SERVERLESS_CAPACITY["metric_name"] == "ServerlessDatabaseCapacity"
@@ -1554,7 +1554,8 @@ class TestEvalPolicy:
 
     def test_policy_returns_copies_not_mutated_registry(self):
         """정책은 복사본에 적용되고 원본 레지스트리 dict는 불변이어야 한다."""
-        from common.alarm_registry import _EC2_ALARMS, _get_alarm_defs
+        from common.alarm_registry import _get_alarm_defs
+        from common.resource_types.ec2 import _EC2_ALARMS
         _get_alarm_defs("EC2", {})
         raw_mem = next(d for d in _EC2_ALARMS if d["metric"] == "mem_used_percent")
         assert raw_mem["evaluation_periods"] == 1

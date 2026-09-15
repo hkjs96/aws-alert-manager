@@ -15,9 +15,9 @@ from hypothesis import strategies as st
 
 from common.alarm_manager import (
     _resolve_free_memory_threshold,
-    _get_aurora_alarm_defs,
     _get_alarm_defs,
 )
+from common.resource_types.aurora_rds import _get_aurora_alarm_defs
 from common.tag_resolver import get_threshold, is_threshold_off
 from common import HARDCODED_DEFAULTS
 from common.collectors.rds import _INSTANCE_CLASS_MEMORY_MAP

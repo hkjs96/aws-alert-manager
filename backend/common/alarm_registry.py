@@ -1,8 +1,9 @@
 """
-Alarm Registry — 데이터 드리븐 알람 정의 레지스트리
+Alarm Registry — 알람 정의에서 **파생**되는 표와 조회 (docs/specs/resource-type-registry)
 
-모든 리소스 유형별 알람 정의, 매핑 테이블, 메트릭 키 변환을 단일 모듈로 관리한다.
-순수 데이터 모듈로 외부 의존성 없음.
+알람 정의의 정본은 타입별 스펙 모듈(`common/resource_types/<type>.py`)이다. 이 모듈은 그 정의에서 평가 정책 적용,
+타입별 정의 조회, 메트릭 키·네임스페이스·디멘션 키 표 파생, 표시명, 심각도만 제공한다. 옛 이름(`_EC2_ALARMS` 등)은
+더 재수출하지 않는다 — 정의가 필요하면 스펙 모듈에서 직접 import한다.
 """
 
 import logging
@@ -12,36 +13,6 @@ from common.resource_types.base import (
     global_service_regions as _global_service_regions,
     metric_display as _metric_display,
 )
-# 옛 이름 재수출 — alarm_manager facade와 테스트가 이 경로로 가져온다. 정의의 정본은 각 타입 모듈이다.
-from common.resource_types.ec2 import APP_STATUS_METRIC_KEY, _EC2_ALARMS, _EC2_APP_STATUS_ALARM, _get_ec2_alarm_defs  # noqa: F401
-from common.resource_types.rds import _RDS_ALARMS  # noqa: F401
-from common.resource_types.alb import _ALB_ALARMS  # noqa: F401
-from common.resource_types.nlb import _NLB_ALARMS  # noqa: F401
-from common.resource_types.tg import _TG_ALARMS, _NLB_TG_EXCLUDED_METRICS, _get_tg_alarm_defs  # noqa: F401
-from common.resource_types.aurora_rds import _AURORA_RDS_ALARMS, _AURORA_READER_REPLICA_LAG, _AURORA_ACU_UTILIZATION, _AURORA_SERVERLESS_CAPACITY, _get_aurora_alarm_defs  # noqa: F401
-from common.resource_types.docdb import _DOCDB_ALARMS  # noqa: F401
-from common.resource_types.elasticache import _ELASTICACHE_ALARMS  # noqa: F401
-from common.resource_types.nat import _NATGW_ALARMS  # noqa: F401
-from common.resource_types.lambda_fn import _LAMBDA_ALARMS  # noqa: F401
-from common.resource_types.vpn import _VPN_ALARMS  # noqa: F401
-from common.resource_types.apigw import _APIGW_REST_ALARMS, _APIGW_HTTP_ALARMS, _APIGW_WEBSOCKET_ALARMS, _get_apigw_alarm_defs  # noqa: F401
-from common.resource_types.acm import _ACM_ALARMS  # noqa: F401
-from common.resource_types.backup import _BACKUP_ALARMS  # noqa: F401
-from common.resource_types.mq import _MQ_ALARMS  # noqa: F401
-from common.resource_types.clb import _CLB_ALARMS  # noqa: F401
-from common.resource_types.opensearch import _OPENSEARCH_ALARMS  # noqa: F401
-from common.resource_types.sqs import _SQS_ALARMS  # noqa: F401
-from common.resource_types.ecs import _ECS_ALARMS  # noqa: F401
-from common.resource_types.msk import _MSK_ALARMS  # noqa: F401
-from common.resource_types.dynamodb import _DYNAMODB_ALARMS  # noqa: F401
-from common.resource_types.cloudfront import _CLOUDFRONT_ALARMS  # noqa: F401
-from common.resource_types.waf import _WAF_ALARMS  # noqa: F401
-from common.resource_types.route53 import _ROUTE53_ALARMS  # noqa: F401
-from common.resource_types.dx import _DX_ALARMS  # noqa: F401
-from common.resource_types.efs import _EFS_ALARMS  # noqa: F401
-from common.resource_types.s3 import _S3_ALARMS  # noqa: F401
-from common.resource_types.sagemaker import _SAGEMAKER_ALARMS  # noqa: F401
-from common.resource_types.sns import _SNS_ALARMS  # noqa: F401
 
 logger = logging.getLogger(__name__)
 

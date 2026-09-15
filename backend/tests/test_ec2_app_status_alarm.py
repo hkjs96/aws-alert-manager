@@ -14,11 +14,11 @@ import pytest
 
 from common import HARDCODED_DEFAULTS
 from common.alarm_registry import (
-    APP_STATUS_METRIC_KEY,
     _get_alarm_defs,
     _get_hardcoded_metric_keys,
     get_severity,
 )
+from common.resource_types.ec2 import APP_STATUS_METRIC_KEY
 
 TAG = f"Threshold_{APP_STATUS_METRIC_KEY}"
 BASE_TAGS = {"Monitoring": "on", "Name": "srv"}

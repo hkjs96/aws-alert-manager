@@ -23,7 +23,6 @@ from hypothesis import strategies as st
 from common import SUPPORTED_RESOURCE_TYPES
 import common.alarm_registry as R
 from common.alarm_registry import (
-    APP_STATUS_METRIC_KEY,
     _ALARM_DEF_VARIANTS,
     _ALARM_DEFS_BY_TYPE,
     _DIMENSION_KEY_MAP,
@@ -32,6 +31,7 @@ from common.alarm_registry import (
     _get_alarm_defs,
     _get_hardcoded_metric_keys,
 )
+from common.resource_types.ec2 import APP_STATUS_METRIC_KEY
 
 SNAPSHOT = json.loads(
     (Path(__file__).parent / "fixtures" / "registry_snapshot_2026-09.json").read_text(encoding="utf-8"))

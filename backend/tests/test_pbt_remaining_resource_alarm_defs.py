@@ -14,11 +14,11 @@ from common.alarm_registry import (
     _HARDCODED_METRIC_KEYS,
     _METRIC_DISPLAY,
     _NAMESPACE_MAP,
-    _VPN_ALARMS,
     _get_alarm_defs,
-    _get_apigw_alarm_defs,
     _metric_name_to_key,
 )
+from common.resource_types.apigw import _get_apigw_alarm_defs
+from common.resource_types.vpn import _VPN_ALARMS
 from common.dimension_builder import _build_dimensions
 
 # ──────────────────────────────────────────────
