@@ -185,6 +185,45 @@ common/resource_types/*.py  ──register()──▶  registry(all_specs)
   낮아(3개월 0건) "빨리 추가"는 주된 이득이 아니다.
 - **비용**: RGT `GetResources`는 무료 API. describe 호출은 줄어든다.
 
+## 부록 A. RGT `ResourceTypeFilters` 문자열 — 실계정 확인 (P0.1, 2026-09-15)
+
+`resourcegroupstaggingapi:GetResources`에 29개 후보를 하나씩 넣어 **전부 유효**(거부 0)함을 확인했다
+(`tlsgks678_poc`/us-east-1). `home-dev`/서울(태그 있는 리소스 2,688개)에서 실제 분포도 봤다 — `ec2:instance` 36,
+`rds` 35, `elasticloadbalancing:targetgroup` 83, `backup` 38, `lambda` 20, `s3` 31 등. 두 계정 모두 `Monitoring=on`
+태그는 0건이었다(home-dev의 알람 244개는 이 도구가 관리하는 것이 아니다).
+
+| 타입 | 필터 | 비고 |
+|---|---|---|
+| EC2 | `ec2:instance` | |
+| RDS · AuroraRDS · DocDB | `rds:db` | **셋이 한 필터** — 엔진·클러스터 판정은 describe 필요 → RDS 계열은 `enumerate` 오버라이드 유지(D4) |
+| ALB · NLB · CLB | `elasticloadbalancing:loadbalancer` | **셋이 한 필터** — ARN의 `loadbalancer/app/`·`loadbalancer/net/`·(접미 없음=classic)으로 가른다 |
+| TG | `elasticloadbalancing:targetgroup` | LB 계층·short-id 역매핑 때문에 `enumerate` 유지 |
+| ElastiCache | `elasticache:cluster` | |
+| NAT | `ec2:natgateway` | EC2 서버 측 태그 필터(`describe_nat_gateways Filter=tag:`)도 동등 — 둘 중 하나 |
+| Lambda | `lambda:function` | |
+| VPN | `ec2:vpn-connection` | |
+| APIGW | `apigateway:restapis` + `apigateway:apis` | **두 필터** — REST와 HTTP/WS가 다른 리소스 타입, 디멘션 키도 다르다(`ApiName`/`ApiId`) |
+| ACM | `acm:certificate` | 도메인명 역매핑은 `alive`에서 describe |
+| Backup | `backup:backup-vault` | |
+| MQ | `mq:broker` | TagName `{broker}-{1\|2}` 역매핑은 `alive`에서 |
+| OpenSearch | `es:domain` | |
+| SQS | `sqs` | 서비스 단위 필터(리소스 타입 세그먼트 없음) |
+| ECS | `ecs:service` | |
+| MSK | `kafka:cluster` | |
+| DynamoDB | `dynamodb:table` | |
+| CloudFront | `cloudfront:distribution` | 글로벌 → us-east-1에서 조회 |
+| WAF | `wafv2:webacl` | REGIONAL은 리전, CLOUDFRONT 스코프는 us-east-1 |
+| Route53 | `route53:healthcheck` | 글로벌 → us-east-1 |
+| DX | `directconnect:dxcon` | |
+| EFS | `elasticfilesystem:file-system` | |
+| S3 | `s3` | 서비스 단위 필터, 버킷 리전은 별도 조회 |
+| SageMaker | `sagemaker:endpoint` | |
+| SNS | `sns` | 서비스 단위 필터 |
+
+결론: D4의 "RGT 순수 16타입 / 오버라이드 유지" 구분은 그대로 성립한다. 추가된 사실은 **LB 셋·RDS 셋이 필터 하나를
+공유**한다는 것 — 범용 수집기는 필터당 한 번 부르고 `identity()`가 ARN으로 타입을 갈라야 한다(같은 필터를 타입마다
+세 번 부르지 않도록 스펙에 `rgt_type` 공유를 허용하고 결과를 타입별로 분배한다).
+
 ## 6. 비교한 대안
 
 | 대안 | 왜 안 하나 |

@@ -41,11 +41,17 @@ Use this command when adding a backend-supported AWS resource type.
    - CREATE 이벤트는 `responseElements`에서 ID를 추출하는 경우가 많으므로 주의.
    - ARN → 리소스 ID 변환이 필요한 타입은 `docs/ALARM-RULES.md` §9 매핑을 갱신.
 3. **필수 알람 자동 생성 (Monitoring=on):**
-   - `backend/common/alarm_registry.py`의 `_*_ALARMS` 정의 + `_get_alarm_defs()` 분기
-   - `_HARDCODED_METRIC_KEYS`, `_NAMESPACE_MAP`, `_DIMENSION_KEY_MAP`, `_METRIC_DISPLAY`,
-     `_metric_name_to_key`
+   - `backend/common/alarm_registry.py`의 `_*_ALARMS` 정의 + **`_ALARM_DEFS_BY_TYPE` 표에 한 줄**
+     (값은 리스트, 태그 조건부면 `Callable[[tags], list]`)
+   - `_HARDCODED_METRIC_KEYS`·`_NAMESPACE_MAP`·`_DIMENSION_KEY_MAP`은 **손대지 않는다** — 정의에서 파생된다
+     (docs/specs/resource-type-registry P1). 대신:
+     - 조건부 함수가 `resource_tags.get(...)`으로 **새 태그를 읽으면** `_ALARM_DEF_VARIANTS`에 그 조합을 추가한다
+       (완전성 테스트가 함수 소스를 훑어 누락을 잡는다)
+     - 태그가 있어야 붙는 알람은 정의에 `"opt_in": True` — 기본 메트릭 키 집합에서 빠진다
+     - 빌드 시 해석기가 바꿔 끼우는 네임스페이스만 `_EXTRA_NAMESPACES`(현재 TG의 NLB)
+   - `_METRIC_DISPLAY`(표시명·방향·단위)는 여전히 손으로 — 도메인 데이터다. `_metric_name_to_key`는 그 역인덱스라 자동.
    - `backend/common/__init__.py::HARDCODED_DEFAULTS` 기본 임계치
-   - `backend/common/__init__.py::SUPPORTED_RESOURCE_TYPES`
+   - `backend/common/__init__.py::SUPPORTED_RESOURCE_TYPES` — `_ALARM_DEFS_BY_TYPE`의 키와 같아야 한다(테스트가 고정)
 4. **태그 기반 임계치:** `Threshold_{MetricName}` 태그 suffix가 알람 정의 `metric_key`와 매칭돼야
    한다. 동적 알람용 탐색 네임스페이스를 `_NAMESPACE_SEARCH_MAP`에 등록.
    우선순위: 태그 → 환경 변수(`DEFAULT_{METRIC}_THRESHOLD`) → `HARDCODED_DEFAULTS`.

@@ -1,0 +1,2413 @@
+{
+ "_meta": {
+  "taken": "2026-09-15",
+  "purpose": "resource-type-registry P0.2 — 파생 뷰가 손 맵과 같음을 증명하는 기준",
+  "types": 29
+ },
+ "SUPPORTED_RESOURCE_TYPES": [
+  "EC2",
+  "RDS",
+  "ALB",
+  "NLB",
+  "TG",
+  "AuroraRDS",
+  "DocDB",
+  "ElastiCache",
+  "NAT",
+  "Lambda",
+  "VPN",
+  "APIGW",
+  "ACM",
+  "Backup",
+  "MQ",
+  "CLB",
+  "OpenSearch",
+  "SQS",
+  "ECS",
+  "MSK",
+  "DynamoDB",
+  "CloudFront",
+  "WAF",
+  "Route53",
+  "DX",
+  "EFS",
+  "S3",
+  "SageMaker",
+  "SNS"
+ ],
+ "_HARDCODED_METRIC_KEYS": {
+  "EC2": [
+   "CPUUtilization",
+   "StatusCheckFailed",
+   "disk_used_percent",
+   "mem_used_percent"
+  ],
+  "RDS": [
+   "CPUUtilization",
+   "ConnectionAttempts",
+   "DatabaseConnections",
+   "FreeStorageSpace",
+   "FreeableMemory",
+   "ReadLatency",
+   "WriteLatency"
+  ],
+  "ALB": [
+   "ELB4XX",
+   "HTTPCode_ELB_5XX_Count",
+   "RequestCount",
+   "TargetConnectionError",
+   "TargetResponseTime"
+  ],
+  "NLB": [
+   "ActiveFlowCount",
+   "NewFlowCount",
+   "ProcessedBytes",
+   "TCP_Client_Reset_Count",
+   "TCP_Target_Reset_Count"
+  ],
+  "TG": [
+   "HealthyHostCount",
+   "RequestCountPerTarget",
+   "TargetResponseTime",
+   "UnHealthyHostCount"
+  ],
+  "AuroraRDS": [
+   "ACUUtilization",
+   "CPUUtilization",
+   "DatabaseConnections",
+   "FreeLocalStorage",
+   "FreeableMemory",
+   "ReaderReplicaLag",
+   "ReplicaLag",
+   "ServerlessDatabaseCapacity"
+  ],
+  "DocDB": [
+   "CPUUtilization",
+   "DatabaseConnections",
+   "FreeableMemory"
+  ],
+  "ElastiCache": [
+   "CPUUtilization",
+   "CurrConnections",
+   "DatabaseMemoryUsagePercentage",
+   "EngineCPU",
+   "Evictions"
+  ],
+  "NAT": [
+   "ErrorPortAllocation",
+   "PacketsDropCount"
+  ],
+  "Lambda": [
+   "Duration",
+   "Errors"
+  ],
+  "VPN": [
+   "TunnelState"
+  ],
+  "APIGW": [
+   "Api4XXError",
+   "Api4xx",
+   "Api5XXError",
+   "Api5xx",
+   "ApiLatency",
+   "WsConnectCount",
+   "WsExecutionError",
+   "WsIntegrationError",
+   "WsMessageCount"
+  ],
+  "ACM": [
+   "DaysToExpiry"
+  ],
+  "Backup": [
+   "BackupJobsAborted",
+   "BackupJobsFailed"
+  ],
+  "MQ": [
+   "HeapUsage",
+   "JobSchedulerStoreUsage",
+   "MqCPU",
+   "StoreUsage"
+  ],
+  "CLB": [
+   "CLB4XX",
+   "CLB5XX",
+   "CLBBackend4XX",
+   "CLBBackend5XX",
+   "CLBUnHealthyHost",
+   "SpilloverCount",
+   "SurgeQueueLength"
+  ],
+  "OpenSearch": [
+   "ClusterIndexWritesBlocked",
+   "ClusterStatusRed",
+   "ClusterStatusYellow",
+   "JVMMemoryPressure",
+   "MasterCPU",
+   "MasterJVMMemoryPressure",
+   "OSFreeStorageSpace",
+   "OsCPU"
+  ],
+  "SQS": [
+   "SQSMessagesSent",
+   "SQSMessagesVisible",
+   "SQSOldestMessage"
+  ],
+  "ECS": [
+   "EcsCPU",
+   "EcsMemory"
+  ],
+  "MSK": [
+   "ActiveControllerCount",
+   "BytesInPerSec",
+   "OffsetLag",
+   "UnderReplicatedPartitions"
+  ],
+  "DynamoDB": [
+   "DDBReadCapacity",
+   "DDBSystemErrors",
+   "DDBWriteCapacity",
+   "ThrottledRequests"
+  ],
+  "CloudFront": [
+   "CF4xxErrorRate",
+   "CF5xxErrorRate",
+   "CFBytesDownloaded",
+   "CFRequests"
+  ],
+  "WAF": [
+   "WAFAllowedRequests",
+   "WAFBlockedRequests",
+   "WAFCountedRequests"
+  ],
+  "Route53": [
+   "HealthCheckStatus"
+  ],
+  "DX": [
+   "ConnectionState"
+  ],
+  "EFS": [
+   "BurstCreditBalance",
+   "EFSClientConnections",
+   "PercentIOLimit"
+  ],
+  "S3": [
+   "S34xxErrors",
+   "S35xxErrors",
+   "S3BucketSizeBytes",
+   "S3NumberOfObjects"
+  ],
+  "SageMaker": [
+   "SMCPU",
+   "SMInvocationErrors",
+   "SMInvocations",
+   "SMModelLatency"
+  ],
+  "SNS": [
+   "SNSMessagesPublished",
+   "SNSNotificationsFailed"
+  ]
+ },
+ "_NAMESPACE_MAP": {
+  "EC2": [
+   "AWS/EC2",
+   "CWAgent"
+  ],
+  "RDS": [
+   "AWS/RDS"
+  ],
+  "ALB": [
+   "AWS/ApplicationELB"
+  ],
+  "NLB": [
+   "AWS/NetworkELB"
+  ],
+  "TG": [
+   "AWS/ApplicationELB",
+   "AWS/NetworkELB"
+  ],
+  "AuroraRDS": [
+   "AWS/RDS"
+  ],
+  "DocDB": [
+   "AWS/DocDB"
+  ],
+  "ElastiCache": [
+   "AWS/ElastiCache"
+  ],
+  "NAT": [
+   "AWS/NATGateway"
+  ],
+  "Lambda": [
+   "AWS/Lambda"
+  ],
+  "VPN": [
+   "AWS/VPN"
+  ],
+  "APIGW": [
+   "AWS/ApiGateway"
+  ],
+  "ACM": [
+   "AWS/CertificateManager"
+  ],
+  "Backup": [
+   "AWS/Backup"
+  ],
+  "MQ": [
+   "AWS/AmazonMQ"
+  ],
+  "CLB": [
+   "AWS/ELB"
+  ],
+  "OpenSearch": [
+   "AWS/ES"
+  ],
+  "SQS": [
+   "AWS/SQS"
+  ],
+  "ECS": [
+   "AWS/ECS"
+  ],
+  "MSK": [
+   "AWS/Kafka"
+  ],
+  "DynamoDB": [
+   "AWS/DynamoDB"
+  ],
+  "CloudFront": [
+   "AWS/CloudFront"
+  ],
+  "WAF": [
+   "AWS/WAFV2"
+  ],
+  "Route53": [
+   "AWS/Route53"
+  ],
+  "DX": [
+   "AWS/DX"
+  ],
+  "EFS": [
+   "AWS/EFS"
+  ],
+  "S3": [
+   "AWS/S3"
+  ],
+  "SageMaker": [
+   "AWS/SageMaker"
+  ],
+  "SNS": [
+   "AWS/SNS"
+  ]
+ },
+ "_DIMENSION_KEY_MAP": {
+  "EC2": "InstanceId",
+  "RDS": "DBInstanceIdentifier",
+  "ALB": "LoadBalancer",
+  "NLB": "LoadBalancer",
+  "TG": "TargetGroup",
+  "AuroraRDS": "DBInstanceIdentifier",
+  "DocDB": "DBInstanceIdentifier",
+  "ElastiCache": "CacheClusterId",
+  "NAT": "NatGatewayId",
+  "Lambda": "FunctionName",
+  "VPN": "VpnId",
+  "APIGW": "ApiName",
+  "ACM": "CertificateArn",
+  "Backup": "BackupVaultName",
+  "MQ": "Broker",
+  "CLB": "LoadBalancerName",
+  "OpenSearch": "DomainName",
+  "SQS": "QueueName",
+  "ECS": "ServiceName",
+  "MSK": "Cluster Name",
+  "DynamoDB": "TableName",
+  "CloudFront": "DistributionId",
+  "WAF": "WebACL",
+  "Route53": "HealthCheckId",
+  "DX": "ConnectionId",
+  "EFS": "FileSystemId",
+  "S3": "BucketName",
+  "SageMaker": "EndpointName",
+  "SNS": "TopicName"
+ },
+ "_METRIC_DISPLAY": {
+  "CPU": [
+   "CPUUtilization",
+   ">",
+   "%"
+  ],
+  "Memory": [
+   "mem_used_percent",
+   ">",
+   "%"
+  ],
+  "FreeMemoryGB": [
+   "FreeableMemory",
+   "<",
+   "GB"
+  ],
+  "FreeStorageGB": [
+   "FreeStorageSpace",
+   "<",
+   "GB"
+  ],
+  "Connections": [
+   "DatabaseConnections",
+   ">",
+   ""
+  ],
+  "ELB5XX": [
+   "HTTPCode_ELB_5XX_Count",
+   ">",
+   ""
+  ],
+  "TCPClientReset": [
+   "TCP_Client_Reset_Count",
+   ">",
+   ""
+  ],
+  "TCPTargetReset": [
+   "TCP_Target_Reset_Count",
+   ">",
+   ""
+  ],
+  "TGResponseTime": [
+   "TargetResponseTime",
+   ">",
+   "s"
+  ],
+  "CPUUtilization": [
+   "CPUUtilization",
+   ">",
+   "%"
+  ],
+  "mem_used_percent": [
+   "mem_used_percent",
+   ">",
+   "%"
+  ],
+  "disk_used_percent": [
+   "disk_used_percent",
+   ">",
+   "%"
+  ],
+  "FreeableMemory": [
+   "FreeableMemory",
+   "<",
+   "GB"
+  ],
+  "FreeStorageSpace": [
+   "FreeStorageSpace",
+   "<",
+   "GB"
+  ],
+  "DatabaseConnections": [
+   "DatabaseConnections",
+   ">",
+   ""
+  ],
+  "RequestCount": [
+   "RequestCount",
+   ">",
+   ""
+  ],
+  "HealthyHostCount": [
+   "HealthyHostCount",
+   "<",
+   ""
+  ],
+  "UnHealthyHostCount": [
+   "UnHealthyHostCount",
+   ">",
+   ""
+  ],
+  "ProcessedBytes": [
+   "ProcessedBytes",
+   ">",
+   ""
+  ],
+  "ActiveFlowCount": [
+   "ActiveFlowCount",
+   ">",
+   ""
+  ],
+  "NewFlowCount": [
+   "NewFlowCount",
+   ">",
+   ""
+  ],
+  "StatusCheckFailed": [
+   "StatusCheckFailed",
+   ">",
+   ""
+  ],
+  "StatusCheckFailed_Application": [
+   "StatusCheckFailed_Application",
+   ">",
+   ""
+  ],
+  "ReadLatency": [
+   "ReadLatency",
+   ">",
+   "s"
+  ],
+  "WriteLatency": [
+   "WriteLatency",
+   ">",
+   "s"
+  ],
+  "HTTPCode_ELB_5XX_Count": [
+   "HTTPCode_ELB_5XX_Count",
+   ">",
+   ""
+  ],
+  "ELB4XX": [
+   "HTTPCode_ELB_4XX_Count",
+   ">",
+   ""
+  ],
+  "TargetConnectionError": [
+   "TargetConnectionErrorCount",
+   ">",
+   ""
+  ],
+  "TargetResponseTime": [
+   "TargetResponseTime",
+   ">",
+   "s"
+  ],
+  "TCP_Client_Reset_Count": [
+   "TCP_Client_Reset_Count",
+   ">",
+   ""
+  ],
+  "TCP_Target_Reset_Count": [
+   "TCP_Target_Reset_Count",
+   ">",
+   ""
+  ],
+  "RequestCountPerTarget": [
+   "RequestCountPerTarget",
+   ">",
+   ""
+  ],
+  "FreeLocalStorageGB": [
+   "FreeLocalStorage",
+   "<",
+   "GB"
+  ],
+  "FreeLocalStorage": [
+   "FreeLocalStorage",
+   "<",
+   "GB"
+  ],
+  "ReplicaLag": [
+   "AuroraReplicaLagMaximum",
+   ">",
+   "μs"
+  ],
+  "ReaderReplicaLag": [
+   "AuroraReplicaLag",
+   ">",
+   "μs"
+  ],
+  "ACUUtilization": [
+   "ACUUtilization",
+   ">",
+   "%"
+  ],
+  "ServerlessDatabaseCapacity": [
+   "ServerlessDatabaseCapacity",
+   ">",
+   "ACU"
+  ],
+  "ConnectionAttempts": [
+   "ConnectionAttempts",
+   ">",
+   ""
+  ],
+  "EngineCPU": [
+   "EngineCPUUtilization",
+   ">=",
+   "%"
+  ],
+  "DatabaseMemoryUsagePercentage": [
+   "DatabaseMemoryUsagePercentage",
+   ">=",
+   "%"
+  ],
+  "Evictions": [
+   "Evictions",
+   ">=",
+   ""
+  ],
+  "CurrConnections": [
+   "CurrConnections",
+   ">=",
+   ""
+  ],
+  "PacketsDropCount": [
+   "PacketsDropCount",
+   ">",
+   ""
+  ],
+  "ErrorPortAllocation": [
+   "ErrorPortAllocation",
+   ">",
+   ""
+  ],
+  "Duration": [
+   "Duration",
+   ">",
+   "ms"
+  ],
+  "Errors": [
+   "Errors",
+   ">",
+   ""
+  ],
+  "TunnelState": [
+   "TunnelState",
+   "<",
+   ""
+  ],
+  "ApiLatency": [
+   "Latency",
+   ">",
+   "ms"
+  ],
+  "Api4XXError": [
+   "4XXError",
+   ">",
+   ""
+  ],
+  "Api5XXError": [
+   "5XXError",
+   ">",
+   ""
+  ],
+  "Api4xx": [
+   "4xx",
+   ">",
+   ""
+  ],
+  "Api5xx": [
+   "5xx",
+   ">",
+   ""
+  ],
+  "WsConnectCount": [
+   "ConnectCount",
+   ">",
+   ""
+  ],
+  "WsMessageCount": [
+   "MessageCount",
+   ">",
+   ""
+  ],
+  "WsIntegrationError": [
+   "IntegrationError",
+   ">",
+   ""
+  ],
+  "WsExecutionError": [
+   "ExecutionError",
+   ">",
+   ""
+  ],
+  "DaysToExpiry": [
+   "DaysToExpiry",
+   "<",
+   "days"
+  ],
+  "BackupJobsFailed": [
+   "NumberOfBackupJobsFailed",
+   ">",
+   ""
+  ],
+  "BackupJobsAborted": [
+   "NumberOfBackupJobsAborted",
+   ">",
+   ""
+  ],
+  "MqCPU": [
+   "CpuUtilization",
+   ">",
+   "%"
+  ],
+  "HeapUsage": [
+   "HeapUsage",
+   ">",
+   "%"
+  ],
+  "JobSchedulerStoreUsage": [
+   "JobSchedulerStorePercentUsage",
+   ">",
+   "%"
+  ],
+  "StoreUsage": [
+   "StorePercentUsage",
+   ">",
+   "%"
+  ],
+  "CLBUnHealthyHost": [
+   "UnHealthyHostCount",
+   ">",
+   ""
+  ],
+  "CLB5XX": [
+   "HTTPCode_ELB_5XX",
+   ">",
+   ""
+  ],
+  "CLB4XX": [
+   "HTTPCode_ELB_4XX",
+   ">",
+   ""
+  ],
+  "CLBBackend5XX": [
+   "HTTPCode_Backend_5XX",
+   ">",
+   ""
+  ],
+  "CLBBackend4XX": [
+   "HTTPCode_Backend_4XX",
+   ">",
+   ""
+  ],
+  "SurgeQueueLength": [
+   "SurgeQueueLength",
+   ">",
+   ""
+  ],
+  "SpilloverCount": [
+   "SpilloverCount",
+   ">",
+   ""
+  ],
+  "ClusterStatusRed": [
+   "ClusterStatus.red",
+   ">",
+   ""
+  ],
+  "ClusterStatusYellow": [
+   "ClusterStatus.yellow",
+   ">",
+   ""
+  ],
+  "OSFreeStorageSpace": [
+   "FreeStorageSpace",
+   "<",
+   "MB"
+  ],
+  "ClusterIndexWritesBlocked": [
+   "ClusterIndexWritesBlocked",
+   ">",
+   ""
+  ],
+  "OsCPU": [
+   "CPUUtilization",
+   ">",
+   "%"
+  ],
+  "JVMMemoryPressure": [
+   "JVMMemoryPressure",
+   ">",
+   "%"
+  ],
+  "MasterCPU": [
+   "MasterCPUUtilization",
+   ">",
+   "%"
+  ],
+  "MasterJVMMemoryPressure": [
+   "MasterJVMMemoryPressure",
+   ">",
+   "%"
+  ],
+  "SQSMessagesVisible": [
+   "ApproximateNumberOfMessagesVisible",
+   ">",
+   ""
+  ],
+  "SQSOldestMessage": [
+   "ApproximateAgeOfOldestMessage",
+   ">",
+   "s"
+  ],
+  "SQSMessagesSent": [
+   "NumberOfMessagesSent",
+   ">",
+   ""
+  ],
+  "EcsCPU": [
+   "CPUUtilization",
+   ">",
+   "%"
+  ],
+  "EcsMemory": [
+   "MemoryUtilization",
+   ">",
+   "%"
+  ],
+  "OffsetLag": [
+   "SumOffsetLag",
+   ">",
+   ""
+  ],
+  "BytesInPerSec": [
+   "BytesInPerSec",
+   ">",
+   "B/s"
+  ],
+  "UnderReplicatedPartitions": [
+   "UnderReplicatedPartitions",
+   ">",
+   ""
+  ],
+  "ActiveControllerCount": [
+   "ActiveControllerCount",
+   "<",
+   ""
+  ],
+  "DDBReadCapacity": [
+   "ConsumedReadCapacityUnits",
+   ">",
+   ""
+  ],
+  "DDBWriteCapacity": [
+   "ConsumedWriteCapacityUnits",
+   ">",
+   ""
+  ],
+  "ThrottledRequests": [
+   "ThrottledRequests",
+   ">",
+   ""
+  ],
+  "DDBSystemErrors": [
+   "SystemErrors",
+   ">",
+   ""
+  ],
+  "CF5xxErrorRate": [
+   "5xxErrorRate",
+   ">",
+   "%"
+  ],
+  "CF4xxErrorRate": [
+   "4xxErrorRate",
+   ">",
+   "%"
+  ],
+  "CFRequests": [
+   "Requests",
+   ">",
+   ""
+  ],
+  "CFBytesDownloaded": [
+   "BytesDownloaded",
+   ">",
+   "B"
+  ],
+  "WAFBlockedRequests": [
+   "BlockedRequests",
+   ">",
+   ""
+  ],
+  "WAFAllowedRequests": [
+   "AllowedRequests",
+   ">",
+   ""
+  ],
+  "WAFCountedRequests": [
+   "CountedRequests",
+   ">",
+   ""
+  ],
+  "HealthCheckStatus": [
+   "HealthCheckStatus",
+   "<",
+   ""
+  ],
+  "ConnectionState": [
+   "ConnectionState",
+   "<",
+   ""
+  ],
+  "BurstCreditBalance": [
+   "BurstCreditBalance",
+   "<",
+   ""
+  ],
+  "PercentIOLimit": [
+   "PercentIOLimit",
+   ">",
+   "%"
+  ],
+  "EFSClientConnections": [
+   "ClientConnections",
+   ">",
+   ""
+  ],
+  "S34xxErrors": [
+   "4xxErrors",
+   ">",
+   ""
+  ],
+  "S35xxErrors": [
+   "5xxErrors",
+   ">",
+   ""
+  ],
+  "S3BucketSizeBytes": [
+   "BucketSizeBytes",
+   ">",
+   "B"
+  ],
+  "S3NumberOfObjects": [
+   "NumberOfObjects",
+   ">",
+   ""
+  ],
+  "SMInvocations": [
+   "Invocations",
+   ">",
+   ""
+  ],
+  "SMInvocationErrors": [
+   "InvocationErrors",
+   ">",
+   ""
+  ],
+  "SMModelLatency": [
+   "ModelLatency",
+   ">",
+   "μs"
+  ],
+  "SMCPU": [
+   "CPUUtilization",
+   ">",
+   "%"
+  ],
+  "SNSNotificationsFailed": [
+   "NumberOfNotificationsFailed",
+   ">",
+   ""
+  ],
+  "SNSMessagesPublished": [
+   "NumberOfMessagesPublished",
+   ">",
+   ""
+  ]
+ },
+ "HARDCODED_DEFAULTS": {
+  "CPU": 80.0,
+  "Memory": 80.0,
+  "Disk": 80.0,
+  "Connections": 100.0,
+  "FreeMemoryGB": 2.0,
+  "FreeStorageGB": 10.0,
+  "ELB5XX": 50.0,
+  "TCPClientReset": 100.0,
+  "TCPTargetReset": 100.0,
+  "TGResponseTime": 5.0,
+  "CPUUtilization": 80.0,
+  "mem_used_percent": 80.0,
+  "DatabaseConnections": 100.0,
+  "FreeableMemory": 2.0,
+  "FreeStorageSpace": 10.0,
+  "disk_used_percent": 80.0,
+  "RequestCount": 10000.0,
+  "HealthyHostCount": 1.0,
+  "UnHealthyHostCount": 1.0,
+  "ProcessedBytes": 100000000.0,
+  "ActiveFlowCount": 10000.0,
+  "NewFlowCount": 5000.0,
+  "StatusCheckFailed": 0.0,
+  "StatusCheckFailed_Application": 0.0,
+  "ReadLatency": 0.02,
+  "WriteLatency": 0.02,
+  "HTTPCode_ELB_5XX_Count": 50.0,
+  "ELB4XX": 100.0,
+  "TargetConnectionError": 50.0,
+  "TargetResponseTime": 5.0,
+  "TCP_Client_Reset_Count": 100.0,
+  "TCP_Target_Reset_Count": 100.0,
+  "RequestCountPerTarget": 1000.0,
+  "FreeLocalStorageGB": 10.0,
+  "FreeLocalStorage": 10.0,
+  "ReplicaLag": 2000000.0,
+  "ReaderReplicaLag": 2000000.0,
+  "ACUUtilization": 80.0,
+  "ServerlessDatabaseCapacity": 128.0,
+  "FreeMemoryPct": 20.0,
+  "FreeLocalStoragePct": 20.0,
+  "ConnectionAttempts": 500.0,
+  "EngineCPU": 90.0,
+  "DatabaseMemoryUsagePercentage": 80.0,
+  "Evictions": 5.0,
+  "CurrConnections": 200.0,
+  "PacketsDropCount": 1.0,
+  "ErrorPortAllocation": 1.0,
+  "Duration": 2500.0,
+  "Errors": 0.0,
+  "TunnelState": 1.0,
+  "ApiLatency": 3000.0,
+  "Api4XXError": 1.0,
+  "Api5XXError": 1.0,
+  "Api4xx": 1.0,
+  "Api5xx": 1.0,
+  "WsConnectCount": 1000.0,
+  "WsMessageCount": 10000.0,
+  "WsIntegrationError": 0.0,
+  "WsExecutionError": 0.0,
+  "DaysToExpiry": 14.0,
+  "BackupJobsFailed": 0.0,
+  "BackupJobsAborted": 0.0,
+  "MqCPU": 90.0,
+  "HeapUsage": 80.0,
+  "JobSchedulerStoreUsage": 80.0,
+  "StoreUsage": 80.0,
+  "CLBUnHealthyHost": 0.0,
+  "CLB5XX": 300.0,
+  "CLB4XX": 300.0,
+  "CLBBackend5XX": 300.0,
+  "CLBBackend4XX": 300.0,
+  "SurgeQueueLength": 300.0,
+  "SpilloverCount": 300.0,
+  "ClusterStatusRed": 0.0,
+  "ClusterStatusYellow": 0.0,
+  "OSFreeStorageSpace": 20480.0,
+  "ClusterIndexWritesBlocked": 0.0,
+  "OsCPU": 80.0,
+  "JVMMemoryPressure": 80.0,
+  "MasterCPU": 50.0,
+  "MasterJVMMemoryPressure": 80.0,
+  "SQSMessagesVisible": 1000.0,
+  "SQSOldestMessage": 300.0,
+  "SQSMessagesSent": 10000.0,
+  "EcsCPU": 80.0,
+  "EcsMemory": 80.0,
+  "OffsetLag": 1000.0,
+  "BytesInPerSec": 100000000.0,
+  "UnderReplicatedPartitions": 0.0,
+  "ActiveControllerCount": 1.0,
+  "DDBReadCapacity": 80.0,
+  "DDBWriteCapacity": 80.0,
+  "ThrottledRequests": 0.0,
+  "DDBSystemErrors": 0.0,
+  "CF5xxErrorRate": 1.0,
+  "CF4xxErrorRate": 5.0,
+  "CFRequests": 1000000.0,
+  "CFBytesDownloaded": 10000000000.0,
+  "WAFBlockedRequests": 100.0,
+  "WAFAllowedRequests": 1000000.0,
+  "WAFCountedRequests": 100000.0,
+  "HealthCheckStatus": 1.0,
+  "ConnectionState": 1.0,
+  "BurstCreditBalance": 1000000000.0,
+  "PercentIOLimit": 90.0,
+  "EFSClientConnections": 1000.0,
+  "S34xxErrors": 100.0,
+  "S35xxErrors": 10.0,
+  "S3BucketSizeBytes": 1000000000000.0,
+  "S3NumberOfObjects": 10000000.0,
+  "SMInvocations": 100000.0,
+  "SMInvocationErrors": 0.0,
+  "SMModelLatency": 1000.0,
+  "SMCPU": 80.0,
+  "SNSNotificationsFailed": 0.0,
+  "SNSMessagesPublished": 1000000.0
+ },
+ "MONITORED_API_EVENTS": {
+  "MODIFY": [
+   "ModifyInstanceAttribute",
+   "ModifyInstanceType",
+   "ModifyDBInstance",
+   "ModifyLoadBalancerAttributes",
+   "ModifyListener",
+   "ModifyCacheCluster"
+  ],
+  "DELETE": [
+   "TerminateInstances",
+   "DeleteDBInstance",
+   "DeleteLoadBalancer",
+   "DeleteTargetGroup",
+   "DeleteCacheCluster",
+   "DeleteNatGateway",
+   "DeleteFunction20150331",
+   "DeleteVpnConnection",
+   "DeleteRestApi",
+   "DeleteApi",
+   "DeleteCertificate",
+   "DeleteBackupVault",
+   "DeleteBroker",
+   "DeleteDomain",
+   "DeleteQueue",
+   "DeleteService",
+   "DeleteCluster",
+   "DeleteTable",
+   "DeleteDistribution",
+   "DeleteWebACL",
+   "DeleteHealthCheck",
+   "DeleteConnection",
+   "DeleteFileSystem",
+   "DeleteBucket",
+   "DeleteEndpoint",
+   "DeleteTopic"
+  ],
+  "TAG_CHANGE": [
+   "CreateTags",
+   "DeleteTags",
+   "AddTagsToResource",
+   "RemoveTagsFromResource",
+   "AddTags",
+   "RemoveTags",
+   "TagResource",
+   "UntagResource",
+   "TagQueue",
+   "UntagQueue"
+  ],
+  "CREATE": [
+   "RunInstances",
+   "CreateDBInstance",
+   "CreateLoadBalancer",
+   "CreateTargetGroup",
+   "CreateCacheCluster",
+   "CreateNatGateway",
+   "CreateFunction20150331",
+   "CreateRestApi",
+   "CreateApi",
+   "CreateBackupVault",
+   "CreateBroker",
+   "CreateDomain",
+   "CreateQueue",
+   "CreateService",
+   "CreateCluster",
+   "CreateTable",
+   "CreateDistribution",
+   "CreateWebACL",
+   "CreateHealthCheck",
+   "CreateConnection",
+   "CreateFileSystem",
+   "CreateBucket",
+   "CreateEndpoint",
+   "CreateTopic"
+  ]
+ },
+ "_API_MAP_event_to_type": {
+  "ModifyInstanceAttribute": "EC2",
+  "ModifyInstanceType": "EC2",
+  "ModifyDBInstance": "RDS",
+  "ModifyLoadBalancerAttributes": "ELB",
+  "ModifyListener": "ELB",
+  "ModifyCacheCluster": "ElastiCache",
+  "TerminateInstances": "EC2",
+  "DeleteDBInstance": "RDS",
+  "DeleteLoadBalancer": "ELB",
+  "DeleteTargetGroup": "TG",
+  "DeleteCacheCluster": "ElastiCache",
+  "DeleteNatGateway": "NAT",
+  "RunInstances": "EC2",
+  "CreateDBInstance": "RDS",
+  "CreateLoadBalancer": "ELB",
+  "CreateTargetGroup": "TG",
+  "CreateCacheCluster": "ElastiCache",
+  "CreateNatGateway": "NAT",
+  "CreateFunction20150331": "Lambda",
+  "CreateRestApi": "APIGW",
+  "CreateApi": "APIGW",
+  "CreateBackupVault": "Backup",
+  "CreateBroker": "MQ",
+  "CreateDomain": "OpenSearch",
+  "DeleteFunction20150331": "Lambda",
+  "DeleteVpnConnection": "VPN",
+  "DeleteRestApi": "APIGW",
+  "DeleteApi": "APIGW",
+  "DeleteCertificate": "ACM",
+  "DeleteBackupVault": "Backup",
+  "DeleteBroker": "MQ",
+  "DeleteDomain": "OpenSearch",
+  "CreateTags": "EC2",
+  "DeleteTags": "EC2",
+  "AddTagsToResource": "RDS",
+  "RemoveTagsFromResource": "RDS",
+  "AddTags": "ELB",
+  "RemoveTags": "ELB",
+  "TagResource": "MULTI",
+  "UntagResource": "MULTI",
+  "TagQueue": "SQS",
+  "UntagQueue": "SQS",
+  "CreateQueue": "SQS",
+  "CreateService": "ECS",
+  "CreateCluster": "MSK",
+  "CreateTable": "DynamoDB",
+  "CreateDistribution": "CloudFront",
+  "CreateWebACL": "WAF",
+  "CreateHealthCheck": "Route53",
+  "CreateConnection": "DX",
+  "CreateFileSystem": "EFS",
+  "CreateBucket": "S3",
+  "CreateEndpoint": "SageMaker",
+  "CreateTopic": "SNS",
+  "DeleteQueue": "SQS",
+  "DeleteService": "ECS",
+  "DeleteCluster": "MSK",
+  "DeleteTable": "DynamoDB",
+  "DeleteDistribution": "CloudFront",
+  "DeleteWebACL": "WAF",
+  "DeleteHealthCheck": "Route53",
+  "DeleteConnection": "DX",
+  "DeleteFileSystem": "EFS",
+  "DeleteBucket": "S3",
+  "DeleteEndpoint": "SageMaker",
+  "DeleteTopic": "SNS"
+ },
+ "_RESOURCE_TYPE_TO_COLLECTOR": {
+  "EC2": "common.collectors.ec2",
+  "RDS": "common.collectors.rds",
+  "AuroraRDS": "common.collectors.rds",
+  "DocDB": "common.collectors.docdb",
+  "ELB": "common.collectors.elb",
+  "ALB": "common.collectors.elb",
+  "NLB": "common.collectors.elb",
+  "TG": "common.collectors.elb",
+  "ElastiCache": "common.collectors.elasticache",
+  "NAT": "common.collectors.natgw",
+  "NATGateway": "common.collectors.natgw",
+  "Lambda": "common.collectors.lambda_fn",
+  "VPN": "common.collectors.vpn",
+  "APIGW": "common.collectors.apigw",
+  "ACM": "common.collectors.acm",
+  "Backup": "common.collectors.backup",
+  "MQ": "common.collectors.mq",
+  "CLB": "common.collectors.clb",
+  "OpenSearch": "common.collectors.opensearch",
+  "SQS": "common.collectors.sqs",
+  "ECS": "common.collectors.ecs",
+  "MSK": "common.collectors.msk",
+  "DynamoDB": "common.collectors.dynamodb",
+  "CloudFront": "common.collectors.cloudfront",
+  "WAF": "common.collectors.waf",
+  "Route53": "common.collectors.route53",
+  "DX": "common.collectors.dx",
+  "EFS": "common.collectors.efs",
+  "S3": "common.collectors.s3",
+  "SageMaker": "common.collectors.sagemaker",
+  "SNS": "common.collectors.sns"
+ },
+ "_COLLECTOR_MODULES": [
+  "common.collectors.ec2",
+  "common.collectors.rds",
+  "common.collectors.elb",
+  "common.collectors.docdb",
+  "common.collectors.elasticache",
+  "common.collectors.natgw",
+  "common.collectors.lambda_fn",
+  "common.collectors.vpn",
+  "common.collectors.apigw",
+  "common.collectors.acm",
+  "common.collectors.backup",
+  "common.collectors.mq",
+  "common.collectors.clb",
+  "common.collectors.opensearch",
+  "common.collectors.sqs",
+  "common.collectors.ecs",
+  "common.collectors.msk",
+  "common.collectors.dynamodb",
+  "common.collectors.cloudfront",
+  "common.collectors.waf",
+  "common.collectors.route53",
+  "common.collectors.dx",
+  "common.collectors.efs",
+  "common.collectors.s3",
+  "common.collectors.sagemaker",
+  "common.collectors.sns"
+ ],
+ "TAGGED_SERVICES": [
+  "rds",
+  "elasticloadbalancing",
+  "elasticache",
+  "lambda",
+  "sqs",
+  "dynamodb",
+  "es",
+  "ecs",
+  "apigateway",
+  "acm",
+  "backup",
+  "mq",
+  "kafka",
+  "wafv2",
+  "directconnect",
+  "sagemaker",
+  "sns",
+  "cloudfront",
+  "route53",
+  "s3"
+ ],
+ "alarm_defs_default": {
+  "EC2": [
+   {
+    "metric": "CPUUtilization",
+    "namespace": "AWS/EC2",
+    "metric_name": "CPUUtilization",
+    "dimension_key": "InstanceId",
+    "stat": "Average",
+    "comparison": "GreaterThanThreshold",
+    "period": 300,
+    "evaluation_periods": 1,
+    "treat_missing_data": "breaching"
+   },
+   {
+    "metric": "mem_used_percent",
+    "namespace": "CWAgent",
+    "metric_name": "mem_used_percent",
+    "dimension_key": "InstanceId",
+    "stat": "Average",
+    "comparison": "GreaterThanThreshold",
+    "period": 300,
+    "evaluation_periods": 1,
+    "treat_missing_data": "notBreaching"
+   },
+   {
+    "metric": "disk_used_percent",
+    "namespace": "CWAgent",
+    "metric_name": "disk_used_percent",
+    "dimension_key": "InstanceId",
+    "stat": "Average",
+    "comparison": "GreaterThanThreshold",
+    "period": 300,
+    "evaluation_periods": 1,
+    "dynamic_dimensions": true,
+    "treat_missing_data": "notBreaching"
+   },
+   {
+    "metric": "StatusCheckFailed",
+    "namespace": "AWS/EC2",
+    "metric_name": "StatusCheckFailed",
+    "dimension_key": "InstanceId",
+    "stat": "Maximum",
+    "comparison": "GreaterThanThreshold",
+    "period": 300,
+    "evaluation_periods": 1,
+    "treat_missing_data": "breaching"
+   }
+  ],
+  "RDS": [
+   {
+    "metric": "CPUUtilization",
+    "namespace": "AWS/RDS",
+    "metric_name": "CPUUtilization",
+    "dimension_key": "DBInstanceIdentifier",
+    "stat": "Average",
+    "comparison": "GreaterThanThreshold",
+    "period": 300,
+    "evaluation_periods": 1,
+    "treat_missing_data": "breaching"
+   },
+   {
+    "metric": "FreeableMemory",
+    "namespace": "AWS/RDS",
+    "metric_name": "FreeableMemory",
+    "dimension_key": "DBInstanceIdentifier",
+    "stat": "Average",
+    "comparison": "LessThanThreshold",
+    "period": 300,
+    "evaluation_periods": 1,
+    "transform_threshold": "<callable <lambda>>",
+    "treat_missing_data": "breaching"
+   },
+   {
+    "metric": "FreeStorageSpace",
+    "namespace": "AWS/RDS",
+    "metric_name": "FreeStorageSpace",
+    "dimension_key": "DBInstanceIdentifier",
+    "stat": "Average",
+    "comparison": "LessThanThreshold",
+    "period": 300,
+    "evaluation_periods": 1,
+    "transform_threshold": "<callable <lambda>>",
+    "treat_missing_data": "breaching"
+   },
+   {
+    "metric": "DatabaseConnections",
+    "namespace": "AWS/RDS",
+    "metric_name": "DatabaseConnections",
+    "dimension_key": "DBInstanceIdentifier",
+    "stat": "Average",
+    "comparison": "GreaterThanThreshold",
+    "period": 300,
+    "evaluation_periods": 1,
+    "treat_missing_data": "breaching"
+   },
+   {
+    "metric": "ReadLatency",
+    "namespace": "AWS/RDS",
+    "metric_name": "ReadLatency",
+    "dimension_key": "DBInstanceIdentifier",
+    "stat": "Average",
+    "comparison": "GreaterThanThreshold",
+    "period": 300,
+    "evaluation_periods": 1,
+    "treat_missing_data": "notBreaching"
+   },
+   {
+    "metric": "WriteLatency",
+    "namespace": "AWS/RDS",
+    "metric_name": "WriteLatency",
+    "dimension_key": "DBInstanceIdentifier",
+    "stat": "Average",
+    "comparison": "GreaterThanThreshold",
+    "period": 300,
+    "evaluation_periods": 1,
+    "treat_missing_data": "notBreaching"
+   },
+   {
+    "metric": "ConnectionAttempts",
+    "namespace": "AWS/RDS",
+    "metric_name": "ConnectionAttempts",
+    "dimension_key": "DBInstanceIdentifier",
+    "stat": "Sum",
+    "comparison": "GreaterThanThreshold",
+    "period": 300,
+    "evaluation_periods": 1,
+    "treat_missing_data": "notBreaching"
+   }
+  ],
+  "ALB": [
+   {
+    "metric": "RequestCount",
+    "namespace": "AWS/ApplicationELB",
+    "metric_name": "RequestCount",
+    "dimension_key": "LoadBalancer",
+    "stat": "Sum",
+    "comparison": "GreaterThanThreshold",
+    "period": 60,
+    "evaluation_periods": 1,
+    "treat_missing_data": "notBreaching"
+   },
+   {
+    "metric": "HTTPCode_ELB_5XX_Count",
+    "namespace": "AWS/ApplicationELB",
+    "metric_name": "HTTPCode_ELB_5XX_Count",
+    "dimension_key": "LoadBalancer",
+    "stat": "Sum",
+    "comparison": "GreaterThanThreshold",
+    "period": 60,
+    "evaluation_periods": 1,
+    "treat_missing_data": "notBreaching"
+   },
+   {
+    "metric": "TargetResponseTime",
+    "namespace": "AWS/ApplicationELB",
+    "metric_name": "TargetResponseTime",
+    "dimension_key": "LoadBalancer",
+    "stat": "Average",
+    "comparison": "GreaterThanThreshold",
+    "period": 60,
+    "evaluation_periods": 1,
+    "treat_missing_data": "notBreaching"
+   },
+   {
+    "metric": "ELB4XX",
+    "namespace": "AWS/ApplicationELB",
+    "metric_name": "HTTPCode_ELB_4XX_Count",
+    "dimension_key": "LoadBalancer",
+    "stat": "Sum",
+    "comparison": "GreaterThanThreshold",
+    "period": 60,
+    "evaluation_periods": 1,
+    "treat_missing_data": "notBreaching"
+   },
+   {
+    "metric": "TargetConnectionError",
+    "namespace": "AWS/ApplicationELB",
+    "metric_name": "TargetConnectionErrorCount",
+    "dimension_key": "LoadBalancer",
+    "stat": "Sum",
+    "comparison": "GreaterThanThreshold",
+    "period": 60,
+    "evaluation_periods": 1,
+    "treat_missing_data": "notBreaching"
+   }
+  ],
+  "NLB": [
+   {
+    "metric": "ProcessedBytes",
+    "namespace": "AWS/NetworkELB",
+    "metric_name": "ProcessedBytes",
+    "dimension_key": "LoadBalancer",
+    "stat": "Sum",
+    "comparison": "GreaterThanThreshold",
+    "period": 60,
+    "evaluation_periods": 1,
+    "treat_missing_data": "notBreaching"
+   },
+   {
+    "metric": "ActiveFlowCount",
+    "namespace": "AWS/NetworkELB",
+    "metric_name": "ActiveFlowCount",
+    "dimension_key": "LoadBalancer",
+    "stat": "Average",
+    "comparison": "GreaterThanThreshold",
+    "period": 60,
+    "evaluation_periods": 1,
+    "treat_missing_data": "notBreaching"
+   },
+   {
+    "metric": "NewFlowCount",
+    "namespace": "AWS/NetworkELB",
+    "metric_name": "NewFlowCount",
+    "dimension_key": "LoadBalancer",
+    "stat": "Sum",
+    "comparison": "GreaterThanThreshold",
+    "period": 60,
+    "evaluation_periods": 1,
+    "treat_missing_data": "notBreaching"
+   },
+   {
+    "metric": "TCP_Client_Reset_Count",
+    "namespace": "AWS/NetworkELB",
+    "metric_name": "TCP_Client_Reset_Count",
+    "dimension_key": "LoadBalancer",
+    "stat": "Sum",
+    "comparison": "GreaterThanThreshold",
+    "period": 60,
+    "evaluation_periods": 1,
+    "treat_missing_data": "notBreaching"
+   },
+   {
+    "metric": "TCP_Target_Reset_Count",
+    "namespace": "AWS/NetworkELB",
+    "metric_name": "TCP_Target_Reset_Count",
+    "dimension_key": "LoadBalancer",
+    "stat": "Sum",
+    "comparison": "GreaterThanThreshold",
+    "period": 60,
+    "evaluation_periods": 1,
+    "treat_missing_data": "notBreaching"
+   }
+  ],
+  "TG": [
+   {
+    "metric": "HealthyHostCount",
+    "namespace": "AWS/ApplicationELB",
+    "metric_name": "HealthyHostCount",
+    "dimension_key": "TargetGroup",
+    "stat": "Average",
+    "comparison": "LessThanThreshold",
+    "period": 60,
+    "evaluation_periods": 1,
+    "treat_missing_data": "breaching"
+   },
+   {
+    "metric": "UnHealthyHostCount",
+    "namespace": "AWS/ApplicationELB",
+    "metric_name": "UnHealthyHostCount",
+    "dimension_key": "TargetGroup",
+    "stat": "Average",
+    "comparison": "GreaterThanThreshold",
+    "period": 60,
+    "evaluation_periods": 1,
+    "treat_missing_data": "notBreaching"
+   },
+   {
+    "metric": "RequestCountPerTarget",
+    "namespace": "AWS/ApplicationELB",
+    "metric_name": "RequestCountPerTarget",
+    "dimension_key": "TargetGroup",
+    "stat": "Sum",
+    "comparison": "GreaterThanThreshold",
+    "period": 60,
+    "evaluation_periods": 1,
+    "treat_missing_data": "notBreaching"
+   },
+   {
+    "metric": "TargetResponseTime",
+    "namespace": "AWS/ApplicationELB",
+    "metric_name": "TargetResponseTime",
+    "dimension_key": "TargetGroup",
+    "stat": "Average",
+    "comparison": "GreaterThanThreshold",
+    "period": 60,
+    "evaluation_periods": 1,
+    "treat_missing_data": "notBreaching"
+   }
+  ],
+  "AuroraRDS": [
+   {
+    "metric": "CPUUtilization",
+    "namespace": "AWS/RDS",
+    "metric_name": "CPUUtilization",
+    "dimension_key": "DBInstanceIdentifier",
+    "stat": "Average",
+    "comparison": "GreaterThanThreshold",
+    "period": 300,
+    "evaluation_periods": 1,
+    "treat_missing_data": "breaching"
+   },
+   {
+    "metric": "FreeableMemory",
+    "namespace": "AWS/RDS",
+    "metric_name": "FreeableMemory",
+    "dimension_key": "DBInstanceIdentifier",
+    "stat": "Average",
+    "comparison": "LessThanThreshold",
+    "period": 300,
+    "evaluation_periods": 1,
+    "transform_threshold": "<callable <lambda>>",
+    "treat_missing_data": "breaching"
+   },
+   {
+    "metric": "DatabaseConnections",
+    "namespace": "AWS/RDS",
+    "metric_name": "DatabaseConnections",
+    "dimension_key": "DBInstanceIdentifier",
+    "stat": "Average",
+    "comparison": "GreaterThanThreshold",
+    "period": 300,
+    "evaluation_periods": 1,
+    "treat_missing_data": "breaching"
+   },
+   {
+    "metric": "FreeLocalStorage",
+    "namespace": "AWS/RDS",
+    "metric_name": "FreeLocalStorage",
+    "dimension_key": "DBInstanceIdentifier",
+    "stat": "Average",
+    "comparison": "LessThanThreshold",
+    "period": 300,
+    "evaluation_periods": 1,
+    "transform_threshold": "<callable <lambda>>",
+    "treat_missing_data": "breaching"
+   },
+   {
+    "metric": "ReaderReplicaLag",
+    "namespace": "AWS/RDS",
+    "metric_name": "AuroraReplicaLag",
+    "dimension_key": "DBInstanceIdentifier",
+    "stat": "Maximum",
+    "comparison": "GreaterThanThreshold",
+    "period": 300,
+    "evaluation_periods": 1,
+    "treat_missing_data": "missing"
+   }
+  ],
+  "DocDB": [
+   {
+    "metric": "CPUUtilization",
+    "namespace": "AWS/DocDB",
+    "metric_name": "CPUUtilization",
+    "dimension_key": "DBInstanceIdentifier",
+    "stat": "Average",
+    "comparison": "GreaterThanThreshold",
+    "period": 300,
+    "evaluation_periods": 1,
+    "treat_missing_data": "breaching"
+   },
+   {
+    "metric": "FreeableMemory",
+    "namespace": "AWS/DocDB",
+    "metric_name": "FreeableMemory",
+    "dimension_key": "DBInstanceIdentifier",
+    "stat": "Average",
+    "comparison": "LessThanThreshold",
+    "period": 300,
+    "evaluation_periods": 1,
+    "transform_threshold": "<callable <lambda>>",
+    "treat_missing_data": "breaching"
+   },
+   {
+    "metric": "DatabaseConnections",
+    "namespace": "AWS/DocDB",
+    "metric_name": "DatabaseConnections",
+    "dimension_key": "DBInstanceIdentifier",
+    "stat": "Average",
+    "comparison": "GreaterThanThreshold",
+    "period": 300,
+    "evaluation_periods": 1,
+    "treat_missing_data": "breaching"
+   }
+  ],
+  "ElastiCache": [
+   {
+    "metric": "CPUUtilization",
+    "namespace": "AWS/ElastiCache",
+    "metric_name": "CPUUtilization",
+    "dimension_key": "CacheClusterId",
+    "stat": "Average",
+    "comparison": "GreaterThanOrEqualToThreshold",
+    "period": 300,
+    "evaluation_periods": 1,
+    "treat_missing_data": "breaching"
+   },
+   {
+    "metric": "EngineCPU",
+    "namespace": "AWS/ElastiCache",
+    "metric_name": "EngineCPUUtilization",
+    "dimension_key": "CacheClusterId",
+    "stat": "Average",
+    "comparison": "GreaterThanOrEqualToThreshold",
+    "period": 300,
+    "evaluation_periods": 1,
+    "treat_missing_data": "breaching"
+   },
+   {
+    "metric": "DatabaseMemoryUsagePercentage",
+    "namespace": "AWS/ElastiCache",
+    "metric_name": "DatabaseMemoryUsagePercentage",
+    "dimension_key": "CacheClusterId",
+    "stat": "Average",
+    "comparison": "GreaterThanOrEqualToThreshold",
+    "period": 300,
+    "evaluation_periods": 1,
+    "treat_missing_data": "notBreaching"
+   },
+   {
+    "metric": "Evictions",
+    "namespace": "AWS/ElastiCache",
+    "metric_name": "Evictions",
+    "dimension_key": "CacheClusterId",
+    "stat": "Average",
+    "comparison": "GreaterThanOrEqualToThreshold",
+    "period": 300,
+    "evaluation_periods": 1,
+    "treat_missing_data": "breaching"
+   },
+   {
+    "metric": "CurrConnections",
+    "namespace": "AWS/ElastiCache",
+    "metric_name": "CurrConnections",
+    "dimension_key": "CacheClusterId",
+    "stat": "Average",
+    "comparison": "GreaterThanOrEqualToThreshold",
+    "period": 300,
+    "evaluation_periods": 1,
+    "treat_missing_data": "breaching"
+   }
+  ],
+  "NAT": [
+   {
+    "metric": "PacketsDropCount",
+    "namespace": "AWS/NATGateway",
+    "metric_name": "PacketsDropCount",
+    "dimension_key": "NatGatewayId",
+    "stat": "Sum",
+    "comparison": "GreaterThanThreshold",
+    "period": 300,
+    "evaluation_periods": 1,
+    "treat_missing_data": "notBreaching"
+   },
+   {
+    "metric": "ErrorPortAllocation",
+    "namespace": "AWS/NATGateway",
+    "metric_name": "ErrorPortAllocation",
+    "dimension_key": "NatGatewayId",
+    "stat": "Sum",
+    "comparison": "GreaterThanThreshold",
+    "period": 300,
+    "evaluation_periods": 1,
+    "treat_missing_data": "notBreaching"
+   }
+  ],
+  "Lambda": [
+   {
+    "metric": "Duration",
+    "namespace": "AWS/Lambda",
+    "metric_name": "Duration",
+    "dimension_key": "FunctionName",
+    "stat": "Average",
+    "comparison": "GreaterThanThreshold",
+    "period": 300,
+    "evaluation_periods": 1
+   },
+   {
+    "metric": "Errors",
+    "namespace": "AWS/Lambda",
+    "metric_name": "Errors",
+    "dimension_key": "FunctionName",
+    "stat": "Sum",
+    "comparison": "GreaterThanThreshold",
+    "period": 300,
+    "evaluation_periods": 1
+   }
+  ],
+  "VPN": [
+   {
+    "metric": "TunnelState",
+    "namespace": "AWS/VPN",
+    "metric_name": "TunnelState",
+    "dimension_key": "VpnId",
+    "stat": "Maximum",
+    "comparison": "LessThanThreshold",
+    "period": 300,
+    "evaluation_periods": 1,
+    "treat_missing_data": "breaching"
+   }
+  ],
+  "APIGW": [
+   {
+    "metric": "ApiLatency",
+    "namespace": "AWS/ApiGateway",
+    "metric_name": "Latency",
+    "dimension_key": "ApiName",
+    "stat": "Average",
+    "comparison": "GreaterThanThreshold",
+    "period": 300,
+    "evaluation_periods": 1
+   },
+   {
+    "metric": "Api4XXError",
+    "namespace": "AWS/ApiGateway",
+    "metric_name": "4XXError",
+    "dimension_key": "ApiName",
+    "stat": "Sum",
+    "comparison": "GreaterThanThreshold",
+    "period": 300,
+    "evaluation_periods": 1
+   },
+   {
+    "metric": "Api5XXError",
+    "namespace": "AWS/ApiGateway",
+    "metric_name": "5XXError",
+    "dimension_key": "ApiName",
+    "stat": "Sum",
+    "comparison": "GreaterThanThreshold",
+    "period": 300,
+    "evaluation_periods": 1
+   }
+  ],
+  "ACM": [
+   {
+    "metric": "DaysToExpiry",
+    "namespace": "AWS/CertificateManager",
+    "metric_name": "DaysToExpiry",
+    "dimension_key": "CertificateArn",
+    "stat": "Minimum",
+    "comparison": "LessThanThreshold",
+    "period": 86400,
+    "evaluation_periods": 1,
+    "treat_missing_data": "missing"
+   }
+  ],
+  "Backup": [
+   {
+    "metric": "BackupJobsFailed",
+    "namespace": "AWS/Backup",
+    "metric_name": "NumberOfBackupJobsFailed",
+    "dimension_key": "BackupVaultName",
+    "stat": "Sum",
+    "comparison": "GreaterThanThreshold",
+    "period": 300,
+    "evaluation_periods": 1
+   },
+   {
+    "metric": "BackupJobsAborted",
+    "namespace": "AWS/Backup",
+    "metric_name": "NumberOfBackupJobsAborted",
+    "dimension_key": "BackupVaultName",
+    "stat": "Sum",
+    "comparison": "GreaterThanThreshold",
+    "period": 300,
+    "evaluation_periods": 1
+   }
+  ],
+  "MQ": [
+   {
+    "metric": "MqCPU",
+    "namespace": "AWS/AmazonMQ",
+    "metric_name": "CpuUtilization",
+    "dimension_key": "Broker",
+    "stat": "Average",
+    "comparison": "GreaterThanThreshold",
+    "period": 300,
+    "evaluation_periods": 1
+   },
+   {
+    "metric": "HeapUsage",
+    "namespace": "AWS/AmazonMQ",
+    "metric_name": "HeapUsage",
+    "dimension_key": "Broker",
+    "stat": "Average",
+    "comparison": "GreaterThanThreshold",
+    "period": 300,
+    "evaluation_periods": 1
+   },
+   {
+    "metric": "JobSchedulerStoreUsage",
+    "namespace": "AWS/AmazonMQ",
+    "metric_name": "JobSchedulerStorePercentUsage",
+    "dimension_key": "Broker",
+    "stat": "Average",
+    "comparison": "GreaterThanThreshold",
+    "period": 300,
+    "evaluation_periods": 1
+   },
+   {
+    "metric": "StoreUsage",
+    "namespace": "AWS/AmazonMQ",
+    "metric_name": "StorePercentUsage",
+    "dimension_key": "Broker",
+    "stat": "Average",
+    "comparison": "GreaterThanThreshold",
+    "period": 300,
+    "evaluation_periods": 1
+   }
+  ],
+  "CLB": [
+   {
+    "metric": "CLBUnHealthyHost",
+    "namespace": "AWS/ELB",
+    "metric_name": "UnHealthyHostCount",
+    "dimension_key": "LoadBalancerName",
+    "stat": "Average",
+    "comparison": "GreaterThanThreshold",
+    "period": 60,
+    "evaluation_periods": 1
+   },
+   {
+    "metric": "CLB5XX",
+    "namespace": "AWS/ELB",
+    "metric_name": "HTTPCode_ELB_5XX",
+    "dimension_key": "LoadBalancerName",
+    "stat": "Sum",
+    "comparison": "GreaterThanThreshold",
+    "period": 60,
+    "evaluation_periods": 1
+   },
+   {
+    "metric": "CLB4XX",
+    "namespace": "AWS/ELB",
+    "metric_name": "HTTPCode_ELB_4XX",
+    "dimension_key": "LoadBalancerName",
+    "stat": "Sum",
+    "comparison": "GreaterThanThreshold",
+    "period": 60,
+    "evaluation_periods": 1
+   },
+   {
+    "metric": "CLBBackend5XX",
+    "namespace": "AWS/ELB",
+    "metric_name": "HTTPCode_Backend_5XX",
+    "dimension_key": "LoadBalancerName",
+    "stat": "Sum",
+    "comparison": "GreaterThanThreshold",
+    "period": 60,
+    "evaluation_periods": 1
+   },
+   {
+    "metric": "CLBBackend4XX",
+    "namespace": "AWS/ELB",
+    "metric_name": "HTTPCode_Backend_4XX",
+    "dimension_key": "LoadBalancerName",
+    "stat": "Sum",
+    "comparison": "GreaterThanThreshold",
+    "period": 60,
+    "evaluation_periods": 1
+   },
+   {
+    "metric": "SurgeQueueLength",
+    "namespace": "AWS/ELB",
+    "metric_name": "SurgeQueueLength",
+    "dimension_key": "LoadBalancerName",
+    "stat": "Maximum",
+    "comparison": "GreaterThanThreshold",
+    "period": 60,
+    "evaluation_periods": 1
+   },
+   {
+    "metric": "SpilloverCount",
+    "namespace": "AWS/ELB",
+    "metric_name": "SpilloverCount",
+    "dimension_key": "LoadBalancerName",
+    "stat": "Sum",
+    "comparison": "GreaterThanThreshold",
+    "period": 60,
+    "evaluation_periods": 1
+   }
+  ],
+  "OpenSearch": [
+   {
+    "metric": "ClusterStatusRed",
+    "namespace": "AWS/ES",
+    "metric_name": "ClusterStatus.red",
+    "dimension_key": "DomainName",
+    "stat": "Maximum",
+    "comparison": "GreaterThanThreshold",
+    "period": 300,
+    "evaluation_periods": 1,
+    "needs_client_id": true,
+    "treat_missing_data": "breaching"
+   },
+   {
+    "metric": "ClusterStatusYellow",
+    "namespace": "AWS/ES",
+    "metric_name": "ClusterStatus.yellow",
+    "dimension_key": "DomainName",
+    "stat": "Maximum",
+    "comparison": "GreaterThanThreshold",
+    "period": 300,
+    "evaluation_periods": 1,
+    "needs_client_id": true,
+    "treat_missing_data": "breaching"
+   },
+   {
+    "metric": "OSFreeStorageSpace",
+    "namespace": "AWS/ES",
+    "metric_name": "FreeStorageSpace",
+    "dimension_key": "DomainName",
+    "stat": "Minimum",
+    "comparison": "LessThanThreshold",
+    "period": 300,
+    "evaluation_periods": 1,
+    "needs_client_id": true,
+    "treat_missing_data": "breaching"
+   },
+   {
+    "metric": "ClusterIndexWritesBlocked",
+    "namespace": "AWS/ES",
+    "metric_name": "ClusterIndexWritesBlocked",
+    "dimension_key": "DomainName",
+    "stat": "Maximum",
+    "comparison": "GreaterThanThreshold",
+    "period": 300,
+    "evaluation_periods": 1,
+    "needs_client_id": true,
+    "treat_missing_data": "breaching"
+   },
+   {
+    "metric": "OsCPU",
+    "namespace": "AWS/ES",
+    "metric_name": "CPUUtilization",
+    "dimension_key": "DomainName",
+    "stat": "Average",
+    "comparison": "GreaterThanThreshold",
+    "period": 300,
+    "evaluation_periods": 1,
+    "needs_client_id": true
+   },
+   {
+    "metric": "JVMMemoryPressure",
+    "namespace": "AWS/ES",
+    "metric_name": "JVMMemoryPressure",
+    "dimension_key": "DomainName",
+    "stat": "Maximum",
+    "comparison": "GreaterThanThreshold",
+    "period": 300,
+    "evaluation_periods": 1,
+    "needs_client_id": true
+   },
+   {
+    "metric": "MasterCPU",
+    "namespace": "AWS/ES",
+    "metric_name": "MasterCPUUtilization",
+    "dimension_key": "DomainName",
+    "stat": "Average",
+    "comparison": "GreaterThanThreshold",
+    "period": 300,
+    "evaluation_periods": 1,
+    "needs_client_id": true
+   },
+   {
+    "metric": "MasterJVMMemoryPressure",
+    "namespace": "AWS/ES",
+    "metric_name": "MasterJVMMemoryPressure",
+    "dimension_key": "DomainName",
+    "stat": "Maximum",
+    "comparison": "GreaterThanThreshold",
+    "period": 300,
+    "evaluation_periods": 1,
+    "needs_client_id": true
+   }
+  ],
+  "SQS": [
+   {
+    "metric": "SQSMessagesVisible",
+    "namespace": "AWS/SQS",
+    "metric_name": "ApproximateNumberOfMessagesVisible",
+    "dimension_key": "QueueName",
+    "stat": "Average",
+    "comparison": "GreaterThanThreshold",
+    "period": 300,
+    "evaluation_periods": 1
+   },
+   {
+    "metric": "SQSOldestMessage",
+    "namespace": "AWS/SQS",
+    "metric_name": "ApproximateAgeOfOldestMessage",
+    "dimension_key": "QueueName",
+    "stat": "Maximum",
+    "comparison": "GreaterThanThreshold",
+    "period": 300,
+    "evaluation_periods": 1
+   },
+   {
+    "metric": "SQSMessagesSent",
+    "namespace": "AWS/SQS",
+    "metric_name": "NumberOfMessagesSent",
+    "dimension_key": "QueueName",
+    "stat": "Sum",
+    "comparison": "GreaterThanThreshold",
+    "period": 300,
+    "evaluation_periods": 1
+   }
+  ],
+  "ECS": [
+   {
+    "metric": "EcsCPU",
+    "namespace": "AWS/ECS",
+    "metric_name": "CPUUtilization",
+    "dimension_key": "ServiceName",
+    "stat": "Average",
+    "comparison": "GreaterThanThreshold",
+    "period": 300,
+    "evaluation_periods": 1
+   },
+   {
+    "metric": "EcsMemory",
+    "namespace": "AWS/ECS",
+    "metric_name": "MemoryUtilization",
+    "dimension_key": "ServiceName",
+    "stat": "Average",
+    "comparison": "GreaterThanThreshold",
+    "period": 300,
+    "evaluation_periods": 1
+   }
+  ],
+  "MSK": [
+   {
+    "metric": "OffsetLag",
+    "namespace": "AWS/Kafka",
+    "metric_name": "SumOffsetLag",
+    "dimension_key": "Cluster Name",
+    "stat": "Maximum",
+    "comparison": "GreaterThanThreshold",
+    "period": 300,
+    "evaluation_periods": 1
+   },
+   {
+    "metric": "BytesInPerSec",
+    "namespace": "AWS/Kafka",
+    "metric_name": "BytesInPerSec",
+    "dimension_key": "Cluster Name",
+    "stat": "Average",
+    "comparison": "GreaterThanThreshold",
+    "period": 300,
+    "evaluation_periods": 1
+   },
+   {
+    "metric": "UnderReplicatedPartitions",
+    "namespace": "AWS/Kafka",
+    "metric_name": "UnderReplicatedPartitions",
+    "dimension_key": "Cluster Name",
+    "stat": "Maximum",
+    "comparison": "GreaterThanThreshold",
+    "period": 300,
+    "evaluation_periods": 1,
+    "treat_missing_data": "breaching"
+   },
+   {
+    "metric": "ActiveControllerCount",
+    "namespace": "AWS/Kafka",
+    "metric_name": "ActiveControllerCount",
+    "dimension_key": "Cluster Name",
+    "stat": "Average",
+    "comparison": "LessThanThreshold",
+    "period": 300,
+    "evaluation_periods": 1,
+    "treat_missing_data": "breaching"
+   }
+  ],
+  "DynamoDB": [
+   {
+    "metric": "DDBReadCapacity",
+    "namespace": "AWS/DynamoDB",
+    "metric_name": "ConsumedReadCapacityUnits",
+    "dimension_key": "TableName",
+    "stat": "Sum",
+    "comparison": "GreaterThanThreshold",
+    "period": 300,
+    "evaluation_periods": 1
+   },
+   {
+    "metric": "DDBWriteCapacity",
+    "namespace": "AWS/DynamoDB",
+    "metric_name": "ConsumedWriteCapacityUnits",
+    "dimension_key": "TableName",
+    "stat": "Sum",
+    "comparison": "GreaterThanThreshold",
+    "period": 300,
+    "evaluation_periods": 1
+   },
+   {
+    "metric": "ThrottledRequests",
+    "namespace": "AWS/DynamoDB",
+    "metric_name": "ThrottledRequests",
+    "dimension_key": "TableName",
+    "stat": "Sum",
+    "comparison": "GreaterThanThreshold",
+    "period": 300,
+    "evaluation_periods": 1
+   },
+   {
+    "metric": "DDBSystemErrors",
+    "namespace": "AWS/DynamoDB",
+    "metric_name": "SystemErrors",
+    "dimension_key": "TableName",
+    "stat": "Sum",
+    "comparison": "GreaterThanThreshold",
+    "period": 300,
+    "evaluation_periods": 1
+   }
+  ],
+  "CloudFront": [
+   {
+    "metric": "CF5xxErrorRate",
+    "namespace": "AWS/CloudFront",
+    "metric_name": "5xxErrorRate",
+    "dimension_key": "DistributionId",
+    "stat": "Average",
+    "comparison": "GreaterThanThreshold",
+    "period": 300,
+    "evaluation_periods": 1,
+    "region": "us-east-1"
+   },
+   {
+    "metric": "CF4xxErrorRate",
+    "namespace": "AWS/CloudFront",
+    "metric_name": "4xxErrorRate",
+    "dimension_key": "DistributionId",
+    "stat": "Average",
+    "comparison": "GreaterThanThreshold",
+    "period": 300,
+    "evaluation_periods": 1,
+    "region": "us-east-1"
+   },
+   {
+    "metric": "CFRequests",
+    "namespace": "AWS/CloudFront",
+    "metric_name": "Requests",
+    "dimension_key": "DistributionId",
+    "stat": "Sum",
+    "comparison": "GreaterThanThreshold",
+    "period": 300,
+    "evaluation_periods": 1,
+    "region": "us-east-1"
+   },
+   {
+    "metric": "CFBytesDownloaded",
+    "namespace": "AWS/CloudFront",
+    "metric_name": "BytesDownloaded",
+    "dimension_key": "DistributionId",
+    "stat": "Sum",
+    "comparison": "GreaterThanThreshold",
+    "period": 300,
+    "evaluation_periods": 1,
+    "region": "us-east-1"
+   }
+  ],
+  "WAF": [
+   {
+    "metric": "WAFBlockedRequests",
+    "namespace": "AWS/WAFV2",
+    "metric_name": "BlockedRequests",
+    "dimension_key": "WebACL",
+    "stat": "Sum",
+    "comparison": "GreaterThanThreshold",
+    "period": 300,
+    "evaluation_periods": 1
+   },
+   {
+    "metric": "WAFAllowedRequests",
+    "namespace": "AWS/WAFV2",
+    "metric_name": "AllowedRequests",
+    "dimension_key": "WebACL",
+    "stat": "Sum",
+    "comparison": "GreaterThanThreshold",
+    "period": 300,
+    "evaluation_periods": 1
+   },
+   {
+    "metric": "WAFCountedRequests",
+    "namespace": "AWS/WAFV2",
+    "metric_name": "CountedRequests",
+    "dimension_key": "WebACL",
+    "stat": "Sum",
+    "comparison": "GreaterThanThreshold",
+    "period": 300,
+    "evaluation_periods": 1
+   }
+  ],
+  "Route53": [
+   {
+    "metric": "HealthCheckStatus",
+    "namespace": "AWS/Route53",
+    "metric_name": "HealthCheckStatus",
+    "dimension_key": "HealthCheckId",
+    "stat": "Minimum",
+    "comparison": "LessThanThreshold",
+    "period": 300,
+    "evaluation_periods": 1,
+    "region": "us-east-1",
+    "treat_missing_data": "breaching"
+   }
+  ],
+  "DX": [
+   {
+    "metric": "ConnectionState",
+    "namespace": "AWS/DX",
+    "metric_name": "ConnectionState",
+    "dimension_key": "ConnectionId",
+    "stat": "Minimum",
+    "comparison": "LessThanThreshold",
+    "period": 300,
+    "evaluation_periods": 1,
+    "treat_missing_data": "breaching"
+   }
+  ],
+  "EFS": [
+   {
+    "metric": "BurstCreditBalance",
+    "namespace": "AWS/EFS",
+    "metric_name": "BurstCreditBalance",
+    "dimension_key": "FileSystemId",
+    "stat": "Minimum",
+    "comparison": "LessThanThreshold",
+    "period": 300,
+    "evaluation_periods": 1
+   },
+   {
+    "metric": "PercentIOLimit",
+    "namespace": "AWS/EFS",
+    "metric_name": "PercentIOLimit",
+    "dimension_key": "FileSystemId",
+    "stat": "Average",
+    "comparison": "GreaterThanThreshold",
+    "period": 300,
+    "evaluation_periods": 1
+   },
+   {
+    "metric": "EFSClientConnections",
+    "namespace": "AWS/EFS",
+    "metric_name": "ClientConnections",
+    "dimension_key": "FileSystemId",
+    "stat": "Sum",
+    "comparison": "GreaterThanThreshold",
+    "period": 300,
+    "evaluation_periods": 1
+   }
+  ],
+  "S3": [
+   {
+    "metric": "S34xxErrors",
+    "namespace": "AWS/S3",
+    "metric_name": "4xxErrors",
+    "dimension_key": "BucketName",
+    "stat": "Sum",
+    "comparison": "GreaterThanThreshold",
+    "period": 300,
+    "evaluation_periods": 1
+   },
+   {
+    "metric": "S35xxErrors",
+    "namespace": "AWS/S3",
+    "metric_name": "5xxErrors",
+    "dimension_key": "BucketName",
+    "stat": "Sum",
+    "comparison": "GreaterThanThreshold",
+    "period": 300,
+    "evaluation_periods": 1
+   },
+   {
+    "metric": "S3BucketSizeBytes",
+    "namespace": "AWS/S3",
+    "metric_name": "BucketSizeBytes",
+    "dimension_key": "BucketName",
+    "stat": "Average",
+    "comparison": "GreaterThanThreshold",
+    "period": 86400,
+    "evaluation_periods": 1,
+    "needs_storage_type": true,
+    "treat_missing_data": "missing"
+   },
+   {
+    "metric": "S3NumberOfObjects",
+    "namespace": "AWS/S3",
+    "metric_name": "NumberOfObjects",
+    "dimension_key": "BucketName",
+    "stat": "Average",
+    "comparison": "GreaterThanThreshold",
+    "period": 86400,
+    "evaluation_periods": 1,
+    "needs_storage_type": true,
+    "treat_missing_data": "missing"
+   }
+  ],
+  "SageMaker": [
+   {
+    "metric": "SMInvocations",
+    "namespace": "AWS/SageMaker",
+    "metric_name": "Invocations",
+    "dimension_key": "EndpointName",
+    "stat": "Sum",
+    "comparison": "GreaterThanThreshold",
+    "period": 300,
+    "evaluation_periods": 1
+   },
+   {
+    "metric": "SMInvocationErrors",
+    "namespace": "AWS/SageMaker",
+    "metric_name": "InvocationErrors",
+    "dimension_key": "EndpointName",
+    "stat": "Sum",
+    "comparison": "GreaterThanThreshold",
+    "period": 300,
+    "evaluation_periods": 1
+   },
+   {
+    "metric": "SMModelLatency",
+    "namespace": "AWS/SageMaker",
+    "metric_name": "ModelLatency",
+    "dimension_key": "EndpointName",
+    "stat": "Average",
+    "comparison": "GreaterThanThreshold",
+    "period": 300,
+    "evaluation_periods": 1
+   },
+   {
+    "metric": "SMCPU",
+    "namespace": "AWS/SageMaker",
+    "metric_name": "CPUUtilization",
+    "dimension_key": "EndpointName",
+    "stat": "Average",
+    "comparison": "GreaterThanThreshold",
+    "period": 300,
+    "evaluation_periods": 1
+   }
+  ],
+  "SNS": [
+   {
+    "metric": "SNSNotificationsFailed",
+    "namespace": "AWS/SNS",
+    "metric_name": "NumberOfNotificationsFailed",
+    "dimension_key": "TopicName",
+    "stat": "Sum",
+    "comparison": "GreaterThanThreshold",
+    "period": 300,
+    "evaluation_periods": 1
+   },
+   {
+    "metric": "SNSMessagesPublished",
+    "namespace": "AWS/SNS",
+    "metric_name": "NumberOfMessagesPublished",
+    "dimension_key": "TopicName",
+    "stat": "Sum",
+    "comparison": "GreaterThanThreshold",
+    "period": 300,
+    "evaluation_periods": 1
+   }
+  ]
+ }
+}

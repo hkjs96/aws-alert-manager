@@ -341,9 +341,11 @@ def test_aurora_rds_constant_mappings():
     from common.alarm_manager import _NAMESPACE_MAP, _DIMENSION_KEY_MAP
 
     assert "AuroraRDS" in _HARDCODED_METRIC_KEYS
+    # 정의에서 파생된다(resource-type-registry P1). ServerlessDatabaseCapacity는 정의(_AURORA_SERVERLESS_CAPACITY)는
+    # 있지만 어떤 변형도 emit하지 않아(ACUUtilization이 비율로 대신) 기본 키 집합에 들지 않는다.
     assert _HARDCODED_METRIC_KEYS["AuroraRDS"] == {
         "CPUUtilization", "FreeableMemory", "DatabaseConnections", "FreeLocalStorage", "ReplicaLag",
-        "ReaderReplicaLag", "ACUUtilization", "ServerlessDatabaseCapacity",
+        "ReaderReplicaLag", "ACUUtilization",
     }
 
     assert _NAMESPACE_MAP["AuroraRDS"] == ["AWS/RDS"]
@@ -456,10 +458,11 @@ class TestAuroraConstantMappings:
         assert "ServerlessDatabaseCapacity" in _METRIC_DISPLAY
         assert _METRIC_DISPLAY["ServerlessDatabaseCapacity"] == ("ServerlessDatabaseCapacity", ">", "ACU")
 
-    def test_hardcoded_metric_keys_aurora_rds_8_keys(self):
+    def test_hardcoded_metric_keys_aurora_rds_7_keys(self):
+        """파생 규칙: 모든 변형의 합집합. ServerlessDatabaseCapacity는 정의만 있고 emit되지 않아 빠진다."""
         expected = {
             "CPUUtilization", "FreeableMemory", "DatabaseConnections", "FreeLocalStorage",
-            "ReplicaLag", "ReaderReplicaLag", "ACUUtilization", "ServerlessDatabaseCapacity",
+            "ReplicaLag", "ReaderReplicaLag", "ACUUtilization",
         }
         assert _HARDCODED_METRIC_KEYS["AuroraRDS"] == expected
 

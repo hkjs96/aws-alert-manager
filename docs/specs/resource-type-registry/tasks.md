@@ -5,25 +5,36 @@
 
 ## Phase 0 — 확인 (반나절)
 
-- [ ] 0.1 **RGT 리소스 타입 문자열 표** — 29개 타입 각각의 `ResourceTypeFilters` 값을 실계정(`tlsgks678_poc`,
-      가능하면 `home-dev` 읽기 전용)에서 `GetResources`로 확인. 못 나열하는 타입은 `enumerate` 유지 대상으로 표시
-      (설계 D4의 목록을 확정한다).
-- [ ] 0.2 **현재 손 맵 스냅숏** — `_HARDCODED_METRIC_KEYS`·`_NAMESPACE_MAP`·`_DIMENSION_KEY_MAP`·`_METRIC_DISPLAY`·
-      `HARDCODED_DEFAULTS`·`MONITORED_API_EVENTS`·`_API_MAP`(이벤트→타입)·`_RESOURCE_TYPE_TO_COLLECTOR`·`TAGGED_SERVICES`를
-      JSON으로 저장(`backend/tests/fixtures/registry_snapshot_2026-09.json`). Phase 1~3의 동일성 테스트 기준.
-- [ ] 0.3 **alarm-sync 드라이런 기준선** — dev 계정 전체 리소스에 대해 생성될 알람 이름·차원 집합을 덤프.
-      이후 단계의 회귀 기준(R5).
+- [x] 0.1 **RGT 리소스 타입 문자열 표** — 29개 전부 유효 확인(2026-09-15, `tlsgks678_poc`/us-east-1 + `home-dev`/서울).
+      결과와 주의점(LB 셋·RDS 셋이 필터 하나를 공유, APIGW는 두 필터)은 `design.md` 부록 A.
+- [x] 0.2 **현재 손 맵 스냅숏** — `backend/tests/fixtures/registry_snapshot_2026-09.json`(2026-09-15, 코드 변경 전).
+      기본 변형 정의 103개·생명주기 이벤트 66개 포함.
+- [x] 0.3 **alarm-sync 드라이런 도구** — `scripts/alarm_sync_dryrun.py`(2026-09-15). 드라이런 기능이 없어서 만들었다.
+      이름·차원을 따로 계산하지 않고 **진짜 생성 경로**(`create_alarms_for_resource`)를 쓰기만 가로채는 CloudWatch
+      스텁(`RecordingCloudWatch`) 위에서 돌려 `put_metric_alarm` payload를 그대로 덤프한다 → 디스크 경로 발견·동적
+      알람·등급 태그까지 실제와 같다. `--diff before after`가 이관 게이트(종료 코드 0 = 0 diff). 단위 테스트
+      `tests/test_alarm_sync_dryrun.py`(쓰기가 실제 클라이언트에 닿지 않음·정렬·diff).
+      **기준선은 비어 있다**: dev·home-dev 모두 `Monitoring=on` 리소스가 0개(P0.1 실측). Phase 3 게이트로 쓰려면
+      dev 리소스 몇 개에 태그를 붙여야 한다(사용자 결정 — 알람 개당 월 $0.10). 그때까지는 수집기 단위 테스트
+      (`test_collectors.py`, 26개 모듈 mock)가 나열·정체 회귀를 맡는다.
 
-## Phase 1 — 파생 (하루, 동작 변화 0)
+## Phase 1 — 파생 (하루, 동작 변화 0) ✅ 2026-09-15
 
-- [ ] 1.1 `alarm_registry.py`에 `_derive_maps()` — 타입별 `_get_alarm_defs_raw`를 **모든 태그 변형**으로 호출해
-      metric/namespace/dimension_key 집합을 모은다. 변형 열거는 각 조건부 함수 옆에 `VARIANTS = ({...}, {...})`로
-      선언(Aurora 4조합, APIGW 3종, EC2 앱검사 on/off, TG ALB/NLB).
-- [ ] 1.2 세 맵을 `_derive_maps()` 결과로 바꾸되 **이름은 유지** — 호출부(`resources.py` `alarm_manager.py`
-      `dimension_builder.py`) 무변경.
-- [ ] 1.3 스냅숏 테스트: 파생값 == 0.2 스냅숏. 통과 후 손 맵 리터럴 삭제.
-- [ ] 1.4 `test_pbt_registry_completeness.py` 재정의 — "손 맵이 정의와 맞나"가 아니라 "VARIANTS가 조건 분기의
-      모든 경로를 덮나"(분기 커버리지). 편집 지점 15 → 12.
+- [x] 1.1 `_ALARM_DEF_VARIANTS` — 조건부 함수가 읽는 태그의 모든 조합(EC2 옵트인 2, Aurora 2³=8, TG 3, APIGW 3).
+      `_variant_defs(type)`이 전부 열거해 합친다. 규칙은 셋이 다르다: 메트릭 키 = 합집합 − `opt_in`, 네임스페이스 =
+      합집합 + `_EXTRA_NAMESPACES`(TG의 NLB — 빌드 시 해석기가 바꿔 끼움), 디멘션 키 = **기본 변형**(APIGW HTTP/WS는
+      `ApiId`라 변형끼리 다르다 — 정적 표는 REST 기본값).
+- [x] 1.2 세 맵을 파생값으로, 이름 유지 → 호출부 무변경. 덤: `elif` 29분기가 `_ALARM_DEFS_BY_TYPE` 표 + 3줄 디스패치로
+      (TG 인라인 분기는 `_get_tg_alarm_defs`로). **이 표의 키가 곧 타입 목록** — P2 스펙 레지스트리의 씨앗.
+      EC2 앱 상태검사 정의에 `"opt_in": True`. `alarm_registry.py` 1,902 → 1,855줄.
+- [x] 1.3 스냅숏 테스트 통과. 의도한 차이 1건을 `ACCEPTED_DIFFS`에 이유와 함께: Aurora `ServerlessDatabaseCapacity` —
+      정의(`_AURORA_SERVERLESS_CAPACITY`)는 있지만 어떤 변형도 emit하지 않고(ACUUtilization이 대신) 정적 표의
+      **런타임 소비처가 없다**(`alarm_manager`는 import만 — facade 재수출 — 실제로는 태그 기반
+      `_get_hardcoded_metric_keys()`를 쓴다). 옛 리터럴을 단언하던 `test_alarm_registry.py` 2건을 파생 기준으로 고침.
+- [x] 1.4 `test_pbt_registry_completeness.py` 재정의 — ① 파생 == 스냅숏(+이유 있는 예외, 죽은 예외는 실패)
+      ② 조건부 함수 **소스를 훑어** `resource_tags.get(키)`가 전부 변형에 열거돼 있는지 ③ 변형이 실제로 정의를
+      바꾸는지 ④ 기본 변형은 디멘션 키 하나 ⑤ 옵트인은 기본 집합에 없고 태그와 함께는 있음. `/new-collector` 3항 갱신.
+      편집 지점 15 → 12. 전체 스위트 통과.
 
 ## Phase 2 — 스펙 객체와 뷰 (2~3일)
 

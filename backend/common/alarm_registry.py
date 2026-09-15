@@ -207,6 +207,8 @@ _EC2_APP_STATUS_ALARM = {
     # 않는다 — breaching이면 검사를 안 쓰는 인스턴스 전부가 즉시 알람이 된다.
     # (시스템 검사 StatusCheckFailed가 breaching인 것과 반대다.)
     "treat_missing_data": "notBreaching",
+    # 태그(Threshold_…)가 있어야 붙는 옵트인 정의 — 기본 메트릭 키 집합(_HARDCODED_METRIC_KEYS)에 넣지 않는다.
+    "opt_in": True,
 }
 
 
@@ -1577,189 +1579,140 @@ def _get_alarm_defs(resource_type: str, resource_tags: dict | None = None) -> li
     return _apply_eval_policy(_get_alarm_defs_raw(resource_type, resource_tags))
 
 
+def _get_tg_alarm_defs(resource_tags: dict) -> list[dict]:
+    """대상그룹 변형.
+
+    TargetType=alb인 TG는 HealthyHostCount/UnHealthyHostCount를 CloudWatch가 발행하지 않는다(AWS 제약)
+    → 알람 없음. NLB 대상그룹은 요청 수·응답 시간 지표가 없다.
+    """
+    if resource_tags.get("_target_type") == "alb":
+        return []
+    if resource_tags.get("_lb_type") == "network":
+        return [d for d in _TG_ALARMS if d["metric"] not in _NLB_TG_EXCLUDED_METRICS]
+    return _TG_ALARMS
+
+
+#: 타입 → 알람 정의. 값은 리스트(고정) 또는 `Callable[[resource_tags], list]`(태그 조건부).
+#: **이 표의 키가 곧 "알람을 가진 리소스 타입" 목록이다** — 아래 파생 뷰들이 전부 여기서 나온다.
+#: (docs/specs/resource-type-registry — P2에서 타입별 스펙 객체로 옮긴다.)
+_ALARM_DEFS_BY_TYPE: dict = {
+    "EC2": _get_ec2_alarm_defs,
+    "RDS": _RDS_ALARMS,
+    "ALB": _ALB_ALARMS,
+    "NLB": _NLB_ALARMS,
+    "TG": _get_tg_alarm_defs,
+    "AuroraRDS": _get_aurora_alarm_defs,
+    "DocDB": _DOCDB_ALARMS,
+    "ElastiCache": _ELASTICACHE_ALARMS,
+    "NAT": _NATGW_ALARMS,
+    "Lambda": _LAMBDA_ALARMS,
+    "VPN": _VPN_ALARMS,
+    "APIGW": _get_apigw_alarm_defs,
+    "ACM": _ACM_ALARMS,
+    "Backup": _BACKUP_ALARMS,
+    "MQ": _MQ_ALARMS,
+    "CLB": _CLB_ALARMS,
+    "OpenSearch": _OPENSEARCH_ALARMS,
+    "SQS": _SQS_ALARMS,
+    "ECS": _ECS_ALARMS,
+    "MSK": _MSK_ALARMS,
+    "DynamoDB": _DYNAMODB_ALARMS,
+    "CloudFront": _CLOUDFRONT_ALARMS,
+    "WAF": _WAF_ALARMS,
+    "Route53": _ROUTE53_ALARMS,
+    "DX": _DX_ALARMS,
+    "EFS": _EFS_ALARMS,
+    "S3": _S3_ALARMS,
+    "SageMaker": _SAGEMAKER_ALARMS,
+    "SNS": _SNS_ALARMS,
+}
+
+
 def _get_alarm_defs_raw(resource_type: str, resource_tags: dict | None = None) -> list[dict]:
-    if resource_type == "EC2":
-        return _get_ec2_alarm_defs(resource_tags or {})
-    elif resource_type == "RDS":
-        return _RDS_ALARMS
-    elif resource_type == "AuroraRDS":
-        return _get_aurora_alarm_defs(resource_tags or {})
-    elif resource_type == "ALB":
-        return _ALB_ALARMS
-    elif resource_type == "NLB":
-        return _NLB_ALARMS
-    elif resource_type == "DocDB":
-        return _DOCDB_ALARMS
-    elif resource_type == "ElastiCache":
-        return _ELASTICACHE_ALARMS
-    elif resource_type == "NAT":
-        return _NATGW_ALARMS
-    elif resource_type == "TG":
-        # TargetType=alb인 TG는 HealthyHostCount/UnHealthyHostCount 메트릭이
-        # CloudWatch에서 발행되지 않음 (AWS 제약사항) → 알람 생성 스킵
-        if resource_tags is not None and resource_tags.get("_target_type") == "alb":
-            return []
-        if resource_tags is not None and resource_tags.get("_lb_type") == "network":
-            return [d for d in _TG_ALARMS if d["metric"] not in _NLB_TG_EXCLUDED_METRICS]
-        return _TG_ALARMS
-    elif resource_type == "Lambda":
-        return _LAMBDA_ALARMS
-    elif resource_type == "VPN":
-        return _VPN_ALARMS
-    elif resource_type == "APIGW":
-        return _get_apigw_alarm_defs(resource_tags or {})
-    elif resource_type == "ACM":
-        return _ACM_ALARMS
-    elif resource_type == "Backup":
-        return _BACKUP_ALARMS
-    elif resource_type == "MQ":
-        return _MQ_ALARMS
-    elif resource_type == "CLB":
-        return _CLB_ALARMS
-    elif resource_type == "OpenSearch":
-        return _OPENSEARCH_ALARMS
-    elif resource_type == "SQS":
-        return _SQS_ALARMS
-    elif resource_type == "ECS":
-        return _ECS_ALARMS
-    elif resource_type == "MSK":
-        return _MSK_ALARMS
-    elif resource_type == "DynamoDB":
-        return _DYNAMODB_ALARMS
-    elif resource_type == "CloudFront":
-        return _CLOUDFRONT_ALARMS
-    elif resource_type == "WAF":
-        return _WAF_ALARMS
-    elif resource_type == "Route53":
-        return _ROUTE53_ALARMS
-    elif resource_type == "DX":
-        return _DX_ALARMS
-    elif resource_type == "EFS":
-        return _EFS_ALARMS
-    elif resource_type == "S3":
-        return _S3_ALARMS
-    elif resource_type == "SageMaker":
-        return _SAGEMAKER_ALARMS
-    elif resource_type == "SNS":
-        return _SNS_ALARMS
-    return []
+    entry = _ALARM_DEFS_BY_TYPE.get(resource_type)
+    if entry is None:
+        return []
+    return entry(resource_tags or {}) if callable(entry) else entry
 
 
-# resource_type별 하드코딩 메트릭 키 (metric_key 기준; tag_key = Threshold_{metric_key})
-_HARDCODED_METRIC_KEYS: dict[str, set[str]] = {
-    # StatusCheckFailed_Application은 여기 없다 — 이 표는 **기본** 알람 집합이고 그 지표는
-    # 태그 옵트인이다. 동적 알람 중복은 `_get_hardcoded_metric_keys()`가 막는다(태그를 함께 보므로
-    # 옵트인 시 자동으로 포함된다).
-    "EC2": {"CPUUtilization", "mem_used_percent", "disk_used_percent", "StatusCheckFailed"},
-    "RDS": {"CPUUtilization", "FreeableMemory", "FreeStorageSpace", "DatabaseConnections", "ReadLatency", "WriteLatency", "ConnectionAttempts"},
-    "ALB": {"RequestCount", "HTTPCode_ELB_5XX_Count", "TargetResponseTime", "ELB4XX", "TargetConnectionError"},
-    "NLB": {"ProcessedBytes", "ActiveFlowCount", "NewFlowCount", "TCP_Client_Reset_Count", "TCP_Target_Reset_Count"},
-    "TG": {"HealthyHostCount", "UnHealthyHostCount", "RequestCountPerTarget", "TargetResponseTime"},
-    "AuroraRDS": {"CPUUtilization", "FreeableMemory", "DatabaseConnections", "FreeLocalStorage", "ReplicaLag", "ReaderReplicaLag", "ACUUtilization", "ServerlessDatabaseCapacity"},
-    "DocDB": {"CPUUtilization", "FreeableMemory", "DatabaseConnections"},
-    "ElastiCache": {"CPUUtilization", "EngineCPU", "DatabaseMemoryUsagePercentage", "Evictions", "CurrConnections"},
-    "NAT": {"PacketsDropCount", "ErrorPortAllocation"},
-    "Lambda": {"Duration", "Errors"},
-    "VPN": {"TunnelState"},
-    "APIGW": {
-        "ApiLatency", "Api4XXError", "Api5XXError",
-        "Api4xx", "Api5xx",
-        "WsConnectCount", "WsMessageCount",
-        "WsIntegrationError", "WsExecutionError",
-    },
-    "ACM": {"DaysToExpiry"},
-    "Backup": {"BackupJobsFailed", "BackupJobsAborted"},
-    "MQ": {"MqCPU", "HeapUsage", "JobSchedulerStoreUsage", "StoreUsage"},
-    "CLB": {
-        "CLBUnHealthyHost", "CLB5XX", "CLB4XX",
-        "CLBBackend5XX", "CLBBackend4XX",
-        "SurgeQueueLength", "SpilloverCount",
-    },
-    "OpenSearch": {
-        "ClusterStatusRed", "ClusterStatusYellow",
-        "OSFreeStorageSpace", "ClusterIndexWritesBlocked",
-        "OsCPU", "JVMMemoryPressure",
-        "MasterCPU", "MasterJVMMemoryPressure",
-    },
-    "SQS": {"SQSMessagesVisible", "SQSOldestMessage", "SQSMessagesSent"},
-    "ECS": {"EcsCPU", "EcsMemory"},
-    "MSK": {"OffsetLag", "BytesInPerSec", "UnderReplicatedPartitions", "ActiveControllerCount"},
-    "DynamoDB": {"DDBReadCapacity", "DDBWriteCapacity", "ThrottledRequests", "DDBSystemErrors"},
-    "CloudFront": {"CF5xxErrorRate", "CF4xxErrorRate", "CFRequests", "CFBytesDownloaded"},
-    "WAF": {"WAFBlockedRequests", "WAFAllowedRequests", "WAFCountedRequests"},
-    "Route53": {"HealthCheckStatus"},
-    "DX": {"ConnectionState"},
-    "EFS": {"BurstCreditBalance", "PercentIOLimit", "EFSClientConnections"},
-    "S3": {"S34xxErrors", "S35xxErrors", "S3BucketSizeBytes", "S3NumberOfObjects"},
-    "SageMaker": {"SMInvocations", "SMInvocationErrors", "SMModelLatency", "SMCPU"},
-    "SNS": {"SNSNotificationsFailed", "SNSMessagesPublished"},
+# ──────────────────────────────────────────────
+# 타입별 파생 뷰 — 손으로 적지 않고 알람 정의에서 계산한다 (docs/specs/resource-type-registry P1)
+# ──────────────────────────────────────────────
+# 아래 세 표는 2026-09까지 손으로 유지됐고, 정의와 어긋나지 않는지를 PBT가 지켰다. 정의에서 파생되는
+# 값을 두 번 적을 이유가 없다 — 이제 정의가 바뀌면 표가 따라온다. 테스트가 지키는 것은 "파생 규칙이
+# 조건 분기의 변형을 전부 열거하는가"다(tests/test_pbt_registry_completeness.py). 규칙은 셋이 다르다:
+#   메트릭 키   = 모든 변형의 합집합 − 옵트인(`opt_in`)      (정적 표라 태그 조건부 키도 담는다)
+#   네임스페이스 = 모든 변형의 합집합 + 빌드 시 해석기가 바꿔 끼우는 것(_EXTRA_NAMESPACES)
+#   디멘션 키   = **기본 변형**(태그 없음)의 키                (변형은 다를 수 있다 — APIGW HTTP/WS는 ApiId)
+
+#: 조건부 정의 함수가 읽는 태그의 **모든 조합**. 파생은 이 변형을 전부 열거해 합친다.
+#: 조건 분기에서 태그를 새로 읽으면 여기에도 적어야 한다 — 완전성 테스트가 함수 소스를 훑어 잡는다.
+_ALARM_DEF_VARIANTS: dict[str, tuple[dict, ...]] = {
+    "EC2": ({}, {f"Threshold_{APP_STATUS_METRIC_KEY}": "1"}),
+    "AuroraRDS": tuple(
+        {"_is_serverless_v2": s, "_is_cluster_writer": w, "_has_readers": r}
+        for s in ("true", "false") for w in ("true", "false") for r in ("true", "false")
+    ),
+    "TG": ({}, {"_lb_type": "network"}, {"_target_type": "alb"}),
+    "APIGW": tuple({"_api_type": t} for t in ("REST", "HTTP", "WEBSOCKET")),
 }
 
-# resource_type별 CloudWatch 네임스페이스 목록
-_NAMESPACE_MAP: dict[str, list[str]] = {
-    "EC2": ["AWS/EC2", "CWAgent"],
-    "RDS": ["AWS/RDS"],
-    "ALB": ["AWS/ApplicationELB"],
-    "NLB": ["AWS/NetworkELB"],
-    "TG": ["AWS/ApplicationELB", "AWS/NetworkELB"],
-    "AuroraRDS": ["AWS/RDS"],
-    "DocDB": ["AWS/DocDB"],
-    "ElastiCache": ["AWS/ElastiCache"],
-    "NAT": ["AWS/NATGateway"],
-    "Lambda": ["AWS/Lambda"],
-    "VPN": ["AWS/VPN"],
-    "APIGW": ["AWS/ApiGateway"],
-    "ACM": ["AWS/CertificateManager"],
-    "Backup": ["AWS/Backup"],
-    "MQ": ["AWS/AmazonMQ"],
-    "CLB": ["AWS/ELB"],
-    "OpenSearch": ["AWS/ES"],
-    "SQS": ["AWS/SQS"],
-    "ECS": ["AWS/ECS"],
-    "MSK": ["AWS/Kafka"],
-    "DynamoDB": ["AWS/DynamoDB"],
-    "CloudFront": ["AWS/CloudFront"],
-    "WAF": ["AWS/WAFV2"],
-    "Route53": ["AWS/Route53"],
-    "DX": ["AWS/DX"],
-    "EFS": ["AWS/EFS"],
-    "S3": ["AWS/S3"],
-    "SageMaker": ["AWS/SageMaker"],
-    "SNS": ["AWS/SNS"],
-}
+#: 정의에는 없지만 빌드 시 해석기가 태그를 보고 바꿔 끼우는 네임스페이스
+#: (`dimension_builder._resolve_tg_namespace`). 정의가 그 지식을 갖게 되면(P2, TG 스펙) 사라진다.
+_EXTRA_NAMESPACES: dict[str, tuple[str, ...]] = {"TG": ("AWS/NetworkELB",)}
 
-# resource_type별 디멘션 키
-_DIMENSION_KEY_MAP: dict[str, str] = {
-    "EC2": "InstanceId",
-    "RDS": "DBInstanceIdentifier",
-    "ALB": "LoadBalancer",
-    "NLB": "LoadBalancer",
-    "TG": "TargetGroup",
-    "AuroraRDS": "DBInstanceIdentifier",
-    "DocDB": "DBInstanceIdentifier",
-    "ElastiCache": "CacheClusterId",
-    "NAT": "NatGatewayId",
-    "Lambda": "FunctionName",
-    "VPN": "VpnId",
-    "APIGW": "ApiName",
-    "ACM": "CertificateArn",
-    "Backup": "BackupVaultName",
-    "MQ": "Broker",
-    "CLB": "LoadBalancerName",
-    "OpenSearch": "DomainName",
-    "SQS": "QueueName",
-    "ECS": "ServiceName",
-    "MSK": "Cluster Name",
-    "DynamoDB": "TableName",
-    "CloudFront": "DistributionId",
-    "WAF": "WebACL",
-    "Route53": "HealthCheckId",
-    "DX": "ConnectionId",
-    "EFS": "FileSystemId",
-    "S3": "BucketName",
-    "SageMaker": "EndpointName",
-    "SNS": "TopicName",
-}
+
+def _variant_defs(resource_type: str) -> list[dict]:
+    """모든 변형의 알람 정의 — 중복 제거, 등장 순서 유지."""
+    out: list[dict] = []
+    seen: set[int] = set()
+    for tags in _ALARM_DEF_VARIANTS.get(resource_type, ({},)):
+        for d in _get_alarm_defs_raw(resource_type, tags):
+            if id(d) not in seen:
+                seen.add(id(d))
+                out.append(d)
+    return out
+
+
+def _derive_metric_keys() -> dict[str, set[str]]:
+    """타입별 기본 알람의 메트릭 키(tag_key = Threshold_{key}). 옵트인 정의는 뺀다 — 태그가 있어야 붙는
+    알람이고, 동적 알람과의 중복은 `_get_hardcoded_metric_keys()`가 태그를 함께 보며 막는다."""
+    return {
+        t: {d.get("metric_key") or d["metric"] for d in _variant_defs(t) if not d.get("opt_in")}
+        for t in _ALARM_DEFS_BY_TYPE
+    }
+
+
+def _derive_namespaces() -> dict[str, list[str]]:
+    """타입별 CloudWatch 네임스페이스(메트릭 탐색 순서 = 정의 등장 순서)."""
+    out: dict[str, list[str]] = {}
+    for t in _ALARM_DEFS_BY_TYPE:
+        ns: list[str] = []
+        for d in _variant_defs(t):
+            if d["namespace"] not in ns:
+                ns.append(d["namespace"])
+        for extra in _EXTRA_NAMESPACES.get(t, ()):
+            if extra not in ns:
+                ns.append(extra)
+        out[t] = ns
+    return out
+
+
+def _derive_dimension_keys() -> dict[str, str]:
+    """타입별 디멘션 키 — 기본 변형 정의들이 공유하는 키. 타입 수준 탐색(`dimension_builder`,
+    `routes/resources.py`)이 쓰는 기본값이고, 알람 생성은 정의의 키를 직접 쓴다."""
+    out: dict[str, str] = {}
+    for t in _ALARM_DEFS_BY_TYPE:
+        keys = list(dict.fromkeys(d["dimension_key"] for d in _get_alarm_defs_raw(t, {})))
+        if len(keys) != 1:
+            raise RuntimeError(f"{t}: default alarm defs must share one dimension_key, got {keys}")
+        out[t] = keys[0]
+    return out
+
+
+_HARDCODED_METRIC_KEYS: dict[str, set[str]] = _derive_metric_keys()
+_NAMESPACE_MAP: dict[str, list[str]] = _derive_namespaces()
+_DIMENSION_KEY_MAP: dict[str, str] = _derive_dimension_keys()
 
 # 글로벌 서비스 리전 매핑: 메트릭이 us-east-1에서만 발행되는 리소스 타입
 # 알람 생성/검색/삭제 시 해당 리전의 CloudWatch 클라이언트를 사용해야 한다.

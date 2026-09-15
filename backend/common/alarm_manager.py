@@ -61,7 +61,7 @@ from common.alarm_registry import (  # noqa: E402, F401
     _NATGW_ALARMS,
     _NLB_TG_EXCLUDED_METRICS,
     _get_alarm_defs,
-    _HARDCODED_METRIC_KEYS,
+    _HARDCODED_METRIC_KEYS,      # 재수출 — 테스트·호출부가 이 facade를 통해 가져온다
     _NAMESPACE_MAP,
     _DIMENSION_KEY_MAP,
     _GLOBAL_SERVICE_REGION,
