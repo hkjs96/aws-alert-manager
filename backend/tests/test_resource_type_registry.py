@@ -60,6 +60,18 @@ def test_global_service_regions_match_the_registry_constant():
     assert R.global_service_regions() == _GLOBAL_SERVICE_REGION
 
 
+def _plain(d: dict) -> dict:
+    return {k: (f"<callable {getattr(v, '__name__', 'lambda')}>" if callable(v) else v) for k, v in d.items()}
+
+
+@pytest.mark.parametrize("rt", SNAPSHOT["SUPPORTED_RESOURCE_TYPES"])
+def test_alarm_definitions_are_byte_for_byte_the_snapshot(rt):
+    """P2.4 — 정의가 타입별 모듈로 옮겨진 뒤에도 기본 변형의 정의는 이관 전과 같다(람다는 이름으로 비교)."""
+    from common.alarm_registry import _get_alarm_defs_raw
+    assert [_plain(d) for d in _get_alarm_defs_raw(rt, {})] == SNAPSHOT["alarm_defs_default"][rt]
+    assert [_plain(d) for d in R.get(rt).alarms({})] == SNAPSHOT["alarm_defs_default"][rt]
+
+
 # ── 2. 불변식
 
 def test_every_alarm_type_has_a_spec_and_vice_versa():

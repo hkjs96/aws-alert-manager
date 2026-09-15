@@ -49,9 +49,16 @@
       레지스트리, 추출기 표 `_EXTRACTORS`와 어긋나면 **import 시 RuntimeError**), `tag_cache.TAGGED_SERVICES`(`rgt_prime`).
       `tests/test_resource_type_registry.py`가 스냅숏 동일성·불변식·소비처 연결을 고정. 함정: 패치 정규식이 `EC2`·`Route53`·`S3`
       (숫자 포함 타입명)를 놓쳐 10항목이 반쯤 바뀐 채 남았다 — 사후 검증을 같은 패턴으로 하면 공허하다.
-- [ ] 2.4 알람 정의 이관 — `_X_ALARMS` 리스트와 조건부 함수를 타입별 스펙 파일로 이동, `_get_alarm_defs_raw`의
-      29분기 `elif`를 `get(type).alarms(tags)` 한 줄로. `_METRIC_DISPLAY`·`HARDCODED_DEFAULTS` 항목을 `AlarmDef.display`/
-      `.default`로 이동. 여분 23개 임계치 키는 `extra_threshold_keys=(("CPU", "옛 태그 키 호환"), …)`로 **이유 필수**.
+- [x] 2.4a 알람 정의 이관(2026-09-15) — `_X_ALARMS` 리스트·조건부 함수·상수 **1,347줄**을 ast 소스 구간 이동으로
+      `common/resource_types/<type>.py` 29개에 원문 그대로(선행 주석 포함). 각 모듈 끝에 `SPEC = register(ResourceTypeSpec(…,
+      alarm_defs=…, variants=…))`. `base.py`가 데이터클래스·레지스트리·뷰, `__init__`이 import 순서(=타입 순서).
+      `alarm_registry.py` 1,855 → **449줄**: `_ALARM_DEFS_BY_TYPE`·`_ALARM_DEF_VARIANTS`·`_GLOBAL_SERVICE_REGION`을 스펙에서
+      파생, 옛 이름(`_EC2_ALARMS` 등 43개)은 재수출(alarm_manager facade·테스트 경로). 게이트: 스냅숏 `alarm_defs_default`
+      29/29 동일. 이동 구간이 모듈 내 다른 이름을 하나도 참조하지 않아(분석으로 확인) import 수정 0.
+      함정: `'''`가 든 긴 heredoc은 Git Bash 파싱에서 죽는다 — 스크립트는 파일로 쓰고 실행할 것(메모리에 있던 규칙).
+- [ ] 2.4b `_METRIC_DISPLAY`(176)·`HARDCODED_DEFAULTS`(117)를 스펙의 `display`/`defaults`로. 여분 23개 임계치 키는
+      `legacy.py`에 **이유 필수**(옛 태그 키 호환·퍼센트 변형·동적 전용). 파생 뷰 `_METRIC_DISPLAY`·`HARDCODED_DEFAULTS`는 이름 유지,
+      충돌(같은 키 다른 값)은 import 시 실패. 게이트: 스냅숏 두 표 동일.
 - [x] 2.5 생명주기 이관 — 66개 이벤트가 타입별 `lifecycle`로(2.1에서 함께). 추출기는 remediation에 남고 `_build_api_map()`이
       둘을 맞춘다. ELB 이벤트는 ALB 스펙(`target="ELB"`), DocDB·Aurora는 RDS 이벤트 공유(notes에 명시).
 - [x] 2.6 **템플릿 정합 테스트**(R8) — `test_template_cloudtrail_event_pattern_equals_the_registry_events`: 템플릿의 CloudTrail
