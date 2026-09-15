@@ -1,27 +1,23 @@
 """
-ElastiCacheCollector - Requirements 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 4.7
+ElastiCache 수집기 — 엔진·상태 필터가 describe를 요구하므로 태그 캐시(RGT)로 나열하지 않는다 (docs/specs/resource-type-registry P3)
 
-Monitoring=on 태그가 있는 ElastiCache Redis 노드 수집 및 CloudWatch 메트릭 조회.
-네임스페이스: AWS/ElastiCache, 디멘션: CacheClusterId.
+Redis/Valkey 클러스터만 대상이고 deleting/deleted는 제외한다. RGT는 엔진도 상태도 모르며 memcached까지 돌려주므로 describe가
+어차피 필요하다 — 스펙에 `identity`가 없고 이 모듈의 `_enumerate`가 유일한 나열이다(태그는 캐시에서 읽는다). TagName = CacheClusterId.
+메트릭은 스펙(`common/resource_types/elasticache.py`)의 알람 정의에서 만든다. 네임스페이스 AWS/ElastiCache, 디멘션 CacheClusterId.
 """
 
 import functools
 import logging
-from datetime import datetime, timedelta, timezone
 
 import boto3
 from botocore.exceptions import ClientError
 
-from common import ResourceInfo
-from common.collectors.base import query_metric, CW_LOOKBACK_MINUTES, CW_STAT_AVG, collect_metric
+from common.collectors.generic import GenericCollector
+from common.resource_types.elasticache import SPEC
 from common.tag_cache import cached_tags
 
 logger = logging.getLogger(__name__)
 
-
-# ──────────────────────────────────────────────
-# boto3 클라이언트 싱글턴 (코딩 거버넌스 §1)
-# ──────────────────────────────────────────────
 
 @functools.lru_cache(maxsize=None)
 def _get_elasticache_client():
@@ -29,13 +25,8 @@ def _get_elasticache_client():
     return boto3.client("elasticache")
 
 
-def collect_monitored_resources() -> list[ResourceInfo]:
-    """
-    Monitoring=on 태그가 있는 ElastiCache Redis 노드 목록 반환.
-
-    Engine == "redis" 인 클러스터만 수집.
-    삭제 중(deleting) 또는 삭제된(deleted) 클러스터는 제외하고 로그 기록.
-    """
+def _enumerate() -> list[tuple[str, dict]]:
+    """describe_cache_clusters(ShowCacheNodeInfo) → Redis/Valkey·미삭제 클러스터 (cluster_id, tags)."""
     try:
         client = _get_elasticache_client()
         paginator = client.get_paginator("describe_cache_clusters")
@@ -44,81 +35,23 @@ def collect_monitored_resources() -> list[ResourceInfo]:
         logger.error("ElastiCache describe_cache_clusters failed: %s", e)
         raise
 
-    resources: list[ResourceInfo] = []
+    found: list[tuple[str, dict]] = []
     for page in pages:
         for cluster in page.get("CacheClusters", []):
             cluster_id = cluster["CacheClusterId"]
             engine = cluster.get("Engine", "")
-
-            # Redis와 Valkey(Redis 호환 신형 엔진)는 동일한 AWS/ElastiCache 메트릭을
-            # 쓰므로 같이 수집한다. Memcached는 메트릭 체계가 달라 제외.
             if engine.lower() not in ("redis", "valkey"):
                 continue
-
             status = cluster.get("CacheClusterStatus", "")
             if status in ("deleting", "deleted"):
                 logger.info("Skipping ElastiCache cluster %s: status=%s", cluster_id, status)
                 continue
-
-            arn = cluster.get("ARN", "")
-            tags = _get_tags(client, arn)
-
-            if tags.get("Monitoring", "").lower() != "on":
-                continue
-
-            region = boto3.session.Session().region_name or "us-east-1"
-            resources.append(
-                ResourceInfo(
-                    id=cluster_id,
-                    type="ElastiCache",
-                    tags=tags,
-                    region=region,
-                )
-            )
-
-    return resources
+            found.append((cluster_id, _get_tags(client, cluster.get("ARN", ""))))
+    return found
 
 
-def get_metrics(
-    resource_id: str, resource_tags: dict | None = None,
-) -> dict[str, float] | None:
-    """
-    CloudWatch에서 ElastiCache 메트릭 조회.
-
-    수집 메트릭 (네임스페이스: AWS/ElastiCache):
-    - CPUUtilization → 'CPU'
-    - EngineCPUUtilization → 'EngineCPU'
-    - DatabaseMemoryUsagePercentage → 'DatabaseMemoryUsagePercentage'
-    - Evictions → 'Evictions'
-    - CurrConnections → 'CurrConnections'
-
-    데이터 없으면 해당 메트릭 skip. 모두 없으면 None 반환.
-    """
-    if resource_tags is None:
-        resource_tags = {}
-
-    end_time = datetime.now(timezone.utc)
-    start_time = end_time - timedelta(minutes=CW_LOOKBACK_MINUTES)
-
-    dim = [{"Name": "CacheClusterId", "Value": resource_id}]
-    metrics: dict[str, float] = {}
-
-    collect_metric("AWS/ElastiCache", "CPUUtilization", dim, start_time, end_time,
-                   "CPU", metrics, stat=CW_STAT_AVG, resource_label="ElastiCache")
-    collect_metric("AWS/ElastiCache", "EngineCPUUtilization", dim, start_time, end_time,
-                   "EngineCPU", metrics, stat=CW_STAT_AVG, resource_label="ElastiCache")
-    collect_metric("AWS/ElastiCache", "DatabaseMemoryUsagePercentage", dim, start_time, end_time,
-                   "DatabaseMemoryUsagePercentage", metrics, stat=CW_STAT_AVG, resource_label="ElastiCache")
-    collect_metric("AWS/ElastiCache", "Evictions", dim, start_time, end_time,
-                   "Evictions", metrics, stat=CW_STAT_AVG, resource_label="ElastiCache")
-    collect_metric("AWS/ElastiCache", "CurrConnections", dim, start_time, end_time,
-                   "CurrConnections", metrics, stat=CW_STAT_AVG, resource_label="ElastiCache")
-
-    return metrics if metrics else None
-
-
-def resolve_alive_ids(tag_names: set[str]) -> set[str]:
-    """ElastiCache 클러스터 존재 여부 확인."""
+def _alive(tag_names: set[str]) -> set[str]:
+    """ElastiCache 클러스터 존재 여부 확인 — describe_cache_clusters(CacheClusterId)."""
     client = _get_elasticache_client()
     alive: set[str] = set()
     for cid in tag_names:
@@ -147,3 +80,9 @@ def _get_tags(elasticache_client, cluster_arn: str) -> dict:
     except ClientError as e:
         logger.error("ElastiCache list_tags_for_resource failed for %s: %s", cluster_arn, e)
         return {}
+
+
+COLLECTOR = GenericCollector(SPEC, alive=_alive, enumerate=_enumerate)
+collect_monitored_resources = COLLECTOR.collect_monitored_resources
+get_metrics = COLLECTOR.get_metrics
+resolve_alive_ids = COLLECTOR.resolve_alive_ids

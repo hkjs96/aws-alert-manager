@@ -29,6 +29,7 @@ import boto3
 
 from common import ResourceInfo
 from common.collectors.base import CW_LOOKBACK_MINUTES, collect_metric
+from common.dimension_builder import _build_dimensions
 from common.resource_types.base import ResourceTypeSpec
 from common.tag_cache import cached_matching
 
@@ -113,7 +114,9 @@ class GenericCollector:
         """알람 정의(태그 조건부 변형 반영)마다 CloudWatch 최근값 — 키는 정의의 `metric_key`(없으면 `metric`).
 
         옛 타입별 `get_metrics`가 하던 일은 이 셋을 나열하는 것뿐이었다. 태그 조건부(옵트인 포함) 정의는 `alarms(tags)`가
-        이미 가른다 — 정의가 나오면 그 리소스는 그 알람을 갖고 있으니 메트릭도 본다. 데이터가 하나도 없으면 None.
+        이미 가른다 — 정의가 나오면 그 리소스는 그 알람을 갖고 있으니 메트릭도 본다. 디멘션은 **알람이 쓰는 것과 같은
+        빌더**(`dimension_builder._build_dimensions`: OpenSearch ClientId·SageMaker VariantName·ECS ClusterName 같은 복합
+        디멘션을 내부 태그에서 읽는다)로 만든다 — 메트릭과 알람이 다른 시리즈를 보는 일이 없게. 데이터가 하나도 없으면 None.
         """
         resource_tags = resource_tags or {}
         end_time = datetime.now(timezone.utc)
@@ -121,7 +124,7 @@ class GenericCollector:
         metrics: dict[str, float] = {}
         for d in self.spec.alarms(resource_tags):
             key = d.get("metric_key") or d["metric"]
-            dims = [{"Name": d["dimension_key"], "Value": resource_id}]
+            dims = _build_dimensions(d, resource_id, self.spec.type, resource_tags)
             collect_metric(d["namespace"], d["metric_name"], dims, start_time, end_time, key, metrics,
                            stat=d["stat"], resource_label=self.spec.type)
         return metrics if metrics else None

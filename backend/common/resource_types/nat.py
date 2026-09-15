@@ -40,7 +40,8 @@ SPEC = register(ResourceTypeSpec(
     type="NAT", label="NAT Gateway", collector="natgw", aliases=("NATGateway",),
     rgt_filters=("ec2:natgateway",), rgt_prime=False,
     lifecycle=(Lifecycle("DeleteNatGateway", DELETE), Lifecycle("CreateNatGateway", CREATE)),
-    notes=_EC2_SUBRESOURCE_NOTE + " natgw 수집기가 이미 서버 측 필터를 쓴다 — 다른 EC2 계열이 따라갈 본보기.",
+    notes=_EC2_SUBRESOURCE_NOTE + " natgw 수집기가 이미 서버 측 필터를 쓴다 — 다른 EC2 계열이 따라갈 본보기. "
+          "identity 없음: 나열이 서버 측 태그 필터(Filter=tag:Monitoring)라 RGT가 필요 없다.",
     alarm_defs=_NATGW_ALARMS,
     # 표시명(알람 이름에 쓰는 지표명·방향·단위)과 기본 임계치 — 옛 alarm_registry._METRIC_DISPLAY / common.HARDCODED_DEFAULTS.
     # 여러 타입이 같은 키(CPUUtilization 등)를 선언하면 값이 같아야 한다 — 뷰가 강제한다.

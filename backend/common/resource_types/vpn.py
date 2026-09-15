@@ -29,7 +29,7 @@ SPEC = register(ResourceTypeSpec(
     type="VPN", label="Site-to-Site VPN", collector="vpn",
     rgt_filters=("ec2:vpn-connection",), rgt_prime=False,
     lifecycle=(Lifecycle("DeleteVpnConnection", DELETE),),
-    notes=_EC2_SUBRESOURCE_NOTE,
+    notes=_EC2_SUBRESOURCE_NOTE + " identity 없음: 나열이 서버 측 태그 필터(Filters=tag:Monitoring)라 RGT가 필요 없다.",
     alarm_defs=_VPN_ALARMS,
     # 표시명(알람 이름에 쓰는 지표명·방향·단위)과 기본 임계치 — 옛 alarm_registry._METRIC_DISPLAY / common.HARDCODED_DEFAULTS.
     # 여러 타입이 같은 키(CPUUtilization 등)를 선언하면 값이 같아야 한다 — 뷰가 강제한다.

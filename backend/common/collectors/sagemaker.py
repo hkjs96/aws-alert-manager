@@ -1,28 +1,24 @@
 """
-SageMakerCollector - Extended Resource Monitoring (Compound Dimension)
+SageMaker 수집기 — 나열은 범용(태그 캐시), 여기엔 InService 판정·VariantName 내부 태그·describe 폴백·존재 확인만 (docs/specs/resource-type-registry P3)
 
-Monitoring=on 태그가 있는 SageMaker InService 엔드포인트 수집 및 CloudWatch 메트릭 조회.
-네임스페이스: AWS/SageMaker, Compound_Dimension: EndpointName + VariantName.
-학습 작업(Training Job)은 수집 대상에서 제외.
+CloudWatch 복합 디멘션 EndpointName + VariantName. InService 엔드포인트만 대상이고(학습 작업 제외) VariantName은 describe_endpoint의
+ProductionVariants[0]에서 온다 — 스펙 `identity` 대신 이 모듈의 `_identities`가 맡는다(Monitoring=on 엔드포인트마다 describe 1회,
+옛 경로도 같은 describe를 했다). TagName = 엔드포인트 이름(ARN `endpoint/<name>`).
+메트릭은 스펙(`common/resource_types/sagemaker.py`)의 알람 정의에서 만든다. 네임스페이스 AWS/SageMaker.
 """
 
 import functools
 import logging
-from datetime import datetime, timedelta, timezone
 
 import boto3
 from botocore.exceptions import ClientError
 
-from common import ResourceInfo
-from common.collectors.base import query_metric, CW_LOOKBACK_MINUTES, CW_STAT_AVG, CW_STAT_SUM, collect_metric
+from common.collectors.generic import GenericCollector
+from common.resource_types.sagemaker import SPEC
 from common.tag_cache import cached_tags
 
 logger = logging.getLogger(__name__)
 
-
-# ──────────────────────────────────────────────
-# boto3 클라이언트 싱글턴 (코딩 거버넌스 §1)
-# ──────────────────────────────────────────────
 
 @functools.lru_cache(maxsize=None)
 def _get_sagemaker_client():
@@ -30,18 +26,25 @@ def _get_sagemaker_client():
     return boto3.client("sagemaker")
 
 
-def collect_monitored_resources() -> list[ResourceInfo]:
-    """
-    Monitoring=on 태그가 있는 SageMaker InService 엔드포인트 목록 반환.
+def _identities(arn: str, tags: dict) -> list[tuple[str, dict]]:
+    """태그 캐시 경로: ARN `arn:aws:sagemaker:<region>:<account>:endpoint/<name>` → InService면 (이름, 태그 + _variant_name)."""
+    ep_name = arn.rsplit("/", 1)[-1]
+    try:
+        detail = _get_sagemaker_client().describe_endpoint(EndpointName=ep_name)
+    except ClientError as e:
+        logger.error("SageMaker describe_endpoint failed for %s: %s", ep_name, e)
+        return []
+    if detail.get("EndpointStatus", "") != "InService":
+        return []
+    variants = detail.get("ProductionVariants", [])
+    ep_tags = dict(tags)
+    ep_tags["_variant_name"] = variants[0].get("VariantName", "") if variants else ""
+    return [(ep_name, ep_tags)]
 
-    list_endpoints(StatusEquals="InService") paginator → list_tags → Monitoring=on 필터링.
-    describe_endpoint → ProductionVariants[0].VariantName → _variant_name Internal_Tag 설정.
-    학습 작업(Training Job)은 list_endpoints만 사용하므로 자동 제외.
-    """
+
+def _enumerate() -> list[tuple[str, dict]]:
+    """태그 캐시가 없을 때: list_endpoints(StatusEquals=InService) → list_tags → Monitoring=on만 describe_endpoint(변형 이름)."""
     client = _get_sagemaker_client()
-    resources: list[ResourceInfo] = []
-    region = boto3.session.Session().region_name or "us-east-1"
-
     try:
         paginator = client.get_paginator("list_endpoints")
         pages = paginator.paginate(StatusEquals="InService")
@@ -49,80 +52,22 @@ def collect_monitored_resources() -> list[ResourceInfo]:
         logger.error("SageMaker list_endpoints failed: %s", e)
         raise
 
+    found: list[tuple[str, dict]] = []
     for page in pages:
         for ep in page.get("Endpoints", []):
             ep_name = ep.get("EndpointName", "")
-            ep_arn = ep.get("EndpointArn", "")
-            ep_status = ep.get("EndpointStatus", "")
-
-            # API-level filter + defensive check
-            if ep_status != "InService":
+            if ep.get("EndpointStatus", "") != "InService":
                 continue
-
-            tags = _get_tags(client, ep_arn)
+            tags = _get_tags(client, ep.get("EndpointArn", ""))
             if tags.get("Monitoring", "").lower() != "on":
-                continue
-
-            variant_name = _get_variant_name(client, ep_name)
-            tags["_variant_name"] = variant_name
-
-            resources.append(
-                ResourceInfo(
-                    id=ep_name,
-                    type="SageMaker",
-                    tags=tags,
-                    region=region,
-                )
-            )
-
-    return resources
+                continue   # 변형 이름 describe를 아낀다 — 범용 수집기가 같은 필터를 다시 건다
+            tags["_variant_name"] = _get_variant_name(client, ep_name)
+            found.append((ep_name, tags))
+    return found
 
 
-def get_metrics(
-    resource_id: str, resource_tags: dict | None = None,
-) -> dict[str, float] | None:
-    """
-    CloudWatch에서 SageMaker 엔드포인트 메트릭 조회.
-
-    수집 메트릭 (네임스페이스: AWS/SageMaker, Compound_Dimension: EndpointName + VariantName):
-    - Invocations (Sum) → 'SMInvocations'
-    - InvocationErrors (Sum) → 'SMInvocationErrors'
-    - ModelLatency (Average) → 'SMModelLatency'
-    - CPUUtilization (Average) → 'SMCPU'
-
-    데이터 없으면 해당 메트릭 skip. 모두 없으면 None 반환.
-    """
-    if resource_tags is None:
-        resource_tags = {}
-
-    end_time = datetime.now(timezone.utc)
-    start_time = end_time - timedelta(minutes=CW_LOOKBACK_MINUTES)
-
-    variant_name = resource_tags.get("_variant_name", "")
-    dims = [
-        {"Name": "EndpointName", "Value": resource_id},
-        {"Name": "VariantName", "Value": variant_name},
-    ]
-    metrics: dict[str, float] = {}
-
-    collect_metric("AWS/SageMaker", "Invocations", dims,
-                   start_time, end_time, "SMInvocations", metrics,
-                   stat=CW_STAT_SUM, resource_label="SageMaker")
-    collect_metric("AWS/SageMaker", "InvocationErrors", dims,
-                   start_time, end_time, "SMInvocationErrors", metrics,
-                   stat=CW_STAT_SUM, resource_label="SageMaker")
-    collect_metric("AWS/SageMaker", "ModelLatency", dims,
-                   start_time, end_time, "SMModelLatency", metrics,
-                   stat=CW_STAT_AVG, resource_label="SageMaker")
-    collect_metric("AWS/SageMaker", "CPUUtilization", dims,
-                   start_time, end_time, "SMCPU", metrics,
-                   stat=CW_STAT_AVG, resource_label="SageMaker")
-
-    return metrics if metrics else None
-
-
-def resolve_alive_ids(tag_names: set[str]) -> set[str]:
-    """SageMaker 엔드포인트 존재 여부 확인."""
+def _alive(tag_names: set[str]) -> set[str]:
+    """SageMaker 엔드포인트 존재 여부 확인 — describe_endpoint."""
     client = _get_sagemaker_client()
     alive: set[str] = set()
     for name in tag_names:
@@ -147,24 +92,24 @@ def _get_tags(sagemaker_client, resource_arn: str) -> dict:
         return {}
     try:
         response = sagemaker_client.list_tags(ResourceArn=resource_arn)
-        tags = response.get("Tags", [])
-        return {t["Key"]: t["Value"] for t in tags}
+        return {t["Key"]: t["Value"] for t in response.get("Tags", [])}
     except ClientError as e:
-        logger.error("SageMaker list_tags failed for %s: %s",
-                     resource_arn, e)
+        logger.error("SageMaker list_tags failed for %s: %s", resource_arn, e)
         return {}
 
 
 def _get_variant_name(sagemaker_client, endpoint_name: str) -> str:
     """describe_endpoint → ProductionVariants[0].VariantName 조회."""
     try:
-        response = sagemaker_client.describe_endpoint(
-            EndpointName=endpoint_name)
+        response = sagemaker_client.describe_endpoint(EndpointName=endpoint_name)
         variants = response.get("ProductionVariants", [])
-        if variants:
-            return variants[0].get("VariantName", "")
-        return ""
+        return variants[0].get("VariantName", "") if variants else ""
     except ClientError as e:
-        logger.error("SageMaker describe_endpoint failed for %s: %s",
-                     endpoint_name, e)
+        logger.error("SageMaker describe_endpoint failed for %s: %s", endpoint_name, e)
         return ""
+
+
+COLLECTOR = GenericCollector(SPEC, alive=_alive, enumerate=_enumerate, identities=_identities)
+collect_monitored_resources = COLLECTOR.collect_monitored_resources
+get_metrics = COLLECTOR.get_metrics
+resolve_alive_ids = COLLECTOR.resolve_alive_ids

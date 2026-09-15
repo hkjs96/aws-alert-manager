@@ -1,28 +1,22 @@
 """
-VPNCollector - Remaining Resource Monitoring
+Site-to-Site VPN 수집기 — EC2 서버 측 태그 필터로 나열하므로 태그 캐시(RGT)가 필요 없다 (docs/specs/resource-type-registry P3)
 
-Monitoring=on 태그가 있는 VPN Connection 수집 및 CloudWatch 메트릭 조회.
-네임스페이스: AWS/VPN, 디멘션: VpnId.
+`describe_vpn_connections(Filters=tag:Monitoring=on)`이 서버에서 걸러 주고 응답에 Tags가 있어 N+1이 없다 — EC2 하위 리소스는 RGT
+프라임에서 빠져 있고(스펙 notes) 스펙에 `identity`가 없다. deleting/deleted는 제외. TagName = VpnConnectionId.
+메트릭은 스펙(`common/resource_types/vpn.py`)의 알람 정의에서 만든다. 네임스페이스 AWS/VPN, 디멘션 VpnId.
 """
 
 import functools
 import logging
-from datetime import datetime, timedelta, timezone
 
 import boto3
 from botocore.exceptions import ClientError
 
-from common import ResourceInfo
-from common.collectors.base import query_metric, CW_LOOKBACK_MINUTES, collect_metric
+from common.collectors.generic import GenericCollector
+from common.resource_types.vpn import SPEC
 
 logger = logging.getLogger(__name__)
 
-CW_STAT_MAX = "Maximum"
-
-
-# ──────────────────────────────────────────────
-# boto3 클라이언트 싱글턴 (코딩 거버넌스 §1)
-# ──────────────────────────────────────────────
 
 @functools.lru_cache(maxsize=None)
 def _get_ec2_client():
@@ -30,86 +24,41 @@ def _get_ec2_client():
     return boto3.client("ec2")
 
 
-def collect_monitored_resources() -> list[ResourceInfo]:
-    """
-    Monitoring=on 태그가 있는 VPN Connection 목록 반환.
-
-    describe_vpn_connections Filter로 tag:Monitoring=on 필터링.
-    삭제 중(deleting) 또는 삭제된(deleted) VPN은 제외하고 로그 기록.
-    """
+def _enumerate() -> list[tuple[str, dict]]:
+    """describe_vpn_connections(Filters=tag:Monitoring=on) → 미삭제 (vpn_id, tags)."""
     try:
         client = _get_ec2_client()
-        response = client.describe_vpn_connections(
-            Filters=[{"Name": "tag:Monitoring", "Values": ["on"]}]
-        )
+        response = client.describe_vpn_connections(Filters=[{"Name": "tag:Monitoring", "Values": ["on"]}])
     except ClientError as e:
         logger.error("EC2 describe_vpn_connections failed: %s", e)
         raise
 
-    resources: list[ResourceInfo] = []
-    region = boto3.session.Session().region_name or "us-east-1"
-
+    found: list[tuple[str, dict]] = []
     for vpn in response.get("VpnConnections", []):
         vpn_id = vpn["VpnConnectionId"]
         state = vpn.get("State", "")
-
         if state in ("deleting", "deleted"):
             logger.info("Skipping VPN %s: state=%s", vpn_id, state)
             continue
-
-        tags = {t["Key"]: t["Value"] for t in vpn.get("Tags", [])}
-
-        resources.append(
-            ResourceInfo(
-                id=vpn_id,
-                type="VPN",
-                tags=tags,
-                region=region,
-            )
-        )
-
-    return resources
+        found.append((vpn_id, {t["Key"]: t["Value"] for t in vpn.get("Tags", [])}))
+    return found
 
 
-def get_metrics(
-    resource_id: str, resource_tags: dict | None = None,
-) -> dict[str, float] | None:
-    """
-    CloudWatch에서 VPN 메트릭 조회.
-
-    수집 메트릭 (네임스페이스: AWS/VPN):
-    - TunnelState (Maximum) → 'TunnelState'
-
-    데이터 없으면 해당 메트릭 skip. 모두 없으면 None 반환.
-    """
-    if resource_tags is None:
-        resource_tags = {}
-
-    end_time = datetime.now(timezone.utc)
-    start_time = end_time - timedelta(minutes=CW_LOOKBACK_MINUTES)
-
-    dim = [{"Name": "VpnId", "Value": resource_id}]
-    metrics: dict[str, float] = {}
-
-    collect_metric("AWS/VPN", "TunnelState", dim,
-                   start_time, end_time, "TunnelState", metrics,
-                   stat=CW_STAT_MAX, resource_label="VPN")
-
-    return metrics if metrics else None
-
-
-def resolve_alive_ids(tag_names: set[str]) -> set[str]:
-    """VPN Connection 존재 여부 확인. deleted/deleting 제외."""
+def _alive(tag_names: set[str]) -> set[str]:
+    """VPN Connection 존재 여부 확인 — describe_vpn_connections(VpnConnectionIds), deleted/deleting 제외."""
     ec2 = _get_ec2_client()
     alive: set[str] = set()
     try:
-        resp = ec2.describe_vpn_connections(
-            VpnConnectionIds=list(tag_names),
-        )
+        resp = ec2.describe_vpn_connections(VpnConnectionIds=list(tag_names))
         for vpn in resp.get("VpnConnections", []):
-            state = vpn.get("State", "")
-            if state not in ("deleted", "deleting"):
+            if vpn.get("State", "") not in ("deleted", "deleting"):
                 alive.add(vpn["VpnConnectionId"])
     except ClientError as e:
         logger.error("describe_vpn_connections failed: %s", e)
     return alive
+
+
+COLLECTOR = GenericCollector(SPEC, alive=_alive, enumerate=_enumerate)
+collect_monitored_resources = COLLECTOR.collect_monitored_resources
+get_metrics = COLLECTOR.get_metrics
+resolve_alive_ids = COLLECTOR.resolve_alive_ids

@@ -1889,9 +1889,10 @@ class TestElastiCacheCollector:
             result = elasticache_collector.get_metrics("redis-1")
 
         assert result is not None
-        expected_keys = {"CPU", "EngineCPU", "DatabaseMemoryUsagePercentage", "Evictions", "CurrConnections"}
+        # P3: 결과 키는 알람 정의의 메트릭 키(CloudWatch 이름) — 옛 "CPU"는 메트릭 키 개명 전 잔재였다
+        expected_keys = {"CPUUtilization", "EngineCPU", "DatabaseMemoryUsagePercentage", "Evictions", "CurrConnections"}
         assert set(result.keys()) == expected_keys
-        assert result["CPU"] == pytest.approx(75.0)
+        assert result["CPUUtilization"] == pytest.approx(75.0)
         assert result["EngineCPU"] == pytest.approx(60.0)
         assert result["DatabaseMemoryUsagePercentage"] == pytest.approx(65.0)
         assert result["Evictions"] == pytest.approx(2.0)
@@ -1928,7 +1929,7 @@ class TestElastiCacheCollector:
             result = elasticache_collector.get_metrics("redis-1")
 
         assert result is not None
-        assert result == {"CPU": pytest.approx(45.0)}
+        assert result == {"CPUUtilization": pytest.approx(45.0)}
         assert "EngineCPU" not in result
 
     def test_get_metrics_uses_correct_namespace_and_dimension(self):

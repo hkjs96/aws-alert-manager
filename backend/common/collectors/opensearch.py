@@ -1,35 +1,24 @@
 """
-OpenSearchCollector - Remaining Resource Monitoring
+OpenSearch 수집기 — 나열은 범용(태그 캐시), 여기엔 ClientId 내부 태그·describe 폴백·존재 확인만 (docs/specs/resource-type-registry P3)
 
-Monitoring=on 태그가 있는 OpenSearch 도메인 수집 및 CloudWatch 메트릭 조회.
-네임스페이스: AWS/ES, Compound Dimension: DomainName + ClientId.
+CloudWatch 복합 디멘션 DomainName + ClientId(계정 ID). TagName = 도메인 이름(ARN `domain/<name>`). 계정 ID를 `_client_id` 내부 태그로
+붙여야 해서 스펙 `identity` 대신 이 모듈의 `_identities`가 맡는다 — 태그 캐시 경로는 ARN의 계정 세그먼트를 쓰고(STS 콜 없음;
+RGT가 돌려주는 리소스는 자격증명 계정의 것이라 같다), describe 폴백은 옛 코드대로 STS 우선·ARN 보조다.
+메트릭은 스펙(`common/resource_types/opensearch.py`)의 알람 정의에서 만든다. 네임스페이스 AWS/ES.
 """
 
 import functools
 import logging
-from datetime import datetime, timedelta, timezone
 
 import boto3
 from botocore.exceptions import ClientError
 
-from common import ResourceInfo
+from common.collectors.generic import GenericCollector
+from common.resource_types.opensearch import SPEC
 from common.tag_cache import cached_tags
-from common.collectors.base import (
-    query_metric,
-    CW_LOOKBACK_MINUTES,
-    CW_STAT_AVG,
-    CW_STAT_MIN,
-    collect_metric,
-)
 
 logger = logging.getLogger(__name__)
 
-CW_STAT_MAX = "Maximum"
-
-
-# ──────────────────────────────────────────────
-# boto3 클라이언트 싱글턴 (코딩 거버넌스 §1)
-# ──────────────────────────────────────────────
 
 @functools.lru_cache(maxsize=None)
 def _get_opensearch_client():
@@ -52,13 +41,20 @@ def _get_account_id() -> str:
         return ""
 
 
-def collect_monitored_resources() -> list[ResourceInfo]:
-    """
-    Monitoring=on 태그가 있는 OpenSearch 도메인 목록 반환.
+def _account_from_arn(domain_arn: str) -> str:
+    arn_parts = domain_arn.split(":")
+    return arn_parts[4] if len(arn_parts) >= 5 else ""
 
-    list_domain_names() → describe_domains() → list_tags()로 태그 확인.
-    _client_id Internal_Tag로 AWS 계정 ID를 저장 (Compound Dimension용).
-    """
+
+def _identities(arn: str, tags: dict) -> list[tuple[str, dict]]:
+    """태그 캐시 경로: ARN `arn:aws:es:<region>:<account>:domain/<name>` → (도메인 이름, 태그 + _client_id=계정)."""
+    domain_tags = dict(tags)
+    domain_tags["_client_id"] = _account_from_arn(arn)
+    return [(arn.rsplit("/", 1)[-1], domain_tags)]
+
+
+def _enumerate() -> list[tuple[str, dict]]:
+    """태그 캐시가 없을 때: list_domain_names → describe_domains(5개씩) → 도메인마다 list_tags. (domain_name, tags + _client_id)."""
     try:
         client = _get_opensearch_client()
         domain_names_resp = client.list_domain_names()
@@ -66,17 +62,13 @@ def collect_monitored_resources() -> list[ResourceInfo]:
         logger.error("OpenSearch list_domain_names failed: %s", e)
         raise
 
-    domain_names = [
-        d["DomainName"] for d in domain_names_resp.get("DomainNames", [])
-    ]
+    domain_names = [d["DomainName"] for d in domain_names_resp.get("DomainNames", [])]
     if not domain_names:
         return []
 
-    resources: list[ResourceInfo] = []
-    region = boto3.session.Session().region_name or "us-east-1"
+    found: list[tuple[str, dict]] = []
     account_id = _get_account_id()
 
-    # describe_domains는 최대 5개씩 배치 호출
     for i in range(0, len(domain_names), 5):
         batch = domain_names[i:i + 5]
         try:
@@ -86,101 +78,17 @@ def collect_monitored_resources() -> list[ResourceInfo]:
             continue
 
         for domain in resp.get("DomainStatusList", []):
-            domain_name = domain["DomainName"]
             domain_arn = domain.get("ARN", "")
-
             tags = _get_tags(client, domain_arn)
             if tags.get("Monitoring", "").lower() != "on":
-                continue
-
-            # _client_id Internal_Tag: Compound Dimension용 계정 ID
-            client_id = account_id
-            if not client_id and domain_arn:
-                # ARN에서 account_id 파싱 폴백
-                # arn:aws:es:region:account-id:domain/name
-                arn_parts = domain_arn.split(":")
-                if len(arn_parts) >= 5:
-                    client_id = arn_parts[4]
-
-            tags["_client_id"] = client_id
-
-            resources.append(
-                ResourceInfo(
-                    id=domain_name,
-                    type="OpenSearch",
-                    tags=tags,
-                    region=region,
-                )
-            )
-
-    return resources
+                continue   # 캐시 미스 시 도메인마다 태그 API를 이미 불렀다 — 이후 작업만 아낀다
+            tags["_client_id"] = account_id or _account_from_arn(domain_arn)
+            found.append((domain["DomainName"], tags))
+    return found
 
 
-def get_metrics(
-    resource_id: str, resource_tags: dict | None = None,
-) -> dict[str, float] | None:
-    """
-    CloudWatch에서 OpenSearch 도메인 메트릭 조회.
-
-    Compound Dimension: DomainName + ClientId.
-    ClientId는 resource_tags["_client_id"]에서 조회.
-
-    수집 메트릭 (네임스페이스: AWS/ES):
-    - ClusterStatus.red (Maximum) → 'ClusterStatusRed'
-    - ClusterStatus.yellow (Maximum) → 'ClusterStatusYellow'
-    - FreeStorageSpace (Minimum) → 'OSFreeStorageSpace'
-    - ClusterIndexWritesBlocked (Maximum) → 'ClusterIndexWritesBlocked'
-    - CPUUtilization (Average) → 'OsCPU'
-    - JVMMemoryPressure (Maximum) → 'JVMMemoryPressure'
-    - MasterCPUUtilization (Average) → 'MasterCPU'
-    - MasterJVMMemoryPressure (Maximum) → 'MasterJVMMemoryPressure'
-
-    데이터 없으면 해당 메트릭 skip. 모두 없으면 None 반환.
-    """
-    if resource_tags is None:
-        resource_tags = {}
-
-    end_time = datetime.now(timezone.utc)
-    start_time = end_time - timedelta(minutes=CW_LOOKBACK_MINUTES)
-
-    # Compound Dimension: DomainName + ClientId
-    dim = [{"Name": "DomainName", "Value": resource_id}]
-    client_id = resource_tags.get("_client_id", "")
-    if client_id:
-        dim.append({"Name": "ClientId", "Value": client_id})
-
-    metrics: dict[str, float] = {}
-
-    collect_metric("AWS/ES", "ClusterStatus.red", dim,
-                   start_time, end_time, "ClusterStatusRed", metrics,
-                   stat=CW_STAT_MAX, resource_label="OpenSearch")
-    collect_metric("AWS/ES", "ClusterStatus.yellow", dim,
-                   start_time, end_time, "ClusterStatusYellow", metrics,
-                   stat=CW_STAT_MAX, resource_label="OpenSearch")
-    collect_metric("AWS/ES", "FreeStorageSpace", dim,
-                   start_time, end_time, "OSFreeStorageSpace", metrics,
-                   stat=CW_STAT_MIN, resource_label="OpenSearch")
-    collect_metric("AWS/ES", "ClusterIndexWritesBlocked", dim,
-                   start_time, end_time, "ClusterIndexWritesBlocked", metrics,
-                   stat=CW_STAT_MAX, resource_label="OpenSearch")
-    collect_metric("AWS/ES", "CPUUtilization", dim,
-                   start_time, end_time, "OsCPU", metrics,
-                   stat=CW_STAT_AVG, resource_label="OpenSearch")
-    collect_metric("AWS/ES", "JVMMemoryPressure", dim,
-                   start_time, end_time, "JVMMemoryPressure", metrics,
-                   stat=CW_STAT_MAX, resource_label="OpenSearch")
-    collect_metric("AWS/ES", "MasterCPUUtilization", dim,
-                   start_time, end_time, "MasterCPU", metrics,
-                   stat=CW_STAT_AVG, resource_label="OpenSearch")
-    collect_metric("AWS/ES", "MasterJVMMemoryPressure", dim,
-                   start_time, end_time, "MasterJVMMemoryPressure", metrics,
-                   stat=CW_STAT_MAX, resource_label="OpenSearch")
-
-    return metrics if metrics else None
-
-
-def resolve_alive_ids(tag_names: set[str]) -> set[str]:
-    """OpenSearch 도메인 존재 여부 확인. 삭제된 도메인 제외."""
+def _alive(tag_names: set[str]) -> set[str]:
+    """OpenSearch 도메인 존재 여부 확인 — describe_domains(5개씩), Deleted 제외."""
     client = _get_opensearch_client()
     alive: set[str] = set()
     name_list = list(tag_names)
@@ -209,3 +117,9 @@ def _get_tags(opensearch_client, domain_arn: str) -> dict:
     except ClientError as e:
         logger.error("OpenSearch list_tags failed for %s: %s", domain_arn, e)
         return {}
+
+
+COLLECTOR = GenericCollector(SPEC, alive=_alive, enumerate=_enumerate, identities=_identities)
+collect_monitored_resources = COLLECTOR.collect_monitored_resources
+get_metrics = COLLECTOR.get_metrics
+resolve_alive_ids = COLLECTOR.resolve_alive_ids

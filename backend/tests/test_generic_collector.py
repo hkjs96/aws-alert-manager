@@ -27,8 +27,10 @@ ORACLE = json.loads(
 ACCOUNT = "123456789012"
 REGION = "us-east-1"
 
-# P3 1파 — 이 모듈들이 GenericCollector 위에 있다.
+# P3 1파·2파 — 이 모듈들이 GenericCollector 위에 있다.
 WAVE1 = ["sqs", "sns", "lambda_fn", "dynamodb", "msk", "mq", "acm", "backup", "dx", "efs"]
+WAVE2 = ["elasticache", "opensearch", "sagemaker", "ecs", "natgw", "vpn"]
+GENERIC = WAVE1 + WAVE2
 
 
 def _mod(name):
@@ -151,8 +153,8 @@ class TestIdentity:
         assert R.arn_resource("garbage") == "garbage"
         assert R.arn_tail("/").__name__ == "arn_tail('/')"
 
-    @pytest.mark.parametrize("name", WAVE1)
-    def test_wave1_modules_are_generic_and_say_why_when_not_rgt(self, name):
+    @pytest.mark.parametrize("name", GENERIC)
+    def test_generic_modules_bind_the_protocol_and_say_why_when_not_rgt(self, name):
         mod = _mod(name)
         assert isinstance(mod.COLLECTOR, GenericCollector)
         assert mod.collect_monitored_resources == mod.COLLECTOR.collect_monitored_resources
@@ -161,6 +163,13 @@ class TestIdentity:
         spec = mod.COLLECTOR.spec
         if not mod.COLLECTOR.rgt_capable:
             assert "identity 없음" in spec.notes, spec.type
+        elif spec.identity is None:
+            assert "_identities" in spec.notes, spec.type   # 모듈이 ARN→TagName을 맡는 이유
+
+    def test_rgt_enumeration_roster(self):
+        """어느 타입이 태그 캐시로 나열되는지 — 설계(D4)의 16개 중 실제로는 9개. 나머지 이유는 스펙 notes."""
+        via_rgt = {_mod(n).COLLECTOR.spec.type for n in GENERIC if _mod(n).COLLECTOR.rgt_capable}
+        assert via_rgt == {"SQS", "SNS", "Lambda", "DynamoDB", "MSK", "Backup", "EFS", "MQ", "OpenSearch", "SageMaker"}
 
 
 # ────────────────────────────────── 나열: RGT 경로 == describe 폴백
@@ -302,6 +311,91 @@ class TestEnumerationEquivalence:
         client.describe_tags.assert_not_called()
         assert cache.stats["hits"] == 1
 
+    def test_opensearch_rgt_path_adds_client_id_from_the_arn_like_describe_did_from_sts(self):
+        mod = _mod("opensearch")
+        arn = f"arn:aws:es:{REGION}:{ACCOUNT}:domain/"
+        domains = [("logs", {"Monitoring": "on", "Team": "obs"}), ("scratch", {"Monitoring": "off"})]
+        client = MagicMock()
+        client.list_domain_names.return_value = {"DomainNames": [{"DomainName": n} for n, _ in domains]}
+        client.describe_domains.side_effect = lambda DomainNames: {
+            "DomainStatusList": [{"DomainName": n, "ARN": arn + n} for n in DomainNames]}
+        by_arn = {arn + n: t for n, t in domains}
+        client.list_tags.side_effect = lambda ARN: {"TagList": _kv(by_arn[ARN])}
+        sts = MagicMock()
+        sts.get_caller_identity.return_value = {"Account": ACCOUNT}
+        with patch.object(mod, "_get_opensearch_client", return_value=client), \
+             patch.object(mod, "_get_sts_client", return_value=sts):
+            via_describe = mod.collect_monitored_resources()
+        assert via_describe == [ResourceInfo(id="logs", type="OpenSearch", region=REGION,
+                                             tags={"Monitoring": "on", "Team": "obs", "_client_id": ACCOUNT})]
+
+        _activate_cache([(arn + n, t) for n, t in domains])
+        untouched = MagicMock(side_effect=AssertionError("no service call on the RGT path"))
+        with patch.object(mod, "_get_opensearch_client", untouched), patch.object(mod, "_get_sts_client", untouched):
+            via_rgt = mod.collect_monitored_resources()
+        assert mod.COLLECTOR.last_source == "rgt"
+        assert via_rgt == via_describe
+
+    def test_sagemaker_rgt_path_keeps_only_inservice_endpoints_and_reads_the_variant(self):
+        mod = _mod("sagemaker")
+        arn = f"arn:aws:sagemaker:{REGION}:{ACCOUNT}:endpoint/"
+        endpoints = {  # name: (tags, status, variant)
+            "churn": ({"Monitoring": "on"}, "InService", "AllTraffic"),
+            "fraud": ({"Monitoring": "on"}, "Updating", "Blue"),
+            "old": ({"Monitoring": "off"}, "InService", "AllTraffic"),
+        }
+        client = MagicMock()
+        _paginated(client, [{"Endpoints": [{"EndpointName": n, "EndpointArn": arn + n, "EndpointStatus": s}
+                                           for n, (_t, s, _v) in endpoints.items() if s == "InService"]}])
+        client.list_tags.side_effect = lambda ResourceArn: {"Tags": _kv(endpoints[ResourceArn.rsplit("/", 1)[-1]][0])}
+        client.describe_endpoint.side_effect = lambda EndpointName: {
+            "EndpointStatus": endpoints[EndpointName][1],
+            "ProductionVariants": [{"VariantName": endpoints[EndpointName][2]}]}
+        with patch.object(mod, "_get_sagemaker_client", return_value=client):
+            via_describe = mod.collect_monitored_resources()
+        assert via_describe == [ResourceInfo(id="churn", type="SageMaker", region=REGION,
+                                             tags={"Monitoring": "on", "_variant_name": "AllTraffic"})]
+
+        _activate_cache([(arn + n, t) for n, (t, _s, _v) in endpoints.items()])
+        client.reset_mock()
+        with patch.object(mod, "_get_sagemaker_client", return_value=client):
+            via_rgt = mod.collect_monitored_resources()
+        assert mod.COLLECTOR.last_source == "rgt"
+        assert via_rgt == via_describe
+        # Monitoring=on 둘만 describe했고(상태·변형), list_endpoints·list_tags는 안 불렀다
+        assert sorted(c.kwargs["EndpointName"] for c in client.describe_endpoint.call_args_list) == ["churn", "fraud"]
+        client.get_paginator.assert_not_called()
+        client.list_tags.assert_not_called()
+
+    @pytest.mark.parametrize("name, client_attr, arn", [
+        ("elasticache", "_get_elasticache_client", f"arn:aws:elasticache:{REGION}:{ACCOUNT}:cluster:redis-a"),
+        ("ecs", "_get_ecs_client", f"arn:aws:ecs:{REGION}:{ACCOUNT}:service/prod/web"),
+    ])
+    def test_describe_only_types_ignore_a_cache_that_has_their_arns(self, name, client_attr, arn):
+        mod = _mod(name)
+        _activate_cache([(arn, {"Monitoring": "on"})])
+        client = MagicMock()
+        _paginated(client, [])          # describe가 아무것도 돌려주지 않으면 결과도 비어야 한다 — 캐시를 안 봤다는 증거
+        client.list_domain_names.return_value = {"DomainNames": []}
+        with patch.object(mod, client_attr, return_value=client):
+            assert mod.collect_monitored_resources() == []
+        assert mod.COLLECTOR.last_source == "enumerate"
+
+    def test_ec2_subresources_use_the_server_side_tag_filter(self):
+        natgw, vpn = _mod("natgw"), _mod("vpn")
+        ec2 = MagicMock()
+        _paginated(ec2, [{"NatGateways": [
+            {"NatGatewayId": "nat-1", "State": "available", "Tags": _kv({"Monitoring": "on"})},
+            {"NatGatewayId": "nat-2", "State": "deleting", "Tags": _kv({"Monitoring": "on"})}]}])
+        ec2.describe_vpn_connections.return_value = {"VpnConnections": [
+            {"VpnConnectionId": "vpn-1", "State": "available", "Tags": _kv({"Monitoring": "on"})}]}
+        with patch.object(natgw, "_get_ec2_client", return_value=ec2), patch.object(vpn, "_get_ec2_client", return_value=ec2):
+            assert [r["id"] for r in natgw.collect_monitored_resources()] == ["nat-1"]
+            assert [r["id"] for r in vpn.collect_monitored_resources()] == ["vpn-1"]
+        assert ec2.get_paginator.return_value.paginate.call_args.kwargs == {"Filter": [{"Name": "tag:Monitoring", "Values": ["on"]}]}
+        assert ec2.describe_vpn_connections.call_args.kwargs == {"Filters": [{"Name": "tag:Monitoring", "Values": ["on"]}]}
+        assert not natgw.COLLECTOR.rgt_capable and not vpn.COLLECTOR.rgt_capable
+
     def test_without_enumerate_a_dead_cache_collects_nothing_loudly(self, caplog):
         spec = R.get("SQS")
         col = GenericCollector(spec, alive=lambda names: names)
@@ -322,11 +416,23 @@ class TestEnumerationEquivalence:
 # ────────────────────────────────── 메트릭: 정의에서 만든 쿼리 == 이관 전 스냅숏
 
 
+def _dims_key(dims):
+    # 디멘션 순서는 CloudWatch에 의미가 없다(MetricBatch.key_for도 정렬한다) — 옛 ECS 코드는 ClusterName을 먼저 썼다.
+    return tuple(sorted((d["Name"], d["Value"]) for d in dims))
+
+
+# 옛 수집기가 메트릭 키 개명(Phase 4 Task 16) 전 이름으로 결과를 돌려주던 곳. 알람 정의는 CloudWatch 이름을 쓰므로 범용
+# get_metrics도 그 이름을 낸다 — daily run의 임계치 해석은 두 키가 같다(기본 80, `Threshold_CPU` 태그는 _LEGACY_TAG_MAP으로
+# CPUUtilization에도 적용). 바뀌는 것은 임계치 알림의 metric_name 표기뿐이다. 3파의 RDS 계열(CPU·FreeMemoryGB·Connections…)은
+# GB 변환이 얽혀 오버라이드로 남긴다 — 여기 목록은 범용으로 옮긴 타입만.
+ACCEPTED_KEY_RENAMES = {("ElastiCache", "CPU"): "CPUUtilization"}
+
+
 def _recorded_queries(mod, tags):
     calls = []
 
     def rec(ns, mn, dims, start, end, key, metrics, *, stat="Average", transform=None, resource_label="resource"):
-        calls.append((ns, mn, tuple((d["Name"], d["Value"]) for d in dims), key, stat, bool(transform), resource_label))
+        calls.append((ns, mn, _dims_key(dims), key, stat, bool(transform), resource_label))
 
     with patch("common.collectors.generic.collect_metric", rec):
         assert mod.get_metrics("RID", dict(tags)) is None
@@ -334,18 +440,26 @@ def _recorded_queries(mod, tags):
 
 
 class TestMetricsFromDefinitions:
-    @pytest.mark.parametrize("name", WAVE1)
+    @pytest.mark.parametrize("name", GENERIC)
     def test_generic_get_metrics_issues_exactly_the_pre_migration_queries(self, name):
         mod = _mod(name)
         rtype = mod.COLLECTOR.spec.type
         oracle = ORACLE["types"][rtype]
         assert oracle["collector"] == name
+        compared = 0
         for variant, entry in oracle["variants"].items():
             assert entry["status"] == "ok", (rtype, variant)
-            expected = [(c["namespace"], c["metric_name"], tuple((d["Name"], d["Value"]) for d in c["dimensions"]),
-                         c["result_key"], c["stat"], c["transform"], c["label"]) for c in entry["calls"]]
+            if any(d["Value"] == "" for c in entry["calls"] for d in c["dimensions"]):
+                # 옛 ECS/SageMaker 코드는 내부 태그가 없으면 빈 디멘션 값으로 질의했다 — CloudWatch가 거부하는 쿼리라
+                # 성립하지 않았고, 알람 쪽 빌더(_build_dimensions)는 그 디멘션을 뺀다. 실제 태그가 있는 변형으로 비교한다.
+                continue
+            expected = [(c["namespace"], c["metric_name"], _dims_key(c["dimensions"]),
+                         ACCEPTED_KEY_RENAMES.get((rtype, c["result_key"]), c["result_key"]),
+                         c["stat"], c["transform"], c["label"]) for c in entry["calls"]]
             got = _recorded_queries(mod, json.loads(variant))
             assert got == expected, (rtype, variant)
+            compared += 1
+        assert compared >= 1, rtype
 
     def test_get_metrics_is_batch_aware(self):
         mod = _mod("sqs")

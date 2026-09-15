@@ -91,8 +91,24 @@
       타입별 `get_metrics`가 내던 쿼리(41변형 중 40 캡처, CloudFront는 자체 CW 클라이언트라 3파에서) == 범용이 내는 쿼리, 10/10 동일.
       ② 같은 가짜 리소스를 RGT 페이지와 describe 응답에 넣고 두 경로 ResourceInfo 동일(`tests/test_generic_collector.py`).
       ③ 기존 `test_collectors.py` 1파 69건·orphan PBT·`test_resolve_alive_ids` 그대로 통과(폴백 경로).
-- [ ] 3.3 **2파**: ElastiCache OpenSearch SageMaker ECS NAT VPN — NAT/VPN은 EC2 서버 측 태그 필터 `enumerate`를
-      공유 헬퍼로(natgw가 이미 하는 방식).
+- [x] 3.3(2026-09-15) **2파** ElastiCache OpenSearch SageMaker ECS NAT VPN → 범용 위로, 961 → 584줄. 태그 캐시 나열은
+      **OpenSearch·SageMaker만**(둘 다 모듈 `_identities`: OpenSearch는 `_client_id`를 ARN 계정 세그먼트에서 — 옛 경로의 STS와 같은
+      값, 콜 0; SageMaker는 describe_endpoint로 InService 판정 + `_variant_name` — 옛 경로도 같은 describe를 했다). **ElastiCache
+      (엔진 redis/valkey·상태 필터, RGT는 memcached도 돌려줌)·ECS(구 형식 ARN엔 클러스터 없음, launchType에 describe_services)는
+      describe 유지**, NAT·VPN은 서버 측 `Filter=tag:Monitoring`이라 RGT 자체가 불필요 — 넷 다 스펙 `notes` "identity 없음".
+      공유 헬퍼는 만들지 않았다(둘의 `_enumerate`가 각 15줄이고 API 모양이 달라 헬퍼가 더 길다). 범용 `get_metrics`는 디멘션을
+      **알람 쪽 빌더 `dimension_builder._build_dimensions`로** 만든다(OpenSearch ClientId·SageMaker VariantName·ECS ClusterName
+      복합 디멘션이 내부 태그에서 나오므로 — 메트릭과 알람이 같은 시리즈를 본다). 게이트: 오라클에 2파 내부 태그 시나리오를
+      **이관 전에** 추가(`_meta.extra_scenarios`)해 비교 — 옛 ECS/SageMaker 코드가 내부 태그 없이 빈 디멘션 값으로 질의하던
+      `{}` 변형은 CloudWatch가 거부하는 쿼리라 제외(테스트 주석). 옛 ECS의 디멘션 순서(ClusterName 먼저)는 정렬 비교로 흡수.
+      **태그 캐시 나열 최종 명단 10/16**: SQS SNS Lambda DynamoDB MSK Backup EFS MQ OpenSearch SageMaker — 설계 D4의 16개 중
+      ACM DX ElastiCache ECS NAT VPN 여섯은 describe가 맞았다(이유는 각 스펙 notes, `test_rgt_enumeration_roster`가 명단 고정).
+      **받아들인 차이 1건**: 옛 ElastiCache `get_metrics`는 CPUUtilization을 개명 전 키 `CPU`로 돌려줬다(Task 16 잔재). 범용은 정의
+      키 `CPUUtilization` — daily run 임계치 해석은 두 키가 같음을 확인(기본 80, `Threshold_CPU` 태그는 `_LEGACY_TAG_MAP`으로
+      적용), 바뀌는 건 임계치 알림의 metric_name 표기. `ACCEPTED_KEY_RENAMES`(테스트)에 이유와 함께. 같은 잔재가 RDS·Aurora·DocDB
+      (CPU·FreeMemoryGB·FreeStorageGB·Connections…)와 NLB·TG(`RequestCount`, 정의 없음)에도 있다 — 3파 주의: `daily_monitor`
+      L1035가 `FreeMemoryGB`류 **옛 키 이름으로 "작을수록 위험" 방향을 판정**하고 GB 변환도 옛 키에 묶여 있으므로 RDS 계열은
+      `get_metrics` 오버라이드를 유지해야 하고, 키를 바꾸려면 그 분기와 함께 바꿔야 한다.
 - [ ] 3.4 **3파 (오버라이드 유지)**: EC2 ELB/TG RDS/Aurora/DocDB APIGW S3 CloudFront Route53 WAF — 스펙에 `enumerate`/
       `metrics` 오버라이드로 남기고 이유를 적는다. ELB의 `get_metrics(lb_arn=)`는 오버라이드 안에 봉인.
 - [ ] 3.5 런 성능 비교 — `daily_stage`/`PERF_METRIC` 로그로 이관 전후 describe 호출 수·소요 시간. 태그 캐시
