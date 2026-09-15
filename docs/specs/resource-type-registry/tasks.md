@@ -133,14 +133,22 @@
       DocDB CloudFront). `test_rgt_enumeration_roster`·`test_every_collector_module_is_on_the_generic_collector`가 고정.
       수집기 디렉터리 **4,927 → 3,643줄**(generic 154 포함) — 설계의 "~2,300줄 삭제"에는 못 미쳤다: 폴백 나열·describe 존재 확인이
       환원 불가능했고, 오버라이드 다섯은 메트릭까지 남았다. 줄어든 것은 26개 모듈의 `get_metrics`·ResourceInfo 조립·Monitoring 필터.
-- [ ] 3.5 런 성능 비교 — `daily_stage`/`PERF_METRIC` 로그로 이관 전후 describe 호출 수·소요 시간. 태그 캐시
-      적용률은 "범용 경로 100%"가 된다(AC 4).
+- [x] 3.5(2026-09-15) 런 성능 — dev `daily_stage collect_resources`(감시 리소스 **0개**, 수집기 26개, 태그 캐시 36리소스 1콜):
+      이관 전 8일간 정기 런 9.4~10.4초(중앙값 ≈9.8초) → 1파 배포 후 7.7~8.6초, 2파 배포 후 7.7~8.0초(≈ **-20%**). 줄어든 것은
+      태그 캐시로 나열하는 12타입의 서비스 list 콜(리소스가 0개라 태그 N+1은 원래 없었다 — 실 고객사 계정에서는 N+1이 사라지는
+      만큼 더 벌어진다). 태그 캐시 적용률: 옛 26개 중 15개 → 나열 12 + 폴백 태그 조회 전부(범용 경로 100%, AC 4). 측정은
+      CloudWatch Logs `PERF_METRIC` 표본 비교이며 부하 벤치마크가 아니다.
 
 ## Phase 4 — 정리 (반나절)
 
-- [ ] 4.1 `/new-collector` 체크리스트 → "스펙 파일 작성 규칙"(필드 설명, 오버라이드 시 이유 필수, 템플릿 이벤트 등록).
-- [ ] 4.2 `docs/ALARM-RULES.md` §9(ARN→ID 매핑)를 스펙의 `identity`로 안내. `backend/common/CLAUDE.md` 온보딩 절 갱신.
-- [ ] 4.3 `alarm_registry.py`에서 파생 코드만 남았는지 확인(목표 1,902 → ~400줄), 수집기 디렉터리 정리.
+- [x] 4.1(2026-09-15) `.claude/commands/new-collector.md` — §5를 "범용 수집기 위에 쓴다"(모듈에 쓰는 셋: 클라이언트 팩토리·
+      `_enumerate`·`_alive`; identity/identities/metrics 오버라이드 규칙과 이유 필수), 3번(정의는 스펙 파일)·6번(스펙 + 모듈)·
+      2번(ARN→ID는 스펙 identity + `_EXTRACTORS`) 재작성.
+- [x] 4.2(2026-09-15) `docs/ALARM-RULES.md` §9-1에 스펙 `identity` 안내(remediation `_EXTRACTORS`와 같은 TagName), `backend/common/CLAUDE.md`
+      온보딩 8단계 → 스펙 우선 7단계(파생 맵은 손대지 않는다), `backend/common/HOW_DOES_THIS_WORK.md` Collector 절을 범용 수집기·명단으로.
+- [x] 4.3(2026-09-15) `alarm_registry.py` 337줄 — 남은 것: 평가 정책(`_apply_eval_policy`), 파생 셋(`_derive_*`), 태그 기반 키 조회,
+      severity 표, 그리고 옛 이름 43개 **재수출**(alarm_manager facade·테스트가 그 경로로 import — 지우면 깨진다, P2.4a 함정). 수집기
+      디렉터리 3,643줄: 모듈 26개 전부 `GenericCollector` 위(테스트 `test_every_collector_module_is_on_the_generic_collector`).
 
 ## 하지 않는 것 (기록)
 

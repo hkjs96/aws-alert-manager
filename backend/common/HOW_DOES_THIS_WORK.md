@@ -104,7 +104,8 @@
 
 ## Collector 시스템 (`collectors/`)
 
-모든 Collector는 `base.py`의 `CollectorProtocol`을 구현:
+모든 Collector 모듈은 `generic.py`의 `GenericCollector`를 타입 스펙(`resource_types/<type>.py`)에 묶어
+`base.py`의 `CollectorProtocol`을 얻는다 (docs/specs/resource-type-registry P3):
 
 ```python
 class CollectorProtocol:
@@ -113,10 +114,14 @@ class CollectorProtocol:
     def resolve_alive_ids(tag_names) -> set[str]  # 알람 TagName → 실존 리소스 확인
 ```
 
-현재 지원 Collector (28개):
-EC2, RDS, ALB/NLB, TG, CLB, ElastiCache, NAT Gateway, Lambda, VPN,
-Backup, OpenSearch, DocDB, ACM, API Gateway, MQ, MSK, DynamoDB,
-ECS, EFS, S3, SageMaker, SNS, SQS, CloudFront, Route53, WAF, DX
+- 나열: 스펙에 `identity`(ARN→TagName)가 있으면 런 스코프 **태그 캐시(RGT GetResources)**에서 읽는다 — 서비스 콜 0. 캐시가 없으면
+  모듈의 `_enumerate`(describe). 태그 캐시로 나열하는 타입 12: SQS SNS Lambda DynamoDB MSK Backup EFS MQ OpenSearch SageMaker CLB WAF.
+  나머지 17은 describe(글로벌 서비스·상태/엔진 필터·서버 측 태그 필터 — 이유는 스펙 `notes`).
+- 메트릭: 알람 정의에서 생성(디멘션은 알람과 같은 `dimension_builder`). 오버라이드 8(EC2 RDS AuroraRDS ALB NLB TG DocDB CloudFront) —
+  CWAgent 디스크 발견·GB 변환·`lb_arn`·us-east-1 클라이언트. 
+- 존재 확인(`_alive`)은 항상 describe — RGT는 태그가 벗겨진 리소스를 고아로 오판한다.
+
+현재 지원 타입 29 / 수집기 모듈 26(rds → RDS·AuroraRDS, elb → ALB·NLB·TG).
 
 ### 내부 태그 컨벤션
 - `_` prefix 태그는 Collector가 내부적으로 설정하는 메타데이터

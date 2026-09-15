@@ -3,15 +3,41 @@
 Use this command when adding a backend-supported AWS resource type.
 (구 `.kiro/steering/resource-checklist.md` 전문 병합본 — 이 파일이 SSOT)
 
-## Collector 인터페이스 (§5)
+## Collector 인터페이스 (§5) — 범용 수집기 위에 쓴다 (docs/specs/resource-type-registry P3)
 
-새 Collector는 `common/collectors/base.py`의 `CollectorProtocol`을 구현한다. 필수 메서드:
+모든 수집기 모듈은 `common/collectors/generic.py`의 `GenericCollector`를 스펙에 묶어 `CollectorProtocol`
+(`collect_monitored_resources`·`get_metrics`·`resolve_alive_ids`)을 얻는다. 모듈에 **직접 쓰는 것은 셋**뿐이다:
 
-- `collect_monitored_resources() -> list[ResourceInfo]`
-- `get_metrics(resource_id: str, resource_tags: dict) -> dict[str, float] | None`
-- `resolve_alive_ids(tag_names: set[str]) -> set[str]`
+```python
+from common.collectors.generic import GenericCollector
+from common.resource_types.<type> import SPEC
 
-메트릭 조회는 `common/collectors/base.py`의 공통 `query_metric()` 유틸리티를 사용한다.
+@functools.lru_cache(maxsize=None)
+def _get_<svc>_client(): ...                    # 이름 규칙 `_get*client` — daily_monitor가 계정 전환 시 비운다, 테스트가 패치한다
+
+def _enumerate() -> list[tuple[str, dict]]: ...  # 태그 캐시가 없을 때의 describe 나열: (TagName, tags). 옛 코드 그대로.
+def _alive(tag_names: set[str]) -> set[str]: ... # 알람 TagName 중 실제 존재하는 것 — **describe 고정**(RGT는 태그 벗겨진 리소스를 고아로 오판)
+
+COLLECTOR = GenericCollector(SPEC, alive=_alive, enumerate=_enumerate)
+collect_monitored_resources = COLLECTOR.collect_monitored_resources
+get_metrics = COLLECTOR.get_metrics
+resolve_alive_ids = COLLECTOR.resolve_alive_ids
+```
+
+- **나열**: 스펙에 `identity`(ARN → TagName, 순수 함수 — `arn_tail(":")`/`arn_tail("/")` 또는 짧은 람다)가 있고 `rgt_prime=True`면
+  범용이 활성 태그 캐시(RGT `GetResources`)에서 Monitoring=on 리소스를 읽는다 — 서비스 콜 0. 캐시가 없으면(IAM 미부여·
+  `TAG_CACHE=off`·프라임 실패) `_enumerate`. Monitoring=on 필터는 범용이 건다(후속 describe를 아끼려면 미리 걸어도 된다).
+- **identity를 줄 수 없는 경우**(이유를 스펙 `notes`에 "identity 없음: …"으로 — 테스트가 강제): 태그 없는 리소스도 모아야 함(ACM),
+  상태·엔진 필터에 describe가 필요(DX·ElastiCache·RDS 계열), TagName이 ARN에 없음(APIGW REST), 서버 측 태그 필터가 있음(EC2 계열),
+  **글로벌 서비스**(S3·CloudFront·Route53 — RGT는 리전 API라 실행 리전 캐시로 나열하면 0개/누락 오판).
+  한 리소스가 TagName 여럿이 되거나 내부 태그를 붙여야 하면 `identities=(arn, tags) -> [(TagName, tags)]`를 모듈에서 준다
+  (MQ `{broker}-{1|2}`, OpenSearch `_client_id`, SageMaker `_variant_name`, CLB/WAF의 공유 필터 ARN 판별) — `notes`에 "_identities".
+- **메트릭**: 기본은 스펙의 알람 정의에서 생성된다(namespace·metric_name·stat, 디멘션은 알람과 같은 `dimension_builder._build_dimensions`).
+  타입 고유 `get_metrics`를 새로 쓰지 않는다. 정의로 표현이 안 되는 것(CWAgent 디스크 경로 발견, GB 변환, 추가 인자, 다른 리전 클라이언트)만
+  `metrics=_metrics` 오버라이드 — `notes`에 "오버라이드" 이유. 수집 결과 키는 정의의 `metric_key`(없으면 `metric`)여야 한다.
+- 한 모듈이 타입 여럿을 내면(rds → RDS·AuroraRDS, elb → ALB·NLB·TG) `_enumerate`가 `(TagName, tags, type)` 3튜플을 준다.
+- 게이트: `tests/test_generic_collector.py`에 (a) RGT 경로 == describe 경로 ResourceInfo 동일, (b) 범용 `get_metrics` 쿼리가 기대 셋과 같음
+  (오라클 `tests/fixtures/collector_metrics_snapshot_2026-09.json` 방식)을 추가하고, `test_rgt_enumeration_roster`에 타입을 넣는다.
 
 ### resolve_alive_ids 구현 규칙 (§5-1)
 
@@ -43,11 +69,12 @@ Use this command when adding a backend-supported AWS resource type.
    - `infrastructure/backend/template.yaml` CloudTrail EventPattern `detail.eventName` — 파생 불가(CFN). 대신
      `test_resource_type_registry.py`의 템플릿 정합 테스트가 레지스트리와 같은지 고정한다.
    - CREATE 이벤트는 `responseElements`에서 ID를 추출하는 경우가 많으므로 주의.
-   - ARN → 리소스 ID 변환이 필요한 타입은 `docs/ALARM-RULES.md` §9 매핑을 갱신.
+   - ARN → 리소스 ID 변환: 수집기 쪽은 스펙 `identity`(위 §5), remediation 쪽은 `_EXTRACTORS` — 둘이 같은 TagName을 내야 한다.
+     `docs/ALARM-RULES.md` §9-1 표를 갱신.
    - 여러 서비스가 같은 이벤트 이름을 쓰면(`TagResource`) 스펙이 아니라 `SHARED_LIFECYCLE`(MULTI)에.
 3. **필수 알람 자동 생성 (Monitoring=on):**
-   - `backend/common/alarm_registry.py`의 `_*_ALARMS` 정의 + **`_ALARM_DEFS_BY_TYPE` 표에 한 줄**
-     (값은 리스트, 태그 조건부면 `Callable[[tags], list]`)
+   - 알람 정의 `_*_ALARMS`는 **스펙 파일**(`backend/common/resource_types/<type>.py`)에 두고 스펙의 `alarm_defs=`로 가리킨다
+     (리스트, 태그 조건부면 `Callable[[tags], list]` + `variants`). `alarm_registry._ALARM_DEFS_BY_TYPE`는 파생 — 손대지 않는다.
    - `_HARDCODED_METRIC_KEYS`·`_NAMESPACE_MAP`·`_DIMENSION_KEY_MAP`은 **손대지 않는다** — 정의에서 파생된다
      (docs/specs/resource-type-registry P1). 대신:
      - 조건부 함수가 `resource_tags.get(...)`으로 **새 태그를 읽으면** `_ALARM_DEF_VARIANTS`에 그 조합을 추가한다
@@ -64,17 +91,17 @@ Use this command when adding a backend-supported AWS resource type.
    우선순위: 태그 → 환경 변수(`DEFAULT_{METRIC}_THRESHOLD`) → `HARDCODED_DEFAULTS`.
 5. **단위 환산 검토:** bytes 메트릭(FreeableMemory 등)은 GB 단위 `metric_key` + `multiplier`
    (GB→bytes: 1073741824)로 환산하고, 알람 이름의 `display_metric`/`unit`도 환산 단위로 표시.
-6. **Collector 구현:** `backend/common/collectors/` 하위에 모듈 추가 후
-   - 태그 조회 래퍼(`_get_tags`)는 `common.tag_cache.cached_tags(arn)`를 먼저 보고 `None`일 때만
-     리소스별 API를 부른다 (런 스코프 RGT 프라임, N+1 제거). 새 서비스의 ARN service 세그먼트를
-     `tag_cache.TAGGED_SERVICES`에 추가. describe 응답에 태그가 실리는 서비스는 둘 다 불필요.
-   - **스펙에 등록**: `backend/common/resource_types/__init__.py`에 `register(ResourceTypeSpec(type=…, label=…,
-     collector="<모듈 이름>", aliases=(…), rgt_filters=(…), rgt_prime=…, lifecycle=(…), notes=…))` 한 블록.
-     `daily_monitor`의 `_COLLECTOR_MODULES`·`_RESOURCE_TYPE_TO_COLLECTOR`·`tag_cache.TAGGED_SERVICES`·
-     `SUPPORTED_RESOURCE_TYPES`는 여기서 파생된다 — 손대지 않는다. 등록 순서가 타입 목록 순서다.
-   - `rgt_prime=False`나 `lifecycle=()`처럼 파생 규칙에서 벗어나면 `notes`에 이유를 쓴다(테스트가 강제).
-   - `rgt_filters`는 실계정에서 유효한 `ResourceTypeFilters` 문자열(design.md 부록 A 참고)
-   - TagName ≠ resource_id인 타입은 `resolve_alive_ids` 역매핑 필수 (§5-1)
+6. **스펙 + Collector 모듈:**
+   - **스펙 파일** `backend/common/resource_types/<type>.py`: 알람 정의 `_X_ALARMS`(또는 태그 조건부 함수 + `variants`) 뒤에
+     `SPEC = register(ResourceTypeSpec(type=…, label=…, collector="<모듈 이름>", rgt_filters=(…), rgt_prime=True,
+     identity=arn_tail("/"), lifecycle=(…), alarm_defs=…, display={…}, defaults={…}, notes=…))`. `__init__.py`에 import 한 줄
+     (순서 = `SUPPORTED_RESOURCE_TYPES` 순서). `daily_monitor`의 두 맵·`tag_cache.TAGGED_SERVICES`·`MONITORED_API_EVENTS`·
+     `_HARDCODED_METRIC_KEYS`·`_NAMESPACE_MAP`·`_DIMENSION_KEY_MAP`·`_METRIC_DISPLAY`·`HARDCODED_DEFAULTS`는 전부 파생 — 손대지 않는다.
+   - `rgt_filters`는 실계정에서 유효한 `ResourceTypeFilters` 문자열(design.md 부록 A). `identity ⇒ rgt_prime`(register가 강제).
+   - 파생 규칙에서 벗어나는 것(`rgt_prime=False`·`lifecycle=()`·identity 없음·메트릭 오버라이드)은 `notes`에 이유 — 테스트가 강제.
+   - **수집기 모듈** `backend/common/collectors/<모듈>.py`: 위 §5의 셋(`_get*client`·`_enumerate`·`_alive`)과 `GenericCollector` 묶기.
+     `_enumerate`의 태그 조회 래퍼는 `common.tag_cache.cached_tags(arn)`를 먼저 보고 `None`일 때만 리소스별 API를 부른다.
+   - TagName ≠ resource_id인 타입은 `_alive` 역매핑 필수 (§5-1); 옛 `resolve_alive_ids` 역매핑 규칙 그대로.
 7. **테스트:** `backend/tests/` 하위에 추가.
 8. **프론트엔드 노출 시:**
    - `frontend/lib/constants.ts`, `frontend/types`

@@ -220,6 +220,10 @@ remediation handler에서 이 ARN을 실제 리소스 식별자로 변환해야 
 - `_extract_id_from_arn(arn, resource_type)` 함수에서 변환 처리
 - 새 리소스 타입 추가 시 ARN 패턴 확인 후 변환 로직 추가 필수
 - `remediation_handler/lambda_handler.py` 수정 시 이 매핑과 코드가 일치하는지 확인한다
+- **수집기 쪽 같은 규칙은 스펙의 `identity`다** (`backend/common/resource_types/<type>.py`, `arn_tail(":")`·`arn_tail("/")` 등 —
+  docs/specs/resource-type-registry P3). 범용 수집기가 태그 캐시(RGT)의 ARN을 TagName으로 바꿀 때 쓴다. remediation의
+  `_EXTRACTORS`와 스펙 `identity`는 **같은 TagName**을 내야 한다 — 알람 이름의 TagName이 둘의 접점이다. identity가 없는 타입
+  (글로벌 서비스·상태/엔진 필터·복합 TagName)은 스펙 `notes`에 이유가 있고 수집기가 describe로 나열한다.
 
 ## §10. TreatMissingData 결정 규칙
 
