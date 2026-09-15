@@ -62,4 +62,18 @@ SPEC = register(ResourceTypeSpec(
     rgt_filters=("cloudfront:distribution",), rgt_prime=True, global_region="us-east-1",
     lifecycle=(Lifecycle("CreateDistribution", CREATE), Lifecycle("DeleteDistribution", DELETE)),
     alarm_defs=_CLOUDFRONT_ALARMS,
+    # 표시명(알람 이름에 쓰는 지표명·방향·단위)과 기본 임계치 — 옛 alarm_registry._METRIC_DISPLAY / common.HARDCODED_DEFAULTS.
+    # 여러 타입이 같은 키(CPUUtilization 등)를 선언하면 값이 같아야 한다 — 뷰가 강제한다.
+    display={
+        "CF5xxErrorRate": ("5xxErrorRate", ">", "%"),
+        "CF4xxErrorRate": ("4xxErrorRate", ">", "%"),
+        "CFRequests": ("Requests", ">", ""),
+        "CFBytesDownloaded": ("BytesDownloaded", ">", "B"),
+    },
+    defaults={
+        "CF5xxErrorRate": 1.0,
+        "CF4xxErrorRate": 5.0,
+        "CFRequests": 1000000.0,
+        "CFBytesDownloaded": 10000000000.0,
+    },
 ))

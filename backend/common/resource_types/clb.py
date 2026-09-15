@@ -88,4 +88,24 @@ SPEC = register(ResourceTypeSpec(
     rgt_filters=("elasticloadbalancing:loadbalancer",), rgt_prime=True,
     notes="생명주기 이벤트는 ALB 스펙(target=ELB)에. ARN에 loadbalancer/app|net 접미가 없는 것이 classic.",
     alarm_defs=_CLB_ALARMS,
+    # 표시명(알람 이름에 쓰는 지표명·방향·단위)과 기본 임계치 — 옛 alarm_registry._METRIC_DISPLAY / common.HARDCODED_DEFAULTS.
+    # 여러 타입이 같은 키(CPUUtilization 등)를 선언하면 값이 같아야 한다 — 뷰가 강제한다.
+    display={
+        "CLBUnHealthyHost": ("UnHealthyHostCount", ">", ""),
+        "CLB5XX": ("HTTPCode_ELB_5XX", ">", ""),
+        "CLB4XX": ("HTTPCode_ELB_4XX", ">", ""),
+        "CLBBackend5XX": ("HTTPCode_Backend_5XX", ">", ""),
+        "CLBBackend4XX": ("HTTPCode_Backend_4XX", ">", ""),
+        "SurgeQueueLength": ("SurgeQueueLength", ">", ""),
+        "SpilloverCount": ("SpilloverCount", ">", ""),
+    },
+    defaults={
+        "CLBUnHealthyHost": 0.0,
+        "CLB5XX": 300.0,
+        "CLB4XX": 300.0,
+        "CLBBackend5XX": 300.0,
+        "CLBBackend4XX": 300.0,
+        "SurgeQueueLength": 300.0,
+        "SpilloverCount": 300.0,
+    },
 ))

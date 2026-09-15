@@ -145,4 +145,28 @@ SPEC = register(ResourceTypeSpec(
         {"_is_serverless_v2": s, "_is_cluster_writer": w, "_has_readers": r}
         for s in ("true", "false") for w in ("true", "false") for r in ("true", "false")
     ),
+    # 표시명(알람 이름에 쓰는 지표명·방향·단위)과 기본 임계치 — 옛 alarm_registry._METRIC_DISPLAY / common.HARDCODED_DEFAULTS.
+    # 여러 타입이 같은 키(CPUUtilization 등)를 선언하면 값이 같아야 한다 — 뷰가 강제한다.
+    display={
+        "CPUUtilization": ("CPUUtilization", ">", "%"),
+        "ACUUtilization": ("ACUUtilization", ">", "%"),
+        "DatabaseConnections": ("DatabaseConnections", ">", ""),
+        "ReplicaLag": ("AuroraReplicaLagMaximum", ">", "μs"),
+        "ReaderReplicaLag": ("AuroraReplicaLag", ">", "μs"),
+        "FreeableMemory": ("FreeableMemory", "<", "GB"),
+        "FreeLocalStorage": ("FreeLocalStorage", "<", "GB"),
+        # ServerlessDatabaseCapacity: 정의(_AURORA_SERVERLESS_CAPACITY)는 있으나 어떤 변형도 emit하지 않는다 —
+        # ACUUtilization이 비율로 대신한다. 옛 태그 호환으로 표시명·기본치만 남긴다.
+        "ServerlessDatabaseCapacity": ("ServerlessDatabaseCapacity", ">", "ACU"),
+    },
+    defaults={
+        "CPUUtilization": 80.0,
+        "ACUUtilization": 80.0,
+        "DatabaseConnections": 100.0,
+        "ReplicaLag": 2000000.0,
+        "ReaderReplicaLag": 2000000.0,
+        "FreeableMemory": 2.0,
+        "FreeLocalStorage": 10.0,
+        "ServerlessDatabaseCapacity": 128.0,
+    },
 ))

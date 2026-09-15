@@ -49,4 +49,16 @@ SPEC = register(ResourceTypeSpec(
     lifecycle=(Lifecycle("CreateQueue", CREATE), Lifecycle("DeleteQueue", DELETE),
                Lifecycle("TagQueue", TAG_CHANGE), Lifecycle("UntagQueue", TAG_CHANGE)),
     alarm_defs=_SQS_ALARMS,
+    # 표시명(알람 이름에 쓰는 지표명·방향·단위)과 기본 임계치 — 옛 alarm_registry._METRIC_DISPLAY / common.HARDCODED_DEFAULTS.
+    # 여러 타입이 같은 키(CPUUtilization 등)를 선언하면 값이 같아야 한다 — 뷰가 강제한다.
+    display={
+        "SQSMessagesVisible": ("ApproximateNumberOfMessagesVisible", ">", ""),
+        "SQSOldestMessage": ("ApproximateAgeOfOldestMessage", ">", "s"),
+        "SQSMessagesSent": ("NumberOfMessagesSent", ">", ""),
+    },
+    defaults={
+        "SQSMessagesVisible": 1000.0,
+        "SQSOldestMessage": 300.0,
+        "SQSMessagesSent": 10000.0,
+    },
 ))

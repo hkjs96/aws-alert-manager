@@ -100,4 +100,24 @@ SPEC = register(ResourceTypeSpec(
                Lifecycle("AddTagsToResource", TAG_CHANGE), Lifecycle("RemoveTagsFromResource", TAG_CHANGE)),
     notes="rds:db 필터와 이 이벤트들은 Aurora·DocDB 인스턴스도 낸다 — 엔진은 describe로 판별(remediation 엔진 스니핑).",
     alarm_defs=_RDS_ALARMS,
+    # 표시명(알람 이름에 쓰는 지표명·방향·단위)과 기본 임계치 — 옛 alarm_registry._METRIC_DISPLAY / common.HARDCODED_DEFAULTS.
+    # 여러 타입이 같은 키(CPUUtilization 등)를 선언하면 값이 같아야 한다 — 뷰가 강제한다.
+    display={
+        "CPUUtilization": ("CPUUtilization", ">", "%"),
+        "FreeableMemory": ("FreeableMemory", "<", "GB"),
+        "FreeStorageSpace": ("FreeStorageSpace", "<", "GB"),
+        "DatabaseConnections": ("DatabaseConnections", ">", ""),
+        "ReadLatency": ("ReadLatency", ">", "s"),
+        "WriteLatency": ("WriteLatency", ">", "s"),
+        "ConnectionAttempts": ("ConnectionAttempts", ">", ""),
+    },
+    defaults={
+        "CPUUtilization": 80.0,
+        "FreeableMemory": 2.0,
+        "FreeStorageSpace": 10.0,
+        "DatabaseConnections": 100.0,
+        "ReadLatency": 0.02,
+        "WriteLatency": 0.02,
+        "ConnectionAttempts": 500.0,
+    },
 ))

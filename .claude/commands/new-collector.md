@@ -54,9 +54,11 @@ Use this command when adding a backend-supported AWS resource type.
        (완전성 테스트가 함수 소스를 훑어 누락을 잡는다)
      - 태그가 있어야 붙는 알람은 정의에 `"opt_in": True` — 기본 메트릭 키 집합에서 빠진다
      - 빌드 시 해석기가 바꿔 끼우는 네임스페이스만 `_EXTRA_NAMESPACES`(현재 TG의 NLB)
-   - `_METRIC_DISPLAY`(표시명·방향·단위)는 여전히 손으로 — 도메인 데이터다. `_metric_name_to_key`는 그 역인덱스라 자동.
-   - `backend/common/__init__.py::HARDCODED_DEFAULTS` 기본 임계치
-   - `backend/common/__init__.py::SUPPORTED_RESOURCE_TYPES` — `_ALARM_DEFS_BY_TYPE`의 키와 같아야 한다(테스트가 고정)
+   - 표시명(알람 이름의 지표명·방향·단위)과 기본 임계치는 **스펙의 `display`/`defaults`**에 — 정의한 메트릭 키마다
+     둘 다 있어야 하고, 빠지면 import 시 실패한다. 다른 타입도 쓰는 키(CPUUtilization 등)는 같은 값으로 선언한다(다르면 실패).
+     `_METRIC_DISPLAY`·`HARDCODED_DEFAULTS`·`_metric_name_to_key`는 파생 — 손대지 않는다.
+   - 옛 태그 키 호환처럼 타입에 속하지 않는 항목만 `common/resource_types/legacy.py`에 `add_shared_thresholds(reason=…)`.
+   - `SUPPORTED_RESOURCE_TYPES`는 `__init__`의 import 순서에서 파생 — 스펙 모듈을 만들고 `__init__`에 한 줄.
 4. **태그 기반 임계치:** `Threshold_{MetricName}` 태그 suffix가 알람 정의 `metric_key`와 매칭돼야
    한다. 동적 알람용 탐색 네임스페이스를 `_NAMESPACE_SEARCH_MAP`에 등록.
    우선순위: 태그 → 환경 변수(`DEFAULT_{METRIC}_THRESHOLD`) → `HARDCODED_DEFAULTS`.

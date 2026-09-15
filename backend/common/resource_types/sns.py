@@ -38,4 +38,14 @@ SPEC = register(ResourceTypeSpec(
     rgt_filters=("sns",), rgt_prime=True,
     lifecycle=(Lifecycle("CreateTopic", CREATE), Lifecycle("DeleteTopic", DELETE)),
     alarm_defs=_SNS_ALARMS,
+    # 표시명(알람 이름에 쓰는 지표명·방향·단위)과 기본 임계치 — 옛 alarm_registry._METRIC_DISPLAY / common.HARDCODED_DEFAULTS.
+    # 여러 타입이 같은 키(CPUUtilization 등)를 선언하면 값이 같아야 한다 — 뷰가 강제한다.
+    display={
+        "SNSNotificationsFailed": ("NumberOfNotificationsFailed", ">", ""),
+        "SNSMessagesPublished": ("NumberOfMessagesPublished", ">", ""),
+    },
+    defaults={
+        "SNSNotificationsFailed": 0.0,
+        "SNSMessagesPublished": 1000000.0,
+    },
 ))

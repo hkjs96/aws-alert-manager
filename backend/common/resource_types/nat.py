@@ -42,4 +42,14 @@ SPEC = register(ResourceTypeSpec(
     lifecycle=(Lifecycle("DeleteNatGateway", DELETE), Lifecycle("CreateNatGateway", CREATE)),
     notes=_EC2_SUBRESOURCE_NOTE + " natgw 수집기가 이미 서버 측 필터를 쓴다 — 다른 EC2 계열이 따라갈 본보기.",
     alarm_defs=_NATGW_ALARMS,
+    # 표시명(알람 이름에 쓰는 지표명·방향·단위)과 기본 임계치 — 옛 alarm_registry._METRIC_DISPLAY / common.HARDCODED_DEFAULTS.
+    # 여러 타입이 같은 키(CPUUtilization 등)를 선언하면 값이 같아야 한다 — 뷰가 강제한다.
+    display={
+        "PacketsDropCount": ("PacketsDropCount", ">", ""),
+        "ErrorPortAllocation": ("ErrorPortAllocation", ">", ""),
+    },
+    defaults={
+        "PacketsDropCount": 1.0,
+        "ErrorPortAllocation": 1.0,
+    },
 ))

@@ -22,7 +22,7 @@ CloudTrail 이벤트 목록(3곳), 태그 캐시가 프라임할 서비스, 글�
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable
 
 # CloudTrail 이벤트 종류 — MONITORED_API_EVENTS의 키. 순서는 옛 상수의 순서를 따른다.
@@ -66,6 +66,10 @@ class ResourceTypeSpec:
     #: 조건부 정의가 읽는 태그의 **모든 조합** — 파생(메트릭 키·네임스페이스)이 전부 열거해 합친다.
     #: 조건 분기에서 태그를 새로 읽으면 여기에도 적는다(완전성 테스트가 함수 소스를 훑어 잡는다).
     variants: tuple[dict, ...] = ()
+    #: 메트릭 키 → (알람 이름에 쓰는 지표명, 방향, 단위). 옛 `alarm_registry._METRIC_DISPLAY`가 여기서 파생된다.
+    display: dict[str, tuple[str, str, str]] = field(default_factory=dict)
+    #: 메트릭 키 → 기본 임계치(태그·환경변수가 없을 때). 옛 `common.HARDCODED_DEFAULTS`가 여기서 파생된다.
+    defaults: dict[str, float] = field(default_factory=dict)
 
     def alarms(self, resource_tags: dict | None = None) -> list[dict]:
         """이 타입의 알람 정의(태그 조건부 변형 반영)."""
@@ -75,6 +79,16 @@ class ResourceTypeSpec:
     @property
     def rgt_services(self) -> tuple[str, ...]:
         return tuple(dict.fromkeys(f.split(":", 1)[0] for f in self.rgt_filters))
+
+    def metric_keys(self) -> list[str]:
+        """모든 변형의 알람 정의가 쓰는 메트릭 키(등장 순서). 표시명·기본치는 이 키마다 있어야 한다."""
+        keys: list[str] = []
+        for tags in self.variants or ({},):
+            for d in self.alarms(tags):
+                k = d.get("metric_key") or d["metric"]
+                if k not in keys:
+                    keys.append(k)
+        return keys
 
     def events(self) -> tuple[Lifecycle, ...]:
         return tuple(Lifecycle(e.event, e.kind, e.target or self.type) for e in self.lifecycle)
@@ -182,3 +196,64 @@ def tagged_services() -> list[str]:
 
 def global_service_regions() -> dict[str, str]:
     return {s.type: s.global_region for s in _SPECS.values() if s.global_region}
+
+
+# ────────────────────────────────── 표시명·기본 임계치 — 타입 스펙 + 공유(옛 태그 키)
+
+#: 타입에 속하지 않는 표시명/기본치 — 메트릭 키 개명 전의 친숙한 태그 키 등. `legacy.py`가 이유와 함께 등록한다.
+_SHARED_DISPLAY: dict[str, tuple[str, str, str]] = {}
+_SHARED_DEFAULTS: dict[str, float] = {}
+_SHARED_REASONS: dict[str, str] = {}
+
+
+def add_shared_thresholds(*, display: dict | None = None, defaults: dict | None = None, reason: str) -> None:
+    """타입 밖의 표시명·기본치를 등록한다. **이유는 필수** — 맵은 이유를 말해 주지 않았다(요구사항 R9)."""
+    if not reason or not reason.strip():
+        raise ValueError("shared threshold entries need a reason")
+    for k, v in (display or {}).items():
+        if k in _SHARED_DISPLAY and _SHARED_DISPLAY[k] != v:
+            raise ValueError(f"shared display conflict on {k}")
+        _SHARED_DISPLAY[k] = v
+        _SHARED_REASONS[k] = reason
+    for k, v in (defaults or {}).items():
+        if k in _SHARED_DEFAULTS and _SHARED_DEFAULTS[k] != v:
+            raise ValueError(f"shared default conflict on {k}")
+        _SHARED_DEFAULTS[k] = v
+        _SHARED_REASONS[k] = reason
+
+
+def _merge_unique(parts: list[tuple[str, dict]], what: str) -> dict:
+    """여러 스펙의 dict를 합친다. 같은 키에 다른 값이 있으면 실패 — 한 타입이 공유 키의 뜻을 바꾸지 못하게."""
+    out: dict = {}
+    owner: dict[str, str] = {}
+    for name, part in parts:
+        for k, v in part.items():
+            if k in out and out[k] != v:
+                raise ValueError(f"{what} conflict on {k!r}: {owner[k]}={out[k]!r} vs {name}={v!r}")
+            out.setdefault(k, v)
+            owner.setdefault(k, name)
+    return out
+
+
+def _check_coverage(what: str, table: dict) -> None:
+    missing = [(s.type, k) for s in _SPECS.values() for k in s.metric_keys() if k not in table]
+    if missing:
+        raise ValueError(f"{what} missing for alarm metric keys: {missing}")
+
+
+def metric_display() -> dict[str, tuple[str, str, str]]:
+    """메트릭 키 → (지표명, 방향, 단위). `alarm_registry._METRIC_DISPLAY`. 정의된 모든 메트릭 키가 있어야 한다."""
+    table = _merge_unique([(s.type, s.display) for s in _SPECS.values()] + [("shared", _SHARED_DISPLAY)], "display")
+    _check_coverage("display", table)
+    return table
+
+
+def hardcoded_defaults() -> dict[str, float]:
+    """메트릭 키 → 기본 임계치. `common.HARDCODED_DEFAULTS`. 정의된 모든 메트릭 키가 있어야 한다."""
+    table = _merge_unique([(s.type, s.defaults) for s in _SPECS.values()] + [("shared", _SHARED_DEFAULTS)], "defaults")
+    _check_coverage("default threshold", table)
+    return table
+
+
+def shared_threshold_reasons() -> dict[str, str]:
+    return dict(_SHARED_REASONS)

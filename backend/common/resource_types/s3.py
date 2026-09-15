@@ -63,4 +63,18 @@ SPEC = register(ResourceTypeSpec(
     lifecycle=(Lifecycle("CreateBucket", CREATE), Lifecycle("DeleteBucket", DELETE)),
     notes="버킷 메트릭은 버킷 리전에서 — 나열 뒤 리전 조회가 필요하다.",
     alarm_defs=_S3_ALARMS,
+    # 표시명(알람 이름에 쓰는 지표명·방향·단위)과 기본 임계치 — 옛 alarm_registry._METRIC_DISPLAY / common.HARDCODED_DEFAULTS.
+    # 여러 타입이 같은 키(CPUUtilization 등)를 선언하면 값이 같아야 한다 — 뷰가 강제한다.
+    display={
+        "S34xxErrors": ("4xxErrors", ">", ""),
+        "S35xxErrors": ("5xxErrors", ">", ""),
+        "S3BucketSizeBytes": ("BucketSizeBytes", ">", "B"),
+        "S3NumberOfObjects": ("NumberOfObjects", ">", ""),
+    },
+    defaults={
+        "S34xxErrors": 100.0,
+        "S35xxErrors": 10.0,
+        "S3BucketSizeBytes": 1000000000000.0,
+        "S3NumberOfObjects": 10000000.0,
+    },
 ))

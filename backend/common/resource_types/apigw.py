@@ -139,4 +139,28 @@ SPEC = register(ResourceTypeSpec(
     notes="REST(restapis, 디멘션 ApiName)와 HTTP/WebSocket(apis, 디멘션 ApiId)은 다른 리소스 타입 — 필터 둘, 알람 정의는 _api_type 태그로 갈린다.",
     alarm_defs=_get_apigw_alarm_defs,
     variants=tuple({"_api_type": t} for t in ("REST", "HTTP", "WEBSOCKET")),
+    # 표시명(알람 이름에 쓰는 지표명·방향·단위)과 기본 임계치 — 옛 alarm_registry._METRIC_DISPLAY / common.HARDCODED_DEFAULTS.
+    # 여러 타입이 같은 키(CPUUtilization 등)를 선언하면 값이 같아야 한다 — 뷰가 강제한다.
+    display={
+        "ApiLatency": ("Latency", ">", "ms"),
+        "Api4XXError": ("4XXError", ">", ""),
+        "Api5XXError": ("5XXError", ">", ""),
+        "Api4xx": ("4xx", ">", ""),
+        "Api5xx": ("5xx", ">", ""),
+        "WsConnectCount": ("ConnectCount", ">", ""),
+        "WsMessageCount": ("MessageCount", ">", ""),
+        "WsIntegrationError": ("IntegrationError", ">", ""),
+        "WsExecutionError": ("ExecutionError", ">", ""),
+    },
+    defaults={
+        "ApiLatency": 3000.0,
+        "Api4XXError": 1.0,
+        "Api5XXError": 1.0,
+        "Api4xx": 1.0,
+        "Api5xx": 1.0,
+        "WsConnectCount": 1000.0,
+        "WsMessageCount": 10000.0,
+        "WsIntegrationError": 0.0,
+        "WsExecutionError": 0.0,
+    },
 ))

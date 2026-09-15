@@ -59,4 +59,18 @@ SPEC = register(ResourceTypeSpec(
     lifecycle=(Lifecycle("CreateBroker", CREATE), Lifecycle("DeleteBroker", DELETE)),
     notes="TagName `{broker}-{1|2}` — alive 판정이 접미를 떼고 조회한다.",
     alarm_defs=_MQ_ALARMS,
+    # 표시명(알람 이름에 쓰는 지표명·방향·단위)과 기본 임계치 — 옛 alarm_registry._METRIC_DISPLAY / common.HARDCODED_DEFAULTS.
+    # 여러 타입이 같은 키(CPUUtilization 등)를 선언하면 값이 같아야 한다 — 뷰가 강제한다.
+    display={
+        "MqCPU": ("CpuUtilization", ">", "%"),
+        "HeapUsage": ("HeapUsage", ">", "%"),
+        "JobSchedulerStoreUsage": ("JobSchedulerStorePercentUsage", ">", "%"),
+        "StoreUsage": ("StorePercentUsage", ">", "%"),
+    },
+    defaults={
+        "MqCPU": 90.0,
+        "HeapUsage": 80.0,
+        "JobSchedulerStoreUsage": 80.0,
+        "StoreUsage": 80.0,
+    },
 ))

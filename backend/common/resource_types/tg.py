@@ -80,4 +80,18 @@ SPEC = register(ResourceTypeSpec(
     notes="NLB 대상그룹은 네임스페이스가 AWS/NetworkELB(빌드 시 해석기), TargetType=alb는 알람 없음. LB 계층·short-id 역매핑 때문에 나열은 elb 수집기.",
     alarm_defs=_get_tg_alarm_defs,
     variants=({}, {"_lb_type": "network"}, {"_target_type": "alb"}),
+    # 표시명(알람 이름에 쓰는 지표명·방향·단위)과 기본 임계치 — 옛 alarm_registry._METRIC_DISPLAY / common.HARDCODED_DEFAULTS.
+    # 여러 타입이 같은 키(CPUUtilization 등)를 선언하면 값이 같아야 한다 — 뷰가 강제한다.
+    display={
+        "HealthyHostCount": ("HealthyHostCount", "<", ""),
+        "UnHealthyHostCount": ("UnHealthyHostCount", ">", ""),
+        "RequestCountPerTarget": ("RequestCountPerTarget", ">", ""),
+        "TargetResponseTime": ("TargetResponseTime", ">", "s"),
+    },
+    defaults={
+        "HealthyHostCount": 1.0,
+        "UnHealthyHostCount": 1.0,
+        "RequestCountPerTarget": 1000.0,
+        "TargetResponseTime": 5.0,
+    },
 ))

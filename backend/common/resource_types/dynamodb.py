@@ -58,4 +58,18 @@ SPEC = register(ResourceTypeSpec(
     rgt_filters=("dynamodb:table",), rgt_prime=True,
     lifecycle=(Lifecycle("CreateTable", CREATE), Lifecycle("DeleteTable", DELETE)),
     alarm_defs=_DYNAMODB_ALARMS,
+    # 표시명(알람 이름에 쓰는 지표명·방향·단위)과 기본 임계치 — 옛 alarm_registry._METRIC_DISPLAY / common.HARDCODED_DEFAULTS.
+    # 여러 타입이 같은 키(CPUUtilization 등)를 선언하면 값이 같아야 한다 — 뷰가 강제한다.
+    display={
+        "DDBReadCapacity": ("ConsumedReadCapacityUnits", ">", ""),
+        "DDBWriteCapacity": ("ConsumedWriteCapacityUnits", ">", ""),
+        "ThrottledRequests": ("ThrottledRequests", ">", ""),
+        "DDBSystemErrors": ("SystemErrors", ">", ""),
+    },
+    defaults={
+        "DDBReadCapacity": 80.0,
+        "DDBWriteCapacity": 80.0,
+        "ThrottledRequests": 0.0,
+        "DDBSystemErrors": 0.0,
+    },
 ))

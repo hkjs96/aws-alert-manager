@@ -72,6 +72,43 @@ def test_alarm_definitions_are_byte_for_byte_the_snapshot(rt):
     assert [_plain(d) for d in R.get(rt).alarms({})] == SNAPSHOT["alarm_defs_default"][rt]
 
 
+def test_metric_display_matches_the_snapshot():
+    """P2.4b — 표시명이 타입 스펙 + legacy로 옮겨진 뒤에도 옛 `_METRIC_DISPLAY`와 같다."""
+    from common.alarm_registry import _METRIC_DISPLAY
+    assert {k: list(v) for k, v in R.metric_display().items()} == SNAPSHOT["_METRIC_DISPLAY"]
+    assert _METRIC_DISPLAY == R.metric_display()
+
+
+def test_hardcoded_defaults_match_the_snapshot():
+    from common import HARDCODED_DEFAULTS
+    assert R.hardcoded_defaults() == SNAPSHOT["HARDCODED_DEFAULTS"]
+    assert HARDCODED_DEFAULTS == R.hardcoded_defaults()
+
+
+@pytest.mark.parametrize("spec", R.all_specs(), ids=lambda s: s.type)
+def test_every_alarm_metric_key_has_a_display_and_a_default(spec):
+    for k in spec.metric_keys():
+        assert k in spec.display, f"{spec.type}: display for {k}"
+        assert k in spec.defaults, f"{spec.type}: default threshold for {k}"
+
+
+def test_shared_threshold_entries_all_have_reasons_and_cover_the_legacy_tag_keys():
+    from common.tag_resolver import _LEGACY_TAG_MAP
+    reasons = R.shared_threshold_reasons()
+    assert reasons and all(v.strip() for v in reasons.values())
+    assert set(_LEGACY_TAG_MAP.values()) <= set(reasons), "옛 친숙 태그 키는 전부 이유가 붙은 공유 항목이어야 한다"
+
+
+def test_conflicting_values_across_specs_fail_loudly():
+    with pytest.raises(ValueError, match="conflict on 'CPUUtilization'"):
+        R.base._merge_unique([("A", {"CPUUtilization": ("x", ">", "%")}), ("B", {"CPUUtilization": ("y", ">", "%")})], "display")
+
+
+def test_shared_entries_require_a_reason():
+    with pytest.raises(ValueError, match="reason"):
+        R.add_shared_thresholds(defaults={"Whatever": 1.0}, reason="")
+
+
 # ── 2. 불변식
 
 def test_every_alarm_type_has_a_spec_and_vice_versa():
@@ -133,6 +170,62 @@ def test_a_type_without_lifecycle_events_says_why(spec):
 def test_shared_events_are_multi():
     assert {e.event for e in R.SHARED_LIFECYCLE} == {"TagResource", "UntagResource"}
     assert all(e.target == R.MULTI for e in R.SHARED_LIFECYCLE)
+
+
+# ── 2b. 시연 — 타입 추가는 스펙 하나다 (요구사항 R3, AC 2)
+
+@pytest.fixture
+def scratch_registry(monkeypatch):
+    """레지스트리를 복사해 두고 테스트 뒤 되돌린다 — 다른 테스트가 보는 전역 상태를 건드리지 않는다."""
+    base = R.base
+    for name in ("_SPECS", "_ALIASES", "_SHARED_DISPLAY", "_SHARED_DEFAULTS", "_SHARED_REASONS"):
+        monkeypatch.setattr(base, name, dict(getattr(base, name)))
+    yield base
+
+
+def test_adding_a_type_is_one_spec_and_everything_follows(scratch_registry):
+    """새 타입을 스펙 하나로 등록하면 타입 목록·수집기 맵·이벤트·표시명·기본치·RGT 서비스가 전부 따라온다."""
+    defs = [{"metric": "IncomingRecords", "namespace": "AWS/Kinesis", "metric_name": "IncomingRecords",
+             "dimension_key": "StreamName", "stat": "Sum", "comparison": "GreaterThanThreshold",
+             "period": 300, "evaluation_periods": 1}]
+    R.register(R.ResourceTypeSpec(
+        type="Kinesis", label="Kinesis 스트림", collector="sqs",          # 시연이라 있는 수집기를 빌린다
+        rgt_filters=("kinesis:stream",), rgt_prime=True,
+        lifecycle=(R.Lifecycle("CreateStream", R.CREATE), R.Lifecycle("DeleteStream", R.DELETE)),
+        alarm_defs=defs,
+        display={"IncomingRecords": ("IncomingRecords", ">", "")},
+        defaults={"IncomingRecords": 100000.0},
+    ))
+    assert R.types()[-1] == "Kinesis"
+    assert R.type_to_collector()["Kinesis"] == "sqs"
+    assert "CreateStream" in R.monitored_api_events()["CREATE"] and R.event_to_type()["DeleteStream"] == "Kinesis"
+    assert "kinesis" in R.tagged_services()
+    assert R.metric_display()["IncomingRecords"] == ("IncomingRecords", ">", "")
+    assert R.hardcoded_defaults()["IncomingRecords"] == 100000.0
+    assert R.get("Kinesis").alarms({}) == defs
+
+
+def test_a_definition_without_display_or_default_fails_at_view_time(scratch_registry):
+    """정의만 추가하고 표시명·기본치를 빠뜨리는 실수 — 조용히 '알람 이름 unknown'이 되던 것이 이제 크게 실패한다."""
+    R.register(R.ResourceTypeSpec(
+        type="Broken", label="x", collector="sqs", rgt_filters=("x:y",),
+        alarm_defs=[{"metric": "Orphan", "namespace": "AWS/X", "metric_name": "Orphan", "dimension_key": "Id",
+                     "stat": "Sum", "comparison": "GreaterThanThreshold", "period": 60, "evaluation_periods": 1}],
+        notes="시연", lifecycle=(),
+    ))
+    with pytest.raises(ValueError, match="display missing.*Orphan"):
+        R.metric_display()
+    with pytest.raises(ValueError, match="default threshold missing.*Orphan"):
+        R.hardcoded_defaults()
+
+
+def test_a_type_cannot_redefine_a_shared_key(scratch_registry):
+    R.register(R.ResourceTypeSpec(
+        type="Rogue", label="x", collector="sqs", rgt_filters=("x:y",), lifecycle=(), notes="시연",
+        alarm_defs=[], display={"CPUUtilization": ("CPUUtilization", ">", "cores")}, defaults={},
+    ))
+    with pytest.raises(ValueError, match="display conflict on 'CPUUtilization'"):
+        R.metric_display()
 
 
 # ── 3. 소비처가 뷰를 읽는다

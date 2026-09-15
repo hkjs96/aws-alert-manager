@@ -60,4 +60,18 @@ SPEC = register(ResourceTypeSpec(
     rgt_filters=("kafka:cluster",), rgt_prime=True,
     lifecycle=(Lifecycle("CreateCluster", CREATE), Lifecycle("DeleteCluster", DELETE)),
     alarm_defs=_MSK_ALARMS,
+    # 표시명(알람 이름에 쓰는 지표명·방향·단위)과 기본 임계치 — 옛 alarm_registry._METRIC_DISPLAY / common.HARDCODED_DEFAULTS.
+    # 여러 타입이 같은 키(CPUUtilization 등)를 선언하면 값이 같아야 한다 — 뷰가 강제한다.
+    display={
+        "OffsetLag": ("SumOffsetLag", ">", ""),
+        "BytesInPerSec": ("BytesInPerSec", ">", "B/s"),
+        "UnderReplicatedPartitions": ("UnderReplicatedPartitions", ">", ""),
+        "ActiveControllerCount": ("ActiveControllerCount", "<", ""),
+    },
+    defaults={
+        "OffsetLag": 1000.0,
+        "BytesInPerSec": 100000000.0,
+        "UnderReplicatedPartitions": 0.0,
+        "ActiveControllerCount": 1.0,
+    },
 ))

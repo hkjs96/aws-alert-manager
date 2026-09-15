@@ -49,4 +49,16 @@ SPEC = register(ResourceTypeSpec(
     lifecycle=(Lifecycle("CreateFileSystem", CREATE), Lifecycle("DeleteFileSystem", DELETE)),
     notes="RGT 프라임 안 함: efs 수집기가 태그 캐시를 참조하지 않는다(2026-09 현재). P3 범용 수집기로 옮기며 켠다.",
     alarm_defs=_EFS_ALARMS,
+    # 표시명(알람 이름에 쓰는 지표명·방향·단위)과 기본 임계치 — 옛 alarm_registry._METRIC_DISPLAY / common.HARDCODED_DEFAULTS.
+    # 여러 타입이 같은 키(CPUUtilization 등)를 선언하면 값이 같아야 한다 — 뷰가 강제한다.
+    display={
+        "BurstCreditBalance": ("BurstCreditBalance", "<", ""),
+        "PercentIOLimit": ("PercentIOLimit", ">", "%"),
+        "EFSClientConnections": ("ClientConnections", ">", ""),
+    },
+    defaults={
+        "BurstCreditBalance": 1000000000.0,
+        "PercentIOLimit": 90.0,
+        "EFSClientConnections": 1000.0,
+    },
 ))

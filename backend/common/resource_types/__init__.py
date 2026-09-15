@@ -8,8 +8,9 @@
 from common.resource_types.base import (  # noqa: F401
     CREATE, DELETE, KINDS, MODIFY, MULTI, SHARED_LIFECYCLE, TAG_CHANGE,
     Lifecycle, ResourceTypeSpec,
-    all_specs, collector_modules, event_to_type, get, global_service_regions,
-    monitored_api_events, register, tagged_services, type_to_collector, types,
+    add_shared_thresholds, all_specs, collector_modules, event_to_type, get, global_service_regions,
+    hardcoded_defaults, metric_display, monitored_api_events, register, shared_threshold_reasons,
+    tagged_services, type_to_collector, types,
 )
 
 # 등록 순서 = 타입 목록 순서. isort가 재정렬하지 않도록 한 줄씩.
@@ -42,3 +43,5 @@ from common.resource_types import efs  # noqa: E402, F401
 from common.resource_types import s3  # noqa: E402, F401
 from common.resource_types import sagemaker  # noqa: E402, F401
 from common.resource_types import sns  # noqa: E402, F401
+# 타입 밖 표시명·기본치(옛 태그 키) — 타입 뒤에 등록한다.
+from common.resource_types import legacy  # noqa: E402, F401

@@ -73,4 +73,20 @@ SPEC = register(ResourceTypeSpec(
     rgt_filters=("elasticloadbalancing:loadbalancer",), rgt_prime=True,
     notes="생명주기 이벤트는 ALB 스펙(target=ELB)에 — 이벤트 이름이 LB 종류를 구분하지 않는다.",
     alarm_defs=_NLB_ALARMS,
+    # 표시명(알람 이름에 쓰는 지표명·방향·단위)과 기본 임계치 — 옛 alarm_registry._METRIC_DISPLAY / common.HARDCODED_DEFAULTS.
+    # 여러 타입이 같은 키(CPUUtilization 등)를 선언하면 값이 같아야 한다 — 뷰가 강제한다.
+    display={
+        "ProcessedBytes": ("ProcessedBytes", ">", ""),
+        "ActiveFlowCount": ("ActiveFlowCount", ">", ""),
+        "NewFlowCount": ("NewFlowCount", ">", ""),
+        "TCP_Client_Reset_Count": ("TCP_Client_Reset_Count", ">", ""),
+        "TCP_Target_Reset_Count": ("TCP_Target_Reset_Count", ">", ""),
+    },
+    defaults={
+        "ProcessedBytes": 100000000.0,
+        "ActiveFlowCount": 10000.0,
+        "NewFlowCount": 5000.0,
+        "TCP_Client_Reset_Count": 100.0,
+        "TCP_Target_Reset_Count": 100.0,
+    },
 ))

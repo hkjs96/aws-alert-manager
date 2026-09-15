@@ -77,4 +77,20 @@ SPEC = register(ResourceTypeSpec(
     notes="LB 이벤트 이름은 ALB/NLB/CLB를 구분하지 않아 target=ELB로 받고 ARN(loadbalancer/app|net)으로 가른다. "
           "필터도 셋이 공유한다. NLB·CLB 스펙은 그래서 lifecycle이 비어 있다.",
     alarm_defs=_ALB_ALARMS,
+    # 표시명(알람 이름에 쓰는 지표명·방향·단위)과 기본 임계치 — 옛 alarm_registry._METRIC_DISPLAY / common.HARDCODED_DEFAULTS.
+    # 여러 타입이 같은 키(CPUUtilization 등)를 선언하면 값이 같아야 한다 — 뷰가 강제한다.
+    display={
+        "RequestCount": ("RequestCount", ">", ""),
+        "HTTPCode_ELB_5XX_Count": ("HTTPCode_ELB_5XX_Count", ">", ""),
+        "TargetResponseTime": ("TargetResponseTime", ">", "s"),
+        "ELB4XX": ("HTTPCode_ELB_4XX_Count", ">", ""),
+        "TargetConnectionError": ("TargetConnectionErrorCount", ">", ""),
+    },
+    defaults={
+        "RequestCount": 10000.0,
+        "HTTPCode_ELB_5XX_Count": 50.0,
+        "TargetResponseTime": 5.0,
+        "ELB4XX": 100.0,
+        "TargetConnectionError": 50.0,
+    },
 ))

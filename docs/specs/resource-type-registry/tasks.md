@@ -56,14 +56,20 @@
       파생, 옛 이름(`_EC2_ALARMS` 등 43개)은 재수출(alarm_manager facade·테스트 경로). 게이트: 스냅숏 `alarm_defs_default`
       29/29 동일. 이동 구간이 모듈 내 다른 이름을 하나도 참조하지 않아(분석으로 확인) import 수정 0.
       함정: `'''`가 든 긴 heredoc은 Git Bash 파싱에서 죽는다 — 스크립트는 파일로 쓰고 실행할 것(메모리에 있던 규칙).
-- [ ] 2.4b `_METRIC_DISPLAY`(176)·`HARDCODED_DEFAULTS`(117)를 스펙의 `display`/`defaults`로. 여분 23개 임계치 키는
-      `legacy.py`에 **이유 필수**(옛 태그 키 호환·퍼센트 변형·동적 전용). 파생 뷰 `_METRIC_DISPLAY`·`HARDCODED_DEFAULTS`는 이름 유지,
-      충돌(같은 키 다른 값)은 import 시 실패. 게이트: 스냅숏 두 표 동일.
+- [x] 2.4b(2026-09-15) `_METRIC_DISPLAY`(114)·`HARDCODED_DEFAULTS`(117) → 스펙의 `display`/`defaults`(타입의 변형 정의가 쓰는 키,
+      공유 키 CPUUtilization×5 등은 타입마다 선언하고 뷰가 값 동일성 강제). 잔여는 `legacy.py`의 `add_shared_thresholds(reason=…)`:
+      옛 친숙 태그 키 11(`_LEGACY_TAG_MAP` 값 전부 — 메트릭 키 개명 전 호환)·퍼센트 변형 2. `ServerlessDatabaseCapacity`는
+      Aurora 모듈에(정의는 있으나 미emit, 주석). 뷰 `metric_display()`·`hardcoded_defaults()`는 **정의된 모든 메트릭 키에 표시명·기본치가
+      있는지**도 검사해 없으면 import 시 실패(정의만 추가하고 기본치를 빠뜨리는 실수를 막는다). `alarm_registry.py` 449 → **337줄**,
+      `common/__init__`의 `HARDCODED_DEFAULTS`도 뷰. 게이트: 스냅숏 두 표 동일 + 전체 스위트.
+      실제 여분은 23이 아니라 14였다 — 나머지 9(Api4xx·Ws*·ACU·ReplicaLag·StatusCheckFailed_Application)는 변형 정의 키였다(P1 변형 열거 덕에 드러남).
 - [x] 2.5 생명주기 이관 — 66개 이벤트가 타입별 `lifecycle`로(2.1에서 함께). 추출기는 remediation에 남고 `_build_api_map()`이
       둘을 맞춘다. ELB 이벤트는 ALB 스펙(`target="ELB"`), DocDB·Aurora는 RDS 이벤트 공유(notes에 명시).
 - [x] 2.6 **템플릿 정합 테스트**(R8) — `test_template_cloudtrail_event_pattern_equals_the_registry_events`: 템플릿의 CloudTrail
       EventPattern `detail.eventName` 집합 == 레지스트리 이벤트 합집합. 통과(66개).
-- [ ] 2.7 시연: 가짜 타입 하나를 스펙 파일 + 테스트만으로 추가해 카탈로그·수집·생명주기에 나타나는지(AC 2).
+- [x] 2.7 시연(2026-09-15) — 테스트로 고정: `test_adding_a_type_is_one_spec_and_everything_follows`(가짜 Kinesis 스펙 하나 등록 →
+      타입 목록·수집기 맵·이벤트·RGT 서비스·표시명·기본치에 전부 나타남), `test_a_definition_without_display_or_default_fails_at_view_time`,
+      `test_a_type_cannot_redefine_a_shared_key`. 레지스트리 전역은 픽스처가 복사·복원한다.
 
 ## Phase 3 — 범용 수집기 (3~4일, 3파)
 

@@ -31,4 +31,12 @@ SPEC = register(ResourceTypeSpec(
     lifecycle=(Lifecycle("DeleteVpnConnection", DELETE),),
     notes=_EC2_SUBRESOURCE_NOTE,
     alarm_defs=_VPN_ALARMS,
+    # 표시명(알람 이름에 쓰는 지표명·방향·단위)과 기본 임계치 — 옛 alarm_registry._METRIC_DISPLAY / common.HARDCODED_DEFAULTS.
+    # 여러 타입이 같은 키(CPUUtilization 등)를 선언하면 값이 같아야 한다 — 뷰가 강제한다.
+    display={
+        "TunnelState": ("TunnelState", "<", ""),
+    },
+    defaults={
+        "TunnelState": 1.0,
+    },
 ))

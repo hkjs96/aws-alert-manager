@@ -110,4 +110,20 @@ SPEC = register(ResourceTypeSpec(
     notes=_EC2_SUBRESOURCE_NOTE + " 앱 상태검사 알람은 옵트인(Threshold_StatusCheckFailed_Application).",
     alarm_defs=_get_ec2_alarm_defs,
     variants=({}, {f"Threshold_{APP_STATUS_METRIC_KEY}": "1"}),
+    # 표시명(알람 이름에 쓰는 지표명·방향·단위)과 기본 임계치 — 옛 alarm_registry._METRIC_DISPLAY / common.HARDCODED_DEFAULTS.
+    # 여러 타입이 같은 키(CPUUtilization 등)를 선언하면 값이 같아야 한다 — 뷰가 강제한다.
+    display={
+        "CPUUtilization": ("CPUUtilization", ">", "%"),
+        "mem_used_percent": ("mem_used_percent", ">", "%"),
+        "disk_used_percent": ("disk_used_percent", ">", "%"),
+        "StatusCheckFailed": ("StatusCheckFailed", ">", ""),
+        "StatusCheckFailed_Application": ("StatusCheckFailed_Application", ">", ""),
+    },
+    defaults={
+        "CPUUtilization": 80.0,
+        "mem_used_percent": 80.0,
+        "disk_used_percent": 80.0,
+        "StatusCheckFailed": 0.0,
+        "StatusCheckFailed_Application": 0.0,
+    },
 ))
