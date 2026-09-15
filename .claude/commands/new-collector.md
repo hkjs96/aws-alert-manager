@@ -34,12 +34,17 @@ Use this command when adding a backend-supported AWS resource type.
 1. **메트릭/디멘션 확인 (AWS 공식 문서 필수):** 메트릭 목록·네임스페이스·디멘션을 확인한다.
    LB 레벨 vs TG 레벨 등 디멘션 계층 구분 필수 (`docs/ALARM-RULES.md` §6-1).
    CWAgent 등 커스텀 에이전트 네임스페이스는 별도 확인.
-2. **CloudTrail 이벤트 (생명주기):** CREATE/MODIFY/DELETE/TAG_CHANGE API를 확인하고 3곳에 등록:
-   - `backend/common/__init__.py::MONITORED_API_EVENTS`
-   - `infrastructure/backend/template.yaml` CloudTrail EventPattern `detail.eventName`
-   - `backend/remediation_handler/lambda_handler.py::_API_MAP` (resource_type, id_extractor)
+2. **CloudTrail 이벤트 (생명주기):** CREATE/MODIFY/DELETE/TAG_CHANGE API를 확인하고 **스펙에 적는다**
+   (docs/specs/resource-type-registry P2):
+   - `backend/common/resource_types/__init__.py` — 해당 `ResourceTypeSpec`의 `lifecycle=(Lifecycle("EventName", KIND), …)`.
+     `MONITORED_API_EVENTS`와 `_API_MAP`의 타입은 여기서 **파생**되니 손대지 않는다.
+   - `backend/remediation_handler/lambda_handler.py::_EXTRACTORS` — 이벤트 → ID 추출기 한 줄. 스펙과 어긋나면
+     **import 시 RuntimeError**(조용한 누락 금지).
+   - `infrastructure/backend/template.yaml` CloudTrail EventPattern `detail.eventName` — 파생 불가(CFN). 대신
+     `test_resource_type_registry.py`의 템플릿 정합 테스트가 레지스트리와 같은지 고정한다.
    - CREATE 이벤트는 `responseElements`에서 ID를 추출하는 경우가 많으므로 주의.
    - ARN → 리소스 ID 변환이 필요한 타입은 `docs/ALARM-RULES.md` §9 매핑을 갱신.
+   - 여러 서비스가 같은 이벤트 이름을 쓰면(`TagResource`) 스펙이 아니라 `SHARED_LIFECYCLE`(MULTI)에.
 3. **필수 알람 자동 생성 (Monitoring=on):**
    - `backend/common/alarm_registry.py`의 `_*_ALARMS` 정의 + **`_ALARM_DEFS_BY_TYPE` 표에 한 줄**
      (값은 리스트, 태그 조건부면 `Callable[[tags], list]`)
@@ -61,9 +66,12 @@ Use this command when adding a backend-supported AWS resource type.
    - 태그 조회 래퍼(`_get_tags`)는 `common.tag_cache.cached_tags(arn)`를 먼저 보고 `None`일 때만
      리소스별 API를 부른다 (런 스코프 RGT 프라임, N+1 제거). 새 서비스의 ARN service 세그먼트를
      `tag_cache.TAGGED_SERVICES`에 추가. describe 응답에 태그가 실리는 서비스는 둘 다 불필요.
-   - `daily_monitor/lambda_handler.py::_COLLECTOR_MODULES` 리스트에 등록
-   - `daily_monitor/lambda_handler.py::_RESOURCE_TYPE_TO_COLLECTOR`에 매핑 추가
-     (alias 포함 — 예: `AuroraRDS` → rds, `NATGateway` → natgw)
+   - **스펙에 등록**: `backend/common/resource_types/__init__.py`에 `register(ResourceTypeSpec(type=…, label=…,
+     collector="<모듈 이름>", aliases=(…), rgt_filters=(…), rgt_prime=…, lifecycle=(…), notes=…))` 한 블록.
+     `daily_monitor`의 `_COLLECTOR_MODULES`·`_RESOURCE_TYPE_TO_COLLECTOR`·`tag_cache.TAGGED_SERVICES`·
+     `SUPPORTED_RESOURCE_TYPES`는 여기서 파생된다 — 손대지 않는다. 등록 순서가 타입 목록 순서다.
+   - `rgt_prime=False`나 `lifecycle=()`처럼 파생 규칙에서 벗어나면 `notes`에 이유를 쓴다(테스트가 강제).
+   - `rgt_filters`는 실계정에서 유효한 `ResourceTypeFilters` 문자열(design.md 부록 A 참고)
    - TagName ≠ resource_id인 타입은 `resolve_alive_ids` 역매핑 필수 (§5-1)
 7. **테스트:** `backend/tests/` 하위에 추가.
 8. **프론트엔드 노출 시:**

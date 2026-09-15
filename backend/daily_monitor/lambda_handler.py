@@ -11,6 +11,7 @@ event 형식 (Orchestrator → Worker):
 """
 
 import functools
+import importlib
 import logging
 import os
 import time
@@ -37,6 +38,7 @@ from common.resource_discovery import (
     query_inventory_by_accounts,
 )
 from common.collectors import docdb as docdb_collector
+from common import resource_types
 from common.collectors import ec2 as ec2_collector
 from common.collectors import elasticache as elasticache_collector
 from common.collectors import elb as elb_collector
@@ -65,50 +67,15 @@ from common.collectors import sns as sns_collector
 from common.sns_notifier import send_alert, send_error_alert
 from common.tag_resolver import get_resource_tags_or_none, get_threshold, has_monitoring_tag
 
-# collector 모듈 목록 (런타임에 .get_metrics 참조하여 패치 가능하도록)
+# 수집기 목록과 타입→수집기 맵은 리소스 타입 레지스트리에서 파생된다 (docs/specs/resource-type-registry P2).
+# 위의 명시 import는 테스트가 `dm.ec2_collector` 식으로 패치하는 경로라 남겨 둔다 — importlib은 같은 모듈 객체를 준다.
 _COLLECTOR_MODULES = [
-    ec2_collector, rds_collector, elb_collector, docdb_collector,
-    elasticache_collector, natgw_collector,
-    lambda_collector, vpn_collector, apigw_collector, acm_collector,
-    backup_collector, mq_collector, clb_collector, opensearch_collector,
-    sqs_collector, ecs_collector, msk_collector, dynamodb_collector,
-    cloudfront_collector, waf_collector, route53_collector, dx_collector,
-    efs_collector, s3_collector, sagemaker_collector, sns_collector,
+    importlib.import_module(f"common.collectors.{name}") for name in resource_types.collector_modules()
 ]
-
-# resource_type → collector 모듈 매핑 (고아 알람 정리용)
+# resource_type(별칭 포함) → collector 모듈 (고아 알람 정리용)
 _RESOURCE_TYPE_TO_COLLECTOR = {
-    "EC2": ec2_collector,
-    "RDS": rds_collector,
-    "AuroraRDS": rds_collector,
-    "DocDB": docdb_collector,
-    "ELB": elb_collector,
-    "ALB": elb_collector,
-    "NLB": elb_collector,
-    "TG": elb_collector,
-    "ElastiCache": elasticache_collector,
-    "NAT": natgw_collector,
-    "NATGateway": natgw_collector,
-    "Lambda": lambda_collector,
-    "VPN": vpn_collector,
-    "APIGW": apigw_collector,
-    "ACM": acm_collector,
-    "Backup": backup_collector,
-    "MQ": mq_collector,
-    "CLB": clb_collector,
-    "OpenSearch": opensearch_collector,
-    "SQS": sqs_collector,
-    "ECS": ecs_collector,
-    "MSK": msk_collector,
-    "DynamoDB": dynamodb_collector,
-    "CloudFront": cloudfront_collector,
-    "WAF": waf_collector,
-    "Route53": route53_collector,
-    "DX": dx_collector,
-    "EFS": efs_collector,
-    "S3": s3_collector,
-    "SageMaker": sagemaker_collector,
-    "SNS": sns_collector,
+    rtype: importlib.import_module(f"common.collectors.{name}")
+    for rtype, name in resource_types.type_to_collector().items()
 }
 
 

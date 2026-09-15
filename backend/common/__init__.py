@@ -134,91 +134,19 @@ HARDCODED_DEFAULTS: dict[str, float] = {
     "SNSMessagesPublished": 1000000.0,
 }
 
-# 지원하는 AWS 리소스 유형 - Requirements 6.1
-SUPPORTED_RESOURCE_TYPES: list[str] = [
-    "EC2", "RDS", "ALB", "NLB", "TG", "AuroraRDS", "DocDB", "ElastiCache", "NAT",
-    "Lambda", "VPN", "APIGW", "ACM", "Backup", "MQ", "CLB", "OpenSearch",
-    "SQS", "ECS", "MSK", "DynamoDB", "CloudFront", "WAF",
-    "Route53", "DX", "EFS", "S3", "SageMaker", "SNS",
-]
+# 지원 타입과 CloudTrail 이벤트 목록은 리소스 타입 레지스트리에서 파생된다 (docs/specs/resource-type-registry P2).
+# 이 모듈은 여기서 레지스트리를 import한다 — resource_types → alarm_registry(logging만)라 순환이 없고, 레지스트리는
+# 이 모듈의 상수(HARDCODED_DEFAULTS 등)를 다시 참조하지 않는다.
+from common.resource_types import (  # noqa: E402
+    monitored_api_events as _registry_monitored_api_events,
+    types as _registry_types,
+)
 
-# CloudTrail 모니터링 대상 API 이벤트 - Requirements 4.1, 8.1, 8.4
-MONITORED_API_EVENTS: dict[str, list[str]] = {
-    "MODIFY": [
-        "ModifyInstanceAttribute",
-        "ModifyInstanceType",
-        "ModifyDBInstance",
-        "ModifyLoadBalancerAttributes",
-        "ModifyListener",
-        "ModifyCacheCluster",
-    ],
-    "DELETE": [
-        "TerminateInstances",
-        "DeleteDBInstance",
-        "DeleteLoadBalancer",
-        "DeleteTargetGroup",
-        "DeleteCacheCluster",
-        "DeleteNatGateway",
-        "DeleteFunction20150331",   # Lambda
-        "DeleteVpnConnection",      # VPN
-        "DeleteRestApi",            # APIGW REST
-        "DeleteApi",                # APIGW v2
-        "DeleteCertificate",        # ACM
-        "DeleteBackupVault",        # Backup
-        "DeleteBroker",             # MQ
-        "DeleteDomain",             # OpenSearch
-        "DeleteQueue",              # SQS
-        "DeleteService",            # ECS
-        "DeleteCluster",            # MSK
-        "DeleteTable",              # DynamoDB
-        "DeleteDistribution",       # CloudFront
-        "DeleteWebACL",             # WAF
-        "DeleteHealthCheck",        # Route53
-        "DeleteConnection",         # DX
-        "DeleteFileSystem",         # EFS
-        "DeleteBucket",             # S3
-        "DeleteEndpoint",           # SageMaker
-        "DeleteTopic",              # SNS
-    ],
-    "TAG_CHANGE": [
-        "CreateTags",
-        "DeleteTags",
-        "AddTagsToResource",       # RDS
-        "RemoveTagsFromResource",  # RDS
-        "AddTags",                 # ELB
-        "RemoveTags",              # ELB
-        "TagResource",             # Lambda, APIGW, ACM, Backup, MQ, OpenSearch, ECS, MSK, DynamoDB, EFS, SageMaker, SNS
-        "UntagResource",           # Lambda, APIGW, ACM, Backup, MQ, OpenSearch, ECS, MSK, DynamoDB, EFS, SageMaker, SNS
-        "TagQueue",                # SQS
-        "UntagQueue",              # SQS
-    ],
-    "CREATE": [
-        "RunInstances",
-        "CreateDBInstance",
-        "CreateLoadBalancer",
-        "CreateTargetGroup",
-        "CreateCacheCluster",
-        "CreateNatGateway",
-        "CreateFunction20150331",   # Lambda
-        "CreateRestApi",            # APIGW REST
-        "CreateApi",                # APIGW v2
-        "CreateBackupVault",        # Backup
-        "CreateBroker",             # MQ
-        "CreateDomain",             # OpenSearch
-        "CreateQueue",              # SQS
-        "CreateService",            # ECS
-        "CreateCluster",            # MSK
-        "CreateTable",              # DynamoDB
-        "CreateDistribution",       # CloudFront
-        "CreateWebACL",             # WAF
-        "CreateHealthCheck",        # Route53
-        "CreateConnection",         # DX
-        "CreateFileSystem",         # EFS
-        "CreateBucket",             # S3
-        "CreateEndpoint",           # SageMaker
-        "CreateTopic",              # SNS
-    ],
-}
+# 지원하는 AWS 리소스 유형 - Requirements 6.1 (레지스트리 등록 순서)
+SUPPORTED_RESOURCE_TYPES: list[str] = _registry_types()
+
+# CloudTrail 모니터링 대상 API 이벤트 - Requirements 4.1, 8.1, 8.4 (스펙의 lifecycle + 공유 이벤트)
+MONITORED_API_EVENTS: dict[str, list[str]] = _registry_monitored_api_events()
 
 
 # ──────────────────────────────────────────────

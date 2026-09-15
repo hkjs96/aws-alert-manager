@@ -18,6 +18,7 @@ import boto3
 from botocore.exceptions import ClientError
 
 from common import MONITORED_API_EVENTS
+from common import resource_types
 from common.alarm_manager import (
     create_alarms_for_resource,
     delete_alarms_for_resource,
@@ -350,118 +351,133 @@ def _extract_sns_topic_ids(params: dict) -> list[str]:
 
 
 
-_API_MAP: dict[str, tuple[str, callable]] = {
+#: CloudTrail 이벤트 → payload에서 리소스 ID를 뽑는 추출기. **어느 타입의 이벤트인지는 리소스 타입 레지스트리가
+#: 정한다**(docs/specs/resource-type-registry P2) — 여기는 CloudTrail payload 모양만 안다.
+_EXTRACTORS: dict[str, callable] = {
 
     # MODIFY
 
-    "ModifyInstanceAttribute":      ("EC2", _extract_ec2_instance_ids),
+    "ModifyInstanceAttribute":      _extract_ec2_instance_ids,
 
-    "ModifyInstanceType":           ("EC2", _extract_ec2_instance_ids),
+    "ModifyInstanceType":           _extract_ec2_instance_ids,
 
-    "ModifyDBInstance":             ("RDS", _extract_rds_ids),
+    "ModifyDBInstance":             _extract_rds_ids,
 
-    "ModifyLoadBalancerAttributes": ("ELB", _extract_elb_ids),
+    "ModifyLoadBalancerAttributes": _extract_elb_ids,
 
-    "ModifyListener":               ("ELB", _extract_elb_ids),
+    "ModifyListener":               _extract_elb_ids,
 
-    "ModifyCacheCluster":           ("ElastiCache", _extract_elasticache_ids),
+    "ModifyCacheCluster":           _extract_elasticache_ids,
 
     # DELETE
 
-    "TerminateInstances":           ("EC2", _extract_ec2_instance_ids),
+    "TerminateInstances":           _extract_ec2_instance_ids,
 
-    "DeleteDBInstance":             ("RDS", _extract_rds_ids),
+    "DeleteDBInstance":             _extract_rds_ids,
 
-    "DeleteLoadBalancer":           ("ELB", _extract_elb_ids),
-    "DeleteTargetGroup":            ("TG",  _extract_tg_ids),
+    "DeleteLoadBalancer":           _extract_elb_ids,
+    "DeleteTargetGroup":            _extract_tg_ids,
 
-    "DeleteCacheCluster":           ("ElastiCache", _extract_elasticache_ids),
+    "DeleteCacheCluster":           _extract_elasticache_ids,
 
-    "DeleteNatGateway":             ("NAT", _extract_natgw_ids),
+    "DeleteNatGateway":             _extract_natgw_ids,
 
     # CREATE
 
-    "RunInstances":                 ("EC2", _extract_run_instances_ids),
+    "RunInstances":                 _extract_run_instances_ids,
 
-    "CreateDBInstance":             ("RDS", _extract_create_db_ids),
+    "CreateDBInstance":             _extract_create_db_ids,
 
-    "CreateLoadBalancer":           ("ELB", _extract_create_lb_ids),
+    "CreateLoadBalancer":           _extract_create_lb_ids,
 
-    "CreateTargetGroup":            ("TG",  _extract_create_tg_ids),
+    "CreateTargetGroup":            _extract_create_tg_ids,
 
-    "CreateCacheCluster":           ("ElastiCache", _extract_elasticache_ids),
+    "CreateCacheCluster":           _extract_elasticache_ids,
 
-    "CreateNatGateway":             ("NAT", _extract_natgw_create_ids),
+    "CreateNatGateway":             _extract_natgw_create_ids,
 
     # CREATE (신규 리소스)
-    "CreateFunction20150331":       ("Lambda", _extract_lambda_create_ids),
-    "CreateRestApi":                ("APIGW", _extract_apigw_rest_create_ids),
-    "CreateApi":                    ("APIGW", _extract_apigw_v2_create_ids),
-    "CreateBackupVault":            ("Backup", _extract_backup_vault_ids),
-    "CreateBroker":                 ("MQ", _extract_mq_create_ids),
-    "CreateDomain":                 ("OpenSearch", _extract_opensearch_ids),
+    "CreateFunction20150331":       _extract_lambda_create_ids,
+    "CreateRestApi":                _extract_apigw_rest_create_ids,
+    "CreateApi":                    _extract_apigw_v2_create_ids,
+    "CreateBackupVault":            _extract_backup_vault_ids,
+    "CreateBroker":                 _extract_mq_create_ids,
+    "CreateDomain":                 _extract_opensearch_ids,
 
     # DELETE (신규 리소스)
-    "DeleteFunction20150331":       ("Lambda", _extract_lambda_ids),
-    "DeleteVpnConnection":          ("VPN", _extract_vpn_ids),
-    "DeleteRestApi":                ("APIGW", _extract_apigw_rest_ids),
-    "DeleteApi":                    ("APIGW", _extract_apigw_v2_ids),
-    "DeleteCertificate":            ("ACM", _extract_acm_ids),
-    "DeleteBackupVault":            ("Backup", _extract_backup_vault_ids),
-    "DeleteBroker":                 ("MQ", _extract_mq_ids),
-    "DeleteDomain":                 ("OpenSearch", _extract_opensearch_ids),
+    "DeleteFunction20150331":       _extract_lambda_ids,
+    "DeleteVpnConnection":          _extract_vpn_ids,
+    "DeleteRestApi":                _extract_apigw_rest_ids,
+    "DeleteApi":                    _extract_apigw_v2_ids,
+    "DeleteCertificate":            _extract_acm_ids,
+    "DeleteBackupVault":            _extract_backup_vault_ids,
+    "DeleteBroker":                 _extract_mq_ids,
+    "DeleteDomain":                 _extract_opensearch_ids,
 
     # TAG_CHANGE
 
-    "CreateTags":                   ("EC2", _extract_tag_resource_ids),
+    "CreateTags":                   _extract_tag_resource_ids,
 
-    "DeleteTags":                   ("EC2", _extract_tag_resource_ids),
+    "DeleteTags":                   _extract_tag_resource_ids,
 
-    "AddTagsToResource":            ("RDS", _extract_rds_tag_resource_ids),
+    "AddTagsToResource":            _extract_rds_tag_resource_ids,
 
-    "RemoveTagsFromResource":       ("RDS", _extract_rds_tag_resource_ids),
+    "RemoveTagsFromResource":       _extract_rds_tag_resource_ids,
 
-    "AddTags":                      ("ELB", _extract_elb_tag_resource_ids),
+    "AddTags":                      _extract_elb_tag_resource_ids,
 
-    "RemoveTags":                   ("ELB", _extract_elb_tag_resource_ids),
+    "RemoveTags":                   _extract_elb_tag_resource_ids,
 
     # TAG_CHANGE (신규 리소스 공통)
-    "TagResource":                  ("MULTI", _extract_tag_resource_arn),
-    "UntagResource":                ("MULTI", _extract_tag_resource_arn),
+    "TagResource":                  _extract_tag_resource_arn,
+    "UntagResource":                _extract_tag_resource_arn,
 
     # SQS 전용 태그 이벤트
-    "TagQueue":                     ("SQS", _extract_sqs_queue_name),
-    "UntagQueue":                   ("SQS", _extract_sqs_queue_name),
+    "TagQueue":                     _extract_sqs_queue_name,
+    "UntagQueue":                   _extract_sqs_queue_name,
 
     # CREATE (12개 신규 리소스)
-    "CreateQueue":                  ("SQS", _extract_sqs_queue_name),
-    "CreateService":                ("ECS", _extract_ecs_service_ids),
-    "CreateCluster":                ("MSK", _extract_msk_cluster_ids),
-    "CreateTable":                  ("DynamoDB", _extract_dynamodb_table_ids),
-    "CreateDistribution":           ("CloudFront", _extract_cloudfront_create_ids),
-    "CreateWebACL":                 ("WAF", _extract_waf_create_ids),
-    "CreateHealthCheck":            ("Route53", _extract_route53_create_ids),
-    "CreateConnection":             ("DX", _extract_dx_connection_ids),
-    "CreateFileSystem":             ("EFS", _extract_efs_file_system_ids),
-    "CreateBucket":                 ("S3", _extract_s3_bucket_ids),
-    "CreateEndpoint":               ("SageMaker", _extract_sagemaker_endpoint_ids),
-    "CreateTopic":                  ("SNS", _extract_sns_topic_ids),
+    "CreateQueue":                  _extract_sqs_queue_name,
+    "CreateService":                _extract_ecs_service_ids,
+    "CreateCluster":                _extract_msk_cluster_ids,
+    "CreateTable":                  _extract_dynamodb_table_ids,
+    "CreateDistribution":           _extract_cloudfront_create_ids,
+    "CreateWebACL":                 _extract_waf_create_ids,
+    "CreateHealthCheck":            _extract_route53_create_ids,
+    "CreateConnection":             _extract_dx_connection_ids,
+    "CreateFileSystem":             _extract_efs_file_system_ids,
+    "CreateBucket":                 _extract_s3_bucket_ids,
+    "CreateEndpoint":               _extract_sagemaker_endpoint_ids,
+    "CreateTopic":                  _extract_sns_topic_ids,
 
     # DELETE (12개 신규 리소스)
-    "DeleteQueue":                  ("SQS", _extract_sqs_queue_name),
-    "DeleteService":                ("ECS", _extract_ecs_service_ids),
-    "DeleteCluster":                ("MSK", _extract_msk_cluster_ids),
-    "DeleteTable":                  ("DynamoDB", _extract_dynamodb_table_ids),
-    "DeleteDistribution":           ("CloudFront", _extract_cloudfront_delete_ids),
-    "DeleteWebACL":                 ("WAF", _extract_waf_delete_ids),
-    "DeleteHealthCheck":            ("Route53", _extract_route53_delete_ids),
-    "DeleteConnection":             ("DX", _extract_dx_connection_ids),
-    "DeleteFileSystem":             ("EFS", _extract_efs_file_system_ids),
-    "DeleteBucket":                 ("S3", _extract_s3_bucket_ids),
-    "DeleteEndpoint":               ("SageMaker", _extract_sagemaker_endpoint_ids),
-    "DeleteTopic":                  ("SNS", _extract_sns_topic_ids),
+    "DeleteQueue":                  _extract_sqs_queue_name,
+    "DeleteService":                _extract_ecs_service_ids,
+    "DeleteCluster":                _extract_msk_cluster_ids,
+    "DeleteTable":                  _extract_dynamodb_table_ids,
+    "DeleteDistribution":           _extract_cloudfront_delete_ids,
+    "DeleteWebACL":                 _extract_waf_delete_ids,
+    "DeleteHealthCheck":            _extract_route53_delete_ids,
+    "DeleteConnection":             _extract_dx_connection_ids,
+    "DeleteFileSystem":             _extract_efs_file_system_ids,
+    "DeleteBucket":                 _extract_s3_bucket_ids,
+    "DeleteEndpoint":               _extract_sagemaker_endpoint_ids,
+    "DeleteTopic":                  _extract_sns_topic_ids,
 
 }
+
+
+def _build_api_map() -> dict[str, tuple[str, callable]]:
+    """이벤트 → (타입, 추출기). 레지스트리와 추출기 표가 어긋나면 import 시점에 크게 실패한다 — 조용한 누락 금지."""
+    targets = resource_types.event_to_type()
+    missing = sorted(set(targets) - set(_EXTRACTORS))
+    extra = sorted(set(_EXTRACTORS) - set(targets))
+    if missing or extra:
+        raise RuntimeError(f"lifecycle events out of sync — no extractor: {missing}; not in registry: {extra}")
+    return {event: (targets[event], fn) for event, fn in _EXTRACTORS.items()}
+
+
+_API_MAP: dict[str, tuple[str, callable]] = _build_api_map()
 
 
 

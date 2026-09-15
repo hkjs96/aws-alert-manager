@@ -38,19 +38,24 @@
 
 ## Phase 2 — 스펙 객체와 뷰 (2~3일)
 
-- [ ] 2.1 `common/resource_types/__init__.py` — `ResourceTypeSpec`(frozen dataclass), `AlarmDef`, `Lifecycle`,
-      `Identity`, `register/get/all_specs/types`. 중복 등록 즉시 실패. `notification_adapters.py`와 같은 모양.
-- [ ] 2.2 `LegacyCollectorSpec` — 기존 수집기 모듈을 감싸 `enumerate`/`metrics`/`alive`에 그대로 연결하는 어댑터.
-      29개 타입을 **한 번에** 레지스트리에 올린다(알람·생명주기는 아직 옛 위치를 참조).
-- [ ] 2.3 파생 뷰 전환 — `SUPPORTED_RESOURCE_TYPES`·`_RESOURCE_TYPE_TO_COLLECTOR`·`_COLLECTOR_MODULES`·
-      `TAGGED_SERVICES`·`MONITORED_API_EVENTS`·`_API_MAP`을 `all_specs()`에서 계산. 스냅숏 테스트로 동일성 증명.
+- [x] 2.1 `common/resource_types/__init__.py`(2026-09-15) — `ResourceTypeSpec`(frozen)·`Lifecycle`·`register/get/all_specs/types`,
+      중복 타입·별칭 즉시 실패. 순환 회피: 이 모듈은 `alarm_registry`(logging만)와 stdlib만 의존 — 수집기는 **모듈 이름**으로,
+      CloudTrail ID 추출기는 remediation에 둔다(이벤트→타입 매핑만 스펙). `AlarmDef`·`Identity`는 2.4/P3에서.
+- [x] 2.2 어댑터 없이 끝냈다 — 스펙이 `collector` 이름과 `alarms(tags)`(→`_get_alarm_defs_raw`)로 기존 데이터를 **가리킨다**.
+      29개 등록, 등록 순서 = `SUPPORTED_RESOURCE_TYPES` 순서. LB 셋은 이벤트를 ALB 스펙에 `target="ELB"`로, `TagResource`/
+      `UntagResource`는 `SHARED_LIFECYCLE`(MULTI). 예외마다 `notes` 필수(테스트가 강제: 프라임 안 함·생명주기 없음).
+- [x] 2.3 파생 뷰 전환 — `common.SUPPORTED_RESOURCE_TYPES`·`MONITORED_API_EVENTS`(뷰), `daily_monitor._COLLECTOR_MODULES`·
+      `_RESOURCE_TYPE_TO_COLLECTOR`(importlib, 명시 import는 테스트 패치 경로라 유지), `remediation._API_MAP`(타입 절반은
+      레지스트리, 추출기 표 `_EXTRACTORS`와 어긋나면 **import 시 RuntimeError**), `tag_cache.TAGGED_SERVICES`(`rgt_prime`).
+      `tests/test_resource_type_registry.py`가 스냅숏 동일성·불변식·소비처 연결을 고정. 함정: 패치 정규식이 `EC2`·`Route53`·`S3`
+      (숫자 포함 타입명)를 놓쳐 10항목이 반쯤 바뀐 채 남았다 — 사후 검증을 같은 패턴으로 하면 공허하다.
 - [ ] 2.4 알람 정의 이관 — `_X_ALARMS` 리스트와 조건부 함수를 타입별 스펙 파일로 이동, `_get_alarm_defs_raw`의
       29분기 `elif`를 `get(type).alarms(tags)` 한 줄로. `_METRIC_DISPLAY`·`HARDCODED_DEFAULTS` 항목을 `AlarmDef.display`/
       `.default`로 이동. 여분 23개 임계치 키는 `extra_threshold_keys=(("CPU", "옛 태그 키 호환"), …)`로 **이유 필수**.
-- [ ] 2.5 생명주기 이관 — `_API_MAP`의 66개 항목을 타입별 `lifecycle`로. ALB/NLB/CLB는 ELB 스펙의 alias,
-      DocDB는 RDS 이벤트 + 엔진 판별(현행 유지, 스펙에 명시).
-- [ ] 2.6 **템플릿 정합 테스트**(R8) — `template.yaml`의 CloudTrail EventPattern `detail.eventName` 집합 ==
-      `{l.event for s in all_specs() for l in s.lifecycle}`. `test_severity_consistency.py`와 같은 정적 검사.
+- [x] 2.5 생명주기 이관 — 66개 이벤트가 타입별 `lifecycle`로(2.1에서 함께). 추출기는 remediation에 남고 `_build_api_map()`이
+      둘을 맞춘다. ELB 이벤트는 ALB 스펙(`target="ELB"`), DocDB·Aurora는 RDS 이벤트 공유(notes에 명시).
+- [x] 2.6 **템플릿 정합 테스트**(R8) — `test_template_cloudtrail_event_pattern_equals_the_registry_events`: 템플릿의 CloudTrail
+      EventPattern `detail.eventName` 집합 == 레지스트리 이벤트 합집합. 통과(66개).
 - [ ] 2.7 시연: 가짜 타입 하나를 스펙 파일 + 테스트만으로 추가해 카탈로그·수집·생명주기에 나타나는지(AC 2).
 
 ## Phase 3 — 범용 수집기 (3~4일, 3파)

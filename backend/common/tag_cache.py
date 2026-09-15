@@ -29,11 +29,11 @@ logger = logging.getLogger(__name__)
 
 # ARN의 service 세그먼트. EC2(인스턴스/NAT/VPN)·EFS·MSK·APIGW v2는 describe 응답에
 # 태그가 포함되므로 제외 — 프라임 페이로드만 늘린다.
-TAGGED_SERVICES = [
-    "rds", "elasticloadbalancing", "elasticache", "lambda", "sqs", "dynamodb",
-    "es", "ecs", "apigateway", "acm", "backup", "mq", "kafka", "wafv2",
-    "directconnect", "sagemaker", "sns", "cloudfront", "route53", "s3",
-]
+# 프라임할 서비스는 리소스 타입 레지스트리의 `rgt_prime` 스펙에서 파생된다 (docs/specs/resource-type-registry P2).
+# 빠진 서비스(ec2 계열·efs)의 이유는 각 스펙의 notes에 있다.
+from common.resource_types import tagged_services as _tagged_services  # noqa: E402
+
+TAGGED_SERVICES = _tagged_services()
 _RESOURCES_PER_PAGE = 100
 
 
