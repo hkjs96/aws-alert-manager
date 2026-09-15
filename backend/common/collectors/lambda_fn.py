@@ -1,28 +1,22 @@
 """
-LambdaCollector - Remaining Resource Monitoring
+Lambda 수집기 — 나열은 범용(태그 캐시), 여기엔 describe 폴백과 존재 확인만 (docs/specs/resource-type-registry P3)
 
-Monitoring=on 태그가 있는 Lambda 함수 수집 및 CloudWatch 메트릭 조회.
-파일명 lambda_fn.py: Python 예약어 lambda 충돌 회피.
-네임스페이스: AWS/Lambda, 디멘션: FunctionName.
+파일명 lambda_fn.py: Python 예약어 lambda 충돌 회피. TagName = 함수 이름(ARN의 마지막 조각, 스펙 `identity`).
+메트릭은 스펙(`common/resource_types/lambda_fn.py`)의 알람 정의에서 만든다. 네임스페이스 AWS/Lambda, 디멘션 FunctionName.
 """
 
 import functools
 import logging
-from datetime import datetime, timedelta, timezone
 
 import boto3
 from botocore.exceptions import ClientError
 
-from common import ResourceInfo
-from common.collectors.base import query_metric, CW_LOOKBACK_MINUTES, CW_STAT_AVG, CW_STAT_SUM, collect_metric
+from common.collectors.generic import GenericCollector
+from common.resource_types.lambda_fn import SPEC
 from common.tag_cache import cached_tags
 
 logger = logging.getLogger(__name__)
 
-
-# ──────────────────────────────────────────────
-# boto3 클라이언트 싱글턴 (코딩 거버넌스 §1)
-# ──────────────────────────────────────────────
 
 @functools.lru_cache(maxsize=None)
 def _get_lambda_client():
@@ -30,13 +24,8 @@ def _get_lambda_client():
     return boto3.client("lambda")
 
 
-def collect_monitored_resources() -> list[ResourceInfo]:
-    """
-    Monitoring=on 태그가 있는 Lambda 함수 목록 반환.
-
-    list_functions() paginator로 전체 함수 조회 후
-    list_tags()로 태그 확인, Monitoring=on 필터링.
-    """
+def _enumerate() -> list[tuple[str, dict]]:
+    """태그 캐시가 없을 때: list_functions 후 함수마다 list_tags(N+1). (function_name, tags)."""
     try:
         client = _get_lambda_client()
         paginator = client.get_paginator("list_functions")
@@ -45,63 +34,15 @@ def collect_monitored_resources() -> list[ResourceInfo]:
         logger.error("Lambda list_functions failed: %s", e)
         raise
 
-    resources: list[ResourceInfo] = []
-    region = boto3.session.Session().region_name or "us-east-1"
-
+    found: list[tuple[str, dict]] = []
     for page in pages:
         for fn in page.get("Functions", []):
-            fn_name = fn["FunctionName"]
-            fn_arn = fn.get("FunctionArn", "")
-
-            tags = _get_tags(client, fn_arn)
-            if tags.get("Monitoring", "").lower() != "on":
-                continue
-
-            resources.append(
-                ResourceInfo(
-                    id=fn_name,
-                    type="Lambda",
-                    tags=tags,
-                    region=region,
-                )
-            )
-
-    return resources
+            found.append((fn["FunctionName"], _get_tags(client, fn.get("FunctionArn", ""))))
+    return found
 
 
-def get_metrics(
-    resource_id: str, resource_tags: dict | None = None,
-) -> dict[str, float] | None:
-    """
-    CloudWatch에서 Lambda 함수 메트릭 조회.
-
-    수집 메트릭 (네임스페이스: AWS/Lambda):
-    - Duration (Average) → 'Duration'
-    - Errors (Sum) → 'Errors'
-
-    데이터 없으면 해당 메트릭 skip. 모두 없으면 None 반환.
-    """
-    if resource_tags is None:
-        resource_tags = {}
-
-    end_time = datetime.now(timezone.utc)
-    start_time = end_time - timedelta(minutes=CW_LOOKBACK_MINUTES)
-
-    dim = [{"Name": "FunctionName", "Value": resource_id}]
-    metrics: dict[str, float] = {}
-
-    collect_metric("AWS/Lambda", "Duration", dim,
-                   start_time, end_time, "Duration", metrics,
-                   stat=CW_STAT_AVG, resource_label="Lambda")
-    collect_metric("AWS/Lambda", "Errors", dim,
-                   start_time, end_time, "Errors", metrics,
-                   stat=CW_STAT_SUM, resource_label="Lambda")
-
-    return metrics if metrics else None
-
-
-def resolve_alive_ids(tag_names: set[str]) -> set[str]:
-    """Lambda 함수 존재 여부 확인."""
+def _alive(tag_names: set[str]) -> set[str]:
+    """Lambda 함수 존재 여부 확인 — get_function."""
     client = _get_lambda_client()
     alive: set[str] = set()
     for name in tag_names:
@@ -130,3 +71,9 @@ def _get_tags(lambda_client, function_arn: str) -> dict:
     except ClientError as e:
         logger.error("Lambda list_tags failed for %s: %s", function_arn, e)
         return {}
+
+
+COLLECTOR = GenericCollector(SPEC, alive=_alive, enumerate=_enumerate)
+collect_monitored_resources = COLLECTOR.collect_monitored_resources
+get_metrics = COLLECTOR.get_metrics
+resolve_alive_ids = COLLECTOR.resolve_alive_ids

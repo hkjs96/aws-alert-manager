@@ -15,9 +15,9 @@ CloudTrail 이벤트 목록(3곳), 태그 캐시가 프라임할 서비스, 글�
 `remediation_handler`에 남긴다(이벤트→타입 매핑만 여기). 그래야 `common/__init__`이 이 패키지를 import해도
 순환이 없다.
 
-알람 정의는 타입별 모듈(`common/resource_types/<type>.py`)에 있고 스펙의 `alarm_defs`가 그것이다(P2.4).
-표시명·기본 임계치는 아직 `alarm_registry._METRIC_DISPLAY`·`common.HARDCODED_DEFAULTS`에(P2.4b). P3에서 `rgt_filters`가
-범용 수집기의 나열 소스가 된다.
+알람 정의는 타입별 모듈(`common/resource_types/<type>.py`)에 있고 스펙의 `alarm_defs`가 그것이다(P2.4). 표시명·기본
+임계치는 `display`/`defaults`(P2.4b). 범용 수집기(`common/collectors/generic.py`, P3)는 `identity`가 있는 타입을 태그 캐시(RGT,
+`rgt_filters`)로 나열하고 `alarm_defs`에서 `get_metrics`를 만든다 — 수집기 모듈에는 describe 폴백과 존재 확인만 남는다.
 """
 
 from __future__ import annotations
@@ -70,6 +70,10 @@ class ResourceTypeSpec:
     display: dict[str, tuple[str, str, str]] = field(default_factory=dict)
     #: 메트릭 키 → 기본 임계치(태그·환경변수가 없을 때). 옛 `common.HARDCODED_DEFAULTS`가 여기서 파생된다.
     defaults: dict[str, float] = field(default_factory=dict)
+    #: ARN → TagName(리소스 ID). 표준 라이브러리만 쓰는 순수 함수(`arn_tail(":")` 등). 있으면 범용 수집기가 태그 캐시(RGT
+    #: GetResources)로 나열하므로 `rgt_prime`이어야 한다(register가 강제). 없으면 수집기 모듈의 describe 나열만 쓴다 — 이유를
+    #: `notes`에 적는다(ACM: 태그 없는 인증서도 수집, DX: 연결 상태 필터, MQ: 인스턴스 분기가 describe를 요구해 모듈이 맡는다).
+    identity: Callable[[str], str] | None = None
 
     def alarms(self, resource_tags: dict | None = None) -> list[dict]:
         """이 타입의 알람 정의(태그 조건부 변형 반영)."""
@@ -108,6 +112,8 @@ def register(spec: ResourceTypeSpec) -> ResourceTypeSpec:
             raise ValueError(f"alias already registered: {alias} (for {spec.type})")
     if spec.kind_check():
         raise ValueError(spec.kind_check())
+    if spec.identity is not None and not spec.rgt_prime:
+        raise ValueError(f"{spec.type}: identity without rgt_prime — the tag cache would never hold this type's ARNs")
     _SPECS[spec.type] = spec
     for alias in spec.aliases:
         _ALIASES[alias] = spec.type
@@ -137,6 +143,27 @@ def all_specs() -> list[ResourceTypeSpec]:
 def types() -> list[str]:
     """지원 타입 목록 — 등록 순서. `common.SUPPORTED_RESOURCE_TYPES`가 이것이다."""
     return list(_SPECS)
+
+
+def rgt_enumerated_types() -> list[str]:
+    """범용 수집기가 태그 캐시(RGT)로 나열하는 타입 — `identity`가 있는 스펙. 나머지는 describe 나열(`_enumerate`)."""
+    return [s.type for s in _SPECS.values() if s.identity is not None]
+
+
+# ────────────────────────────────── ARN 도우미 — identity 규칙은 이걸로 적는다
+
+def arn_resource(arn: str) -> str:
+    """ARN의 리소스 부분 — `arn:partition:service:region:account:` 뒤 전부(콜론이 더 있어도 그대로)."""
+    parts = arn.split(":", 5)
+    return parts[5] if len(parts) == 6 else arn
+
+
+def arn_tail(sep: str) -> Callable[[str], str]:
+    """`sep`로 자른 마지막 조각이 TagName인 타입의 identity — SQS·SNS·Lambda·Backup(":"), DynamoDB·EFS·DX("/")."""
+    def _tail(arn: str) -> str:
+        return arn.rsplit(sep, 1)[-1]
+    _tail.__name__ = _tail.__qualname__ = f"arn_tail({sep!r})"
+    return _tail
 
 
 #: 특정 타입에 속하지 않는 생명주기 이벤트. 12개 서비스가 `TagResource`/`UntagResource`를 같은 이름으로 낸다.

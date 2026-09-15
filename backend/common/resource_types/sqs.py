@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from common.resource_types.base import CREATE, DELETE, TAG_CHANGE, Lifecycle, ResourceTypeSpec, register
+from common.resource_types.base import CREATE, DELETE, TAG_CHANGE, Lifecycle, ResourceTypeSpec, arn_tail, register
 
 
 _SQS_ALARMS = [
@@ -45,7 +45,7 @@ _SQS_ALARMS = [
 
 SPEC = register(ResourceTypeSpec(
     type="SQS", label="SQS 큐", collector="sqs",
-    rgt_filters=("sqs",), rgt_prime=True,
+    rgt_filters=("sqs",), rgt_prime=True, identity=arn_tail(":"),
     lifecycle=(Lifecycle("CreateQueue", CREATE), Lifecycle("DeleteQueue", DELETE),
                Lifecycle("TagQueue", TAG_CHANGE), Lifecycle("UntagQueue", TAG_CHANGE)),
     alarm_defs=_SQS_ALARMS,

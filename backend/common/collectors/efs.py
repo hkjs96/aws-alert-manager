@@ -1,26 +1,21 @@
 """
-EFSCollector - Extended Resource Monitoring
+EFS 수집기 — 나열은 범용(태그 캐시), 여기엔 describe 폴백과 존재 확인만 (docs/specs/resource-type-registry P3)
 
-Monitoring=on 태그가 있는 EFS 파일시스템 수집 및 CloudWatch 메트릭 조회.
-네임스페이스: AWS/EFS, 디멘션: FileSystemId.
+TagName = 파일시스템 ID(ARN `file-system/<fs-id>`의 마지막 조각, 스펙 `identity`). 메트릭은 스펙(`common/resource_types/efs.py`)의
+알람 정의에서 만든다. 네임스페이스 AWS/EFS, 디멘션 FileSystemId. describe_file_systems 응답이 Tags를 포함한다.
 """
 
 import functools
 import logging
-from datetime import datetime, timedelta, timezone
 
 import boto3
 from botocore.exceptions import ClientError
 
-from common import ResourceInfo
-from common.collectors.base import query_metric, CW_LOOKBACK_MINUTES, CW_STAT_AVG, CW_STAT_SUM, collect_metric
+from common.collectors.generic import GenericCollector
+from common.resource_types.efs import SPEC
 
 logger = logging.getLogger(__name__)
 
-
-# ──────────────────────────────────────────────
-# boto3 클라이언트 싱글턴 (코딩 거버넌스 §1)
-# ──────────────────────────────────────────────
 
 @functools.lru_cache(maxsize=None)
 def _get_efs_client():
@@ -28,13 +23,8 @@ def _get_efs_client():
     return boto3.client("efs")
 
 
-def collect_monitored_resources() -> list[ResourceInfo]:
-    """
-    Monitoring=on 태그가 있는 EFS 파일시스템 목록 반환.
-
-    describe_file_systems() paginator로 전체 파일시스템 조회.
-    응답의 Tags 필드에서 Monitoring=on 필터링.
-    """
+def _enumerate() -> list[tuple[str, dict]]:
+    """태그 캐시가 없을 때: describe_file_systems(Tags 포함, 태그 API 없음). (fs_id, tags)."""
     try:
         client = _get_efs_client()
         paginator = client.get_paginator("describe_file_systems")
@@ -43,64 +33,15 @@ def collect_monitored_resources() -> list[ResourceInfo]:
         logger.error("EFS describe_file_systems failed: %s", e)
         raise
 
-    resources: list[ResourceInfo] = []
-    region = boto3.session.Session().region_name or "us-east-1"
-
+    found: list[tuple[str, dict]] = []
     for page in pages:
         for fs in page.get("FileSystems", []):
-            fs_id = fs["FileSystemId"]
-            tags = {t["Key"]: t["Value"] for t in fs.get("Tags", [])}
-
-            if tags.get("Monitoring", "").lower() != "on":
-                continue
-
-            resources.append(
-                ResourceInfo(
-                    id=fs_id,
-                    type="EFS",
-                    tags=tags,
-                    region=region,
-                )
-            )
-
-    return resources
+            found.append((fs["FileSystemId"], {t["Key"]: t["Value"] for t in fs.get("Tags", [])}))
+    return found
 
 
-def get_metrics(
-    resource_id: str, resource_tags: dict | None = None,
-) -> dict[str, float] | None:
-    """
-    CloudWatch에서 EFS 파일시스템 메트릭 조회.
-
-    수집 메트릭 (네임스페이스: AWS/EFS):
-    - BurstCreditBalance (Minimum) → 'BurstCreditBalance'
-    - PercentIOLimit (Average) → 'PercentIOLimit'
-    - ClientConnections (Sum) → 'EFSClientConnections'
-    """
-    if resource_tags is None:
-        resource_tags = {}
-
-    end_time = datetime.now(timezone.utc)
-    start_time = end_time - timedelta(minutes=CW_LOOKBACK_MINUTES)
-
-    dim = [{"Name": "FileSystemId", "Value": resource_id}]
-    metrics: dict[str, float] = {}
-
-    collect_metric("AWS/EFS", "BurstCreditBalance", dim,
-                   start_time, end_time, "BurstCreditBalance", metrics,
-                   stat="Minimum", resource_label="EFS")
-    collect_metric("AWS/EFS", "PercentIOLimit", dim,
-                   start_time, end_time, "PercentIOLimit", metrics,
-                   stat=CW_STAT_AVG, resource_label="EFS")
-    collect_metric("AWS/EFS", "ClientConnections", dim,
-                   start_time, end_time, "EFSClientConnections", metrics,
-                   stat=CW_STAT_SUM, resource_label="EFS")
-
-    return metrics if metrics else None
-
-
-def resolve_alive_ids(tag_names: set[str]) -> set[str]:
-    """EFS 파일시스템 존재 여부 확인."""
+def _alive(tag_names: set[str]) -> set[str]:
+    """EFS 파일시스템 존재 여부 확인 — describe_file_systems(FileSystemId)."""
     client = _get_efs_client()
     alive: set[str] = set()
     for fs_id in tag_names:
@@ -115,3 +56,8 @@ def resolve_alive_ids(tag_names: set[str]) -> set[str]:
                 logger.error("describe_file_systems failed for %s: %s", fs_id, e)
     return alive
 
+
+COLLECTOR = GenericCollector(SPEC, alive=_alive, enumerate=_enumerate)
+collect_monitored_resources = COLLECTOR.collect_monitored_resources
+get_metrics = COLLECTOR.get_metrics
+resolve_alive_ids = COLLECTOR.resolve_alive_ids

@@ -2,7 +2,14 @@
  "_meta": {
   "taken": "2026-09-15",
   "purpose": "resource-type-registry P0.2 — 파생 뷰가 손 맵과 같음을 증명하는 기준",
-  "types": 29
+  "types": 29,
+  "changes": [
+   {
+    "date": "2026-09-15",
+    "what": "TAGGED_SERVICES += elasticfilesystem",
+    "why": "P3 wave 1: the generic collector enumerates EFS through the tag cache (spec efs rgt_prime=True); before, the efs collector read Tags from describe_file_systems and never touched the cache."
+   }
+  ]
  },
  "SUPPORTED_RESOURCE_TYPES": [
   "EC2",
@@ -1241,6 +1248,7 @@
   "kafka",
   "wafv2",
   "directconnect",
+  "elasticfilesystem",
   "sagemaker",
   "sns",
   "cloudfront",

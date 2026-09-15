@@ -1,27 +1,22 @@
 """
-BackupCollector - Remaining Resource Monitoring
+AWS Backup 수집기 — 나열은 범용(태그 캐시), 여기엔 describe 폴백과 존재 확인만 (docs/specs/resource-type-registry P3)
 
-Monitoring=on 태그가 있는 AWS Backup Vault 수집 및 CloudWatch 메트릭 조회.
-네임스페이스: AWS/Backup, 디멘션: BackupVaultName.
+TagName = 볼트 이름(ARN `backup-vault:<name>`의 마지막 조각, 스펙 `identity`). 메트릭은 스펙(`common/resource_types/backup.py`)의
+알람 정의에서 만든다. 네임스페이스 AWS/Backup, 디멘션 BackupVaultName.
 """
 
 import functools
 import logging
-from datetime import datetime, timedelta, timezone
 
 import boto3
 from botocore.exceptions import ClientError
 
-from common import ResourceInfo
-from common.collectors.base import query_metric, CW_LOOKBACK_MINUTES, CW_STAT_SUM, collect_metric
+from common.collectors.generic import GenericCollector
+from common.resource_types.backup import SPEC
 from common.tag_cache import cached_tags
 
 logger = logging.getLogger(__name__)
 
-
-# ──────────────────────────────────────────────
-# boto3 클라이언트 싱글턴 (코딩 거버넌스 §1)
-# ──────────────────────────────────────────────
 
 @functools.lru_cache(maxsize=None)
 def _get_backup_client():
@@ -29,13 +24,8 @@ def _get_backup_client():
     return boto3.client("backup")
 
 
-def collect_monitored_resources() -> list[ResourceInfo]:
-    """
-    Monitoring=on 태그가 있는 Backup Vault 목록 반환.
-
-    list_backup_vaults() paginator로 전체 vault 조회 후
-    list_tags()로 태그 확인, Monitoring=on 필터링.
-    """
+def _enumerate() -> list[tuple[str, dict]]:
+    """태그 캐시가 없을 때: list_backup_vaults 후 볼트마다 list_tags(N+1). (vault_name, tags)."""
     try:
         client = _get_backup_client()
         paginator = client.get_paginator("list_backup_vaults")
@@ -44,63 +34,15 @@ def collect_monitored_resources() -> list[ResourceInfo]:
         logger.error("Backup list_backup_vaults failed: %s", e)
         raise
 
-    resources: list[ResourceInfo] = []
-    region = boto3.session.Session().region_name or "us-east-1"
-
+    found: list[tuple[str, dict]] = []
     for page in pages:
         for vault in page.get("BackupVaultList", []):
-            vault_name = vault["BackupVaultName"]
-            vault_arn = vault.get("BackupVaultArn", "")
-
-            tags = _get_tags(client, vault_arn)
-            if tags.get("Monitoring", "").lower() != "on":
-                continue
-
-            resources.append(
-                ResourceInfo(
-                    id=vault_name,
-                    type="Backup",
-                    tags=tags,
-                    region=region,
-                )
-            )
-
-    return resources
+            found.append((vault["BackupVaultName"], _get_tags(client, vault.get("BackupVaultArn", ""))))
+    return found
 
 
-def get_metrics(
-    resource_id: str, resource_tags: dict | None = None,
-) -> dict[str, float] | None:
-    """
-    CloudWatch에서 Backup Vault 메트릭 조회.
-
-    수집 메트릭 (네임스페이스: AWS/Backup, stat: Sum):
-    - NumberOfBackupJobsFailed → 'BackupJobsFailed'
-    - NumberOfBackupJobsAborted → 'BackupJobsAborted'
-
-    데이터 없으면 해당 메트릭 skip. 모두 없으면 None 반환.
-    """
-    if resource_tags is None:
-        resource_tags = {}
-
-    end_time = datetime.now(timezone.utc)
-    start_time = end_time - timedelta(minutes=CW_LOOKBACK_MINUTES)
-
-    dim = [{"Name": "BackupVaultName", "Value": resource_id}]
-    metrics: dict[str, float] = {}
-
-    collect_metric("AWS/Backup", "NumberOfBackupJobsFailed", dim,
-                   start_time, end_time, "BackupJobsFailed", metrics,
-                   stat=CW_STAT_SUM, resource_label="Backup")
-    collect_metric("AWS/Backup", "NumberOfBackupJobsAborted", dim,
-                   start_time, end_time, "BackupJobsAborted", metrics,
-                   stat=CW_STAT_SUM, resource_label="Backup")
-
-    return metrics if metrics else None
-
-
-def resolve_alive_ids(tag_names: set[str]) -> set[str]:
-    """Backup Vault 존재 여부 확인."""
+def _alive(tag_names: set[str]) -> set[str]:
+    """Backup Vault 존재 여부 확인 — describe_backup_vault."""
     client = _get_backup_client()
     alive: set[str] = set()
     for name in tag_names:
@@ -129,3 +71,9 @@ def _get_tags(backup_client, vault_arn: str) -> dict:
     except ClientError as e:
         logger.error("Backup list_tags failed for %s: %s", vault_arn, e)
         return {}
+
+
+COLLECTOR = GenericCollector(SPEC, alive=_alive, enumerate=_enumerate)
+collect_monitored_resources = COLLECTOR.collect_monitored_resources
+get_metrics = COLLECTOR.get_metrics
+resolve_alive_ids = COLLECTOR.resolve_alive_ids

@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from common.resource_types.base import CREATE, DELETE, Lifecycle, ResourceTypeSpec, register
+from common.resource_types.base import CREATE, DELETE, Lifecycle, ResourceTypeSpec, arn_tail, register
 
 
 _SNS_ALARMS = [
@@ -35,7 +35,7 @@ _SNS_ALARMS = [
 
 SPEC = register(ResourceTypeSpec(
     type="SNS", label="SNS 토픽", collector="sns",
-    rgt_filters=("sns",), rgt_prime=True,
+    rgt_filters=("sns",), rgt_prime=True, identity=arn_tail(":"),
     lifecycle=(Lifecycle("CreateTopic", CREATE), Lifecycle("DeleteTopic", DELETE)),
     alarm_defs=_SNS_ALARMS,
     # 표시명(알람 이름에 쓰는 지표명·방향·단위)과 기본 임계치 — 옛 alarm_registry._METRIC_DISPLAY / common.HARDCODED_DEFAULTS.

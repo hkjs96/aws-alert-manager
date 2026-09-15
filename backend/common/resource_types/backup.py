@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from common.resource_types.base import CREATE, DELETE, Lifecycle, ResourceTypeSpec, register
+from common.resource_types.base import CREATE, DELETE, Lifecycle, ResourceTypeSpec, arn_tail, register
 
 
 _BACKUP_ALARMS = [
@@ -35,7 +35,7 @@ _BACKUP_ALARMS = [
 
 SPEC = register(ResourceTypeSpec(
     type="Backup", label="AWS Backup 볼트", collector="backup",
-    rgt_filters=("backup:backup-vault",), rgt_prime=True,
+    rgt_filters=("backup:backup-vault",), rgt_prime=True, identity=arn_tail(":"),
     lifecycle=(Lifecycle("CreateBackupVault", CREATE), Lifecycle("DeleteBackupVault", DELETE)),
     alarm_defs=_BACKUP_ALARMS,
     # 표시명(알람 이름에 쓰는 지표명·방향·단위)과 기본 임계치 — 옛 alarm_registry._METRIC_DISPLAY / common.HARDCODED_DEFAULTS.

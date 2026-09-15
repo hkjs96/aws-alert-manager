@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from common.resource_types.base import CREATE, DELETE, Lifecycle, ResourceTypeSpec, register
+from common.resource_types.base import CREATE, DELETE, Lifecycle, ResourceTypeSpec, arn_tail, register
 
 
 _EFS_ALARMS = [
@@ -45,9 +45,9 @@ _EFS_ALARMS = [
 
 SPEC = register(ResourceTypeSpec(
     type="EFS", label="EFS 파일 시스템", collector="efs",
-    rgt_filters=("elasticfilesystem:file-system",), rgt_prime=False,
+    rgt_filters=("elasticfilesystem:file-system",), rgt_prime=True, identity=arn_tail("/"),
     lifecycle=(Lifecycle("CreateFileSystem", CREATE), Lifecycle("DeleteFileSystem", DELETE)),
-    notes="RGT 프라임 안 함: efs 수집기가 태그 캐시를 참조하지 않는다(2026-09 현재). P3 범용 수집기로 옮기며 켠다.",
+    notes="P3(2026-09-15)에서 프라임 켬 — 범용 수집기가 태그 캐시로 나열한다(그 전엔 describe 응답의 Tags를 읽어 캐시를 안 썼다).",
     alarm_defs=_EFS_ALARMS,
     # 표시명(알람 이름에 쓰는 지표명·방향·단위)과 기본 임계치 — 옛 alarm_registry._METRIC_DISPLAY / common.HARDCODED_DEFAULTS.
     # 여러 타입이 같은 키(CPUUtilization 등)를 선언하면 값이 같아야 한다 — 뷰가 강제한다.

@@ -1,0 +1,2205 @@
+{
+  "_meta": {
+    "taken": "2026-09-15",
+    "resource_id": "RID",
+    "lb_arn": "arn:aws:elasticloadbalancing:us-east-1:111111111111:loadbalancer/app/my-alb/0123456789abcdef",
+    "note": "Recorded from the pre-P3 per-type collectors; GenericCollector.get_metrics must register the same set."
+  },
+  "types": {
+    "EC2": {
+      "collector": "ec2",
+      "variants": {
+        "{}": {
+          "status": "ok",
+          "calls": [
+            {
+              "namespace": "AWS/EC2",
+              "metric_name": "CPUUtilization",
+              "dimensions": [
+                {
+                  "Name": "InstanceId",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": null,
+              "stat": "Average",
+              "transform": false,
+              "label": "query_metric"
+            }
+          ]
+        },
+        "{\"Threshold_StatusCheckFailed_Application\": \"1\"}": {
+          "status": "ok",
+          "calls": [
+            {
+              "namespace": "AWS/EC2",
+              "metric_name": "CPUUtilization",
+              "dimensions": [
+                {
+                  "Name": "InstanceId",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": null,
+              "stat": "Average",
+              "transform": false,
+              "label": "query_metric"
+            }
+          ]
+        }
+      }
+    },
+    "RDS": {
+      "collector": "rds",
+      "variants": {
+        "{}": {
+          "status": "ok",
+          "calls": [
+            {
+              "namespace": "AWS/RDS",
+              "metric_name": "CPUUtilization",
+              "dimensions": [
+                {
+                  "Name": "DBInstanceIdentifier",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "CPU",
+              "stat": "Average",
+              "transform": false,
+              "label": "RDS"
+            },
+            {
+              "namespace": "AWS/RDS",
+              "metric_name": "FreeableMemory",
+              "dimensions": [
+                {
+                  "Name": "DBInstanceIdentifier",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "FreeMemoryGB",
+              "stat": "Average",
+              "transform": true,
+              "label": "RDS"
+            },
+            {
+              "namespace": "AWS/RDS",
+              "metric_name": "FreeStorageSpace",
+              "dimensions": [
+                {
+                  "Name": "DBInstanceIdentifier",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "FreeStorageGB",
+              "stat": "Average",
+              "transform": true,
+              "label": "RDS"
+            },
+            {
+              "namespace": "AWS/RDS",
+              "metric_name": "DatabaseConnections",
+              "dimensions": [
+                {
+                  "Name": "DBInstanceIdentifier",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "Connections",
+              "stat": "Average",
+              "transform": false,
+              "label": "RDS"
+            }
+          ]
+        }
+      }
+    },
+    "ALB": {
+      "collector": "elb",
+      "variants": {
+        "{}": {
+          "status": "ok",
+          "calls": [
+            {
+              "namespace": "AWS/ApplicationELB",
+              "metric_name": "RequestCount",
+              "dimensions": [
+                {
+                  "Name": "LoadBalancer",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "RequestCount",
+              "stat": "Sum",
+              "transform": false,
+              "label": "ELB"
+            }
+          ]
+        }
+      }
+    },
+    "NLB": {
+      "collector": "elb",
+      "variants": {
+        "{}": {
+          "status": "ok",
+          "calls": [
+            {
+              "namespace": "AWS/ApplicationELB",
+              "metric_name": "RequestCount",
+              "dimensions": [
+                {
+                  "Name": "LoadBalancer",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "RequestCount",
+              "stat": "Sum",
+              "transform": false,
+              "label": "ELB"
+            }
+          ]
+        }
+      }
+    },
+    "TG": {
+      "collector": "elb",
+      "variants": {
+        "{}": {
+          "status": "ok",
+          "calls": [
+            {
+              "namespace": "AWS/ApplicationELB",
+              "metric_name": "RequestCount",
+              "dimensions": [
+                {
+                  "Name": "TargetGroup",
+                  "Value": "RID"
+                },
+                {
+                  "Name": "LoadBalancer",
+                  "Value": "app/my-alb/0123456789abcdef"
+                }
+              ],
+              "result_key": "RequestCount",
+              "stat": "Sum",
+              "transform": false,
+              "label": "TG"
+            },
+            {
+              "namespace": "AWS/ApplicationELB",
+              "metric_name": "HealthyHostCount",
+              "dimensions": [
+                {
+                  "Name": "TargetGroup",
+                  "Value": "RID"
+                },
+                {
+                  "Name": "LoadBalancer",
+                  "Value": "app/my-alb/0123456789abcdef"
+                }
+              ],
+              "result_key": "HealthyHostCount",
+              "stat": "Average",
+              "transform": false,
+              "label": "TG"
+            }
+          ]
+        },
+        "{\"_lb_type\": \"network\"}": {
+          "status": "ok",
+          "calls": [
+            {
+              "namespace": "AWS/NetworkELB",
+              "metric_name": "RequestCount",
+              "dimensions": [
+                {
+                  "Name": "TargetGroup",
+                  "Value": "RID"
+                },
+                {
+                  "Name": "LoadBalancer",
+                  "Value": "app/my-alb/0123456789abcdef"
+                }
+              ],
+              "result_key": "RequestCount",
+              "stat": "Sum",
+              "transform": false,
+              "label": "TG"
+            },
+            {
+              "namespace": "AWS/NetworkELB",
+              "metric_name": "HealthyHostCount",
+              "dimensions": [
+                {
+                  "Name": "TargetGroup",
+                  "Value": "RID"
+                },
+                {
+                  "Name": "LoadBalancer",
+                  "Value": "app/my-alb/0123456789abcdef"
+                }
+              ],
+              "result_key": "HealthyHostCount",
+              "stat": "Average",
+              "transform": false,
+              "label": "TG"
+            }
+          ]
+        },
+        "{\"_target_type\": \"alb\"}": {
+          "status": "ok",
+          "calls": [
+            {
+              "namespace": "AWS/ApplicationELB",
+              "metric_name": "RequestCount",
+              "dimensions": [
+                {
+                  "Name": "TargetGroup",
+                  "Value": "RID"
+                },
+                {
+                  "Name": "LoadBalancer",
+                  "Value": "app/my-alb/0123456789abcdef"
+                }
+              ],
+              "result_key": "RequestCount",
+              "stat": "Sum",
+              "transform": false,
+              "label": "TG"
+            },
+            {
+              "namespace": "AWS/ApplicationELB",
+              "metric_name": "HealthyHostCount",
+              "dimensions": [
+                {
+                  "Name": "TargetGroup",
+                  "Value": "RID"
+                },
+                {
+                  "Name": "LoadBalancer",
+                  "Value": "app/my-alb/0123456789abcdef"
+                }
+              ],
+              "result_key": "HealthyHostCount",
+              "stat": "Average",
+              "transform": false,
+              "label": "TG"
+            }
+          ]
+        }
+      }
+    },
+    "AuroraRDS": {
+      "collector": "rds",
+      "variants": {
+        "{\"_has_readers\": \"true\", \"_is_cluster_writer\": \"true\", \"_is_serverless_v2\": \"true\"}": {
+          "status": "ok",
+          "calls": [
+            {
+              "namespace": "AWS/RDS",
+              "metric_name": "CPUUtilization",
+              "dimensions": [
+                {
+                  "Name": "DBInstanceIdentifier",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "CPU",
+              "stat": "Average",
+              "transform": false,
+              "label": "AuroraRDS"
+            },
+            {
+              "namespace": "AWS/RDS",
+              "metric_name": "DatabaseConnections",
+              "dimensions": [
+                {
+                  "Name": "DBInstanceIdentifier",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "Connections",
+              "stat": "Average",
+              "transform": false,
+              "label": "AuroraRDS"
+            },
+            {
+              "namespace": "AWS/RDS",
+              "metric_name": "ACUUtilization",
+              "dimensions": [
+                {
+                  "Name": "DBInstanceIdentifier",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "ACUUtilization",
+              "stat": "Average",
+              "transform": false,
+              "label": "AuroraRDS"
+            },
+            {
+              "namespace": "AWS/RDS",
+              "metric_name": "AuroraReplicaLagMaximum",
+              "dimensions": [
+                {
+                  "Name": "DBInstanceIdentifier",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "ReplicaLag",
+              "stat": "Average",
+              "transform": false,
+              "label": "AuroraRDS"
+            }
+          ]
+        },
+        "{\"_has_readers\": \"false\", \"_is_cluster_writer\": \"true\", \"_is_serverless_v2\": \"true\"}": {
+          "status": "ok",
+          "calls": [
+            {
+              "namespace": "AWS/RDS",
+              "metric_name": "CPUUtilization",
+              "dimensions": [
+                {
+                  "Name": "DBInstanceIdentifier",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "CPU",
+              "stat": "Average",
+              "transform": false,
+              "label": "AuroraRDS"
+            },
+            {
+              "namespace": "AWS/RDS",
+              "metric_name": "DatabaseConnections",
+              "dimensions": [
+                {
+                  "Name": "DBInstanceIdentifier",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "Connections",
+              "stat": "Average",
+              "transform": false,
+              "label": "AuroraRDS"
+            },
+            {
+              "namespace": "AWS/RDS",
+              "metric_name": "ACUUtilization",
+              "dimensions": [
+                {
+                  "Name": "DBInstanceIdentifier",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "ACUUtilization",
+              "stat": "Average",
+              "transform": false,
+              "label": "AuroraRDS"
+            }
+          ]
+        },
+        "{\"_has_readers\": \"true\", \"_is_cluster_writer\": \"false\", \"_is_serverless_v2\": \"true\"}": {
+          "status": "ok",
+          "calls": [
+            {
+              "namespace": "AWS/RDS",
+              "metric_name": "CPUUtilization",
+              "dimensions": [
+                {
+                  "Name": "DBInstanceIdentifier",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "CPU",
+              "stat": "Average",
+              "transform": false,
+              "label": "AuroraRDS"
+            },
+            {
+              "namespace": "AWS/RDS",
+              "metric_name": "DatabaseConnections",
+              "dimensions": [
+                {
+                  "Name": "DBInstanceIdentifier",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "Connections",
+              "stat": "Average",
+              "transform": false,
+              "label": "AuroraRDS"
+            },
+            {
+              "namespace": "AWS/RDS",
+              "metric_name": "ACUUtilization",
+              "dimensions": [
+                {
+                  "Name": "DBInstanceIdentifier",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "ACUUtilization",
+              "stat": "Average",
+              "transform": false,
+              "label": "AuroraRDS"
+            },
+            {
+              "namespace": "AWS/RDS",
+              "metric_name": "AuroraReplicaLag",
+              "dimensions": [
+                {
+                  "Name": "DBInstanceIdentifier",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "ReaderReplicaLag",
+              "stat": "Average",
+              "transform": false,
+              "label": "AuroraRDS"
+            }
+          ]
+        },
+        "{\"_has_readers\": \"false\", \"_is_cluster_writer\": \"false\", \"_is_serverless_v2\": \"true\"}": {
+          "status": "ok",
+          "calls": [
+            {
+              "namespace": "AWS/RDS",
+              "metric_name": "CPUUtilization",
+              "dimensions": [
+                {
+                  "Name": "DBInstanceIdentifier",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "CPU",
+              "stat": "Average",
+              "transform": false,
+              "label": "AuroraRDS"
+            },
+            {
+              "namespace": "AWS/RDS",
+              "metric_name": "DatabaseConnections",
+              "dimensions": [
+                {
+                  "Name": "DBInstanceIdentifier",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "Connections",
+              "stat": "Average",
+              "transform": false,
+              "label": "AuroraRDS"
+            },
+            {
+              "namespace": "AWS/RDS",
+              "metric_name": "ACUUtilization",
+              "dimensions": [
+                {
+                  "Name": "DBInstanceIdentifier",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "ACUUtilization",
+              "stat": "Average",
+              "transform": false,
+              "label": "AuroraRDS"
+            },
+            {
+              "namespace": "AWS/RDS",
+              "metric_name": "AuroraReplicaLag",
+              "dimensions": [
+                {
+                  "Name": "DBInstanceIdentifier",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "ReaderReplicaLag",
+              "stat": "Average",
+              "transform": false,
+              "label": "AuroraRDS"
+            }
+          ]
+        },
+        "{\"_has_readers\": \"true\", \"_is_cluster_writer\": \"true\", \"_is_serverless_v2\": \"false\"}": {
+          "status": "ok",
+          "calls": [
+            {
+              "namespace": "AWS/RDS",
+              "metric_name": "CPUUtilization",
+              "dimensions": [
+                {
+                  "Name": "DBInstanceIdentifier",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "CPU",
+              "stat": "Average",
+              "transform": false,
+              "label": "AuroraRDS"
+            },
+            {
+              "namespace": "AWS/RDS",
+              "metric_name": "DatabaseConnections",
+              "dimensions": [
+                {
+                  "Name": "DBInstanceIdentifier",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "Connections",
+              "stat": "Average",
+              "transform": false,
+              "label": "AuroraRDS"
+            },
+            {
+              "namespace": "AWS/RDS",
+              "metric_name": "FreeableMemory",
+              "dimensions": [
+                {
+                  "Name": "DBInstanceIdentifier",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "FreeMemoryGB",
+              "stat": "Average",
+              "transform": true,
+              "label": "AuroraRDS"
+            },
+            {
+              "namespace": "AWS/RDS",
+              "metric_name": "FreeLocalStorage",
+              "dimensions": [
+                {
+                  "Name": "DBInstanceIdentifier",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "FreeLocalStorageGB",
+              "stat": "Average",
+              "transform": true,
+              "label": "AuroraRDS"
+            },
+            {
+              "namespace": "AWS/RDS",
+              "metric_name": "AuroraReplicaLagMaximum",
+              "dimensions": [
+                {
+                  "Name": "DBInstanceIdentifier",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "ReplicaLag",
+              "stat": "Average",
+              "transform": false,
+              "label": "AuroraRDS"
+            }
+          ]
+        },
+        "{\"_has_readers\": \"false\", \"_is_cluster_writer\": \"true\", \"_is_serverless_v2\": \"false\"}": {
+          "status": "ok",
+          "calls": [
+            {
+              "namespace": "AWS/RDS",
+              "metric_name": "CPUUtilization",
+              "dimensions": [
+                {
+                  "Name": "DBInstanceIdentifier",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "CPU",
+              "stat": "Average",
+              "transform": false,
+              "label": "AuroraRDS"
+            },
+            {
+              "namespace": "AWS/RDS",
+              "metric_name": "DatabaseConnections",
+              "dimensions": [
+                {
+                  "Name": "DBInstanceIdentifier",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "Connections",
+              "stat": "Average",
+              "transform": false,
+              "label": "AuroraRDS"
+            },
+            {
+              "namespace": "AWS/RDS",
+              "metric_name": "FreeableMemory",
+              "dimensions": [
+                {
+                  "Name": "DBInstanceIdentifier",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "FreeMemoryGB",
+              "stat": "Average",
+              "transform": true,
+              "label": "AuroraRDS"
+            },
+            {
+              "namespace": "AWS/RDS",
+              "metric_name": "FreeLocalStorage",
+              "dimensions": [
+                {
+                  "Name": "DBInstanceIdentifier",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "FreeLocalStorageGB",
+              "stat": "Average",
+              "transform": true,
+              "label": "AuroraRDS"
+            }
+          ]
+        },
+        "{\"_has_readers\": \"true\", \"_is_cluster_writer\": \"false\", \"_is_serverless_v2\": \"false\"}": {
+          "status": "ok",
+          "calls": [
+            {
+              "namespace": "AWS/RDS",
+              "metric_name": "CPUUtilization",
+              "dimensions": [
+                {
+                  "Name": "DBInstanceIdentifier",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "CPU",
+              "stat": "Average",
+              "transform": false,
+              "label": "AuroraRDS"
+            },
+            {
+              "namespace": "AWS/RDS",
+              "metric_name": "DatabaseConnections",
+              "dimensions": [
+                {
+                  "Name": "DBInstanceIdentifier",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "Connections",
+              "stat": "Average",
+              "transform": false,
+              "label": "AuroraRDS"
+            },
+            {
+              "namespace": "AWS/RDS",
+              "metric_name": "FreeableMemory",
+              "dimensions": [
+                {
+                  "Name": "DBInstanceIdentifier",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "FreeMemoryGB",
+              "stat": "Average",
+              "transform": true,
+              "label": "AuroraRDS"
+            },
+            {
+              "namespace": "AWS/RDS",
+              "metric_name": "FreeLocalStorage",
+              "dimensions": [
+                {
+                  "Name": "DBInstanceIdentifier",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "FreeLocalStorageGB",
+              "stat": "Average",
+              "transform": true,
+              "label": "AuroraRDS"
+            },
+            {
+              "namespace": "AWS/RDS",
+              "metric_name": "AuroraReplicaLag",
+              "dimensions": [
+                {
+                  "Name": "DBInstanceIdentifier",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "ReaderReplicaLag",
+              "stat": "Average",
+              "transform": false,
+              "label": "AuroraRDS"
+            }
+          ]
+        },
+        "{\"_has_readers\": \"false\", \"_is_cluster_writer\": \"false\", \"_is_serverless_v2\": \"false\"}": {
+          "status": "ok",
+          "calls": [
+            {
+              "namespace": "AWS/RDS",
+              "metric_name": "CPUUtilization",
+              "dimensions": [
+                {
+                  "Name": "DBInstanceIdentifier",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "CPU",
+              "stat": "Average",
+              "transform": false,
+              "label": "AuroraRDS"
+            },
+            {
+              "namespace": "AWS/RDS",
+              "metric_name": "DatabaseConnections",
+              "dimensions": [
+                {
+                  "Name": "DBInstanceIdentifier",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "Connections",
+              "stat": "Average",
+              "transform": false,
+              "label": "AuroraRDS"
+            },
+            {
+              "namespace": "AWS/RDS",
+              "metric_name": "FreeableMemory",
+              "dimensions": [
+                {
+                  "Name": "DBInstanceIdentifier",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "FreeMemoryGB",
+              "stat": "Average",
+              "transform": true,
+              "label": "AuroraRDS"
+            },
+            {
+              "namespace": "AWS/RDS",
+              "metric_name": "FreeLocalStorage",
+              "dimensions": [
+                {
+                  "Name": "DBInstanceIdentifier",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "FreeLocalStorageGB",
+              "stat": "Average",
+              "transform": true,
+              "label": "AuroraRDS"
+            },
+            {
+              "namespace": "AWS/RDS",
+              "metric_name": "AuroraReplicaLag",
+              "dimensions": [
+                {
+                  "Name": "DBInstanceIdentifier",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "ReaderReplicaLag",
+              "stat": "Average",
+              "transform": false,
+              "label": "AuroraRDS"
+            }
+          ]
+        }
+      }
+    },
+    "DocDB": {
+      "collector": "docdb",
+      "variants": {
+        "{}": {
+          "status": "ok",
+          "calls": [
+            {
+              "namespace": "AWS/DocDB",
+              "metric_name": "CPUUtilization",
+              "dimensions": [
+                {
+                  "Name": "DBInstanceIdentifier",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "CPU",
+              "stat": "Average",
+              "transform": false,
+              "label": "DocDB"
+            },
+            {
+              "namespace": "AWS/DocDB",
+              "metric_name": "FreeableMemory",
+              "dimensions": [
+                {
+                  "Name": "DBInstanceIdentifier",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "FreeMemoryGB",
+              "stat": "Average",
+              "transform": true,
+              "label": "DocDB"
+            },
+            {
+              "namespace": "AWS/DocDB",
+              "metric_name": "FreeLocalStorage",
+              "dimensions": [
+                {
+                  "Name": "DBInstanceIdentifier",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "FreeLocalStorageGB",
+              "stat": "Average",
+              "transform": true,
+              "label": "DocDB"
+            },
+            {
+              "namespace": "AWS/DocDB",
+              "metric_name": "DatabaseConnections",
+              "dimensions": [
+                {
+                  "Name": "DBInstanceIdentifier",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "Connections",
+              "stat": "Average",
+              "transform": false,
+              "label": "DocDB"
+            },
+            {
+              "namespace": "AWS/DocDB",
+              "metric_name": "ReadLatency",
+              "dimensions": [
+                {
+                  "Name": "DBInstanceIdentifier",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "ReadLatency",
+              "stat": "Average",
+              "transform": false,
+              "label": "DocDB"
+            },
+            {
+              "namespace": "AWS/DocDB",
+              "metric_name": "WriteLatency",
+              "dimensions": [
+                {
+                  "Name": "DBInstanceIdentifier",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "WriteLatency",
+              "stat": "Average",
+              "transform": false,
+              "label": "DocDB"
+            }
+          ]
+        }
+      }
+    },
+    "ElastiCache": {
+      "collector": "elasticache",
+      "variants": {
+        "{}": {
+          "status": "ok",
+          "calls": [
+            {
+              "namespace": "AWS/ElastiCache",
+              "metric_name": "CPUUtilization",
+              "dimensions": [
+                {
+                  "Name": "CacheClusterId",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "CPU",
+              "stat": "Average",
+              "transform": false,
+              "label": "ElastiCache"
+            },
+            {
+              "namespace": "AWS/ElastiCache",
+              "metric_name": "EngineCPUUtilization",
+              "dimensions": [
+                {
+                  "Name": "CacheClusterId",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "EngineCPU",
+              "stat": "Average",
+              "transform": false,
+              "label": "ElastiCache"
+            },
+            {
+              "namespace": "AWS/ElastiCache",
+              "metric_name": "DatabaseMemoryUsagePercentage",
+              "dimensions": [
+                {
+                  "Name": "CacheClusterId",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "DatabaseMemoryUsagePercentage",
+              "stat": "Average",
+              "transform": false,
+              "label": "ElastiCache"
+            },
+            {
+              "namespace": "AWS/ElastiCache",
+              "metric_name": "Evictions",
+              "dimensions": [
+                {
+                  "Name": "CacheClusterId",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "Evictions",
+              "stat": "Average",
+              "transform": false,
+              "label": "ElastiCache"
+            },
+            {
+              "namespace": "AWS/ElastiCache",
+              "metric_name": "CurrConnections",
+              "dimensions": [
+                {
+                  "Name": "CacheClusterId",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "CurrConnections",
+              "stat": "Average",
+              "transform": false,
+              "label": "ElastiCache"
+            }
+          ]
+        }
+      }
+    },
+    "NAT": {
+      "collector": "natgw",
+      "variants": {
+        "{}": {
+          "status": "ok",
+          "calls": [
+            {
+              "namespace": "AWS/NATGateway",
+              "metric_name": "PacketsDropCount",
+              "dimensions": [
+                {
+                  "Name": "NatGatewayId",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "PacketsDropCount",
+              "stat": "Sum",
+              "transform": false,
+              "label": "NAT"
+            },
+            {
+              "namespace": "AWS/NATGateway",
+              "metric_name": "ErrorPortAllocation",
+              "dimensions": [
+                {
+                  "Name": "NatGatewayId",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "ErrorPortAllocation",
+              "stat": "Sum",
+              "transform": false,
+              "label": "NAT"
+            }
+          ]
+        }
+      }
+    },
+    "Lambda": {
+      "collector": "lambda_fn",
+      "variants": {
+        "{}": {
+          "status": "ok",
+          "calls": [
+            {
+              "namespace": "AWS/Lambda",
+              "metric_name": "Duration",
+              "dimensions": [
+                {
+                  "Name": "FunctionName",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "Duration",
+              "stat": "Average",
+              "transform": false,
+              "label": "Lambda"
+            },
+            {
+              "namespace": "AWS/Lambda",
+              "metric_name": "Errors",
+              "dimensions": [
+                {
+                  "Name": "FunctionName",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "Errors",
+              "stat": "Sum",
+              "transform": false,
+              "label": "Lambda"
+            }
+          ]
+        }
+      }
+    },
+    "VPN": {
+      "collector": "vpn",
+      "variants": {
+        "{}": {
+          "status": "ok",
+          "calls": [
+            {
+              "namespace": "AWS/VPN",
+              "metric_name": "TunnelState",
+              "dimensions": [
+                {
+                  "Name": "VpnId",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "TunnelState",
+              "stat": "Maximum",
+              "transform": false,
+              "label": "VPN"
+            }
+          ]
+        }
+      }
+    },
+    "APIGW": {
+      "collector": "apigw",
+      "variants": {
+        "{\"_api_type\": \"REST\"}": {
+          "status": "ok",
+          "calls": [
+            {
+              "namespace": "AWS/ApiGateway",
+              "metric_name": "Latency",
+              "dimensions": [
+                {
+                  "Name": "ApiName",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "ApiLatency",
+              "stat": "Average",
+              "transform": false,
+              "label": "APIGW"
+            },
+            {
+              "namespace": "AWS/ApiGateway",
+              "metric_name": "4XXError",
+              "dimensions": [
+                {
+                  "Name": "ApiName",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "Api4XXError",
+              "stat": "Sum",
+              "transform": false,
+              "label": "APIGW"
+            },
+            {
+              "namespace": "AWS/ApiGateway",
+              "metric_name": "5XXError",
+              "dimensions": [
+                {
+                  "Name": "ApiName",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "Api5XXError",
+              "stat": "Sum",
+              "transform": false,
+              "label": "APIGW"
+            }
+          ]
+        },
+        "{\"_api_type\": \"HTTP\"}": {
+          "status": "ok",
+          "calls": [
+            {
+              "namespace": "AWS/ApiGateway",
+              "metric_name": "Latency",
+              "dimensions": [
+                {
+                  "Name": "ApiId",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "ApiLatency",
+              "stat": "Average",
+              "transform": false,
+              "label": "APIGW"
+            },
+            {
+              "namespace": "AWS/ApiGateway",
+              "metric_name": "4xx",
+              "dimensions": [
+                {
+                  "Name": "ApiId",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "Api4xx",
+              "stat": "Sum",
+              "transform": false,
+              "label": "APIGW"
+            },
+            {
+              "namespace": "AWS/ApiGateway",
+              "metric_name": "5xx",
+              "dimensions": [
+                {
+                  "Name": "ApiId",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "Api5xx",
+              "stat": "Sum",
+              "transform": false,
+              "label": "APIGW"
+            }
+          ]
+        },
+        "{\"_api_type\": \"WEBSOCKET\"}": {
+          "status": "ok",
+          "calls": [
+            {
+              "namespace": "AWS/ApiGateway",
+              "metric_name": "ConnectCount",
+              "dimensions": [
+                {
+                  "Name": "ApiId",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "WsConnectCount",
+              "stat": "Sum",
+              "transform": false,
+              "label": "APIGW"
+            },
+            {
+              "namespace": "AWS/ApiGateway",
+              "metric_name": "MessageCount",
+              "dimensions": [
+                {
+                  "Name": "ApiId",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "WsMessageCount",
+              "stat": "Sum",
+              "transform": false,
+              "label": "APIGW"
+            },
+            {
+              "namespace": "AWS/ApiGateway",
+              "metric_name": "IntegrationError",
+              "dimensions": [
+                {
+                  "Name": "ApiId",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "WsIntegrationError",
+              "stat": "Sum",
+              "transform": false,
+              "label": "APIGW"
+            },
+            {
+              "namespace": "AWS/ApiGateway",
+              "metric_name": "ExecutionError",
+              "dimensions": [
+                {
+                  "Name": "ApiId",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "WsExecutionError",
+              "stat": "Sum",
+              "transform": false,
+              "label": "APIGW"
+            }
+          ]
+        }
+      }
+    },
+    "ACM": {
+      "collector": "acm",
+      "variants": {
+        "{}": {
+          "status": "ok",
+          "calls": [
+            {
+              "namespace": "AWS/CertificateManager",
+              "metric_name": "DaysToExpiry",
+              "dimensions": [
+                {
+                  "Name": "CertificateArn",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "DaysToExpiry",
+              "stat": "Minimum",
+              "transform": false,
+              "label": "ACM"
+            }
+          ]
+        }
+      }
+    },
+    "Backup": {
+      "collector": "backup",
+      "variants": {
+        "{}": {
+          "status": "ok",
+          "calls": [
+            {
+              "namespace": "AWS/Backup",
+              "metric_name": "NumberOfBackupJobsFailed",
+              "dimensions": [
+                {
+                  "Name": "BackupVaultName",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "BackupJobsFailed",
+              "stat": "Sum",
+              "transform": false,
+              "label": "Backup"
+            },
+            {
+              "namespace": "AWS/Backup",
+              "metric_name": "NumberOfBackupJobsAborted",
+              "dimensions": [
+                {
+                  "Name": "BackupVaultName",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "BackupJobsAborted",
+              "stat": "Sum",
+              "transform": false,
+              "label": "Backup"
+            }
+          ]
+        }
+      }
+    },
+    "MQ": {
+      "collector": "mq",
+      "variants": {
+        "{}": {
+          "status": "ok",
+          "calls": [
+            {
+              "namespace": "AWS/AmazonMQ",
+              "metric_name": "CpuUtilization",
+              "dimensions": [
+                {
+                  "Name": "Broker",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "MqCPU",
+              "stat": "Average",
+              "transform": false,
+              "label": "MQ"
+            },
+            {
+              "namespace": "AWS/AmazonMQ",
+              "metric_name": "HeapUsage",
+              "dimensions": [
+                {
+                  "Name": "Broker",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "HeapUsage",
+              "stat": "Average",
+              "transform": false,
+              "label": "MQ"
+            },
+            {
+              "namespace": "AWS/AmazonMQ",
+              "metric_name": "JobSchedulerStorePercentUsage",
+              "dimensions": [
+                {
+                  "Name": "Broker",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "JobSchedulerStoreUsage",
+              "stat": "Average",
+              "transform": false,
+              "label": "MQ"
+            },
+            {
+              "namespace": "AWS/AmazonMQ",
+              "metric_name": "StorePercentUsage",
+              "dimensions": [
+                {
+                  "Name": "Broker",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "StoreUsage",
+              "stat": "Average",
+              "transform": false,
+              "label": "MQ"
+            }
+          ]
+        }
+      }
+    },
+    "CLB": {
+      "collector": "clb",
+      "variants": {
+        "{}": {
+          "status": "ok",
+          "calls": [
+            {
+              "namespace": "AWS/ELB",
+              "metric_name": "UnHealthyHostCount",
+              "dimensions": [
+                {
+                  "Name": "LoadBalancerName",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "CLBUnHealthyHost",
+              "stat": "Average",
+              "transform": false,
+              "label": "CLB"
+            },
+            {
+              "namespace": "AWS/ELB",
+              "metric_name": "HTTPCode_ELB_5XX",
+              "dimensions": [
+                {
+                  "Name": "LoadBalancerName",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "CLB5XX",
+              "stat": "Sum",
+              "transform": false,
+              "label": "CLB"
+            },
+            {
+              "namespace": "AWS/ELB",
+              "metric_name": "HTTPCode_ELB_4XX",
+              "dimensions": [
+                {
+                  "Name": "LoadBalancerName",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "CLB4XX",
+              "stat": "Sum",
+              "transform": false,
+              "label": "CLB"
+            },
+            {
+              "namespace": "AWS/ELB",
+              "metric_name": "HTTPCode_Backend_5XX",
+              "dimensions": [
+                {
+                  "Name": "LoadBalancerName",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "CLBBackend5XX",
+              "stat": "Sum",
+              "transform": false,
+              "label": "CLB"
+            },
+            {
+              "namespace": "AWS/ELB",
+              "metric_name": "HTTPCode_Backend_4XX",
+              "dimensions": [
+                {
+                  "Name": "LoadBalancerName",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "CLBBackend4XX",
+              "stat": "Sum",
+              "transform": false,
+              "label": "CLB"
+            },
+            {
+              "namespace": "AWS/ELB",
+              "metric_name": "SurgeQueueLength",
+              "dimensions": [
+                {
+                  "Name": "LoadBalancerName",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "SurgeQueueLength",
+              "stat": "Maximum",
+              "transform": false,
+              "label": "CLB"
+            },
+            {
+              "namespace": "AWS/ELB",
+              "metric_name": "SpilloverCount",
+              "dimensions": [
+                {
+                  "Name": "LoadBalancerName",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "SpilloverCount",
+              "stat": "Sum",
+              "transform": false,
+              "label": "CLB"
+            }
+          ]
+        }
+      }
+    },
+    "OpenSearch": {
+      "collector": "opensearch",
+      "variants": {
+        "{}": {
+          "status": "ok",
+          "calls": [
+            {
+              "namespace": "AWS/ES",
+              "metric_name": "ClusterStatus.red",
+              "dimensions": [
+                {
+                  "Name": "DomainName",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "ClusterStatusRed",
+              "stat": "Maximum",
+              "transform": false,
+              "label": "OpenSearch"
+            },
+            {
+              "namespace": "AWS/ES",
+              "metric_name": "ClusterStatus.yellow",
+              "dimensions": [
+                {
+                  "Name": "DomainName",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "ClusterStatusYellow",
+              "stat": "Maximum",
+              "transform": false,
+              "label": "OpenSearch"
+            },
+            {
+              "namespace": "AWS/ES",
+              "metric_name": "FreeStorageSpace",
+              "dimensions": [
+                {
+                  "Name": "DomainName",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "OSFreeStorageSpace",
+              "stat": "Minimum",
+              "transform": false,
+              "label": "OpenSearch"
+            },
+            {
+              "namespace": "AWS/ES",
+              "metric_name": "ClusterIndexWritesBlocked",
+              "dimensions": [
+                {
+                  "Name": "DomainName",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "ClusterIndexWritesBlocked",
+              "stat": "Maximum",
+              "transform": false,
+              "label": "OpenSearch"
+            },
+            {
+              "namespace": "AWS/ES",
+              "metric_name": "CPUUtilization",
+              "dimensions": [
+                {
+                  "Name": "DomainName",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "OsCPU",
+              "stat": "Average",
+              "transform": false,
+              "label": "OpenSearch"
+            },
+            {
+              "namespace": "AWS/ES",
+              "metric_name": "JVMMemoryPressure",
+              "dimensions": [
+                {
+                  "Name": "DomainName",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "JVMMemoryPressure",
+              "stat": "Maximum",
+              "transform": false,
+              "label": "OpenSearch"
+            },
+            {
+              "namespace": "AWS/ES",
+              "metric_name": "MasterCPUUtilization",
+              "dimensions": [
+                {
+                  "Name": "DomainName",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "MasterCPU",
+              "stat": "Average",
+              "transform": false,
+              "label": "OpenSearch"
+            },
+            {
+              "namespace": "AWS/ES",
+              "metric_name": "MasterJVMMemoryPressure",
+              "dimensions": [
+                {
+                  "Name": "DomainName",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "MasterJVMMemoryPressure",
+              "stat": "Maximum",
+              "transform": false,
+              "label": "OpenSearch"
+            }
+          ]
+        }
+      }
+    },
+    "SQS": {
+      "collector": "sqs",
+      "variants": {
+        "{}": {
+          "status": "ok",
+          "calls": [
+            {
+              "namespace": "AWS/SQS",
+              "metric_name": "ApproximateNumberOfMessagesVisible",
+              "dimensions": [
+                {
+                  "Name": "QueueName",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "SQSMessagesVisible",
+              "stat": "Average",
+              "transform": false,
+              "label": "SQS"
+            },
+            {
+              "namespace": "AWS/SQS",
+              "metric_name": "ApproximateAgeOfOldestMessage",
+              "dimensions": [
+                {
+                  "Name": "QueueName",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "SQSOldestMessage",
+              "stat": "Maximum",
+              "transform": false,
+              "label": "SQS"
+            },
+            {
+              "namespace": "AWS/SQS",
+              "metric_name": "NumberOfMessagesSent",
+              "dimensions": [
+                {
+                  "Name": "QueueName",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "SQSMessagesSent",
+              "stat": "Sum",
+              "transform": false,
+              "label": "SQS"
+            }
+          ]
+        }
+      }
+    },
+    "ECS": {
+      "collector": "ecs",
+      "variants": {
+        "{}": {
+          "status": "ok",
+          "calls": [
+            {
+              "namespace": "AWS/ECS",
+              "metric_name": "CPUUtilization",
+              "dimensions": [
+                {
+                  "Name": "ClusterName",
+                  "Value": ""
+                },
+                {
+                  "Name": "ServiceName",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "EcsCPU",
+              "stat": "Average",
+              "transform": false,
+              "label": "ECS"
+            },
+            {
+              "namespace": "AWS/ECS",
+              "metric_name": "MemoryUtilization",
+              "dimensions": [
+                {
+                  "Name": "ClusterName",
+                  "Value": ""
+                },
+                {
+                  "Name": "ServiceName",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "EcsMemory",
+              "stat": "Average",
+              "transform": false,
+              "label": "ECS"
+            }
+          ]
+        }
+      }
+    },
+    "MSK": {
+      "collector": "msk",
+      "variants": {
+        "{}": {
+          "status": "ok",
+          "calls": [
+            {
+              "namespace": "AWS/Kafka",
+              "metric_name": "SumOffsetLag",
+              "dimensions": [
+                {
+                  "Name": "Cluster Name",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "OffsetLag",
+              "stat": "Maximum",
+              "transform": false,
+              "label": "MSK"
+            },
+            {
+              "namespace": "AWS/Kafka",
+              "metric_name": "BytesInPerSec",
+              "dimensions": [
+                {
+                  "Name": "Cluster Name",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "BytesInPerSec",
+              "stat": "Average",
+              "transform": false,
+              "label": "MSK"
+            },
+            {
+              "namespace": "AWS/Kafka",
+              "metric_name": "UnderReplicatedPartitions",
+              "dimensions": [
+                {
+                  "Name": "Cluster Name",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "UnderReplicatedPartitions",
+              "stat": "Maximum",
+              "transform": false,
+              "label": "MSK"
+            },
+            {
+              "namespace": "AWS/Kafka",
+              "metric_name": "ActiveControllerCount",
+              "dimensions": [
+                {
+                  "Name": "Cluster Name",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "ActiveControllerCount",
+              "stat": "Average",
+              "transform": false,
+              "label": "MSK"
+            }
+          ]
+        }
+      }
+    },
+    "DynamoDB": {
+      "collector": "dynamodb",
+      "variants": {
+        "{}": {
+          "status": "ok",
+          "calls": [
+            {
+              "namespace": "AWS/DynamoDB",
+              "metric_name": "ConsumedReadCapacityUnits",
+              "dimensions": [
+                {
+                  "Name": "TableName",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "DDBReadCapacity",
+              "stat": "Sum",
+              "transform": false,
+              "label": "DynamoDB"
+            },
+            {
+              "namespace": "AWS/DynamoDB",
+              "metric_name": "ConsumedWriteCapacityUnits",
+              "dimensions": [
+                {
+                  "Name": "TableName",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "DDBWriteCapacity",
+              "stat": "Sum",
+              "transform": false,
+              "label": "DynamoDB"
+            },
+            {
+              "namespace": "AWS/DynamoDB",
+              "metric_name": "ThrottledRequests",
+              "dimensions": [
+                {
+                  "Name": "TableName",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "ThrottledRequests",
+              "stat": "Sum",
+              "transform": false,
+              "label": "DynamoDB"
+            },
+            {
+              "namespace": "AWS/DynamoDB",
+              "metric_name": "SystemErrors",
+              "dimensions": [
+                {
+                  "Name": "TableName",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "DDBSystemErrors",
+              "stat": "Sum",
+              "transform": false,
+              "label": "DynamoDB"
+            }
+          ]
+        }
+      }
+    },
+    "CloudFront": {
+      "collector": "cloudfront",
+      "variants": {
+        "{}": {
+          "status": "capture failed: ValueError: max() iterable argument is empty",
+          "calls": []
+        }
+      }
+    },
+    "WAF": {
+      "collector": "waf",
+      "variants": {
+        "{}": {
+          "status": "ok",
+          "calls": [
+            {
+              "namespace": "AWS/WAFV2",
+              "metric_name": "BlockedRequests",
+              "dimensions": [
+                {
+                  "Name": "WebACL",
+                  "Value": "RID"
+                },
+                {
+                  "Name": "Rule",
+                  "Value": "ALL"
+                }
+              ],
+              "result_key": "WAFBlockedRequests",
+              "stat": "Sum",
+              "transform": false,
+              "label": "WAF"
+            },
+            {
+              "namespace": "AWS/WAFV2",
+              "metric_name": "AllowedRequests",
+              "dimensions": [
+                {
+                  "Name": "WebACL",
+                  "Value": "RID"
+                },
+                {
+                  "Name": "Rule",
+                  "Value": "ALL"
+                }
+              ],
+              "result_key": "WAFAllowedRequests",
+              "stat": "Sum",
+              "transform": false,
+              "label": "WAF"
+            },
+            {
+              "namespace": "AWS/WAFV2",
+              "metric_name": "CountedRequests",
+              "dimensions": [
+                {
+                  "Name": "WebACL",
+                  "Value": "RID"
+                },
+                {
+                  "Name": "Rule",
+                  "Value": "ALL"
+                }
+              ],
+              "result_key": "WAFCountedRequests",
+              "stat": "Sum",
+              "transform": false,
+              "label": "WAF"
+            }
+          ]
+        }
+      }
+    },
+    "Route53": {
+      "collector": "route53",
+      "variants": {
+        "{}": {
+          "status": "ok",
+          "calls": [
+            {
+              "namespace": "AWS/Route53",
+              "metric_name": "HealthCheckStatus",
+              "dimensions": [
+                {
+                  "Name": "HealthCheckId",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "HealthCheckStatus",
+              "stat": "Minimum",
+              "transform": false,
+              "label": "Route53"
+            }
+          ]
+        }
+      }
+    },
+    "DX": {
+      "collector": "dx",
+      "variants": {
+        "{}": {
+          "status": "ok",
+          "calls": [
+            {
+              "namespace": "AWS/DX",
+              "metric_name": "ConnectionState",
+              "dimensions": [
+                {
+                  "Name": "ConnectionId",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "ConnectionState",
+              "stat": "Minimum",
+              "transform": false,
+              "label": "DX"
+            }
+          ]
+        }
+      }
+    },
+    "EFS": {
+      "collector": "efs",
+      "variants": {
+        "{}": {
+          "status": "ok",
+          "calls": [
+            {
+              "namespace": "AWS/EFS",
+              "metric_name": "BurstCreditBalance",
+              "dimensions": [
+                {
+                  "Name": "FileSystemId",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "BurstCreditBalance",
+              "stat": "Minimum",
+              "transform": false,
+              "label": "EFS"
+            },
+            {
+              "namespace": "AWS/EFS",
+              "metric_name": "PercentIOLimit",
+              "dimensions": [
+                {
+                  "Name": "FileSystemId",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "PercentIOLimit",
+              "stat": "Average",
+              "transform": false,
+              "label": "EFS"
+            },
+            {
+              "namespace": "AWS/EFS",
+              "metric_name": "ClientConnections",
+              "dimensions": [
+                {
+                  "Name": "FileSystemId",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "EFSClientConnections",
+              "stat": "Sum",
+              "transform": false,
+              "label": "EFS"
+            }
+          ]
+        }
+      }
+    },
+    "S3": {
+      "collector": "s3",
+      "variants": {
+        "{}": {
+          "status": "ok",
+          "calls": [
+            {
+              "namespace": "AWS/S3",
+              "metric_name": "4xxErrors",
+              "dimensions": [
+                {
+                  "Name": "BucketName",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": null,
+              "stat": "Sum",
+              "transform": false,
+              "label": "query_metric"
+            },
+            {
+              "namespace": "AWS/S3",
+              "metric_name": "5xxErrors",
+              "dimensions": [
+                {
+                  "Name": "BucketName",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": null,
+              "stat": "Sum",
+              "transform": false,
+              "label": "query_metric"
+            },
+            {
+              "namespace": "AWS/S3",
+              "metric_name": "BucketSizeBytes",
+              "dimensions": [
+                {
+                  "Name": "BucketName",
+                  "Value": "RID"
+                },
+                {
+                  "Name": "StorageType",
+                  "Value": "StandardStorage"
+                }
+              ],
+              "result_key": "S3BucketSizeBytes",
+              "stat": "Average",
+              "transform": false,
+              "label": "S3"
+            },
+            {
+              "namespace": "AWS/S3",
+              "metric_name": "NumberOfObjects",
+              "dimensions": [
+                {
+                  "Name": "BucketName",
+                  "Value": "RID"
+                },
+                {
+                  "Name": "StorageType",
+                  "Value": "StandardStorage"
+                }
+              ],
+              "result_key": "S3NumberOfObjects",
+              "stat": "Average",
+              "transform": false,
+              "label": "S3"
+            }
+          ]
+        }
+      }
+    },
+    "SageMaker": {
+      "collector": "sagemaker",
+      "variants": {
+        "{}": {
+          "status": "ok",
+          "calls": [
+            {
+              "namespace": "AWS/SageMaker",
+              "metric_name": "Invocations",
+              "dimensions": [
+                {
+                  "Name": "EndpointName",
+                  "Value": "RID"
+                },
+                {
+                  "Name": "VariantName",
+                  "Value": ""
+                }
+              ],
+              "result_key": "SMInvocations",
+              "stat": "Sum",
+              "transform": false,
+              "label": "SageMaker"
+            },
+            {
+              "namespace": "AWS/SageMaker",
+              "metric_name": "InvocationErrors",
+              "dimensions": [
+                {
+                  "Name": "EndpointName",
+                  "Value": "RID"
+                },
+                {
+                  "Name": "VariantName",
+                  "Value": ""
+                }
+              ],
+              "result_key": "SMInvocationErrors",
+              "stat": "Sum",
+              "transform": false,
+              "label": "SageMaker"
+            },
+            {
+              "namespace": "AWS/SageMaker",
+              "metric_name": "ModelLatency",
+              "dimensions": [
+                {
+                  "Name": "EndpointName",
+                  "Value": "RID"
+                },
+                {
+                  "Name": "VariantName",
+                  "Value": ""
+                }
+              ],
+              "result_key": "SMModelLatency",
+              "stat": "Average",
+              "transform": false,
+              "label": "SageMaker"
+            },
+            {
+              "namespace": "AWS/SageMaker",
+              "metric_name": "CPUUtilization",
+              "dimensions": [
+                {
+                  "Name": "EndpointName",
+                  "Value": "RID"
+                },
+                {
+                  "Name": "VariantName",
+                  "Value": ""
+                }
+              ],
+              "result_key": "SMCPU",
+              "stat": "Average",
+              "transform": false,
+              "label": "SageMaker"
+            }
+          ]
+        }
+      }
+    },
+    "SNS": {
+      "collector": "sns",
+      "variants": {
+        "{}": {
+          "status": "ok",
+          "calls": [
+            {
+              "namespace": "AWS/SNS",
+              "metric_name": "NumberOfNotificationsFailed",
+              "dimensions": [
+                {
+                  "Name": "TopicName",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "SNSNotificationsFailed",
+              "stat": "Sum",
+              "transform": false,
+              "label": "SNS"
+            },
+            {
+              "namespace": "AWS/SNS",
+              "metric_name": "NumberOfMessagesPublished",
+              "dimensions": [
+                {
+                  "Name": "TopicName",
+                  "Value": "RID"
+                }
+              ],
+              "result_key": "SNSMessagesPublished",
+              "stat": "Sum",
+              "transform": false,
+              "label": "SNS"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

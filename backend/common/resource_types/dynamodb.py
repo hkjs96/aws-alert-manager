@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from common.resource_types.base import CREATE, DELETE, Lifecycle, ResourceTypeSpec, register
+from common.resource_types.base import CREATE, DELETE, Lifecycle, ResourceTypeSpec, arn_tail, register
 
 
 _DYNAMODB_ALARMS = [
@@ -55,7 +55,7 @@ _DYNAMODB_ALARMS = [
 
 SPEC = register(ResourceTypeSpec(
     type="DynamoDB", label="DynamoDB 테이블", collector="dynamodb",
-    rgt_filters=("dynamodb:table",), rgt_prime=True,
+    rgt_filters=("dynamodb:table",), rgt_prime=True, identity=arn_tail("/"),
     lifecycle=(Lifecycle("CreateTable", CREATE), Lifecycle("DeleteTable", DELETE)),
     alarm_defs=_DYNAMODB_ALARMS,
     # 표시명(알람 이름에 쓰는 지표명·방향·단위)과 기본 임계치 — 옛 alarm_registry._METRIC_DISPLAY / common.HARDCODED_DEFAULTS.

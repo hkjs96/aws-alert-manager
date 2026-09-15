@@ -28,6 +28,8 @@ SPEC = register(ResourceTypeSpec(
     type="DX", label="Direct Connect", collector="dx",
     rgt_filters=("directconnect:dxcon",), rgt_prime=True,
     lifecycle=(Lifecycle("CreateConnection", CREATE), Lifecycle("DeleteConnection", DELETE)),
+    notes=("identity 없음: connectionState=available 필터에 describe_connections가 어차피 필요하고 태그는 캐시에서 읽으므로 "
+           "RGT 나열로 아낄 콜이 없다 — 수집기의 describe 나열만 쓴다."),
     alarm_defs=_DX_ALARMS,
     # 표시명(알람 이름에 쓰는 지표명·방향·단위)과 기본 임계치 — 옛 alarm_registry._METRIC_DISPLAY / common.HARDCODED_DEFAULTS.
     # 여러 타입이 같은 키(CPUUtilization 등)를 선언하면 값이 같아야 한다 — 뷰가 강제한다.

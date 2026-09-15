@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from common.resource_types.base import CREATE, DELETE, Lifecycle, ResourceTypeSpec, register
+from common.resource_types.base import CREATE, DELETE, Lifecycle, ResourceTypeSpec, arn_tail, register
 
 
 _LAMBDA_ALARMS = [
@@ -35,7 +35,7 @@ _LAMBDA_ALARMS = [
 
 SPEC = register(ResourceTypeSpec(
     type="Lambda", label="Lambda 함수", collector="lambda_fn",
-    rgt_filters=("lambda:function",), rgt_prime=True,
+    rgt_filters=("lambda:function",), rgt_prime=True, identity=arn_tail(":"),
     lifecycle=(Lifecycle("CreateFunction20150331", CREATE), Lifecycle("DeleteFunction20150331", DELETE)),
     alarm_defs=_LAMBDA_ALARMS,
     # 표시명(알람 이름에 쓰는 지표명·방향·단위)과 기본 임계치 — 옛 alarm_registry._METRIC_DISPLAY / common.HARDCODED_DEFAULTS.

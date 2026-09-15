@@ -1,27 +1,23 @@
 """
-ACMCollector - Remaining Resource Monitoring
+ACM 수집기 — Full_Collection: 태그 없이 ISSUED 인증서 전체를 모으므로 태그 캐시(RGT)로 나열하지 않는다 (docs/specs/resource-type-registry P3)
 
-ACM 인증서 만료 모니터링. Full_Collection: 태그 필터 없이 ISSUED 인증서 전체 수집.
-Monitoring=on 태그를 자동 삽입하여 하위 파이프라인 호환성 유지.
-네임스페이스: AWS/CertificateManager, 디멘션: CertificateArn.
+RGT는 태그가 있는 리소스만 돌려주는데 여기는 태그 없는 인증서도 대상이다(Req 13.1) — 스펙에 `identity`가 없고 이 모듈의
+`_enumerate`가 유일한 나열이다. Monitoring=on 태그를 자동 삽입하여 하위 파이프라인 호환성 유지. TagName은 도메인명(Name 태그).
+메트릭은 스펙(`common/resource_types/acm.py`)의 알람 정의에서 만든다. 네임스페이스 AWS/CertificateManager, 디멘션 CertificateArn.
 """
 
 import functools
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 import boto3
 from botocore.exceptions import ClientError
 
-from common import ResourceInfo
-from common.collectors.base import query_metric, CW_LOOKBACK_MINUTES, CW_STAT_MIN, collect_metric
+from common.collectors.generic import GenericCollector
+from common.resource_types.acm import SPEC
 
 logger = logging.getLogger(__name__)
 
-
-# ──────────────────────────────────────────────
-# boto3 클라이언트 싱글턴 (코딩 거버넌스 §1)
-# ──────────────────────────────────────────────
 
 @functools.lru_cache(maxsize=None)
 def _get_acm_client():
@@ -29,12 +25,10 @@ def _get_acm_client():
     return boto3.client("acm")
 
 
-def collect_monitored_resources() -> list[ResourceInfo]:
-    """
-    계정 내 모든 ISSUED ACM 인증서 수집 (Full_Collection).
+def _enumerate() -> list[tuple[str, dict]]:
+    """계정 내 모든 ISSUED·미만료 ACM 인증서 (cert_arn, {"Monitoring": "on", "Name": domain}).
 
-    만료된 인증서는 제외. 도메인 이름을 Name 태그로 설정하여
-    알람 이름에 도메인이 표시되도록 한다.
+    만료된 인증서는 제외. 도메인 이름을 Name 태그로 설정하여 알람 이름에 도메인이 표시되도록 한다.
     """
     try:
         client = _get_acm_client()
@@ -44,8 +38,7 @@ def collect_monitored_resources() -> list[ResourceInfo]:
         logger.error("ACM list_certificates failed: %s", e)
         raise
 
-    resources: list[ResourceInfo] = []
-    region = boto3.session.Session().region_name or "us-east-1"
+    found: list[tuple[str, dict]] = []
     now = datetime.now(timezone.utc)
 
     for page in pages:
@@ -69,17 +62,9 @@ def collect_monitored_resources() -> list[ResourceInfo]:
             tags: dict = {"Monitoring": "on"}
             if domain:
                 tags["Name"] = domain
+            found.append((cert_arn, tags))
 
-            resources.append(
-                ResourceInfo(
-                    id=cert_arn,
-                    type="ACM",
-                    tags=tags,
-                    region=region,
-                )
-            )
-
-    return resources
+    return found
 
 
 def _domain_from_cert(cert_detail: dict) -> str:
@@ -87,7 +72,7 @@ def _domain_from_cert(cert_detail: dict) -> str:
     return cert_detail.get("DomainName", "")
 
 
-def resolve_alive_ids(tag_names: set[str]) -> set[str]:
+def _alive(tag_names: set[str]) -> set[str]:
     """알람 TagName 집합에서 실제 AWS ACM 인증서가 존재하는 TagName 부분집합 반환.
 
     TagName은 도메인 이름 형식 (예: 'e2e-test.internal').
@@ -128,28 +113,7 @@ def resolve_alive_ids(tag_names: set[str]) -> set[str]:
     return tag_names & alive_domains
 
 
-def get_metrics(
-    resource_id: str, resource_tags: dict | None = None,
-) -> dict[str, float] | None:
-    """
-    CloudWatch에서 ACM 인증서 메트릭 조회.
-
-    수집 메트릭 (네임스페이스: AWS/CertificateManager):
-    - DaysToExpiry (Minimum) → 'DaysToExpiry'
-
-    데이터 없으면 해당 메트릭 skip. 모두 없으면 None 반환.
-    """
-    if resource_tags is None:
-        resource_tags = {}
-
-    end_time = datetime.now(timezone.utc)
-    start_time = end_time - timedelta(minutes=CW_LOOKBACK_MINUTES)
-
-    dim = [{"Name": "CertificateArn", "Value": resource_id}]
-    metrics: dict[str, float] = {}
-
-    collect_metric("AWS/CertificateManager", "DaysToExpiry", dim,
-                   start_time, end_time, "DaysToExpiry", metrics,
-                   stat=CW_STAT_MIN, resource_label="ACM")
-
-    return metrics if metrics else None
+COLLECTOR = GenericCollector(SPEC, alive=_alive, enumerate=_enumerate)
+collect_monitored_resources = COLLECTOR.collect_monitored_resources
+get_metrics = COLLECTOR.get_metrics
+resolve_alive_ids = COLLECTOR.resolve_alive_ids

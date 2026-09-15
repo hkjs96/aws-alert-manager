@@ -1,27 +1,22 @@
 """
-SNSCollector - Extended Resource Monitoring
+SNS 수집기 — 나열은 범용(태그 캐시), 여기엔 describe 폴백과 존재 확인만 (docs/specs/resource-type-registry P3)
 
-Monitoring=on 태그가 있는 SNS 토픽 수집 및 CloudWatch 메트릭 조회.
-네임스페이스: AWS/SNS, 디멘션: TopicName.
+TagName = 토픽 이름(ARN의 마지막 조각, 스펙 `identity`). 메트릭은 스펙(`common/resource_types/sns.py`)의 알람 정의에서 만든다.
+네임스페이스 AWS/SNS, 디멘션 TopicName.
 """
 
 import functools
 import logging
-from datetime import datetime, timedelta, timezone
 
 import boto3
 from botocore.exceptions import ClientError
 
-from common import ResourceInfo
-from common.collectors.base import query_metric, CW_LOOKBACK_MINUTES, CW_STAT_SUM, collect_metric
+from common.collectors.generic import GenericCollector
+from common.resource_types.sns import SPEC
 from common.tag_cache import cached_tags
 
 logger = logging.getLogger(__name__)
 
-
-# ──────────────────────────────────────────────
-# boto3 클라이언트 싱글턴 (코딩 거버넌스 §1)
-# ──────────────────────────────────────────────
 
 @functools.lru_cache(maxsize=None)
 def _get_sns_client():
@@ -29,14 +24,8 @@ def _get_sns_client():
     return boto3.client("sns")
 
 
-def collect_monitored_resources() -> list[ResourceInfo]:
-    """
-    Monitoring=on 태그가 있는 SNS 토픽 목록 반환.
-
-    list_topics() paginator로 전체 토픽 ARN 조회 후
-    list_tags_for_resource()로 태그 확인, Monitoring=on 필터링.
-    id는 ARN에서 마지막 ':' 이후 부분(topic_name) 추출.
-    """
+def _enumerate() -> list[tuple[str, dict]]:
+    """태그 캐시가 없을 때: list_topics 후 토픽마다 list_tags_for_resource(N+1). (topic_name, tags)."""
     try:
         client = _get_sns_client()
         paginator = client.get_paginator("list_topics")
@@ -45,65 +34,20 @@ def collect_monitored_resources() -> list[ResourceInfo]:
         logger.error("SNS list_topics failed: %s", e)
         raise
 
-    resources: list[ResourceInfo] = []
-    region = boto3.session.Session().region_name or "us-east-1"
-
+    found: list[tuple[str, dict]] = []
     for page in pages:
         for topic in page.get("Topics", []):
             topic_arn = topic["TopicArn"]
-            tags = _get_tags(client, topic_arn)
-            if tags.get("Monitoring", "").lower() != "on":
-                continue
-
-            topic_name = topic_arn.rsplit(":", 1)[-1]
-            resources.append(
-                ResourceInfo(
-                    id=topic_name,
-                    type="SNS",
-                    tags=tags,
-                    region=region,
-                )
-            )
-
-    return resources
+            found.append((topic_arn.rsplit(":", 1)[-1], _get_tags(client, topic_arn)))
+    return found
 
 
-def get_metrics(
-    resource_id: str, resource_tags: dict | None = None,
-) -> dict[str, float] | None:
-    """
-    CloudWatch에서 SNS 토픽 메트릭 조회.
-
-    수집 메트릭 (네임스페이스: AWS/SNS):
-    - NumberOfNotificationsFailed (Sum) → 'SNSNotificationsFailed'
-    - NumberOfMessagesPublished (Sum) → 'SNSMessagesPublished'
-    """
-    if resource_tags is None:
-        resource_tags = {}
-
-    end_time = datetime.now(timezone.utc)
-    start_time = end_time - timedelta(minutes=CW_LOOKBACK_MINUTES)
-
-    dim = [{"Name": "TopicName", "Value": resource_id}]
-    metrics: dict[str, float] = {}
-
-    collect_metric("AWS/SNS", "NumberOfNotificationsFailed", dim,
-                   start_time, end_time, "SNSNotificationsFailed", metrics,
-                   stat=CW_STAT_SUM, resource_label="SNS")
-    collect_metric("AWS/SNS", "NumberOfMessagesPublished", dim,
-                   start_time, end_time, "SNSMessagesPublished", metrics,
-                   stat=CW_STAT_SUM, resource_label="SNS")
-
-    return metrics if metrics else None
-
-
-def resolve_alive_ids(tag_names: set[str]) -> set[str]:
+def _alive(tag_names: set[str]) -> set[str]:
     """SNS 토픽 존재 여부 확인. ARN 재구성 필요."""
     client = _get_sns_client()
     alive: set[str] = set()
     for name in tag_names:
         try:
-            # topic name에서 ARN 재구성
             sts = boto3.client("sts")
             account_id = sts.get_caller_identity()["Account"]
             region = boto3.session.Session().region_name or "us-east-1"
@@ -130,3 +74,9 @@ def _get_tags(sns_client, topic_arn: str) -> dict:
     except ClientError as e:
         logger.error("SNS list_tags_for_resource failed for %s: %s", topic_arn, e)
         return {}
+
+
+COLLECTOR = GenericCollector(SPEC, alive=_alive, enumerate=_enumerate)
+collect_monitored_resources = COLLECTOR.collect_monitored_resources
+get_metrics = COLLECTOR.get_metrics
+resolve_alive_ids = COLLECTOR.resolve_alive_ids

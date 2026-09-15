@@ -57,7 +57,8 @@ SPEC = register(ResourceTypeSpec(
     type="MQ", label="Amazon MQ 브로커", collector="mq",
     rgt_filters=("mq:broker",), rgt_prime=True,
     lifecycle=(Lifecycle("CreateBroker", CREATE), Lifecycle("DeleteBroker", DELETE)),
-    notes="TagName `{broker}-{1|2}` — alive 판정이 접미를 떼고 조회한다.",
+    notes=("TagName `{broker}-{1|2}` — alive 판정이 접미를 떼고 조회한다. identity 없음: 브로커 하나가 인스턴스 1~2개가 되고 "
+           "DeploymentMode에 describe가 필요해 수집기 모듈의 _identities가 맡는다(태그 캐시 경로는 그대로 쓴다)."),
     alarm_defs=_MQ_ALARMS,
     # 표시명(알람 이름에 쓰는 지표명·방향·단위)과 기본 임계치 — 옛 alarm_registry._METRIC_DISPLAY / common.HARDCODED_DEFAULTS.
     # 여러 타입이 같은 키(CPUUtilization 등)를 선언하면 값이 같아야 한다 — 뷰가 강제한다.

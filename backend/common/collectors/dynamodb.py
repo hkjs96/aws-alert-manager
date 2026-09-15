@@ -1,27 +1,22 @@
 """
-DynamoDBCollector - Extended Resource Monitoring
+DynamoDB 수집기 — 나열은 범용(태그 캐시), 여기엔 describe 폴백과 존재 확인만 (docs/specs/resource-type-registry P3)
 
-Monitoring=on 태그가 있는 DynamoDB 테이블 수집 및 CloudWatch 메트릭 조회.
-네임스페이스: AWS/DynamoDB, 디멘션: TableName.
+TagName = 테이블 이름(ARN `table/<name>`의 마지막 조각, 스펙 `identity`). 메트릭은 스펙(`common/resource_types/dynamodb.py`)의
+알람 정의에서 만든다. 네임스페이스 AWS/DynamoDB, 디멘션 TableName.
 """
 
 import functools
 import logging
-from datetime import datetime, timedelta, timezone
 
 import boto3
 from botocore.exceptions import ClientError
 
-from common import ResourceInfo
-from common.collectors.base import query_metric, CW_LOOKBACK_MINUTES, CW_STAT_SUM, collect_metric
+from common.collectors.generic import GenericCollector
+from common.resource_types.dynamodb import SPEC
 from common.tag_cache import cached_tags
 
 logger = logging.getLogger(__name__)
 
-
-# ──────────────────────────────────────────────
-# boto3 클라이언트 싱글턴 (코딩 거버넌스 §1)
-# ──────────────────────────────────────────────
 
 @functools.lru_cache(maxsize=None)
 def _get_dynamodb_client():
@@ -29,13 +24,8 @@ def _get_dynamodb_client():
     return boto3.client("dynamodb")
 
 
-def collect_monitored_resources() -> list[ResourceInfo]:
-    """
-    Monitoring=on 태그가 있는 DynamoDB 테이블 목록 반환.
-
-    list_tables() paginator로 전체 테이블 조회 후
-    describe_table()로 ARN 획득, list_tags_of_resource()로 태그 확인.
-    """
+def _enumerate() -> list[tuple[str, dict]]:
+    """태그 캐시가 없을 때: list_tables → 테이블마다 describe_table(ARN) + list_tags_of_resource(2N+1). (table_name, tags)."""
     try:
         client = _get_dynamodb_client()
         paginator = client.get_paginator("list_tables")
@@ -44,70 +34,18 @@ def collect_monitored_resources() -> list[ResourceInfo]:
         logger.error("DynamoDB list_tables failed: %s", e)
         raise
 
-    resources: list[ResourceInfo] = []
-    region = boto3.session.Session().region_name or "us-east-1"
-
+    found: list[tuple[str, dict]] = []
     for page in pages:
         for table_name in page.get("TableNames", []):
             arn = _get_table_arn(client, table_name)
             if not arn:
                 continue
-
-            tags = _get_tags(client, arn)
-            if tags.get("Monitoring", "").lower() != "on":
-                continue
-
-            resources.append(
-                ResourceInfo(
-                    id=table_name,
-                    type="DynamoDB",
-                    tags=tags,
-                    region=region,
-                )
-            )
-
-    return resources
+            found.append((table_name, _get_tags(client, arn)))
+    return found
 
 
-def get_metrics(
-    resource_id: str, resource_tags: dict | None = None,
-) -> dict[str, float] | None:
-    """
-    CloudWatch에서 DynamoDB 테이블 메트릭 조회.
-
-    수집 메트릭 (네임스페이스: AWS/DynamoDB):
-    - ConsumedReadCapacityUnits (Sum) → 'DDBReadCapacity'
-    - ConsumedWriteCapacityUnits (Sum) → 'DDBWriteCapacity'
-    - ThrottledRequests (Sum) → 'ThrottledRequests'
-    - SystemErrors (Sum) → 'DDBSystemErrors'
-    """
-    if resource_tags is None:
-        resource_tags = {}
-
-    end_time = datetime.now(timezone.utc)
-    start_time = end_time - timedelta(minutes=CW_LOOKBACK_MINUTES)
-
-    dim = [{"Name": "TableName", "Value": resource_id}]
-    metrics: dict[str, float] = {}
-
-    collect_metric("AWS/DynamoDB", "ConsumedReadCapacityUnits", dim,
-                   start_time, end_time, "DDBReadCapacity", metrics,
-                   stat=CW_STAT_SUM, resource_label="DynamoDB")
-    collect_metric("AWS/DynamoDB", "ConsumedWriteCapacityUnits", dim,
-                   start_time, end_time, "DDBWriteCapacity", metrics,
-                   stat=CW_STAT_SUM, resource_label="DynamoDB")
-    collect_metric("AWS/DynamoDB", "ThrottledRequests", dim,
-                   start_time, end_time, "ThrottledRequests", metrics,
-                   stat=CW_STAT_SUM, resource_label="DynamoDB")
-    collect_metric("AWS/DynamoDB", "SystemErrors", dim,
-                   start_time, end_time, "DDBSystemErrors", metrics,
-                   stat=CW_STAT_SUM, resource_label="DynamoDB")
-
-    return metrics if metrics else None
-
-
-def resolve_alive_ids(tag_names: set[str]) -> set[str]:
-    """DynamoDB 테이블 존재 여부 확인."""
+def _alive(tag_names: set[str]) -> set[str]:
+    """DynamoDB 테이블 존재 여부 확인 — describe_table."""
     client = _get_dynamodb_client()
     alive: set[str] = set()
     for name in tag_names:
@@ -144,3 +82,9 @@ def _get_tags(dynamodb_client, resource_arn: str) -> dict:
     except ClientError as e:
         logger.error("DynamoDB list_tags_of_resource failed for %s: %s", resource_arn, e)
         return {}
+
+
+COLLECTOR = GenericCollector(SPEC, alive=_alive, enumerate=_enumerate)
+collect_monitored_resources = COLLECTOR.collect_monitored_resources
+get_metrics = COLLECTOR.get_metrics
+resolve_alive_ids = COLLECTOR.resolve_alive_ids

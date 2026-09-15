@@ -1,28 +1,23 @@
 """
-DXCollector - Extended Resource Monitoring
+Direct Connect 수집기 — connectionState='available' 필터가 describe를 요구하므로 태그 캐시(RGT)로 나열하지 않는다 (docs/specs/resource-type-registry P3)
 
-Monitoring=on 태그가 있는 Direct Connect 연결 수집 및 CloudWatch 메트릭 조회.
-connectionState=='available' 연결만 대상.
-네임스페이스: AWS/DX, 디멘션: ConnectionId.
+RGT는 연결 상태를 모른다. 상태 필터에 describe_connections(1콜)가 어차피 필요하고 태그는 캐시(`cached_tags`)에서 읽으므로 RGT
+나열로 아낄 콜이 없다 — 스펙에 `identity`가 없고 이 모듈의 `_enumerate`가 유일한 나열이다. TagName = connectionId.
+메트릭은 스펙(`common/resource_types/dx.py`)의 알람 정의에서 만든다. 네임스페이스 AWS/DX, 디멘션 ConnectionId.
 """
 
 import functools
 import logging
-from datetime import datetime, timedelta, timezone
 
 import boto3
 from botocore.exceptions import ClientError
 
-from common import ResourceInfo
-from common.collectors.base import query_metric, CW_LOOKBACK_MINUTES, CW_STAT_MIN, collect_metric
+from common.collectors.generic import GenericCollector
+from common.resource_types.dx import SPEC
 from common.tag_cache import cached_tags
 
 logger = logging.getLogger(__name__)
 
-
-# ──────────────────────────────────────────────
-# boto3 클라이언트 싱글턴 (코딩 거버넌스 §1)
-# ──────────────────────────────────────────────
 
 @functools.lru_cache(maxsize=None)
 def _get_dx_client():
@@ -30,12 +25,10 @@ def _get_dx_client():
     return boto3.client("directconnect")
 
 
-def collect_monitored_resources() -> list[ResourceInfo]:
-    """
-    Monitoring=on 태그 + connectionState='available' Direct Connect 연결 목록 반환.
+def _enumerate() -> list[tuple[str, dict]]:
+    """connectionState='available' Direct Connect 연결 (connection_id, tags).
 
-    describe_connections()로 전체 연결 조회 후
-    connectionState 필터링, describe_tags()로 태그 확인.
+    describe_connections()로 전체 연결 조회 후 connectionState 필터링, describe_tags()로 태그 확인.
     DX describe_tags는 lowercase key 사용: {"key": ..., "value": ...}.
     """
     try:
@@ -45,64 +38,25 @@ def collect_monitored_resources() -> list[ResourceInfo]:
         logger.error("DX describe_connections failed: %s", e)
         raise
 
-    resources: list[ResourceInfo] = []
+    found: list[tuple[str, dict]] = []
     region = boto3.session.Session().region_name or "us-east-1"
 
     for conn in response.get("connections", []):
         conn_id = conn["connectionId"]
-        conn_state = conn.get("connectionState", "")
-
-        if conn_state != "available":
+        if conn.get("connectionState", "") != "available":
             continue
 
         # DX ARN 구성
         owner = conn.get("ownerAccount", "")
         conn_region = conn.get("region", region)
         conn_arn = f"arn:aws:directconnect:{conn_region}:{owner}:dxcon/{conn_id}"
+        found.append((conn_id, _get_tags(client, conn_arn)))
 
-        tags = _get_tags(client, conn_arn)
-        if tags.get("Monitoring", "").lower() != "on":
-            continue
-
-        resources.append(
-            ResourceInfo(
-                id=conn_id,
-                type="DX",
-                tags=tags,
-                region=region,
-            )
-        )
-
-    return resources
+    return found
 
 
-def get_metrics(
-    resource_id: str, resource_tags: dict | None = None,
-) -> dict[str, float] | None:
-    """
-    CloudWatch에서 Direct Connect 연결 메트릭 조회.
-
-    수집 메트릭 (네임스페이스: AWS/DX):
-    - ConnectionState (Minimum) → 'ConnectionState'
-    """
-    if resource_tags is None:
-        resource_tags = {}
-
-    end_time = datetime.now(timezone.utc)
-    start_time = end_time - timedelta(minutes=CW_LOOKBACK_MINUTES)
-
-    dim = [{"Name": "ConnectionId", "Value": resource_id}]
-    metrics: dict[str, float] = {}
-
-    collect_metric("AWS/DX", "ConnectionState", dim,
-                   start_time, end_time, "ConnectionState", metrics,
-                   stat=CW_STAT_MIN, resource_label="DX")
-
-    return metrics if metrics else None
-
-
-def resolve_alive_ids(tag_names: set[str]) -> set[str]:
-    """Direct Connect 연결 존재 여부 확인."""
+def _alive(tag_names: set[str]) -> set[str]:
+    """Direct Connect 연결 존재 여부 확인 — describe_connections 전체와 교집합."""
     client = _get_dx_client()
     alive: set[str] = set()
     try:
@@ -135,3 +89,9 @@ def _get_tags(dx_client, connection_arn: str) -> dict:
     except ClientError as e:
         logger.error("DX describe_tags failed for %s: %s", connection_arn, e)
         return {}
+
+
+COLLECTOR = GenericCollector(SPEC, alive=_alive, enumerate=_enumerate)
+collect_monitored_resources = COLLECTOR.collect_monitored_resources
+get_metrics = COLLECTOR.get_metrics
+resolve_alive_ids = COLLECTOR.resolve_alive_ids

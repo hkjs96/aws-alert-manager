@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from common.resource_types.base import CREATE, DELETE, Lifecycle, ResourceTypeSpec, register
+from common.resource_types.base import CREATE, DELETE, Lifecycle, ResourceTypeSpec, arn_resource, register
 
 
 _MSK_ALARMS = [
@@ -55,9 +55,14 @@ _MSK_ALARMS = [
 ]
 
 
+def _cluster_name(arn: str) -> str:
+    """ARN `cluster/<name>/<uuid>` → 클러스터 이름(CW 디멘션 "Cluster Name" 값)."""
+    return arn_resource(arn).split("/")[1]
+
+
 SPEC = register(ResourceTypeSpec(
     type="MSK", label="MSK 클러스터", collector="msk",
-    rgt_filters=("kafka:cluster",), rgt_prime=True,
+    rgt_filters=("kafka:cluster",), rgt_prime=True, identity=_cluster_name,
     lifecycle=(Lifecycle("CreateCluster", CREATE), Lifecycle("DeleteCluster", DELETE)),
     alarm_defs=_MSK_ALARMS,
     # 표시명(알람 이름에 쓰는 지표명·방향·단위)과 기본 임계치 — 옛 alarm_registry._METRIC_DISPLAY / common.HARDCODED_DEFAULTS.

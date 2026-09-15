@@ -73,9 +73,24 @@
 
 ## Phase 3 — 범용 수집기 (3~4일, 3파)
 
-- [ ] 3.1 `GenericCollector(spec)` — RGT 경로(`tag_cache`를 "태그 조회"에서 "나열 소스"로 승격: `matching(rgt_type,
-      tag=...)` 추가) + `enumerate` 폴백 + 정의 기반 `get_metrics` + `spec.alive`. `CollectorProtocol` 그대로 구현.
-- [ ] 3.2 **1파 (RGT 순수, 위험 최소)**: SQS SNS Lambda DynamoDB MSK MQ ACM Backup DX EFS — 파일 삭제, 드라이런 0 diff.
+- [x] 3.1(2026-09-15) `common/collectors/generic.py` `GenericCollector(spec, alive=, enumerate=, identities=)` — `CollectorProtocol`
+      그대로. 나열: `spec.identity`(ARN→TagName, 순수) + `rgt_prime`이면 활성 태그 캐시의 `matching(rgt_filters)`(서비스 콜 0) →
+      아니면 모듈의 `_enumerate()`(옛 describe 코드, `(TagName, tags)` 반환) → Monitoring=on 필터는 범용이 건다. `get_metrics`는
+      `spec.alarms(tags)`를 그대로 `collect_metric`에(배치 record/serve 그대로 탄다; 옵트인은 `alarms(tags)`가 이미 가르므로 따로
+      안 뺀다). `resolve_alive_ids` = 모듈 `_alive`(describe 고정). `tag_cache`: `TagCache.matching()`·`cached_matching()`·
+      `arn_matches_filter()`(RGT 필터 문자열 의미 그대로 — `sqs`는 서비스 전체, `lambda:function`은 `type/`·`type:` 접두, APIGW의
+      `/restapis/…`는 앞 슬래시 제거), 프라임한 서비스를 기억해 **프라임 안 된 서비스 필터엔 None**(빈 결과를 0개로 오판 금지).
+      `base.py`: `identity` 필드, `arn_tail(sep)`·`arn_resource()`, register 불변식 `identity ⇒ rgt_prime`, 뷰 `rgt_enumerated_types()`.
+- [x] 3.2(2026-09-15) **1파** SQS SNS Lambda DynamoDB MSK MQ ACM Backup DX EFS → 범용 위로. **파일 삭제가 아니라 축소**: 폴백
+      나열(`_enumerate`)과 describe 존재 확인(`_alive`)은 환원 불가능해 모듈에 남는다(IAM 미부여·`TAG_CACHE=off`·프라임 실패 시
+      동작이 같아야 하고, 테스트 60여 건이 `_get_<svc>_client`를 패치한다). 1,386 → 883줄(+generic 130). RGT 나열 7타입(SQS SNS
+      Lambda DynamoDB MSK Backup EFS — EFS는 `rgt_prime` 켬, TAGGED_SERVICES += elasticfilesystem 스냅숏 갱신), MQ는 모듈
+      `_identities`(브로커 1 → 인스턴스 1~2, DeploymentMode describe), **ACM·DX는 describe 유지**(ACM Full_Collection은 태그 없는
+      인증서도 수집하므로 RGT 불가; DX는 상태 필터에 describe가 어차피 필요) — 이유는 스펙 `notes`("identity 없음"), 테스트가 강제.
+      게이트(라이브 드라이런 기준선이 비어 있어 오프라인): ① `tests/fixtures/collector_metrics_snapshot_2026-09.json` — 이관 **전**
+      타입별 `get_metrics`가 내던 쿼리(41변형 중 40 캡처, CloudFront는 자체 CW 클라이언트라 3파에서) == 범용이 내는 쿼리, 10/10 동일.
+      ② 같은 가짜 리소스를 RGT 페이지와 describe 응답에 넣고 두 경로 ResourceInfo 동일(`tests/test_generic_collector.py`).
+      ③ 기존 `test_collectors.py` 1파 69건·orphan PBT·`test_resolve_alive_ids` 그대로 통과(폴백 경로).
 - [ ] 3.3 **2파**: ElastiCache OpenSearch SageMaker ECS NAT VPN — NAT/VPN은 EC2 서버 측 태그 필터 `enumerate`를
       공유 헬퍼로(natgw가 이미 하는 방식).
 - [ ] 3.4 **3파 (오버라이드 유지)**: EC2 ELB/TG RDS/Aurora/DocDB APIGW S3 CloudFront Route53 WAF — 스펙에 `enumerate`/

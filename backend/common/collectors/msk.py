@@ -1,27 +1,21 @@
 """
-MSKCollector - Extended Resource Monitoring
+MSK 수집기 — 나열은 범용(태그 캐시), 여기엔 describe 폴백과 존재 확인만 (docs/specs/resource-type-registry P3)
 
-Monitoring=on 태그가 있는 MSK 클러스터 수집 및 CloudWatch 메트릭 조회.
-네임스페이스: AWS/Kafka, 디멘션: "Cluster Name" (공백 포함).
-list_clusters_v2()는 Tags를 dict로 직접 반환.
+TagName = 클러스터 이름(ARN `cluster/<name>/<uuid>`의 가운데 조각, 스펙 `identity`). 메트릭은 스펙(`common/resource_types/msk.py`)의
+알람 정의에서 만든다. 네임스페이스 AWS/Kafka, 디멘션 "Cluster Name"(공백 포함). list_clusters_v2는 Tags를 dict로 직접 준다.
 """
 
 import functools
 import logging
-from datetime import datetime, timedelta, timezone
 
 import boto3
 from botocore.exceptions import ClientError
 
-from common import ResourceInfo
-from common.collectors.base import query_metric, CW_LOOKBACK_MINUTES, CW_STAT_AVG, collect_metric
+from common.collectors.generic import GenericCollector
+from common.resource_types.msk import SPEC
 
 logger = logging.getLogger(__name__)
 
-
-# ──────────────────────────────────────────────
-# boto3 클라이언트 싱글턴 (코딩 거버넌스 §1)
-# ──────────────────────────────────────────────
 
 @functools.lru_cache(maxsize=None)
 def _get_kafka_client():
@@ -29,13 +23,8 @@ def _get_kafka_client():
     return boto3.client("kafka")
 
 
-def collect_monitored_resources() -> list[ResourceInfo]:
-    """
-    Monitoring=on 태그가 있는 MSK 클러스터 목록 반환.
-
-    list_clusters_v2() paginator로 전체 클러스터 조회.
-    Tags 필드가 dict로 직접 포함되어 있으므로 별도 태그 API 호출 불필요.
-    """
+def _enumerate() -> list[tuple[str, dict]]:
+    """태그 캐시가 없을 때: list_clusters_v2(Tags 포함, 태그 API 없음). (cluster_name, tags)."""
     try:
         client = _get_kafka_client()
         paginator = client.get_paginator("list_clusters_v2")
@@ -44,69 +33,15 @@ def collect_monitored_resources() -> list[ResourceInfo]:
         logger.error("MSK list_clusters_v2 failed: %s", e)
         raise
 
-    resources: list[ResourceInfo] = []
-    region = boto3.session.Session().region_name or "us-east-1"
-
+    found: list[tuple[str, dict]] = []
     for page in pages:
         for cluster in page.get("ClusterInfoList", []):
-            tags = cluster.get("Tags", {})
-            if tags.get("Monitoring", "").lower() != "on":
-                continue
-
-            cluster_name = cluster["ClusterName"]
-            resources.append(
-                ResourceInfo(
-                    id=cluster_name,
-                    type="MSK",
-                    tags=tags,
-                    region=region,
-                )
-            )
-
-    return resources
+            found.append((cluster["ClusterName"], cluster.get("Tags", {})))
+    return found
 
 
-def get_metrics(
-    resource_id: str, resource_tags: dict | None = None,
-) -> dict[str, float] | None:
-    """
-    CloudWatch에서 MSK 클러스터 메트릭 조회.
-
-    수집 메트릭 (네임스페이스: AWS/Kafka):
-    - SumOffsetLag (Maximum) → 'OffsetLag'
-    - BytesInPerSec (Average) → 'BytesInPerSec'
-    - UnderReplicatedPartitions (Maximum) → 'UnderReplicatedPartitions'
-    - ActiveControllerCount (Average) → 'ActiveControllerCount'
-
-    디멘션 키: "Cluster Name" (공백 포함, AWS 공식 문서 기준).
-    """
-    if resource_tags is None:
-        resource_tags = {}
-
-    end_time = datetime.now(timezone.utc)
-    start_time = end_time - timedelta(minutes=CW_LOOKBACK_MINUTES)
-
-    dim = [{"Name": "Cluster Name", "Value": resource_id}]
-    metrics: dict[str, float] = {}
-
-    collect_metric("AWS/Kafka", "SumOffsetLag", dim,
-                   start_time, end_time, "OffsetLag", metrics,
-                   stat="Maximum", resource_label="MSK")
-    collect_metric("AWS/Kafka", "BytesInPerSec", dim,
-                   start_time, end_time, "BytesInPerSec", metrics,
-                   stat=CW_STAT_AVG, resource_label="MSK")
-    collect_metric("AWS/Kafka", "UnderReplicatedPartitions", dim,
-                   start_time, end_time, "UnderReplicatedPartitions", metrics,
-                   stat="Maximum", resource_label="MSK")
-    collect_metric("AWS/Kafka", "ActiveControllerCount", dim,
-                   start_time, end_time, "ActiveControllerCount", metrics,
-                   stat=CW_STAT_AVG, resource_label="MSK")
-
-    return metrics if metrics else None
-
-
-def resolve_alive_ids(tag_names: set[str]) -> set[str]:
-    """MSK 클러스터 존재 여부 확인."""
+def _alive(tag_names: set[str]) -> set[str]:
+    """MSK 클러스터 존재 여부 확인 — list_clusters_v2 전체와 교집합."""
     client = _get_kafka_client()
     alive: set[str] = set()
     try:
@@ -126,3 +61,8 @@ def resolve_alive_ids(tag_names: set[str]) -> set[str]:
             logger.info("MSK cluster not found (orphan): %s", name)
     return alive
 
+
+COLLECTOR = GenericCollector(SPEC, alive=_alive, enumerate=_enumerate)
+collect_monitored_resources = COLLECTOR.collect_monitored_resources
+get_metrics = COLLECTOR.get_metrics
+resolve_alive_ids = COLLECTOR.resolve_alive_ids

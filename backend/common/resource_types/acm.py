@@ -28,7 +28,8 @@ SPEC = register(ResourceTypeSpec(
     type="ACM", label="ACM 인증서", collector="acm",
     rgt_filters=("acm:certificate",), rgt_prime=True,
     lifecycle=(Lifecycle("DeleteCertificate", DELETE),),
-    notes="TagName은 도메인명 — alive 판정이 list_certificates+describe로 역매핑한다.",
+    notes=("TagName은 도메인명 — alive 판정이 list_certificates+describe로 역매핑한다. identity 없음: Full_Collection이라 "
+           "태그 없는 인증서도 수집하므로(Req 13.1) 태그 캐시(RGT)로 나열할 수 없다 — 수집기의 describe 나열만 쓴다."),
     alarm_defs=_ACM_ALARMS,
     # 표시명(알람 이름에 쓰는 지표명·방향·단위)과 기본 임계치 — 옛 alarm_registry._METRIC_DISPLAY / common.HARDCODED_DEFAULTS.
     # 여러 타입이 같은 키(CPUUtilization 등)를 선언하면 값이 같아야 한다 — 뷰가 강제한다.
