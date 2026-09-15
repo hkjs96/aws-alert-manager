@@ -139,7 +139,8 @@ def _get_aurora_alarm_defs(resource_tags: dict) -> list[dict]:
 SPEC = register(ResourceTypeSpec(
     type="AuroraRDS", label="Aurora", collector="rds",
     rgt_filters=("rds:db",), rgt_prime=True,
-    notes="RDS 스펙의 이벤트·필터를 공유한다. 알람 정의는 Serverless v2/Writer/Readers 태그로 갈린다.",
+    notes=("RDS 스펙의 이벤트·필터를 공유한다. 알람 정의는 Serverless v2/Writer/Readers 태그로 갈린다. identity 없음: rds 수집기가 "
+           "describe로 엔진·클러스터 역할을 판별해 낸다. 메트릭은 수집기의 get_aurora_metrics(오버라이드) — GB 변환·개명 전 키."),
     alarm_defs=_get_aurora_alarm_defs,
     variants=tuple(
         {"_is_serverless_v2": s, "_is_cluster_writer": w, "_has_readers": r}

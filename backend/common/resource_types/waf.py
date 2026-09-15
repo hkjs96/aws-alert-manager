@@ -47,7 +47,8 @@ SPEC = register(ResourceTypeSpec(
     type="WAF", label="WAFv2 Web ACL", collector="waf",
     rgt_filters=("wafv2:webacl",), rgt_prime=True,
     lifecycle=(Lifecycle("CreateWebACL", CREATE), Lifecycle("DeleteWebACL", DELETE)),
-    notes="REGIONAL 스코프는 리전, CLOUDFRONT 스코프는 us-east-1에서 조회.",
+    notes=("REGIONAL 스코프는 리전, CLOUDFRONT 스코프는 us-east-1에서 조회(수집기는 REGIONAL만 나열 — CLOUDFRONT 미구현). "
+           "태그 캐시 나열은 수집기 모듈의 _identities가 맡는다 — ARN regional/webacl 판별과 _waf_rule·_waf_region 내부 태그."),
     alarm_defs=_WAF_ALARMS,
     # 표시명(알람 이름에 쓰는 지표명·방향·단위)과 기본 임계치 — 옛 alarm_registry._METRIC_DISPLAY / common.HARDCODED_DEFAULTS.
     # 여러 타입이 같은 키(CPUUtilization 등)를 선언하면 값이 같아야 한다 — 뷰가 강제한다.

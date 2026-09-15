@@ -1,27 +1,24 @@
 """
-APIGWCollector - Remaining Resource Monitoring
+API Gateway 수집기 — REST(v1)·HTTP/WebSocket(v2)을 한 모듈에서, 나열은 describe (docs/specs/resource-type-registry P3)
 
-Monitoring=on 태그가 있는 API Gateway (REST/HTTP/WebSocket) 수집 및 CloudWatch 메트릭 조회.
-단일 모듈에서 3가지 API 타입을 수집 (ELB Collector의 ALB/NLB 패턴 준용).
-네임스페이스: AWS/ApiGateway, 디멘션: ApiName (REST) 또는 ApiId (HTTP/WS).
+v2 `get_apis`는 태그와 ProtocolType을 한 콜에 주고, REST는 TagName이 API **이름**이라 ARN(`/restapis/<id>`)만으로는 정체가 안 나온다 —
+RGT 나열로 아낄 콜이 REST의 태그 N+1뿐이라 스펙에 `identity`가 없고 이 모듈의 `_enumerate`가 유일한 나열이다(REST 태그는 캐시 히트를
+먼저 본다). 내부 태그 `_api_type`(REST/HTTP/WEBSOCKET)이 알람 정의 변형과 디멘션(ApiName/ApiId)을 가른다.
+메트릭은 스펙(`common/resource_types/apigw.py`)의 알람 정의에서 만든다. 네임스페이스 AWS/ApiGateway.
 """
 
 import functools
 import logging
-from datetime import datetime, timedelta, timezone
 
 import boto3
 from botocore.exceptions import ClientError
 
-from common import ResourceInfo
-from common.collectors.base import query_metric, CW_LOOKBACK_MINUTES, CW_STAT_AVG, CW_STAT_SUM, collect_metric
+from common.collectors.generic import GenericCollector, session_region
+from common.resource_types.apigw import SPEC
+from common.tag_cache import cached_tags
 
 logger = logging.getLogger(__name__)
 
-
-# ──────────────────────────────────────────────
-# boto3 클라이언트 싱글턴 (코딩 거버넌스 §1)
-# ──────────────────────────────────────────────
 
 @functools.lru_cache(maxsize=None)
 def _get_apigw_client():
@@ -35,96 +32,59 @@ def _get_apigwv2_client():
     return boto3.client("apigatewayv2")
 
 
-def collect_monitored_resources() -> list[ResourceInfo]:
-    """
-    Monitoring=on 태그가 있는 API Gateway (REST/HTTP/WebSocket) 목록 반환.
-
-    REST: apigateway 클라이언트 get_rest_apis() + get_tags()
-    HTTP/WS: apigatewayv2 클라이언트 get_apis() + Tags 필드
-    _api_type Internal_Tag로 REST/HTTP/WEBSOCKET 분기.
-    한쪽 API 실패 시 다른 쪽은 계속 수집.
-    """
-    resources: list[ResourceInfo] = []
-    region = boto3.session.Session().region_name or "us-east-1"
-
-    # REST API 수집
-    _collect_rest_apis(resources, region)
-
-    # HTTP/WebSocket API 수집
-    _collect_v2_apis(resources, region)
-
-    return resources
+def _enumerate() -> list[tuple[str, dict]]:
+    """REST: get_rest_apis + 태그(캐시 → get_tags). HTTP/WS: get_apis(Tags 포함). 한쪽 실패 시 다른 쪽은 계속."""
+    region = session_region()
+    return _rest_apis(region) + _v2_apis()
 
 
-def _collect_rest_apis(resources: list[ResourceInfo], region: str) -> None:
-    """REST API (v1) 수집. 실패 시 로그 후 skip."""
+def _rest_apis(region: str) -> list[tuple[str, dict]]:
+    """REST API (v1). TagName = API 이름. 실패 시 로그 후 빈 목록."""
     try:
         client = _get_apigw_client()
         paginator = client.get_paginator("get_rest_apis")
         pages = paginator.paginate()
     except ClientError as e:
         logger.error("APIGW get_rest_apis failed: %s", e)
-        return
+        return []
 
+    found: list[tuple[str, dict]] = []
     for page in pages:
         for api in page.get("items", []):
             api_id = api["id"]
-            api_name = api.get("name", api_id)
-
-            tags = _get_rest_api_tags(client, api_id, region)
+            tags = dict(_get_rest_api_tags(client, api_id, region))
             if tags.get("Monitoring", "").lower() != "on":
                 continue
-
             tags["_api_type"] = "REST"
-
-            resources.append(
-                ResourceInfo(
-                    id=api_name,
-                    type="APIGW",
-                    tags=tags,
-                    region=region,
-                )
-            )
+            found.append((api.get("name", api_id), tags))
+    return found
 
 
-def _collect_v2_apis(resources: list[ResourceInfo], region: str) -> None:
-    """HTTP/WebSocket API (v2) 수집. 실패 시 로그 후 skip."""
+def _v2_apis() -> list[tuple[str, dict]]:
+    """HTTP/WebSocket API (v2). TagName = ApiId, Name 태그가 없으면 API 이름을 넣는다. 실패 시 로그 후 빈 목록."""
     try:
         client = _get_apigwv2_client()
         paginator = client.get_paginator("get_apis")
         pages = paginator.paginate()
     except ClientError as e:
         logger.error("APIGW v2 get_apis failed: %s", e)
-        return
+        return []
 
+    found: list[tuple[str, dict]] = []
     for page in pages:
         for api in page.get("Items", []):
-            api_id = api["ApiId"]
-            protocol = api.get("ProtocolType", "HTTP")
-
-            tags = api.get("Tags", {})
+            tags = dict(api.get("Tags", {}))
             if tags.get("Monitoring", "").lower() != "on":
                 continue
-
-            api_type = "WEBSOCKET" if protocol == "WEBSOCKET" else "HTTP"
-            tags["_api_type"] = api_type
-
-            # v2 API Name을 tags에 포함 (알람 이름 label용)
+            tags["_api_type"] = "WEBSOCKET" if api.get("ProtocolType", "HTTP") == "WEBSOCKET" else "HTTP"
             api_name = api.get("Name", "")
             if api_name:
                 tags.setdefault("Name", api_name)
-
-            resources.append(
-                ResourceInfo(
-                    id=api_id,
-                    type="APIGW",
-                    tags=tags,
-                    region=region,
-                )
-            )
+            found.append((api["ApiId"], tags))
+    return found
 
 
-def resolve_alive_ids(tag_names: set[str]) -> set[str]:
+def _alive(tag_names: set[str]) -> set[str]:
     """알람 TagName 집합에서 실제 AWS API Gateway가 존재하는 TagName 부분집합 반환.
 
     composite TagName ('{api_name}/{api_id}' 형식, '/'포함):
@@ -138,129 +98,52 @@ def resolve_alive_ids(tag_names: set[str]) -> set[str]:
 
     composite: dict[str, str] = {}   # api_id -> original tag_name
     rest_names: dict[str, str] = {}  # api_name -> original tag_name
-
     for tag_name in tag_names:
         if "/" in tag_name:
-            api_id = tag_name.rsplit("/", 1)[1]
-            composite[api_id] = tag_name
+            composite[tag_name.rsplit("/", 1)[1]] = tag_name
         else:
             rest_names[tag_name] = tag_name
 
     alive: set[str] = set()
-
-    # v2 APIs (HTTP/WebSocket) — match by ApiId
     if composite:
         try:
             v2 = _get_apigwv2_client()
-            paginator = v2.get_paginator("get_apis")
-            for page in paginator.paginate():
+            for page in v2.get_paginator("get_apis").paginate():
                 for api in page.get("Items", []):
-                    api_id = api["ApiId"]
-                    if api_id in composite:
-                        alive.add(composite[api_id])
+                    if api["ApiId"] in composite:
+                        alive.add(composite[api["ApiId"]])
         except ClientError as e:
             logger.error("APIGW v2 get_apis failed: %s", e)
 
-    # REST APIs — match by name
     if rest_names:
         try:
             client = _get_apigw_client()
-            paginator = client.get_paginator("get_rest_apis")
-            for page in paginator.paginate():
+            for page in client.get_paginator("get_rest_apis").paginate():
                 for api in page.get("items", []):
                     name = api.get("name", "")
                     if name in rest_names:
                         alive.add(rest_names[name])
         except ClientError as e:
             logger.error("APIGW get_rest_apis failed: %s", e)
-
     return alive
 
 
-def get_metrics(
-    resource_id: str, resource_tags: dict | None = None,
-) -> dict[str, float] | None:
-    """
-    CloudWatch에서 API Gateway 메트릭 조회.
-
-    _api_type에 따라 디멘션 키와 메트릭 이름 분기:
-    - REST: ApiName, Latency/4XXError/5XXError
-    - HTTP: ApiId, Latency/4xx/5xx
-    - WEBSOCKET: ApiId, ConnectCount/MessageCount/IntegrationError/ExecutionError
-
-    데이터 없으면 해당 메트릭 skip. 모두 없으면 None 반환.
-    """
-    if resource_tags is None:
-        resource_tags = {}
-
-    end_time = datetime.now(timezone.utc)
-    start_time = end_time - timedelta(minutes=CW_LOOKBACK_MINUTES)
-
-    api_type = resource_tags.get("_api_type", "REST")
-    metrics: dict[str, float] = {}
-
-    if api_type == "REST":
-        _collect_rest_metrics(resource_id, start_time, end_time, metrics)
-    elif api_type == "HTTP":
-        _collect_http_metrics(resource_id, start_time, end_time, metrics)
-    elif api_type == "WEBSOCKET":
-        _collect_ws_metrics(resource_id, start_time, end_time, metrics)
-
-    return metrics if metrics else None
-
-
-def _collect_rest_metrics(api_name, start_time, end_time, metrics):
-    """REST API 메트릭 조회. 디멘션: ApiName."""
-    dim = [{"Name": "ApiName", "Value": api_name}]
-    collect_metric("AWS/ApiGateway", "Latency", dim,
-                   start_time, end_time, "ApiLatency", metrics,
-                   stat=CW_STAT_AVG, resource_label="APIGW")
-    collect_metric("AWS/ApiGateway", "4XXError", dim,
-                   start_time, end_time, "Api4XXError", metrics,
-                   stat=CW_STAT_SUM, resource_label="APIGW")
-    collect_metric("AWS/ApiGateway", "5XXError", dim,
-                   start_time, end_time, "Api5XXError", metrics,
-                   stat=CW_STAT_SUM, resource_label="APIGW")
-
-
-def _collect_http_metrics(api_id, start_time, end_time, metrics):
-    """HTTP API 메트릭 조회. 디멘션: ApiId."""
-    dim = [{"Name": "ApiId", "Value": api_id}]
-    collect_metric("AWS/ApiGateway", "Latency", dim,
-                   start_time, end_time, "ApiLatency", metrics,
-                   stat=CW_STAT_AVG, resource_label="APIGW")
-    collect_metric("AWS/ApiGateway", "4xx", dim,
-                   start_time, end_time, "Api4xx", metrics,
-                   stat=CW_STAT_SUM, resource_label="APIGW")
-    collect_metric("AWS/ApiGateway", "5xx", dim,
-                   start_time, end_time, "Api5xx", metrics,
-                   stat=CW_STAT_SUM, resource_label="APIGW")
-
-
-def _collect_ws_metrics(api_id, start_time, end_time, metrics):
-    """WebSocket API 메트릭 조회. 디멘션: ApiId."""
-    dim = [{"Name": "ApiId", "Value": api_id}]
-    collect_metric("AWS/ApiGateway", "ConnectCount", dim,
-                   start_time, end_time, "WsConnectCount", metrics,
-                   stat=CW_STAT_SUM, resource_label="APIGW")
-    collect_metric("AWS/ApiGateway", "MessageCount", dim,
-                   start_time, end_time, "WsMessageCount", metrics,
-                   stat=CW_STAT_SUM, resource_label="APIGW")
-    collect_metric("AWS/ApiGateway", "IntegrationError", dim,
-                   start_time, end_time, "WsIntegrationError", metrics,
-                   stat=CW_STAT_SUM, resource_label="APIGW")
-    collect_metric("AWS/ApiGateway", "ExecutionError", dim,
-                   start_time, end_time, "WsExecutionError", metrics,
-                   stat=CW_STAT_SUM, resource_label="APIGW")
-
-
 def _get_rest_api_tags(apigw_client, api_id: str, region: str) -> dict:
-    """REST API 태그 조회. get_tags() 사용. ClientError 시 빈 dict 반환."""
+    """REST API 태그 — 태그 캐시 히트 우선, 없으면 get_tags(). ClientError 시 빈 dict 반환."""
+    # REST API ARN: arn:aws:apigateway:{region}::/restapis/{api_id}
+    arn = f"arn:aws:apigateway:{region}::/restapis/{api_id}"
+    cached = cached_tags(arn)
+    if cached is not None:
+        return cached
     try:
-        # REST API ARN: arn:aws:apigateway:{region}::/restapis/{api_id}
-        arn = f"arn:aws:apigateway:{region}::/restapis/{api_id}"
         response = apigw_client.get_tags(resourceArn=arn)
         return response.get("tags", {})
     except ClientError as e:
         logger.error("APIGW get_tags failed for %s: %s", api_id, e)
         return {}
+
+
+COLLECTOR = GenericCollector(SPEC, alive=_alive, enumerate=_enumerate)
+collect_monitored_resources = COLLECTOR.collect_monitored_resources
+get_metrics = COLLECTOR.get_metrics
+resolve_alive_ids = COLLECTOR.resolve_alive_ids

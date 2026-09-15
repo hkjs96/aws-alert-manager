@@ -141,6 +141,17 @@ APIGW(REST/HTTP/WS 판별) · S3·CloudFront·Route53(글로벌 → us-east-1) �
   스펙에 `identity`가 없으면 `notes`에 "identity 없음"과 이유 — 테스트가 강제.
 - `matching()`은 필터의 서비스가 프라임 목록에 없으면 빈 목록이 아니라 `None`을 돌려 폴백시킨다(빈 결과를 "0개"로 오판하지 않게).
 
+**P3 2·3파에서 확정된 수정(2026-09-15):**
+- 태그 캐시로 나열하는 타입은 **12/29**(SQS SNS Lambda DynamoDB MSK Backup EFS MQ OpenSearch SageMaker CLB WAF). 위 목록의 16개 중
+  ElastiCache(엔진·상태 필터)·ECS(구 형식 ARN에 클러스터 없음)·NAT/VPN(서버 측 태그 필터가 이미 N+1을 없앤다)은 describe가 맞았고,
+  글로벌 서비스(S3·CloudFront·Route53)는 **RGT가 리전 API**라 실행 리전 캐시로 나열하면 0개·누락으로 오판한다 — 이 셋을 캐시가
+  `trust_negative=False`로 다루던 이유와 같다. APIGW는 REST TagName이 API 이름이라 ARN만으로 안 나온다.
+- 범용 `get_metrics`는 디멘션을 **알람 쪽 빌더**(`dimension_builder._build_dimensions`)로 만든다. 그 결과 옛 WAF·S3 요청 지표 수집이
+  알람과 다른 디멘션 집합(Region·FilterId 누락)으로 물어 데이터를 못 받던 것이 드러났다 — 범용에서 고쳐졌다(받아들인 차이).
+- 오버라이드는 `GenericCollector(spec, metrics=…)`로 남는다(EC2 RDS/Aurora DocDB ELB CloudFront) — 메트릭 코드는 원문 그대로,
+  나열은 `_enumerate`가 항목마다 타입을 줄 수 있다(`(TagName, tags, type)` — rds·elb처럼 한 수집기가 타입 여럿을 낼 때).
+- 수집기 디렉터리 4,927 → 3,643줄. "~2,300줄 삭제"는 과대 추정이었다 — 폴백·존재 확인·오버라이드 메트릭이 남는다.
+
 ### D5. 이관은 스트랭글러 — 중간 상태가 항상 동작한다
 
 1. **파생부터**(동작 변화 0): 세 맵을 정의에서 계산하고 같은 이름으로 노출. **스냅숏 테스트**로

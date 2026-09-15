@@ -1,8 +1,11 @@
 """
-EC2Collector - Requirements 1.1, 1.2, 1.5, 3.5
+EC2 수집기 — 나열은 EC2 서버 측 태그 필터, 메트릭은 타입 고유 조회(오버라이드) (docs/specs/resource-type-registry P3)
 
-Monitoring=on 태그가 있는 EC2 인스턴스 수집 및 CloudWatch 메트릭 조회.
-CWAgent 메트릭(Memory, Disk)은 데이터 없으면 skip.
+나열: `describe_instances(Filters=tag:Monitoring=on)`이 서버에서 걸러 주고 응답에 Tags가 있어 N+1이 없다 — EC2 하위 리소스는 RGT
+프라임에서 빠져 있고 스펙에 `identity`가 없다. terminated/shutting-down은 제외. TagName = InstanceId.
+메트릭(오버라이드 `_metrics`): 정의로 표현되지 않는 것이 있다 — CWAgent 메모리(`Threshold_Memory` 태그가 있을 때만)와 디스크
+(`Threshold_Disk_*` 태그의 경로마다 list_metrics로 device/fstype 디멘션을 **발견**해야 한다, 정의의 dynamic_dimensions). 결과 키
+`CPU`·`Memory`·`Disk_<suffix>`는 tag_resolver·daily_monitor의 임계치 분기와 묶여 있어 그대로 둔다.
 """
 
 import functools
@@ -12,16 +15,13 @@ from datetime import datetime, timedelta, timezone
 import boto3
 from botocore.exceptions import ClientError
 
-from common import ResourceInfo
 from common.collectors.base import query_metric, CW_LOOKBACK_MINUTES, run_memo
+from common.collectors.generic import GenericCollector
+from common.resource_types.ec2 import SPEC
 from common.tag_resolver import get_disk_thresholds
 
 logger = logging.getLogger(__name__)
 
-
-# ──────────────────────────────────────────────
-# boto3 클라이언트 싱글턴 (코딩 거버넌스 §1)
-# ──────────────────────────────────────────────
 
 @functools.lru_cache(maxsize=None)
 def _get_ec2_client():
@@ -35,61 +35,34 @@ def _get_cw_client():
     return boto3.client("cloudwatch")
 
 
-def collect_monitored_resources() -> list[ResourceInfo]:
-    """
-    Monitoring=on 태그가 있는 EC2 인스턴스 목록 반환.
-    terminated/shutting-down 상태 인스턴스는 제외하고 로그 기록.
+def _enumerate() -> list[tuple[str, dict]]:
+    """describe_instances(Filters=tag:Monitoring=on) 전 페이지 → 미종료 (instance_id, tags).
 
-    describe_instances는 결과가 많으면 여러 페이지로 나뉜다. 페이지네이션 없이
-    첫 페이지만 읽으면 나머지 인스턴스가 조용히 누락되어(알람 미생성 + 메트릭 미점검)
-    기존 알람이 고아로 오판될 수 있다.
-
-    Returns:
-        ResourceInfo 딕셔너리 리스트
+    describe_instances는 결과가 많으면 여러 페이지로 나뉜다. 페이지네이션 없이 첫 페이지만 읽으면 나머지 인스턴스가
+    조용히 누락되어(알람 미생성 + 메트릭 미점검) 기존 알람이 고아로 오판될 수 있다.
     """
     try:
         ec2 = _get_ec2_client()
         paginator = ec2.get_paginator("describe_instances")
-        pages = list(
-            paginator.paginate(Filters=[{"Name": "tag:Monitoring", "Values": ["on"]}])
-        )
+        pages = list(paginator.paginate(Filters=[{"Name": "tag:Monitoring", "Values": ["on"]}]))
     except ClientError as e:
         logger.error("EC2 describe_instances failed: %s", e)
         raise
 
-    # 리전은 모든 인스턴스가 동일하다. 루프 안에서 Session()을 만들면 인스턴스 수만큼
-    # 세션 객체가 생성된다.
-    region = boto3.session.Session().region_name or "us-east-1"
-
-    resources: list[ResourceInfo] = []
+    found: list[tuple[str, dict]] = []
     for page in pages:
         for reservation in page.get("Reservations", []):
             for instance in reservation.get("Instances", []):
                 instance_id = instance["InstanceId"]
                 state = instance.get("State", {}).get("Name", "")
-
-                # terminated / shutting-down 제외
                 if state in ("terminated", "shutting-down"):
-                    logger.info(
-                        "Skipping EC2 instance %s: state=%s", instance_id, state
-                    )
+                    logger.info("Skipping EC2 instance %s: state=%s", instance_id, state)
                     continue
-
-                tags = {t["Key"]: t["Value"] for t in instance.get("Tags", [])}
-
-                resources.append(
-                    ResourceInfo(
-                        id=instance_id,
-                        type="EC2",
-                        tags=tags,
-                        region=region,
-                    )
-                )
-
-    return resources
+                found.append((instance_id, {t["Key"]: t["Value"] for t in instance.get("Tags", [])}))
+    return found
 
 
-def get_metrics(instance_id: str, resource_tags: dict | None = None) -> dict[str, float] | None:
+def _metrics(instance_id: str, resource_tags: dict | None = None) -> dict[str, float] | None:
     """
     CloudWatch에서 EC2 메트릭 조회.
 
@@ -99,23 +72,15 @@ def get_metrics(instance_id: str, resource_tags: dict | None = None) -> dict[str
     - disk_used_percent (CWAgent) - 태그에 Threshold_Disk_* 있을 때만
 
     데이터 없거나 InsufficientData이면 해당 메트릭 skip (None 반환은 모든 메트릭 없을 때).
-
-    Args:
-        instance_id: EC2 인스턴스 ID
-        resource_tags: 리소스 태그 딕셔너리 (CWAgent 메트릭 조회 여부 결정)
-
-    Returns:
-        {metric_name: value} 딕셔너리. 수집된 메트릭이 하나도 없으면 None.
     """
     if resource_tags is None:
         resource_tags = {}
 
     end_time = datetime.now(timezone.utc)
     start_time = end_time - timedelta(minutes=CW_LOOKBACK_MINUTES)
-
     metrics: dict[str, float] = {}
 
-    # 1. CPUUtilization (기본 메트릭)
+    # 1. CPUUtilization (AWS/EC2) - 항상 조회
     cpu = query_metric(
         "AWS/EC2", "CPUUtilization",
         [{"Name": "InstanceId", "Value": instance_id}],
@@ -134,9 +99,7 @@ def get_metrics(instance_id: str, resource_tags: dict | None = None) -> dict[str
         if mem is not None:
             metrics["Memory"] = mem
         else:
-            logger.info(
-                "Skipping Memory metric for %s: no CWAgent data", instance_id
-            )
+            logger.info("Skipping Memory metric for %s: no CWAgent data", instance_id)
 
     # 3. disk_used_percent (CWAgent) - Threshold_Disk_* 태그 있을 때만
     disk_thresholds = get_disk_thresholds(resource_tags)
@@ -147,20 +110,16 @@ def get_metrics(instance_id: str, resource_tags: dict | None = None) -> dict[str
             suffix = disk_path_to_tag_suffix(path)
             metrics[f"Disk_{suffix}"] = disk
         else:
-            logger.info(
-                "Skipping Disk metric for %s path=%s: no CWAgent data",
-                instance_id, path,
-            )
+            logger.info("Skipping Disk metric for %s path=%s: no CWAgent data", instance_id, path)
 
     return metrics if metrics else None
 
 
-def resolve_alive_ids(tag_names: set[str]) -> set[str]:
+def _alive(tag_names: set[str]) -> set[str]:
     """EC2 인스턴스 존재 여부 확인. terminated/shutting-down 제외."""
     ec2 = _get_ec2_client()
     alive: set[str] = set()
     id_list = list(tag_names)
-
     for i in range(0, len(id_list), 200):
         batch = id_list[i:i + 200]
         try:
@@ -173,16 +132,14 @@ def resolve_alive_ids(tag_names: set[str]) -> set[str]:
         except ClientError as e:
             code = e.response["Error"]["Code"]
             if code == "InvalidInstanceID.NotFound":
+                # 배치에 없는 ID가 하나라도 있으면 전체가 실패 → 개별 확인
                 _check_individually(ec2, batch, alive)
             else:
                 logger.error("describe_instances failed: %s", e)
-
     return alive
 
 
-def _check_individually(
-    ec2, batch: list[str], alive: set[str],
-) -> None:
+def _check_individually(ec2, batch: list[str], alive: set[str]) -> None:
     """배치 조회 실패 시 개별 인스턴스 확인."""
     for iid in batch:
         try:
@@ -196,18 +153,12 @@ def _check_individually(
             pass  # 완전히 없는 인스턴스 → alive에 추가 안 함
 
 
-def _query_disk_metric(
-    instance_id: str,
-    path: str,
-    start_time: datetime,
-    end_time: datetime,
-) -> float | None:
+def _query_disk_metric(instance_id: str, path: str, start_time: datetime, end_time: datetime) -> float | None:
     """CWAgent disk_used_percent 메트릭 조회. path 기준으로 필터링."""
     try:
         cw = _get_cw_client()
         # CWAgent disk 메트릭은 path, device, fstype Dimension이 필요하므로
         # list_metrics로 해당 인스턴스+경로의 실제 Dimension 조회 후 사용.
-        # daily run에서는 get_metrics가 record/serve 두 번 돌므로 런 스코프 메모로 1회만 조회.
         response = run_memo(
             ("disk_list_metrics", instance_id, path),
             lambda: cw.list_metrics(
@@ -222,16 +173,14 @@ def _query_disk_metric(
         metric_list = response.get("Metrics", [])
         if not metric_list:
             return None
-
-        # 첫 번째 매칭 메트릭의 Dimension으로 조회
         dimensions = metric_list[0]["Dimensions"]
-        return query_metric(
-            "CWAgent", "disk_used_percent",
-            dimensions, start_time, end_time,
-        )
+        return query_metric("CWAgent", "disk_used_percent", dimensions, start_time, end_time)
     except ClientError as e:
-        logger.error(
-            "CloudWatch list_metrics failed for disk path=%s instance=%s: %s",
-            path, instance_id, e,
-        )
+        logger.error("CloudWatch list_metrics failed for disk path=%s instance=%s: %s", path, instance_id, e)
         return None
+
+
+COLLECTOR = GenericCollector(SPEC, alive=_alive, enumerate=_enumerate, metrics=_metrics)
+collect_monitored_resources = COLLECTOR.collect_monitored_resources
+get_metrics = COLLECTOR.get_metrics
+resolve_alive_ids = COLLECTOR.resolve_alive_ids

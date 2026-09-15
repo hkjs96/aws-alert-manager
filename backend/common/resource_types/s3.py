@@ -61,7 +61,8 @@ SPEC = register(ResourceTypeSpec(
     type="S3", label="S3 버킷", collector="s3",
     rgt_filters=("s3",), rgt_prime=True,
     lifecycle=(Lifecycle("CreateBucket", CREATE), Lifecycle("DeleteBucket", DELETE)),
-    notes="버킷 메트릭은 버킷 리전에서 — 나열 뒤 리전 조회가 필요하다.",
+    notes=("버킷 메트릭은 버킷 리전에서 — 나열 뒤 리전 조회가 필요하다. identity 없음: 버킷은 버킷 리전의 RGT에만 나오므로 "
+           "실행 리전 캐시로 나열하면 다른 리전 버킷을 놓친다 — 글로벌 list_buckets로 나열하고 태그는 캐시 히트만 믿는다."),
     alarm_defs=_S3_ALARMS,
     # 표시명(알람 이름에 쓰는 지표명·방향·단위)과 기본 임계치 — 옛 alarm_registry._METRIC_DISPLAY / common.HARDCODED_DEFAULTS.
     # 여러 타입이 같은 키(CPUUtilization 등)를 선언하면 값이 같아야 한다 — 뷰가 강제한다.

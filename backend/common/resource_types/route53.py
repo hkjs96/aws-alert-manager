@@ -29,6 +29,8 @@ SPEC = register(ResourceTypeSpec(
     type="Route53", label="Route 53 상태 검사", collector="route53",
     rgt_filters=("route53:healthcheck",), rgt_prime=True, global_region="us-east-1",
     lifecycle=(Lifecycle("CreateHealthCheck", CREATE), Lifecycle("DeleteHealthCheck", DELETE)),
+    notes=("identity 없음: 글로벌 서비스라 RGT엔 us-east-1에만 나온다 — 실행 리전으로 프라임한 캐시로 나열하면 다른 리전에서 "
+           "0개로 오판한다. 글로벌 list_health_checks로 나열한다."),
     alarm_defs=_ROUTE53_ALARMS,
     # 표시명(알람 이름에 쓰는 지표명·방향·단위)과 기본 임계치 — 옛 alarm_registry._METRIC_DISPLAY / common.HARDCODED_DEFAULTS.
     # 여러 타입이 같은 키(CPUUtilization 등)를 선언하면 값이 같아야 한다 — 뷰가 강제한다.

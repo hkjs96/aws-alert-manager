@@ -75,7 +75,9 @@ SPEC = register(ResourceTypeSpec(
                Lifecycle("DeleteLoadBalancer", DELETE, "ELB"), Lifecycle("CreateLoadBalancer", CREATE, "ELB"),
                Lifecycle("AddTags", TAG_CHANGE, "ELB"), Lifecycle("RemoveTags", TAG_CHANGE, "ELB")),
     notes="LB 이벤트 이름은 ALB/NLB/CLB를 구분하지 않아 target=ELB로 받고 ARN(loadbalancer/app|net)으로 가른다. "
-          "필터도 셋이 공유한다. NLB·CLB 스펙은 그래서 lifecycle이 비어 있다.",
+          "필터도 셋이 공유한다. NLB·CLB 스펙은 그래서 lifecycle이 비어 있다. identity 없음: LB↔대상 그룹 계층(TG 내부 태그 _lb_arn)과 "
+          "삭제 중 상태 필터에 describe가 필요하다 — elb 수집기가 ALB·NLB·TG 셋을 낸다. 메트릭은 수집기 오버라이드(lb_arn 인자, "
+          "NLB 대상 그룹의 AWS/NetworkELB, 정의에 없는 RequestCount).",
     alarm_defs=_ALB_ALARMS,
     # 표시명(알람 이름에 쓰는 지표명·방향·단위)과 기본 임계치 — 옛 alarm_registry._METRIC_DISPLAY / common.HARDCODED_DEFAULTS.
     # 여러 타입이 같은 키(CPUUtilization 등)를 선언하면 값이 같아야 한다 — 뷰가 강제한다.

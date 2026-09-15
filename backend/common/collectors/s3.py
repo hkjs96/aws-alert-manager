@@ -1,28 +1,25 @@
 """
-S3Collector - Extended Resource Monitoring (Compound Dimension)
+S3 수집기 — 글로벌 나열이라 태그 캐시(RGT)로 나열하지 않는다 (docs/specs/resource-type-registry P3)
 
-Monitoring=on 태그가 있는 S3 버킷 수집 및 CloudWatch 메트릭 조회.
-네임스페이스: AWS/S3, Compound_Dimension: BucketName + StorageType (일부 메트릭).
-S3 get_bucket_tagging은 TagSet 구조 사용, NoSuchTagConfiguration 처리 필요.
+버킷 목록은 글로벌(list_buckets)이지만 RGT는 리전 API라 버킷이 **버킷의 리전** 캐시에만 나온다 — 실행 리전 캐시로 나열하면 다른 리전
+버킷을 놓친다. 스펙에 `identity`가 없고 이 모듈의 `_enumerate`가 유일한 나열이다(태그는 캐시 **히트만** 믿는다, `trust_negative=False`).
+TagName = 버킷 이름. 내부 태그 `_storage_type`·`_filter_id`는 알람·메트릭의 StorageType·FilterId 디멘션이 된다.
+메트릭은 스펙(`common/resource_types/s3.py`)의 알람 정의에서 만든다 — 요청 지표(4xx/5xx)는 알람과 같은 빌더라 FilterId 디멘션이 붙는다
+(옛 수집기는 BucketName만으로 물어 데이터가 없었다; docs/specs/resource-type-registry tasks 3.4). 네임스페이스 AWS/S3.
 """
 
 import functools
 import logging
-from datetime import datetime, timedelta, timezone
 
 import boto3
 from botocore.exceptions import ClientError
 
-from common import ResourceInfo
-from common.collectors.base import query_metric, CW_LOOKBACK_MINUTES, CW_STAT_AVG, CW_STAT_SUM, collect_metric
+from common.collectors.generic import GenericCollector
+from common.resource_types.s3 import SPEC
 from common.tag_cache import cached_tags
 
 logger = logging.getLogger(__name__)
 
-
-# ──────────────────────────────────────────────
-# boto3 클라이언트 싱글턴 (코딩 거버넌스 §1)
-# ──────────────────────────────────────────────
 
 @functools.lru_cache(maxsize=None)
 def _get_s3_client():
@@ -30,98 +27,29 @@ def _get_s3_client():
     return boto3.client("s3")
 
 
-def collect_monitored_resources() -> list[ResourceInfo]:
-    """
-    Monitoring=on 태그가 있는 S3 버킷 목록 반환.
-
-    list_buckets() → get_bucket_tagging() → Monitoring=on 필터링.
-    NoSuchTagConfiguration 에러 처리 (태그 없는 버킷).
-    _storage_type Internal_Tag 기본값 "StandardStorage" 설정.
-    """
+def _enumerate() -> list[tuple[str, dict]]:
+    """list_buckets 후 버킷마다 get_bucket_tagging(캐시 히트 우선). Monitoring=on만 내부 태그를 붙여 (bucket_name, tags)."""
     client = _get_s3_client()
-    resources: list[ResourceInfo] = []
-    region = boto3.session.Session().region_name or "us-east-1"
-
     try:
         response = client.list_buckets()
     except ClientError as e:
         logger.error("S3 list_buckets failed: %s", e)
         raise
 
+    found: list[tuple[str, dict]] = []
     for bucket in response.get("Buckets", []):
         bucket_name = bucket.get("Name", "")
-        tags = _get_bucket_tags(client, bucket_name)
+        tags = dict(_get_bucket_tags(client, bucket_name))
         if tags.get("Monitoring", "").lower() != "on":
             continue
-
         tags["_storage_type"] = "StandardStorage"
         tags["_filter_id"] = "EntireBucket"
-
-        resources.append(
-            ResourceInfo(
-                id=bucket_name,
-                type="S3",
-                tags=tags,
-                region=region,
-            )
-        )
-
-    return resources
+        found.append((bucket_name, tags))
+    return found
 
 
-def get_metrics(
-    resource_id: str, resource_tags: dict | None = None,
-) -> dict[str, float] | None:
-    """
-    CloudWatch에서 S3 버킷 메트릭 조회.
-
-    수집 메트릭 (네임스페이스: AWS/S3):
-    - 4xxErrors (Sum) → 'S34xxErrors' (Request_Metrics 필요, 데이터 미반환 시 warning)
-    - 5xxErrors (Sum) → 'S35xxErrors' (Request_Metrics 필요, 데이터 미반환 시 warning)
-    - BucketSizeBytes (Average) → 'S3BucketSizeBytes' (StorageType compound dim)
-    - NumberOfObjects (Average) → 'S3NumberOfObjects' (StorageType compound dim)
-
-    데이터 없으면 해당 메트릭 skip. 모두 없으면 None 반환.
-    """
-    if resource_tags is None:
-        resource_tags = {}
-
-    end_time = datetime.now(timezone.utc)
-    start_time = end_time - timedelta(minutes=CW_LOOKBACK_MINUTES)
-
-    storage_type = resource_tags.get("_storage_type", "StandardStorage")
-
-    # Simple dimension (4xx/5xx errors - Request Metrics)
-    bucket_dim = [{"Name": "BucketName", "Value": resource_id}]
-    # Compound dimension (BucketSizeBytes/NumberOfObjects need StorageType)
-    storage_dims = [
-        {"Name": "BucketName", "Value": resource_id},
-        {"Name": "StorageType", "Value": storage_type},
-    ]
-
-    metrics: dict[str, float] = {}
-
-    # Request Metrics (may not have data if not configured)
-    _collect_request_metric("AWS/S3", "4xxErrors", bucket_dim,
-                            start_time, end_time, "S34xxErrors", metrics,
-                            CW_STAT_SUM, resource_id)
-    _collect_request_metric("AWS/S3", "5xxErrors", bucket_dim,
-                            start_time, end_time, "S35xxErrors", metrics,
-                            CW_STAT_SUM, resource_id)
-
-    # Storage Metrics (with StorageType compound dimension)
-    collect_metric("AWS/S3", "BucketSizeBytes", storage_dims,
-                   start_time, end_time, "S3BucketSizeBytes", metrics,
-                   stat=CW_STAT_AVG, resource_label="S3")
-    collect_metric("AWS/S3", "NumberOfObjects", storage_dims,
-                   start_time, end_time, "S3NumberOfObjects", metrics,
-                   stat=CW_STAT_AVG, resource_label="S3")
-
-    return metrics if metrics else None
-
-
-def resolve_alive_ids(tag_names: set[str]) -> set[str]:
-    """S3 버킷 존재 여부 확인."""
+def _alive(tag_names: set[str]) -> set[str]:
+    """S3 버킷 존재 여부 확인 — head_bucket."""
     client = _get_s3_client()
     alive: set[str] = set()
     for name in tag_names:
@@ -137,19 +65,6 @@ def resolve_alive_ids(tag_names: set[str]) -> set[str]:
     return alive
 
 
-def _collect_request_metric(namespace, cw_metric_name, dimensions,
-                            start_time, end_time, result_key, metrics_dict,
-                            stat, bucket_name):
-    """Request Metrics 조회. 데이터 미반환 시 warning 로그 (Request_Metrics 미설정 가능)."""
-    value = query_metric(namespace, cw_metric_name, dimensions,
-                         start_time, end_time, stat)
-    if value is not None:
-        metrics_dict[result_key] = value
-    else:
-        logger.warning("S3 %s metric missing for %s: Request_Metrics may not be configured",
-                       result_key, bucket_name)
-
-
 def _get_bucket_tags(s3_client, bucket_name: str) -> dict:
     """S3 get_bucket_tagging 래퍼. NoSuchTagConfiguration 시 빈 dict 반환."""
     cached = cached_tags(f"arn:aws:s3:::{bucket_name}", trust_negative=False)
@@ -157,12 +72,16 @@ def _get_bucket_tags(s3_client, bucket_name: str) -> dict:
         return cached
     try:
         response = s3_client.get_bucket_tagging(Bucket=bucket_name)
-        tag_set = response.get("TagSet", [])
-        return {t["Key"]: t["Value"] for t in tag_set}
+        return {t["Key"]: t["Value"] for t in response.get("TagSet", [])}
     except ClientError as e:
         code = e.response["Error"]["Code"]
         if code in ("NoSuchTagSet", "NoSuchTagConfiguration"):
             return {}
-        logger.error("S3 get_bucket_tagging failed for %s: %s",
-                     bucket_name, e)
+        logger.error("S3 get_bucket_tagging failed for %s: %s", bucket_name, e)
         return {}
+
+
+COLLECTOR = GenericCollector(SPEC, alive=_alive, enumerate=_enumerate)
+collect_monitored_resources = COLLECTOR.collect_monitored_resources
+get_metrics = COLLECTOR.get_metrics
+resolve_alive_ids = COLLECTOR.resolve_alive_ids

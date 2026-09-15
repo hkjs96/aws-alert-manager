@@ -107,7 +107,9 @@ SPEC = register(ResourceTypeSpec(
     lifecycle=(Lifecycle("ModifyInstanceAttribute", MODIFY), Lifecycle("ModifyInstanceType", MODIFY),
                Lifecycle("TerminateInstances", DELETE), Lifecycle("RunInstances", CREATE),
                Lifecycle("CreateTags", TAG_CHANGE), Lifecycle("DeleteTags", TAG_CHANGE)),
-    notes=_EC2_SUBRESOURCE_NOTE + " 앱 상태검사 알람은 옵트인(Threshold_StatusCheckFailed_Application).",
+    notes=_EC2_SUBRESOURCE_NOTE + " 앱 상태검사 알람은 옵트인(Threshold_StatusCheckFailed_Application). "
+          "identity 없음: 나열이 서버 측 태그 필터(Filters=tag:Monitoring)라 RGT가 필요 없다. 메트릭은 수집기 오버라이드 — "
+          "CWAgent 메모리·디스크(경로별 list_metrics 디멘션 발견)와 CPU/Memory/Disk_* 결과 키가 임계치 분기에 묶여 있다.",
     alarm_defs=_get_ec2_alarm_defs,
     variants=({}, {f"Threshold_{APP_STATUS_METRIC_KEY}": "1"}),
     # 표시명(알람 이름에 쓰는 지표명·방향·단위)과 기본 임계치 — 옛 alarm_registry._METRIC_DISPLAY / common.HARDCODED_DEFAULTS.

@@ -1,8 +1,13 @@
 """
-RDSCollector - Requirements 1.1, 1.2, 1.5, 3.5
+RDS·Aurora 수집기 — 엔진·클러스터 판별에 describe가 필요해 나열은 describe, 메트릭은 GB 변환(오버라이드) (docs/specs/resource-type-registry P3)
 
-Monitoring=on 태그가 있는 RDS 인스턴스 수집 및 CloudWatch 메트릭 조회.
-FreeableMemory/FreeStorageSpace는 bytes → GB 변환 후 반환.
+나열: RGT 필터 `rds:db`는 RDS·Aurora·DocDB 인스턴스를 한데 돌려주고 엔진(aurora/docdb)·인스턴스 클래스·Writer/Reader는
+describe_db_instances/describe_db_clusters로만 안다 — 스펙에 `identity`가 없고 이 모듈의 `_enumerate`가 유일한 나열이다(태그는 캐시에서).
+한 번에 타입 둘(RDS·AuroraRDS)을 내므로 항목이 `(TagName, tags, type)`이다. TagName = DBInstanceIdentifier. 내부 태그
+(`_is_serverless_v2`·`_is_cluster_writer`·`_has_readers`·`_total_memory_bytes`·`_total_local_storage_bytes`…)가 알람 정의 변형과 퍼센트 임계치를 가른다.
+메트릭(오버라이드 `_metrics`, Aurora는 `get_aurora_metrics` — daily_monitor가 타입으로 가른다): FreeableMemory/FreeStorageSpace/FreeLocalStorage는
+bytes → GB 변환 뒤 개명 전 키(`FreeMemoryGB`·`FreeStorageGB`·`FreeLocalStorageGB`)로 돌려준다 — daily_monitor의 "작을수록 위험" 판정과
+GB 단위 임계치가 그 키에 묶여 있다(tasks 3.4).
 """
 
 import functools
@@ -12,8 +17,9 @@ from datetime import datetime, timedelta, timezone
 import boto3
 from botocore.exceptions import ClientError
 
-from common import ResourceInfo
-from common.collectors.base import query_metric, CW_LOOKBACK_MINUTES, CW_STAT_AVG, collect_metric
+from common.collectors.base import CW_LOOKBACK_MINUTES, CW_STAT_AVG, collect_metric
+from common.collectors.generic import GenericCollector
+from common.resource_types.rds import SPEC
 from common.tag_cache import cached_tags
 
 logger = logging.getLogger(__name__)
@@ -300,11 +306,8 @@ def _enrich_rds_memory(db_instance: dict, tags: dict) -> None:
         )
 
 
-def collect_monitored_resources() -> list[ResourceInfo]:
-    """
-    Monitoring=on 태그가 있는 RDS 인스턴스 목록 반환.
-    삭제 중(deleting) 또는 삭제된 인스턴스는 제외하고 로그 기록.
-    """
+def _enumerate() -> list[tuple[str, dict, str]]:
+    """describe_db_instances → 미삭제 → 태그 → Monitoring=on만 엔진으로 가른다(docdb 제외) → 내부 태그. (db_id, tags, RDS|AuroraRDS)."""
     try:
         rds = _get_rds_client()
         paginator = rds.get_paginator("describe_db_instances")
@@ -313,52 +316,35 @@ def collect_monitored_resources() -> list[ResourceInfo]:
         logger.error("RDS describe_db_instances failed: %s", e)
         raise
 
-    resources: list[ResourceInfo] = []
+    found: list[tuple[str, dict, str]] = []
     cluster_cache: dict[str, dict | None] = {}
+
     for page in pages:
         for db in page.get("DBInstances", []):
             db_id = db["DBInstanceIdentifier"]
             status = db.get("DBInstanceStatus", "")
-
             if status in ("deleting", "deleted"):
                 logger.info("Skipping RDS instance %s: status=%s", db_id, status)
                 continue
 
-            # RDS 태그는 별도 API 호출 필요
-            db_arn = db.get("DBInstanceArn", "")
-            tags = _get_tags(rds, db_arn)
-
+            tags = _get_tags(rds, db.get("DBInstanceArn", ""))
             if tags.get("Monitoring", "").lower() != "on":
-                continue
+                continue   # 클러스터·인스턴스 클래스 조회를 아낀다 — 범용 수집기가 같은 필터를 다시 건다
 
             engine = db.get("Engine", "")
-
-            # DocDB 엔진은 별도 Collector(docdb.py)에서 처리하므로 제외
             if engine.lower() == "docdb":
-                continue
+                continue   # DocDB는 docdb 수집기 몫
 
             resource_type = "AuroraRDS" if "aurora" in engine.lower() else "RDS"
-
             if resource_type == "AuroraRDS":
                 _enrich_aurora_metadata(db, tags, cluster_cache)
             else:
-                # 일반 RDS: 인스턴스 클래스 메모리 lookup (퍼센트 기반 FreeMemory 임계치용)
                 _enrich_rds_memory(db, tags)
-
-            region = boto3.session.Session().region_name or "us-east-1"
-            resources.append(
-                ResourceInfo(
-                    id=db_id,
-                    type=resource_type,
-                    tags=tags,
-                    region=region,
-                )
-            )
-
-    return resources
+            found.append((db_id, tags, resource_type))
+    return found
 
 
-def get_metrics(db_instance_id: str, resource_tags: dict | None = None) -> dict[str, float] | None:
+def _metrics(db_instance_id: str, resource_tags: dict | None = None) -> dict[str, float] | None:
     """
     CloudWatch에서 RDS 메트릭 조회.
 
@@ -457,7 +443,7 @@ def get_aurora_metrics(db_instance_id: str, resource_tags: dict | None = None) -
     return metrics if metrics else None
 
 
-def resolve_alive_ids(tag_names: set[str]) -> set[str]:
+def _alive(tag_names: set[str]) -> set[str]:
     """RDS 인스턴스/Aurora 클러스터 존재 여부 확인.
 
     tag_names 원소는 식별자이거나 ARN일 수 있다. ARN이 ``:cluster:`` 를 포함하면
@@ -515,3 +501,10 @@ def _get_tags(rds_client, db_arn: str) -> dict:
     except ClientError as e:
         logger.error("RDS list_tags_for_resource failed for %s: %s", db_arn, e)
         return {}
+
+
+# RDS 스펙에 묶는다 — 이 수집기는 RDS·AuroraRDS 둘을 내며(_enumerate가 타입을 항목마다 준다) 두 스펙이 collector="rds"로 이걸 가리킨다.
+COLLECTOR = GenericCollector(SPEC, alive=_alive, enumerate=_enumerate, metrics=_metrics)
+collect_monitored_resources = COLLECTOR.collect_monitored_resources
+get_metrics = COLLECTOR.get_metrics
+resolve_alive_ids = COLLECTOR.resolve_alive_ids

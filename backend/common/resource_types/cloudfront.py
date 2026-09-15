@@ -61,6 +61,8 @@ SPEC = register(ResourceTypeSpec(
     type="CloudFront", label="CloudFront 배포", collector="cloudfront",
     rgt_filters=("cloudfront:distribution",), rgt_prime=True, global_region="us-east-1",
     lifecycle=(Lifecycle("CreateDistribution", CREATE), Lifecycle("DeleteDistribution", DELETE)),
+    notes=("identity 없음: 글로벌 서비스라 RGT엔 us-east-1에만 나온다 — 실행 리전 캐시로 나열하면 0개로 오판한다. 메트릭은 수집기 "
+           "오버라이드 — 지표가 us-east-1에만 발행되어 전용 CloudWatch 클라이언트가 필요하다."),
     alarm_defs=_CLOUDFRONT_ALARMS,
     # 표시명(알람 이름에 쓰는 지표명·방향·단위)과 기본 임계치 — 옛 alarm_registry._METRIC_DISPLAY / common.HARDCODED_DEFAULTS.
     # 여러 타입이 같은 키(CPUUtilization 등)를 선언하면 값이 같아야 한다 — 뷰가 강제한다.

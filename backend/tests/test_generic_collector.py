@@ -30,7 +30,10 @@ REGION = "us-east-1"
 # P3 1파·2파 — 이 모듈들이 GenericCollector 위에 있다.
 WAVE1 = ["sqs", "sns", "lambda_fn", "dynamodb", "msk", "mq", "acm", "backup", "dx", "efs"]
 WAVE2 = ["elasticache", "opensearch", "sagemaker", "ecs", "natgw", "vpn"]
-GENERIC = WAVE1 + WAVE2
+WAVE3A = ["clb", "waf", "route53", "apigw", "s3"]          # 3파 중 메트릭이 정의로 표현되는 다섯
+GENERIC = WAVE1 + WAVE2 + WAVE3A
+# 3파 오버라이드 — 나열은 describe(_enumerate), 메트릭은 타입 고유(_metrics). 이유는 모듈 문서와 스펙 notes.
+OVERRIDE = ["ec2", "rds", "elb", "docdb", "cloudfront"]
 
 
 def _mod(name):
@@ -166,10 +169,42 @@ class TestIdentity:
         elif spec.identity is None:
             assert "_identities" in spec.notes, spec.type   # 모듈이 ARN→TagName을 맡는 이유
 
+    @pytest.mark.parametrize("name", OVERRIDE)
+    def test_override_modules_keep_their_own_metrics_and_say_why(self, name):
+        mod = _mod(name)
+        assert isinstance(mod.COLLECTOR, GenericCollector)
+        assert not mod.COLLECTOR.rgt_capable and not mod.COLLECTOR.metrics_from_definitions
+        assert "identity 없음" in mod.COLLECTOR.spec.notes
+        assert "오버라이드" in mod.COLLECTOR.spec.notes and "오버라이드" in mod.__doc__
+        assert mod.get_metrics == mod.COLLECTOR.get_metrics
+
+    def test_every_collector_module_is_on_the_generic_collector(self):
+        assert set(GENERIC + OVERRIDE) == set(R.collector_modules())
+
+    def test_multi_type_enumeration_carries_the_type_per_item(self):
+        """rds·elb는 스펙 하나가 아니라 타입 여럿을 낸다 — 항목의 세 번째 원소."""
+        spec = R.get("SQS")
+        col = GenericCollector(spec, alive=lambda n: n,
+                               enumerate=lambda: [("a", {"Monitoring": "on"}), ("b", {"Monitoring": "on"}, "Other"),
+                                                  ("c", {"Monitoring": "off"}, "Other")])
+        got = col.collect_monitored_resources()
+        assert [(r["id"], r["type"]) for r in got] == [("a", "SQS"), ("b", "Other")]
+
+    def test_metrics_override_receives_extra_arguments_and_definitions_path_refuses_them(self):
+        seen = {}
+        col = GenericCollector(R.get("TG"), alive=lambda n: n, enumerate=lambda: [],
+                               metrics=lambda rid, tags, lb_arn=None: seen.setdefault("call", (rid, tags, lb_arn)) and {"x": 1.0})
+        assert col.get_metrics("tg", {"_lb_type": "network"}, lb_arn="lb") == {"x": 1.0}
+        assert seen["call"] == ("tg", {"_lb_type": "network"}, "lb")
+        with pytest.raises(TypeError, match="no extra arguments"):
+            _mod("sqs").get_metrics("q", {}, lb_arn="lb")
+
     def test_rgt_enumeration_roster(self):
         """어느 타입이 태그 캐시로 나열되는지 — 설계(D4)의 16개 중 실제로는 9개. 나머지 이유는 스펙 notes."""
         via_rgt = {_mod(n).COLLECTOR.spec.type for n in GENERIC if _mod(n).COLLECTOR.rgt_capable}
-        assert via_rgt == {"SQS", "SNS", "Lambda", "DynamoDB", "MSK", "Backup", "EFS", "MQ", "OpenSearch", "SageMaker"}
+        assert via_rgt == {"SQS", "SNS", "Lambda", "DynamoDB", "MSK", "Backup", "EFS", "MQ", "OpenSearch", "SageMaker",
+                           "CLB", "WAF"}
+        assert all(_mod(n).COLLECTOR.metrics_from_definitions for n in GENERIC)
 
 
 # ────────────────────────────────── 나열: RGT 경로 == describe 폴백
@@ -396,6 +431,56 @@ class TestEnumerationEquivalence:
         assert ec2.describe_vpn_connections.call_args.kwargs == {"Filters": [{"Name": "tag:Monitoring", "Values": ["on"]}]}
         assert not natgw.COLLECTOR.rgt_capable and not vpn.COLLECTOR.rgt_capable
 
+    def test_clb_rgt_path_keeps_only_classic_arns_from_the_shared_filter(self):
+        mod = _mod("clb")
+        lb_arn = f"arn:aws:elasticloadbalancing:{REGION}:{ACCOUNT}:loadbalancer/"
+        entries = [(lb_arn + "legacy-lb", {"Monitoring": "on"}),
+                   (lb_arn + "app/my-alb/0123456789abcdef", {"Monitoring": "on"}),
+                   (lb_arn + "net/my-nlb/0123456789abcdef", {"Monitoring": "on"}),
+                   (lb_arn + "gwy/my-gwlb/0123456789abcdef", {"Monitoring": "on"}),
+                   (lb_arn + "legacy-off", {"Monitoring": "off"})]
+        client = MagicMock()
+        _paginated(client, [{"LoadBalancerDescriptions": [{"LoadBalancerName": "legacy-lb"}, {"LoadBalancerName": "legacy-off"}]}])
+        client.describe_tags.side_effect = lambda LoadBalancerNames: {"TagDescriptions": [
+            {"Tags": _kv({"Monitoring": "on" if LoadBalancerNames[0] == "legacy-lb" else "off"})}]}
+        with patch.object(mod, "_get_elb_client", return_value=client):
+            via_describe = mod.collect_monitored_resources()
+        assert via_describe == [ResourceInfo(id="legacy-lb", type="CLB", tags={"Monitoring": "on"}, region=REGION)]
+
+        _activate_cache(entries)
+        untouched = MagicMock(side_effect=AssertionError("no service call on the RGT path"))
+        with patch.object(mod, "_get_elb_client", untouched):
+            via_rgt = mod.collect_monitored_resources()
+        assert mod.COLLECTOR.last_source == "rgt"
+        assert via_rgt == via_describe
+
+    def test_waf_rgt_path_keeps_regional_acls_and_adds_the_internal_tags(self):
+        mod = _mod("waf")
+        entries = [(f"arn:aws:wafv2:{REGION}:{ACCOUNT}:regional/webacl/edge-acl/11111111", {"Monitoring": "on", "Env": "prod"}),
+                   (f"arn:aws:wafv2:{REGION}:{ACCOUNT}:regional/webacl/quiet-acl/22222222", {"Monitoring": "off"}),
+                   (f"arn:aws:wafv2:us-east-1:{ACCOUNT}:global/webacl/cf-acl/33333333", {"Monitoring": "on"})]
+        client = MagicMock()
+        client.list_web_acls.return_value = {"WebACLs": [{"Name": "edge-acl", "ARN": entries[0][0]},
+                                                         {"Name": "quiet-acl", "ARN": entries[1][0]}]}
+        by_arn = {arn: t for arn, t in entries}
+        client.list_tags_for_resource.side_effect = lambda ResourceARN: {"TagInfoForResource": {"TagList": _kv(by_arn[ResourceARN])}}
+        with patch.object(mod, "_get_wafv2_client", return_value=client):
+            via_describe = mod.collect_monitored_resources()
+        assert via_describe == [ResourceInfo(id="edge-acl", type="WAF", region=REGION,
+                                             tags={"Monitoring": "on", "Env": "prod", "_waf_rule": "ALL", "_waf_region": REGION})]
+
+        _activate_cache(entries)
+        untouched = MagicMock(side_effect=AssertionError("no service call on the RGT path"))
+        with patch.object(mod, "_get_wafv2_client", untouched):
+            via_rgt = mod.collect_monitored_resources()
+        assert mod.COLLECTOR.last_source == "rgt"
+        assert via_rgt == via_describe      # CLOUDFRONT 스코프(global/)는 옛 수집기처럼 빠진다
+
+    @pytest.mark.parametrize("name", ["route53", "s3", "apigw"])
+    def test_global_or_named_types_stay_on_describe(self, name):
+        assert not _mod(name).COLLECTOR.rgt_capable
+        assert "identity 없음" in _mod(name).COLLECTOR.spec.notes
+
     def test_without_enumerate_a_dead_cache_collects_nothing_loudly(self, caplog):
         spec = R.get("SQS")
         col = GenericCollector(spec, alive=lambda names: names)
@@ -427,6 +512,28 @@ def _dims_key(dims):
 # GB 변환이 얽혀 오버라이드로 남긴다 — 여기 목록은 범용으로 옮긴 타입만.
 ACCEPTED_KEY_RENAMES = {("ElastiCache", "CPU"): "CPUUtilization"}
 
+# 옛 수집기가 알람과 **다른 디멘션 집합**으로 물었던 곳 — CloudWatch는 디멘션이 정확히 일치하는 시리즈만 돌려주므로 옛 질의는
+# 데이터가 없었다(WAF: 알람은 WebACL+Rule+Region, 수집기는 Region 없이; S3 요청 지표: 알람은 BucketName+FilterId, 수집기는
+# BucketName만). 범용은 알람과 같은 빌더를 쓰므로 그 디멘션이 붙는다 — 비교에서 그 디멘션만 뺀다.
+ACCEPTED_EXTRA_DIMS = {"WAF": {"Region"}, "S3": {"FilterId"}}
+# 옛 S3 요청 지표는 collect_metric 대신 query_metric을 직접 불러 오라클에 결과 키가 없다 — 옛 코드가 넣던 키.
+S3_REQUEST_KEYS = {"4xxErrors": "S34xxErrors", "5xxErrors": "S35xxErrors"}
+
+
+def _expected_from_oracle(rtype, c):
+    key = c["result_key"]
+    label = c["label"]
+    if rtype == "S3" and key is None:
+        key, label = S3_REQUEST_KEYS[c["metric_name"]], "S3"
+    return (c["namespace"], c["metric_name"], _dims_key(c["dimensions"]),
+            ACCEPTED_KEY_RENAMES.get((rtype, key), key), c["stat"], c["transform"], label)
+
+
+def _strip_accepted_dims(rtype, got):
+    extra = ACCEPTED_EXTRA_DIMS.get(rtype, set())
+    return [(ns, mn, tuple(d for d in dims if d[0] not in extra), key, stat, tr, label)
+            for ns, mn, dims, key, stat, tr, label in got]
+
 
 def _recorded_queries(mod, tags):
     calls = []
@@ -453,10 +560,8 @@ class TestMetricsFromDefinitions:
                 # 옛 ECS/SageMaker 코드는 내부 태그가 없으면 빈 디멘션 값으로 질의했다 — CloudWatch가 거부하는 쿼리라
                 # 성립하지 않았고, 알람 쪽 빌더(_build_dimensions)는 그 디멘션을 뺀다. 실제 태그가 있는 변형으로 비교한다.
                 continue
-            expected = [(c["namespace"], c["metric_name"], _dims_key(c["dimensions"]),
-                         ACCEPTED_KEY_RENAMES.get((rtype, c["result_key"]), c["result_key"]),
-                         c["stat"], c["transform"], c["label"]) for c in entry["calls"]]
-            got = _recorded_queries(mod, json.loads(variant))
+            expected = [_expected_from_oracle(rtype, c) for c in entry["calls"]]
+            got = _strip_accepted_dims(rtype, _recorded_queries(mod, json.loads(variant)))
             assert got == expected, (rtype, variant)
             compared += 1
         assert compared >= 1, rtype

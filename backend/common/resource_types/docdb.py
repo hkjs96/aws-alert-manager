@@ -50,7 +50,9 @@ _DOCDB_ALARMS = [
 SPEC = register(ResourceTypeSpec(
     type="DocDB", label="DocumentDB", collector="docdb",
     rgt_filters=("rds:db",), rgt_prime=True,
-    notes="생명주기 이벤트는 RDS 스펙의 것을 공유한다 — CloudTrail이 rds.amazonaws.com의 ModifyDBInstance/DeleteDBInstance로 내고, remediation이 엔진(docdb)으로 판별한다.",
+    notes=("생명주기 이벤트는 RDS 스펙의 것을 공유한다 — CloudTrail이 rds.amazonaws.com의 ModifyDBInstance/DeleteDBInstance로 내고, "
+           "remediation이 엔진(docdb)으로 판별한다. identity 없음: 나열도 엔진 판별에 describe가 필요하다. 메트릭은 수집기 오버라이드 — "
+           "GB 변환·개명 전 키(FreeMemoryGB·FreeLocalStorageGB)."),
     alarm_defs=_DOCDB_ALARMS,
     # 표시명(알람 이름에 쓰는 지표명·방향·단위)과 기본 임계치 — 옛 alarm_registry._METRIC_DISPLAY / common.HARDCODED_DEFAULTS.
     # 여러 타입이 같은 키(CPUUtilization 등)를 선언하면 값이 같아야 한다 — 뷰가 강제한다.

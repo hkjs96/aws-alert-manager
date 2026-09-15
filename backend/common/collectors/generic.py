@@ -37,12 +37,16 @@ logger = logging.getLogger(__name__)
 
 #: describe 나열 — (TagName, 태그) 후보 목록. Monitoring 필터는 수집기가 다시 건다(미리 걸어도 된다: MQ처럼 후속 describe를
 #: 아끼려면 걸어라). 서비스 list 실패는 ClientError로 올린다 — daily_monitor가 잡아 오류 알림을 보낸다.
-Enumerate = Callable[[], list[tuple[str, dict]]]
+#: 한 모듈이 타입 여럿을 내면(rds → RDS·AuroraRDS, elb → ALB·NLB·TG) 세 번째 원소로 타입 이름을 준다.
+Enumerate = Callable[[], "list[tuple[str, dict] | tuple[str, dict, str]]"]
 #: 알람 TagName 집합 → 실제 존재하는 부분집합.
 Alive = Callable[[set[str]], set[str]]
 #: (ARN, 태그) → [(TagName, 태그)] — 한 리소스가 여러 TagName이 되거나(MQ `{broker}-{1|2}`) 태그를 덧붙일 때만 모듈이 준다.
 #: 보통은 `spec.identity`(ARN → TagName)로 충분하다.
 Identities = Callable[[str, dict], list[tuple[str, dict]]]
+#: 정의 기반 `get_metrics`를 대신하는 타입 고유 조회 — 정의로 표현되지 않는 것이 있을 때만(EC2 CWAgent 디스크 경로 발견,
+#: RDS 계열의 GB 변환·개명 전 결과 키, ELB의 `lb_arn` 인자, CloudFront의 us-east-1 전용 클라이언트). 이유는 모듈 문서에.
+Metrics = Callable[..., "dict[str, float] | None"]
 
 
 def session_region() -> str:
@@ -65,6 +69,7 @@ class GenericCollector:
         alive: Alive,
         enumerate: Enumerate | None = None,
         identities: Identities | None = None,
+        metrics: Metrics | None = None,
     ) -> None:
         if identities is None and spec.identity is not None:
             ident = spec.identity
@@ -75,6 +80,7 @@ class GenericCollector:
         self._alive = alive
         self._enumerate = enumerate
         self._identities = identities
+        self._metrics = metrics
         #: 마지막 수집이 어느 경로였나 — "rgt" | "enumerate" | "none". 런 로그·테스트용.
         self.last_source = ""
 
@@ -104,20 +110,30 @@ class GenericCollector:
             self.last_source = "none"
             return []
         self.last_source = "enumerate"
-        return [
-            ResourceInfo(id=tag_name, type=rtype, tags=tags, region=region)
-            for tag_name, tags in self._enumerate()
-            if is_monitored(tags)
-        ]
+        resources = []
+        for tag_name, tags, *typed in self._enumerate():
+            if is_monitored(tags):
+                resources.append(ResourceInfo(id=tag_name, type=typed[0] if typed else rtype, tags=tags, region=region))
+        return resources
 
-    def get_metrics(self, resource_id: str, resource_tags: dict | None = None) -> dict[str, float] | None:
+    @property
+    def metrics_from_definitions(self) -> bool:
+        """`get_metrics`가 알람 정의에서 생성되는가(False면 모듈의 타입 고유 조회 — 이유는 모듈 문서)."""
+        return self._metrics is None
+
+    def get_metrics(self, resource_id: str, resource_tags: dict | None = None, **kwargs) -> dict[str, float] | None:
         """알람 정의(태그 조건부 변형 반영)마다 CloudWatch 최근값 — 키는 정의의 `metric_key`(없으면 `metric`).
 
         옛 타입별 `get_metrics`가 하던 일은 이 셋을 나열하는 것뿐이었다. 태그 조건부(옵트인 포함) 정의는 `alarms(tags)`가
         이미 가른다 — 정의가 나오면 그 리소스는 그 알람을 갖고 있으니 메트릭도 본다. 디멘션은 **알람이 쓰는 것과 같은
         빌더**(`dimension_builder._build_dimensions`: OpenSearch ClientId·SageMaker VariantName·ECS ClusterName 같은 복합
         디멘션을 내부 태그에서 읽는다)로 만든다 — 메트릭과 알람이 다른 시리즈를 보는 일이 없게. 데이터가 하나도 없으면 None.
+        모듈이 `metrics=`를 줬으면 그쪽으로(추가 인자 — ELB `lb_arn` — 그대로 전달).
         """
+        if self._metrics is not None:
+            return self._metrics(resource_id, resource_tags, **kwargs)
+        if kwargs:
+            raise TypeError(f"{self.spec.type}: definition-based get_metrics takes no extra arguments ({', '.join(kwargs)})")
         resource_tags = resource_tags or {}
         end_time = datetime.now(timezone.utc)
         start_time = end_time - timedelta(minutes=CW_LOOKBACK_MINUTES)

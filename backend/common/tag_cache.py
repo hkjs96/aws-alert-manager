@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from typing import Callable
 
 from botocore.exceptions import BotoCoreError, ClientError
@@ -144,8 +145,8 @@ def arn_matches_filter(arn: str, rgt_filter: str) -> bool:
     """ARN이 RGT `ResourceTypeFilters` 문자열에 해당하는가 — `sqs`(서비스 전체) 또는 `lambda:function`(리소스 타입).
 
     ARN 형식 `arn:partition:service:region:account:resource`; 리소스 타입은 `type/id` 또는 `type:id`로 붙는다
-    (API Gateway는 `/restapis/id`처럼 슬래시로 시작한다). S3 버킷처럼 리소스 부분에 타입 접두가 없는 서비스는
-    서비스만 있는 필터(`s3`)로 매칭한다.
+    (API Gateway는 `/restapis/id`처럼 슬래시로 시작하고, WAFv2는 `regional/webacl/…`처럼 스코프가 먼저 온다).
+    S3 버킷처럼 리소스 부분에 타입 접두가 없는 서비스는 서비스만 있는 필터(`s3`)로 매칭한다.
     """
     parts = arn.split(":", 5)
     if len(parts) != 6 or parts[0] != "arn":
@@ -156,7 +157,14 @@ def arn_matches_filter(arn: str, rgt_filter: str) -> bool:
         return False
     if not rtype:
         return True
-    return resource == rtype or resource.startswith(rtype + "/") or resource.startswith(rtype + ":")
+    segments = re.split(r"[/:]", resource)
+    if segments[0] == rtype:
+        return True
+    return segments[0] in _SCOPE_PREFIXES and len(segments) > 1 and segments[1] == rtype
+
+
+#: 리소스 타입 앞에 오는 스코프 세그먼트 — WAFv2(`regional/webacl/…`, `global/webacl/…`).
+_SCOPE_PREFIXES = frozenset({"regional", "global"})
 
 
 def prime_tag_cache(client_factory: Callable[[], object], *, label: str = "") -> TagCache:

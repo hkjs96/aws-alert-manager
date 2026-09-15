@@ -5482,14 +5482,14 @@ class TestS3Collector:
 
         with patch("common.collectors.base._get_cw_client",
                     return_value=mock_cw), \
-             patch("common.collectors.s3.logger") as mock_logger:
+             patch("common.collectors.base.logger") as mock_logger:
             result = s3_collector.get_metrics(
                 "bucket-on", {"_storage_type": "StandardStorage"})
 
-        # Should have warning logs for missing 4xx/5xx data
-        warning_calls = [c for c in mock_logger.warning.call_args_list]
-        assert len(warning_calls) >= 1, \
-            "Expected warning log for missing Request_Metrics data"
+        # P3: 요청 지표는 범용 경로(collect_metric)가 조회한다 — 데이터 없으면 결과에서 빠지고 base 로거에 skip 로그가 남는다
+        assert result == {"S3BucketSizeBytes": pytest.approx(1000000.0), "S3NumberOfObjects": pytest.approx(500.0)}
+        skipped = [c.args[1] for c in mock_logger.info.call_args_list if "Skipping" in c.args[0]]
+        assert set(skipped) == {"S34xxErrors", "S35xxErrors"}
 
     def test_get_metrics_uses_compound_dimension_for_storage_type(self):
         """BucketName + StorageType Compound_Dimension 사용 (needs_storage_type) — Req 10-B.7"""

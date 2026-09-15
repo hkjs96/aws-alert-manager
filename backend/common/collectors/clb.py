@@ -1,34 +1,22 @@
 """
-CLBCollector - Remaining Resource Monitoring
+Classic Load Balancer 수집기 — 나열은 범용(태그 캐시), 여기엔 classic 판별·describe 폴백·존재 확인만 (docs/specs/resource-type-registry P3)
 
-Monitoring=on 태그가 있는 Classic Load Balancer 수집 및 CloudWatch 메트릭 조회.
-네임스페이스: AWS/ELB, 디멘션: LoadBalancerName.
+RGT 필터 `elasticloadbalancing:loadbalancer`는 ALB/NLB와 공유한다 — ARN 리소스 부분이 `loadbalancer/<name>`(app/·net/·gwy/ 접두 없음)인
+것만 classic이라 스펙 `identity` 대신 이 모듈의 `_identities`가 가른다. TagName = LoadBalancerName. describe 폴백은 describe_tags N+1
+(classic ELB 태그 API는 캐시 ARN을 모른다). 메트릭은 스펙(`common/resource_types/clb.py`)의 알람 정의에서 만든다. 네임스페이스 AWS/ELB.
 """
 
 import functools
 import logging
-from datetime import datetime, timedelta, timezone
 
 import boto3
 from botocore.exceptions import ClientError
 
-from common import ResourceInfo
-from common.collectors.base import (
-    query_metric,
-    CW_LOOKBACK_MINUTES,
-    CW_STAT_AVG,
-    CW_STAT_SUM,
-    collect_metric,
-)
+from common.collectors.generic import GenericCollector
+from common.resource_types.clb import SPEC
 
 logger = logging.getLogger(__name__)
 
-CW_STAT_MAX = "Maximum"
-
-
-# ──────────────────────────────────────────────
-# boto3 클라이언트 싱글턴 (코딩 거버넌스 §1)
-# ──────────────────────────────────────────────
 
 @functools.lru_cache(maxsize=None)
 def _get_elb_client():
@@ -36,13 +24,16 @@ def _get_elb_client():
     return boto3.client("elb")
 
 
-def collect_monitored_resources() -> list[ResourceInfo]:
-    """
-    Monitoring=on 태그가 있는 Classic Load Balancer 목록 반환.
+def _identities(arn: str, tags: dict) -> list[tuple[str, dict]]:
+    """태그 캐시 경로: `…:loadbalancer/<name>`만 classic — `loadbalancer/app|net|gwy/…`는 ALB/NLB/GWLB(elb 수집기 몫)."""
+    _prefix, _, rest = arn.partition(":loadbalancer/")
+    if not rest or "/" in rest:
+        return []
+    return [(rest, tags)]
 
-    describe_load_balancers() paginator로 전체 CLB 조회 후
-    describe_tags()로 태그 확인, Monitoring=on 필터링.
-    """
+
+def _enumerate() -> list[tuple[str, dict]]:
+    """태그 캐시가 없을 때: describe_load_balancers 후 LB마다 describe_tags(N+1). (lb_name, tags)."""
     try:
         client = _get_elb_client()
         paginator = client.get_paginator("describe_load_balancers")
@@ -51,82 +42,16 @@ def collect_monitored_resources() -> list[ResourceInfo]:
         logger.error("ELB describe_load_balancers failed: %s", e)
         raise
 
-    resources: list[ResourceInfo] = []
-    region = boto3.session.Session().region_name or "us-east-1"
-
+    found: list[tuple[str, dict]] = []
     for page in pages:
         for lb in page.get("LoadBalancerDescriptions", []):
             lb_name = lb["LoadBalancerName"]
-
-            tags = _get_tags(client, lb_name)
-            if tags.get("Monitoring", "").lower() != "on":
-                continue
-
-            resources.append(
-                ResourceInfo(
-                    id=lb_name,
-                    type="CLB",
-                    tags=tags,
-                    region=region,
-                )
-            )
-
-    return resources
+            found.append((lb_name, _get_tags(client, lb_name)))
+    return found
 
 
-def get_metrics(
-    resource_id: str, resource_tags: dict | None = None,
-) -> dict[str, float] | None:
-    """
-    CloudWatch에서 CLB 메트릭 조회.
-
-    수집 메트릭 (네임스페이스: AWS/ELB):
-    - UnHealthyHostCount (Average) → 'CLBUnHealthyHost'
-    - HTTPCode_ELB_5XX (Sum) → 'CLB5XX'
-    - HTTPCode_ELB_4XX (Sum) → 'CLB4XX'
-    - HTTPCode_Backend_5XX (Sum) → 'CLBBackend5XX'
-    - HTTPCode_Backend_4XX (Sum) → 'CLBBackend4XX'
-    - SurgeQueueLength (Maximum) → 'SurgeQueueLength'
-    - SpilloverCount (Sum) → 'SpilloverCount'
-
-    데이터 없으면 해당 메트릭 skip. 모두 없으면 None 반환.
-    """
-    if resource_tags is None:
-        resource_tags = {}
-
-    end_time = datetime.now(timezone.utc)
-    start_time = end_time - timedelta(minutes=CW_LOOKBACK_MINUTES)
-
-    dim = [{"Name": "LoadBalancerName", "Value": resource_id}]
-    metrics: dict[str, float] = {}
-
-    collect_metric("AWS/ELB", "UnHealthyHostCount", dim,
-                   start_time, end_time, "CLBUnHealthyHost", metrics,
-                   stat=CW_STAT_AVG, resource_label="CLB")
-    collect_metric("AWS/ELB", "HTTPCode_ELB_5XX", dim,
-                   start_time, end_time, "CLB5XX", metrics,
-                   stat=CW_STAT_SUM, resource_label="CLB")
-    collect_metric("AWS/ELB", "HTTPCode_ELB_4XX", dim,
-                   start_time, end_time, "CLB4XX", metrics,
-                   stat=CW_STAT_SUM, resource_label="CLB")
-    collect_metric("AWS/ELB", "HTTPCode_Backend_5XX", dim,
-                   start_time, end_time, "CLBBackend5XX", metrics,
-                   stat=CW_STAT_SUM, resource_label="CLB")
-    collect_metric("AWS/ELB", "HTTPCode_Backend_4XX", dim,
-                   start_time, end_time, "CLBBackend4XX", metrics,
-                   stat=CW_STAT_SUM, resource_label="CLB")
-    collect_metric("AWS/ELB", "SurgeQueueLength", dim,
-                   start_time, end_time, "SurgeQueueLength", metrics,
-                   stat=CW_STAT_MAX, resource_label="CLB")
-    collect_metric("AWS/ELB", "SpilloverCount", dim,
-                   start_time, end_time, "SpilloverCount", metrics,
-                   stat=CW_STAT_SUM, resource_label="CLB")
-
-    return metrics if metrics else None
-
-
-def resolve_alive_ids(tag_names: set[str]) -> set[str]:
-    """Classic Load Balancer 존재 여부 확인."""
+def _alive(tag_names: set[str]) -> set[str]:
+    """Classic Load Balancer 존재 여부 확인 — describe_load_balancers(LoadBalancerNames)."""
     client = _get_elb_client()
     alive: set[str] = set()
     for name in tag_names:
@@ -155,3 +80,9 @@ def _get_tags(elb_client, lb_name: str) -> dict:
     except ClientError as e:
         logger.error("ELB describe_tags failed for %s: %s", lb_name, e)
         return {}
+
+
+COLLECTOR = GenericCollector(SPEC, alive=_alive, enumerate=_enumerate, identities=_identities)
+collect_monitored_resources = COLLECTOR.collect_monitored_resources
+get_metrics = COLLECTOR.get_metrics
+resolve_alive_ids = COLLECTOR.resolve_alive_ids

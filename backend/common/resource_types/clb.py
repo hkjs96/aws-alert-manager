@@ -86,7 +86,8 @@ _CLB_ALARMS = [
 SPEC = register(ResourceTypeSpec(
     type="CLB", label="Classic Load Balancer", collector="clb",
     rgt_filters=("elasticloadbalancing:loadbalancer",), rgt_prime=True,
-    notes="생명주기 이벤트는 ALB 스펙(target=ELB)에. ARN에 loadbalancer/app|net 접미가 없는 것이 classic.",
+    notes=("생명주기 이벤트는 ALB 스펙(target=ELB)에. ARN에 loadbalancer/app|net 접미가 없는 것이 classic — 태그 캐시 나열은 "
+           "수집기 모듈의 _identities가 그 판별을 맡는다(필터가 ALB/NLB와 공유)."),
     alarm_defs=_CLB_ALARMS,
     # 표시명(알람 이름에 쓰는 지표명·방향·단위)과 기본 임계치 — 옛 alarm_registry._METRIC_DISPLAY / common.HARDCODED_DEFAULTS.
     # 여러 타입이 같은 키(CPUUtilization 등)를 선언하면 값이 같아야 한다 — 뷰가 강제한다.

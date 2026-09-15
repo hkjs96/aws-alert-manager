@@ -98,7 +98,9 @@ SPEC = register(ResourceTypeSpec(
     lifecycle=(Lifecycle("ModifyDBInstance", MODIFY), Lifecycle("DeleteDBInstance", DELETE),
                Lifecycle("CreateDBInstance", CREATE),
                Lifecycle("AddTagsToResource", TAG_CHANGE), Lifecycle("RemoveTagsFromResource", TAG_CHANGE)),
-    notes="rds:db 필터와 이 이벤트들은 Aurora·DocDB 인스턴스도 낸다 — 엔진은 describe로 판별(remediation 엔진 스니핑).",
+    notes=("rds:db 필터와 이 이벤트들은 Aurora·DocDB 인스턴스도 낸다 — 엔진은 describe로 판별(remediation 엔진 스니핑). "
+           "identity 없음: 같은 이유로 나열도 describe(rds 수집기가 RDS·AuroraRDS 둘을 낸다). 메트릭은 수집기 오버라이드 — "
+           "bytes→GB 변환과 개명 전 결과 키(FreeMemoryGB·FreeStorageGB)가 daily_monitor의 방향 판정에 묶여 있다."),
     alarm_defs=_RDS_ALARMS,
     # 표시명(알람 이름에 쓰는 지표명·방향·단위)과 기본 임계치 — 옛 alarm_registry._METRIC_DISPLAY / common.HARDCODED_DEFAULTS.
     # 여러 타입이 같은 키(CPUUtilization 등)를 선언하면 값이 같아야 한다 — 뷰가 강제한다.

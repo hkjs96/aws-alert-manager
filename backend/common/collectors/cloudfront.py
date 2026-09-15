@@ -1,9 +1,10 @@
 """
-CloudFrontCollector - Extended Resource Monitoring
+CloudFront 수집기 — 글로벌 서비스라 나열은 describe, 메트릭은 us-east-1 전용 클라이언트(오버라이드) (docs/specs/resource-type-registry P3)
 
-Monitoring=on 태그가 있는 CloudFront 배포 수집 및 CloudWatch 메트릭 조회.
-네임스페이스: AWS/CloudFront, 디멘션: DistributionId.
-메트릭은 us-east-1 리전에서만 발행 (글로벌 서비스).
+나열: RGT는 리전 API이고 CloudFront 배포는 us-east-1에만 나오므로 실행 리전 캐시로 나열하면 0개로 오판한다 — 스펙에 `identity`가
+없고 이 모듈의 `_enumerate`(list_distributions)가 유일한 나열이다(태그는 캐시 **히트만** 믿는다). TagName = 배포 ID.
+메트릭(오버라이드 `_metrics`): AWS/CloudFront 지표는 us-east-1에만 발행되어 기본 리전 CloudWatch 클라이언트(`collect_metric`)로는
+읽을 수 없다 — 전용 클라이언트로 직접 get_metric_statistics를 부른다(메트릭 배치도 타지 않는다).
 """
 
 import functools
@@ -13,16 +14,13 @@ from datetime import datetime, timedelta, timezone
 import boto3
 from botocore.exceptions import ClientError
 
-from common import ResourceInfo
 from common.collectors.base import CW_LOOKBACK_MINUTES, CW_STAT_AVG, CW_STAT_SUM
+from common.collectors.generic import GenericCollector
+from common.resource_types.cloudfront import SPEC
 from common.tag_cache import cached_tags
 
 logger = logging.getLogger(__name__)
 
-
-# ──────────────────────────────────────────────
-# boto3 클라이언트 싱글턴 (코딩 거버넌스 §1)
-# ──────────────────────────────────────────────
 
 @functools.lru_cache(maxsize=None)
 def _get_cloudfront_client():
@@ -36,12 +34,9 @@ def _get_cw_client_us_east_1():
     return boto3.client("cloudwatch", region_name="us-east-1")
 
 
-def collect_monitored_resources() -> list[ResourceInfo]:
-    """
-    Monitoring=on 태그가 있는 CloudFront 배포 목록 반환.
+def _enumerate() -> list[tuple[str, dict]]:
+    """list_distributions 후 배포마다 list_tags_for_resource(캐시 히트 우선). (distribution_id, tags).
 
-    list_distributions() paginator로 전체 배포 조회 후
-    list_tags_for_resource(Resource=distribution_arn)로 태그 확인.
     CloudFront Tags 응답: {"Tags": {"Items": [{"Key": ..., "Value": ...}]}}
     """
     try:
@@ -52,34 +47,14 @@ def collect_monitored_resources() -> list[ResourceInfo]:
         logger.error("CloudFront list_distributions failed: %s", e)
         raise
 
-    resources: list[ResourceInfo] = []
-    region = boto3.session.Session().region_name or "us-east-1"
-
+    found: list[tuple[str, dict]] = []
     for page in pages:
-        dist_list = page.get("DistributionList", {})
-        for dist in dist_list.get("Items", []):
-            dist_id = dist["Id"]
-            dist_arn = dist["ARN"]
-
-            tags = _get_tags(client, dist_arn)
-            if tags.get("Monitoring", "").lower() != "on":
-                continue
-
-            resources.append(
-                ResourceInfo(
-                    id=dist_id,
-                    type="CloudFront",
-                    tags=tags,
-                    region=region,
-                )
-            )
-
-    return resources
+        for dist in page.get("DistributionList", {}).get("Items", []):
+            found.append((dist["Id"], _get_tags(client, dist["ARN"])))
+    return found
 
 
-def get_metrics(
-    resource_id: str, resource_tags: dict | None = None,
-) -> dict[str, float] | None:
+def _metrics(resource_id: str, resource_tags: dict | None = None) -> dict[str, float] | None:
     """
     CloudWatch에서 CloudFront 배포 메트릭 조회.
 
@@ -98,28 +73,23 @@ def get_metrics(
     dim = [{"Name": "DistributionId", "Value": resource_id}]
     metrics: dict[str, float] = {}
 
-    _collect_metric("AWS/CloudFront", "5xxErrorRate", dim,
-                    start_time, end_time, "CF5xxErrorRate", metrics, CW_STAT_AVG)
-    _collect_metric("AWS/CloudFront", "4xxErrorRate", dim,
-                    start_time, end_time, "CF4xxErrorRate", metrics, CW_STAT_AVG)
-    _collect_metric("AWS/CloudFront", "Requests", dim,
-                    start_time, end_time, "CFRequests", metrics, CW_STAT_SUM)
-    _collect_metric("AWS/CloudFront", "BytesDownloaded", dim,
-                    start_time, end_time, "CFBytesDownloaded", metrics, CW_STAT_SUM)
+    _collect_metric("AWS/CloudFront", "5xxErrorRate", dim, start_time, end_time, "CF5xxErrorRate", metrics, CW_STAT_AVG)
+    _collect_metric("AWS/CloudFront", "4xxErrorRate", dim, start_time, end_time, "CF4xxErrorRate", metrics, CW_STAT_AVG)
+    _collect_metric("AWS/CloudFront", "Requests", dim, start_time, end_time, "CFRequests", metrics, CW_STAT_SUM)
+    _collect_metric("AWS/CloudFront", "BytesDownloaded", dim, start_time, end_time, "CFBytesDownloaded", metrics, CW_STAT_SUM)
 
     return metrics if metrics else None
 
 
-def resolve_alive_ids(tag_names: set[str]) -> set[str]:
-    """CloudFront 배포 존재 여부 확인."""
+def _alive(tag_names: set[str]) -> set[str]:
+    """CloudFront 배포 존재 여부 확인 — list_distributions 전체와 교집합."""
     client = _get_cloudfront_client()
     alive: set[str] = set()
     try:
         paginator = client.get_paginator("list_distributions")
         existing_ids: set[str] = set()
         for page in paginator.paginate():
-            dist_list = page.get("DistributionList", {})
-            for dist in dist_list.get("Items", []):
+            for dist in page.get("DistributionList", {}).get("Items", []):
                 existing_ids.add(dist["Id"])
     except ClientError as e:
         logger.error("CloudFront list_distributions failed: %s", e)
@@ -133,8 +103,7 @@ def resolve_alive_ids(tag_names: set[str]) -> set[str]:
     return alive
 
 
-def _collect_metric(namespace, cw_metric_name, dimensions,
-                    start_time, end_time, result_key, metrics_dict, stat):
+def _collect_metric(namespace, cw_metric_name, dimensions, start_time, end_time, result_key, metrics_dict, stat):
     """단일 메트릭 조회 (us-east-1 CW 클라이언트 사용). 데이터 없으면 skip + info 로그."""
     cw = _get_cw_client_us_east_1()
     try:
@@ -150,20 +119,16 @@ def _collect_metric(namespace, cw_metric_name, dimensions,
         datapoints = response.get("Datapoints", [])
         if not datapoints:
             logger.info("Skipping %s metric for CloudFront %s: no data",
-                        result_key,
-                        dimensions[0]["Value"] if dimensions else "unknown")
+                        result_key, dimensions[0]["Value"] if dimensions else "unknown")
             return
         latest = max(datapoints, key=lambda d: d["Timestamp"])
         metrics_dict[result_key] = latest[stat]
     except ClientError as e:
-        logger.error("CloudWatch query failed for %s/%s: %s",
-                     namespace, cw_metric_name, e)
+        logger.error("CloudWatch query failed for %s/%s: %s", namespace, cw_metric_name, e)
 
 
 def _get_tags(cf_client, distribution_arn: str) -> dict:
-    """CloudFront list_tags_for_resource 래퍼.
-    응답 형식: {"Tags": {"Items": [{"Key": ..., "Value": ...}]}}
-    """
+    """CloudFront list_tags_for_resource 래퍼. 응답 형식: {"Tags": {"Items": [{"Key": ..., "Value": ...}]}}"""
     cached = cached_tags(distribution_arn, trust_negative=False)
     if cached is not None:
         return cached
@@ -172,6 +137,11 @@ def _get_tags(cf_client, distribution_arn: str) -> dict:
         items = response.get("Tags", {}).get("Items", [])
         return {t["Key"]: t["Value"] for t in items}
     except ClientError as e:
-        logger.error("CloudFront list_tags_for_resource failed for %s: %s",
-                     distribution_arn, e)
+        logger.error("CloudFront list_tags_for_resource failed for %s: %s", distribution_arn, e)
         return {}
+
+
+COLLECTOR = GenericCollector(SPEC, alive=_alive, enumerate=_enumerate, metrics=_metrics)
+collect_monitored_resources = COLLECTOR.collect_monitored_resources
+get_metrics = COLLECTOR.get_metrics
+resolve_alive_ids = COLLECTOR.resolve_alive_ids

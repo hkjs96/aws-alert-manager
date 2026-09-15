@@ -109,8 +109,30 @@
       (CPU·FreeMemoryGB·FreeStorageGB·Connections…)와 NLB·TG(`RequestCount`, 정의 없음)에도 있다 — 3파 주의: `daily_monitor`
       L1035가 `FreeMemoryGB`류 **옛 키 이름으로 "작을수록 위험" 방향을 판정**하고 GB 변환도 옛 키에 묶여 있으므로 RDS 계열은
       `get_metrics` 오버라이드를 유지해야 하고, 키를 바꾸려면 그 분기와 함께 바꿔야 한다.
-- [ ] 3.4 **3파 (오버라이드 유지)**: EC2 ELB/TG RDS/Aurora/DocDB APIGW S3 CloudFront Route53 WAF — 스펙에 `enumerate`/
-      `metrics` 오버라이드로 남기고 이유를 적는다. ELB의 `get_metrics(lb_arn=)`는 오버라이드 안에 봉인.
+- [x] 3.4(2026-09-15) **3파** 10모듈 2,260 → 1,707줄. 둘로 갈렸다:
+      **(a) 메트릭이 정의로 표현되는 다섯 — 범용 `get_metrics`**: CLB WAF Route53 APIGW S3. 나열은 CLB·WAF만 태그 캐시(모듈
+      `_identities`가 ARN으로 가른다: CLB는 공유 필터 `elasticloadbalancing:loadbalancer`에서 `loadbalancer/<name>`(app/·net/·gwy/ 접두
+      없음)만, WAF는 `regional/webacl/<name>/<id>`만 — CLOUDFRONT 스코프는 옛 수집기도 안 모았다). **Route53·S3·CloudFront는 글로벌
+      서비스라 RGT 불가**(RGT는 리전 API — Route53/CloudFront는 us-east-1에만, 버킷은 버킷 리전에만 나오므로 실행 리전 캐시로
+      나열하면 0개·누락으로 오판; `tag_cache`가 이 셋을 `trust_negative=False`로 다루던 이유와 같다). APIGW는 REST TagName이 API
+      이름이라 ARN만으로 안 나오고 v2는 get_apis가 태그·프로토콜을 한 콜에 줘 RGT 이득이 REST 태그 N+1뿐 — describe 유지, REST
+      태그만 캐시 히트를 보게 고침(옛 수집기는 캐시를 안 썼다). `arn_matches_filter`가 WAF 스코프 접두(`regional/`·`global/`)를 안다.
+      **받아들인 차이 2건(알람과 같은 시리즈를 보게 된 것)**: 옛 WAF `get_metrics`는 WebACL+Rule로, 옛 S3 요청 지표(4xx/5xx)는
+      BucketName만으로 물었다 — 알람은 각각 +Region, +FilterId를 쓴다. CloudWatch는 디멘션 집합이 정확히 일치해야 돌려주므로 옛
+      질의는 데이터가 없었고(데일리 런에서 조용히 skip), 범용은 `_build_dimensions`로 알람과 같은 디멘션을 쓴다. 테스트
+      `ACCEPTED_EXTRA_DIMS`에 이유. S3 요청 지표의 "Request_Metrics 미설정" warning 로그는 base의 info skip 로그로 바뀜(테스트 수정).
+      **(b) 오버라이드 다섯 — `GenericCollector(…, metrics=_metrics)`**: EC2(CWAgent 메모리·디스크 경로별 list_metrics 디멘션
+      발견, 결과 키 CPU/Memory/Disk_*가 임계치 분기에 묶임) · RDS+Aurora(`_enumerate`가 항목마다 타입을 준다 — 범용이
+      `(TagName, tags, type)` 3튜플을 받는다; GB 변환·개명 전 키; `get_aurora_metrics`는 모듈 함수로 남고 daily_monitor가 타입으로
+      가른다) · DocDB(같은 이유) · ELB(ALB·NLB·TG 3튜플, `lb_arn` 인자를 범용이 그대로 전달, NLB 대상그룹 AWS/NetworkELB, 정의에 없는
+      RequestCount) · CloudFront(us-east-1 전용 CW 클라이언트, 배치 안 탐). 나열은 다섯 다 describe(엔진·클러스터 역할·LB 계층·
+      상태 필터·글로벌) — 스펙 notes에 "identity 없음"과 "오버라이드" 이유, 테스트가 둘 다 강제. 옛 코드는 원문 그대로 `_enumerate`/
+      `_metrics`/`_alive`로 이름만 바뀌었다(테스트 60여 건이 `_get_*_client`·`get_metrics` 모듈 속성을 패치 — 전부 통과).
+      **최종 명단(29타입)**: 태그 캐시 나열 12(SQS SNS Lambda DynamoDB MSK Backup EFS MQ OpenSearch SageMaker CLB WAF) / describe
+      나열 17(그중 정의 기반 메트릭 9: ACM DX ElastiCache ECS NAT VPN Route53 APIGW S3; 오버라이드 8: EC2 RDS AuroraRDS ALB NLB TG
+      DocDB CloudFront). `test_rgt_enumeration_roster`·`test_every_collector_module_is_on_the_generic_collector`가 고정.
+      수집기 디렉터리 **4,927 → 3,643줄**(generic 154 포함) — 설계의 "~2,300줄 삭제"에는 못 미쳤다: 폴백 나열·describe 존재 확인이
+      환원 불가능했고, 오버라이드 다섯은 메트릭까지 남았다. 줄어든 것은 26개 모듈의 `get_metrics`·ResourceInfo 조립·Monitoring 필터.
 - [ ] 3.5 런 성능 비교 — `daily_stage`/`PERF_METRIC` 로그로 이관 전후 describe 호출 수·소요 시간. 태그 캐시
       적용률은 "범용 경로 100%"가 된다(AC 4).
 

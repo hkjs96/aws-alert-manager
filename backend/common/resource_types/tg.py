@@ -77,7 +77,8 @@ SPEC = register(ResourceTypeSpec(
     type="TG", label="대상 그룹", collector="elb",
     rgt_filters=("elasticloadbalancing:targetgroup",), rgt_prime=True,
     lifecycle=(Lifecycle("DeleteTargetGroup", DELETE), Lifecycle("CreateTargetGroup", CREATE)),
-    notes="NLB 대상그룹은 네임스페이스가 AWS/NetworkELB(빌드 시 해석기), TargetType=alb는 알람 없음. LB 계층·short-id 역매핑 때문에 나열은 elb 수집기.",
+    notes="NLB 대상그룹은 네임스페이스가 AWS/NetworkELB(빌드 시 해석기), TargetType=alb는 알람 없음. LB 계층·short-id 역매핑 때문에 나열은 elb 수집기. "
+          "identity 없음: 연결된 LB의 ARN·종류(_lb_arn·_lb_type)는 describe_target_groups(LoadBalancerArn)로만 안다.",
     alarm_defs=_get_tg_alarm_defs,
     variants=({}, {"_lb_type": "network"}, {"_target_type": "alb"}),
     # 표시명(알람 이름에 쓰는 지표명·방향·단위)과 기본 임계치 — 옛 alarm_registry._METRIC_DISPLAY / common.HARDCODED_DEFAULTS.
