@@ -88,7 +88,7 @@ describe("POST /api/vitals", () => {
       json: async () => {
         throw new SyntaxError("bad");
       },
-    } as Parameters<typeof POST>[0]);
+    } as unknown as Parameters<typeof POST>[0]);   // NextRequest 전체를 흉내 내지 않는다 — json()만 쓰는 핸들러
     expect(res.status).toBe(204);
     expect(logged).toEqual([]);
   });
