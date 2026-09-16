@@ -1,23 +1,22 @@
 """
-RDS·Aurora 수집기 — 엔진·클러스터 판별에 describe가 필요해 나열은 describe, 메트릭은 GB 변환(오버라이드) (docs/specs/resource-type-registry P3)
+RDS·Aurora 수집기 — 엔진·클러스터 판별에 describe가 필요해 나열은 describe, 메트릭은 정의에서 (docs/specs/resource-type-registry P3)
 
 나열: RGT 필터 `rds:db`는 RDS·Aurora·DocDB 인스턴스를 한데 돌려주고 엔진(aurora/docdb)·인스턴스 클래스·Writer/Reader는
 describe_db_instances/describe_db_clusters로만 안다 — 스펙에 `identity`가 없고 이 모듈의 `_enumerate`가 유일한 나열이다(태그는 캐시에서).
 한 번에 타입 둘(RDS·AuroraRDS)을 내므로 항목이 `(TagName, tags, type)`이다. TagName = DBInstanceIdentifier. 내부 태그
 (`_is_serverless_v2`·`_is_cluster_writer`·`_has_readers`·`_total_memory_bytes`·`_total_local_storage_bytes`…)가 알람 정의 변형과 퍼센트 임계치를 가른다.
-메트릭(오버라이드 `_metrics`, Aurora는 `get_aurora_metrics` — daily_monitor가 타입으로 가른다): FreeableMemory/FreeStorageSpace/FreeLocalStorage는
-bytes → GB 변환 뒤 개명 전 키(`FreeMemoryGB`·`FreeStorageGB`·`FreeLocalStorageGB`)로 돌려준다 — daily_monitor의 "작을수록 위험" 판정과
-GB 단위 임계치가 그 키에 묶여 있다(tasks 3.4).
+메트릭: 범용 — daily_monitor가 `get_metrics(id, tags, resource_type=)`로 RDS·AuroraRDS 스펙 중 하나의 정의(변형 반영)를 고른다.
+FreeableMemory·FreeStorageSpace·FreeLocalStorage는 정의의 `transform_value`가 bytes→GB로 돌려 태그·기본치(GB)와 바로 비교된다.
+2026-09-16까지는 오버라이드 `_metrics`/`get_aurora_metrics`가 개명 전 키(CPU·FreeMemoryGB·FreeStorageGB·Connections…)로 냈고
+RDS는 정의 7개 중 4개만, Aurora ReplicaLag는 Average로(정의는 Maximum) 봤다 — 이제 알람 정의와 같은 셋·같은 통계를 본다.
 """
 
 import functools
 import logging
-from datetime import datetime, timedelta, timezone
 
 import boto3
 from botocore.exceptions import ClientError
 
-from common.collectors.base import CW_LOOKBACK_MINUTES, CW_STAT_AVG, collect_metric
 from common.collectors.generic import GenericCollector
 from common.resource_types.rds import SPEC
 from common.tag_cache import cached_tags
@@ -344,105 +343,6 @@ def _enumerate() -> list[tuple[str, dict, str]]:
     return found
 
 
-def _metrics(db_instance_id: str, resource_tags: dict | None = None) -> dict[str, float] | None:
-    """
-    CloudWatch에서 RDS 메트릭 조회.
-
-    수집 메트릭:
-    - CPUUtilization → 'CPU'
-    - FreeableMemory (bytes → GB) → 'FreeMemoryGB'
-    - FreeStorageSpace (bytes → GB) → 'FreeStorageGB'
-    - DatabaseConnections → 'Connections'
-
-    데이터 없으면 해당 메트릭 skip. 모두 없으면 None 반환.
-    """
-    if resource_tags is None:
-        resource_tags = {}
-
-    end_time = datetime.now(timezone.utc)
-    start_time = end_time - timedelta(minutes=CW_LOOKBACK_MINUTES)
-
-    dim = [{"Name": "DBInstanceIdentifier", "Value": db_instance_id}]
-    metrics: dict[str, float] = {}
-
-    collect_metric("AWS/RDS", "CPUUtilization", dim, start_time, end_time,
-                   "CPU", metrics, stat=CW_STAT_AVG, transform=None, resource_label="RDS")
-    collect_metric("AWS/RDS", "FreeableMemory", dim, start_time, end_time,
-                   "FreeMemoryGB", metrics, stat=CW_STAT_AVG,
-                   transform=lambda v: v / _BYTES_PER_GB, resource_label="RDS")
-    collect_metric("AWS/RDS", "FreeStorageSpace", dim, start_time, end_time,
-                   "FreeStorageGB", metrics, stat=CW_STAT_AVG,
-                   transform=lambda v: v / _BYTES_PER_GB, resource_label="RDS")
-    collect_metric("AWS/RDS", "DatabaseConnections", dim, start_time, end_time,
-                   "Connections", metrics, stat=CW_STAT_AVG, transform=None, resource_label="RDS")
-
-    return metrics if metrics else None
-
-
-def get_aurora_metrics(db_instance_id: str, resource_tags: dict | None = None) -> dict[str, float] | None:
-    """
-    CloudWatch에서 Aurora RDS 메트릭 조회 (변형별 조건부 분기).
-
-    Always 수집:
-    - CPUUtilization → 'CPU'
-    - FreeableMemory (bytes → GB) → 'FreeMemoryGB'
-    - DatabaseConnections → 'Connections'
-
-    조건부 수집:
-    - _is_serverless_v2 != "true": FreeLocalStorage → 'FreeLocalStorageGB'
-    - _is_serverless_v2 == "true": ACUUtilization, ServerlessDatabaseCapacity
-    - _is_cluster_writer == "true" & _has_readers == "true":
-      AuroraReplicaLagMaximum → 'ReplicaLag'
-    - _is_cluster_writer == "false": AuroraReplicaLag → 'ReaderReplicaLag'
-
-    데이터 없으면 해당 메트릭 skip. 모두 없으면 None 반환.
-    """
-    if resource_tags is None:
-        resource_tags = {}
-
-    end_time = datetime.now(timezone.utc)
-    start_time = end_time - timedelta(minutes=CW_LOOKBACK_MINUTES)
-
-    dim = [{"Name": "DBInstanceIdentifier", "Value": db_instance_id}]
-    metrics: dict[str, float] = {}
-
-    # Always: CPUUtilization, DatabaseConnections
-    collect_metric("AWS/RDS", "CPUUtilization", dim, start_time, end_time,
-                   "CPU", metrics, stat=CW_STAT_AVG, transform=None, resource_label="AuroraRDS")
-    collect_metric("AWS/RDS", "DatabaseConnections", dim, start_time, end_time,
-                   "Connections", metrics, stat=CW_STAT_AVG, transform=None, resource_label="AuroraRDS")
-
-    is_serverless = resource_tags.get("_is_serverless_v2") == "true"
-    is_writer = resource_tags.get("_is_cluster_writer") == "true"
-    has_readers = resource_tags.get("_has_readers") == "true"
-
-    # Provisioned: FreeMemoryGB, FreeLocalStorageGB
-    if not is_serverless:
-        collect_metric("AWS/RDS", "FreeableMemory", dim, start_time, end_time,
-                       "FreeMemoryGB", metrics, stat=CW_STAT_AVG,
-                       transform=lambda v: v / _BYTES_PER_GB, resource_label="AuroraRDS")
-        collect_metric("AWS/RDS", "FreeLocalStorage", dim, start_time, end_time,
-                       "FreeLocalStorageGB", metrics, stat=CW_STAT_AVG,
-                       transform=lambda v: v / _BYTES_PER_GB, resource_label="AuroraRDS")
-
-    # Serverless v2: ACUUtilization only (FreeableMemory/ServerlessDatabaseCapacity 제외)
-    if is_serverless:
-        collect_metric("AWS/RDS", "ACUUtilization", dim, start_time, end_time,
-                       "ACUUtilization", metrics, stat=CW_STAT_AVG, transform=None, resource_label="AuroraRDS")
-
-    # Writer with readers: AuroraReplicaLagMaximum → ReplicaLag
-    if is_writer and has_readers:
-        collect_metric("AWS/RDS", "AuroraReplicaLagMaximum", dim, start_time, end_time,
-                       "ReplicaLag", metrics, stat=CW_STAT_AVG, transform=None, resource_label="AuroraRDS")
-
-    # Reader: AuroraReplicaLag → ReaderReplicaLag
-    if not is_writer:
-        collect_metric("AWS/RDS", "AuroraReplicaLag", dim, start_time, end_time,
-                       "ReaderReplicaLag", metrics, stat=CW_STAT_AVG, transform=None, resource_label="AuroraRDS")
-
-    return metrics if metrics else None
-
-
 def _alive(tag_names: set[str]) -> set[str]:
     """RDS 인스턴스/Aurora 클러스터 존재 여부 확인.
 
@@ -504,7 +404,8 @@ def _get_tags(rds_client, db_arn: str) -> dict:
 
 
 # RDS 스펙에 묶는다 — 이 수집기는 RDS·AuroraRDS 둘을 내며(_enumerate가 타입을 항목마다 준다) 두 스펙이 collector="rds"로 이걸 가리킨다.
-COLLECTOR = GenericCollector(SPEC, alive=_alive, enumerate=_enumerate, metrics=_metrics)
+# get_metrics는 resource_type=으로 둘 중 어느 스펙의 정의를 쓸지 고른다(GenericCollector.served_types).
+COLLECTOR = GenericCollector(SPEC, alive=_alive, enumerate=_enumerate)
 collect_monitored_resources = COLLECTOR.collect_monitored_resources
 get_metrics = COLLECTOR.get_metrics
 resolve_alive_ids = COLLECTOR.resolve_alive_ids

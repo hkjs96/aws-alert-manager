@@ -110,15 +110,17 @@
 ```python
 class CollectorProtocol:
     def collect_monitored_resources() -> list[ResourceInfo]  # Monitoring=on 리소스 수집
-    def get_metrics(resource_id, resource_tags) -> dict | None  # CW 메트릭 조회
+    def get_metrics(resource_id, resource_tags, *, resource_type=None, **kw) -> dict | None  # CW 메트릭 조회
     def resolve_alive_ids(tag_names) -> set[str]  # 알람 TagName → 실존 리소스 확인
 ```
 
 - 나열: 스펙에 `identity`(ARN→TagName)가 있으면 런 스코프 **태그 캐시(RGT GetResources)**에서 읽는다 — 서비스 콜 0. 캐시가 없으면
   모듈의 `_enumerate`(describe). 태그 캐시로 나열하는 타입 12: SQS SNS Lambda DynamoDB MSK Backup EFS MQ OpenSearch SageMaker CLB WAF.
   나머지 17은 describe(글로벌 서비스·상태/엔진 필터·서버 측 태그 필터 — 이유는 스펙 `notes`).
-- 메트릭: 알람 정의에서 생성(디멘션은 알람과 같은 `dimension_builder`). 오버라이드 8(EC2 RDS AuroraRDS ALB NLB TG DocDB CloudFront) —
-  CWAgent 디스크 발견·GB 변환·`lb_arn`·us-east-1 클라이언트. 
+- 메트릭: 알람 정의에서 생성(디멘션은 알람과 같은 `dimension_builder`; 정의의 `transform_value`가 CloudWatch 단위를 표시 단위로 —
+  RDS 계열 bytes→GB — 돌려 임계치 태그·기본치와 같은 단위). 한 모듈이 타입 여럿을 내면 `get_metrics(id, tags, resource_type=)`로
+  스펙을 고른다(rds → RDS·AuroraRDS). 오버라이드 5(EC2 ALB NLB TG CloudFront) — CWAgent 디스크 발견·`lb_arn`·NLB 네임스페이스·
+  us-east-1 클라이언트.
 - 존재 확인(`_alive`)은 항상 describe — RGT는 태그가 벗겨진 리소스를 고아로 오판한다.
 
 현재 지원 타입 29 / 수집기 모듈 26(rds → RDS·AuroraRDS, elb → ALB·NLB·TG).

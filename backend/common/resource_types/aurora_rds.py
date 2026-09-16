@@ -31,6 +31,7 @@ _AURORA_RDS_ALARMS = [
         "period": 300,
         "evaluation_periods": 1,
         "transform_threshold": lambda gb: gb * 1073741824,
+        "transform_value": lambda b: b / 1073741824,
         "treat_missing_data": "breaching",
     },
     {
@@ -54,6 +55,7 @@ _AURORA_RDS_ALARMS = [
         "period": 300,
         "evaluation_periods": 1,
         "transform_threshold": lambda gb: gb * 1073741824,
+        "transform_value": lambda b: b / 1073741824,
         "treat_missing_data": "breaching",
     },
     {
@@ -140,7 +142,9 @@ SPEC = register(ResourceTypeSpec(
     type="AuroraRDS", label="Aurora", collector="rds",
     rgt_filters=("rds:db",), rgt_prime=True,
     notes=("RDS 스펙의 이벤트·필터를 공유한다. 알람 정의는 Serverless v2/Writer/Readers 태그로 갈린다. identity 없음: rds 수집기가 "
-           "describe로 엔진·클러스터 역할을 판별해 낸다. 메트릭은 수집기의 get_aurora_metrics(오버라이드) — GB 변환·개명 전 키."),
+           "describe로 엔진·클러스터 역할을 판별해 낸다. 메트릭은 정의에서(범용) — daily_monitor가 get_metrics(…, resource_type='AuroraRDS')로 "
+           "이 스펙의 변형을 고른다; FreeableMemory·FreeLocalStorage는 transform_value가 bytes→GB. 2026-09-16까지는 get_aurora_metrics "
+           "오버라이드가 개명 전 키(CPU·FreeMemoryGB·Connections·FreeLocalStorageGB)로, ReplicaLag를 Average로 냈다(정의는 Maximum)."),
     alarm_defs=_get_aurora_alarm_defs,
     variants=tuple(
         {"_is_serverless_v2": s, "_is_cluster_writer": w, "_has_readers": r}

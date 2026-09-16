@@ -157,7 +157,26 @@
       `HealthyHostCount`** 하나 — 알람 정의는 LessThanThreshold(정상 호스트 0이면 알람)인데 데일리 런은 "클수록 위험"으로 뒤집혀 있었다
       (정상 호스트가 임계치보다 많을 때 알림). 파생으로 고쳐졌다(`TestAlertDirectionFromRegistry`). 표시명이 없는 키(EC2 `Disk_*`,
       ELB `RequestCount`)는 전처럼 "클수록 위험". RDS 계열 오버라이드의 옛 결과 키(FreeMemoryGB…)는 `legacy.py` 표시명이 "<"라 그대로 맞다 —
-      키 이름 자체를 바꾸는 일은 이 목록이 없어진 지금 `tag_resolver._LEGACY_TAG_MAP`·GB 변환과만 얽힌다(별건).
+      키 이름 자체를 바꾸는 일은 이 목록이 없어진 지금 `tag_resolver._LEGACY_TAG_MAP`·GB 변환과만 얽힌다(별건 → 4.5).
+- [x] 4.5(2026-09-16) **RDS 계열 결과 키 → 정의 키** — RDS·AuroraRDS·DocDB가 오버라이드(`_metrics`/`get_aurora_metrics`)를 버리고 범용
+      `get_metrics`로 갔다. 얽혀 있던 둘을 이렇게 풀었다. **(a) GB 변환** — 정의에 `transform_value`(bytes→GB, `transform_threshold`의 역)를
+      두고 범용이 수집값에 적용한다. 값은 전처럼 GB라 `get_threshold(tags, "FreeableMemory")`(기본 2.0, 옛 `Threshold_FreeMemoryGB` 태그는
+      `_LEGACY_TAG_MAP`으로 닿음)와 바로 비교된다 — daily run의 임계치 의미는 바뀌지 않았다. `register()`가 짝과 역함수(1.0 왕복)를 강제한다.
+      **(b) 한 모듈이 내는 타입 둘** — `GenericCollector.get_metrics(id, tags, resource_type=)`가 `served_types()`(같은 `collector`의 스펙)
+      중 하나의 정의를 고른다. daily_monitor는 모든 타입에 `resource_type=`을 넘기고(`_collect_resource_metrics` 분기 셋 → 한 줄 + TG의
+      `lb_arn`) `get_aurora_metrics` 경로는 없어졌다. 오버라이드에는 전달하지 않는다(타입 고유 조회는 내부 태그로 가른다).
+      **받아들인 차이(오라클 대비 — 전부 "알람과 같은 것을 본다"로 수렴)**: ① 결과 키 CPU·FreeMemoryGB·FreeStorageGB·Connections·
+      FreeLocalStorageGB → 정의 키(임계치 알림의 metric_name 표기만 바뀜) ② RDS는 옛 4개 → 정의 7개(ReadLatency·WriteLatency·
+      ConnectionAttempts도 데일리 런이 본다) ③ Aurora ReplicaLag/ReaderReplicaLag 통계 Average → 정의의 Maximum ④ **DocDB는 옛 6개 → 표준
+      3개** — FreeLocalStorage·ReadLatency·WriteLatency는 `test_pbt_docdb_standard_metrics`가 "표준이 알람에서 뺀 지표"로 고정한 것인데
+      데일리 런만 보고 있었다(알람 없는 데일리 알림). 정의가 진실이라 데일리 런도 뺐다 — 되살리려면 DocDB 스펙에 정의를 넣는 것이지
+      수집기 예외가 아니다(=알람 추가, 표준 결정). 테스트: `ACCEPTED_KEY_RENAMES`(5키×3타입)·`ACCEPTED_STAT_CHANGES`·`ACCEPTED_EXTRA_QUERIES`·
+      `ACCEPTED_DROPPED_QUERIES`, 오라클 비교는 순서 무관(정렬), AuroraRDS 8변형은 `test_the_other_types_a_module_serves_match_their_own_oracle`,
+      `TestServedTypesAndUnits`(타입 선택·별칭·오버라이드 무시·GB 단위·역함수 불변식). `threshold_resolver`의 Serverless 분기도
+      `"FreeMemoryGB"` → `"FreeableMemory"`(같은 기본치, `Threshold_FreeableMemory`도 인식). 레지스트리 스냅숏에 `transform_value` 5건
+      (`_meta.changes`). 명단: 정의 기반 메트릭 **24** / 오버라이드 **5**(EC2 ALB NLB TG CloudFront). rds.py 511 → 411줄, docdb.py 140 →
+      95줄. `legacy.py`의 옛 키 표시명·기본치는 그대로 — `Threshold_CPU` 류 태그 호환과 `/thresholds` API가 아직 읽는다(정리 후보).
+      남은 오버라이드 EC2·ELB·CloudFront의 결과 키(CPU·Memory·Disk_*·RequestCount…)는 이번 범위 밖.
 
 ## 하지 않는 것 (기록)
 

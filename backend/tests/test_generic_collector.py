@@ -31,9 +31,10 @@ REGION = "us-east-1"
 WAVE1 = ["sqs", "sns", "lambda_fn", "dynamodb", "msk", "mq", "acm", "backup", "dx", "efs"]
 WAVE2 = ["elasticache", "opensearch", "sagemaker", "ecs", "natgw", "vpn"]
 WAVE3A = ["clb", "waf", "route53", "apigw", "s3"]          # 3파 중 메트릭이 정의로 표현되는 다섯
-GENERIC = WAVE1 + WAVE2 + WAVE3A
-# 3파 오버라이드 — 나열은 describe(_enumerate), 메트릭은 타입 고유(_metrics). 이유는 모듈 문서와 스펙 notes.
-OVERRIDE = ["ec2", "rds", "elb", "docdb", "cloudfront"]
+WAVE4 = ["rds", "docdb"]                                    # 09-16 후속 — GB 변환은 정의의 transform_value로, 결과 키는 정의 키
+GENERIC = WAVE1 + WAVE2 + WAVE3A + WAVE4
+# 오버라이드 — 나열은 describe(_enumerate), 메트릭은 타입 고유(_metrics). 이유는 모듈 문서와 스펙 notes.
+OVERRIDE = ["ec2", "elb", "cloudfront"]
 
 
 def _mod(name):
@@ -507,10 +508,21 @@ def _dims_key(dims):
 
 
 # 옛 수집기가 메트릭 키 개명(Phase 4 Task 16) 전 이름으로 결과를 돌려주던 곳. 알람 정의는 CloudWatch 이름을 쓰므로 범용
-# get_metrics도 그 이름을 낸다 — daily run의 임계치 해석은 두 키가 같다(기본 80, `Threshold_CPU` 태그는 _LEGACY_TAG_MAP으로
-# CPUUtilization에도 적용). 바뀌는 것은 임계치 알림의 metric_name 표기뿐이다. 3파의 RDS 계열(CPU·FreeMemoryGB·Connections…)은
-# GB 변환이 얽혀 오버라이드로 남긴다 — 여기 목록은 범용으로 옮긴 타입만.
-ACCEPTED_KEY_RENAMES = {("ElastiCache", "CPU"): "CPUUtilization"}
+# get_metrics도 그 이름을 낸다 — daily run의 임계치 해석은 두 키가 같다(기본치 동일, `Threshold_CPU`·`Threshold_FreeMemoryGB` 같은
+# 옛 태그는 _LEGACY_TAG_MAP으로 정의 키에도 적용). 바뀌는 것은 임계치 알림의 metric_name 표기뿐이다. RDS 계열(09-16)의 GB 변환은
+# 정의의 transform_value가 맡아 값은 전처럼 GB다.
+_RDS_FAMILY_RENAMES = {"CPU": "CPUUtilization", "FreeMemoryGB": "FreeableMemory", "FreeStorageGB": "FreeStorageSpace",
+                       "Connections": "DatabaseConnections", "FreeLocalStorageGB": "FreeLocalStorage"}
+ACCEPTED_KEY_RENAMES = {("ElastiCache", "CPU"): "CPUUtilization",
+                        **{(t, old): new for t in ("RDS", "AuroraRDS", "DocDB") for old, new in _RDS_FAMILY_RENAMES.items()}}
+# 옛 수집기가 알람 정의와 다른 통계로 물었던 곳 — Aurora 복제 지연 정의는 Maximum인데 옛 get_aurora_metrics는 Average였다.
+# 범용은 정의의 stat을 쓴다(알람과 같은 시리즈).
+ACCEPTED_STAT_CHANGES = {("AuroraRDS", "ReplicaLag"): "Maximum", ("AuroraRDS", "ReaderReplicaLag"): "Maximum"}
+# 옛 수집기가 알람 정의보다 적게 물었던 곳 — RDS는 정의 7개 중 4개만. 범용은 정의 전부를 본다(알람이 있는 지표는 데일리 런도 본다).
+ACCEPTED_EXTRA_QUERIES = {"RDS": {"ReadLatency", "WriteLatency", "ConnectionAttempts"}}
+# 옛 수집기가 알람 정의에 없는 것을 물었던 곳 — DocDB 표준(test_pbt_docdb_standard_metrics.py)이 알람에서 뺀 세 지표를 데일리 런만
+# 보고 있었다. 범용은 정의만 본다.
+ACCEPTED_DROPPED_QUERIES = {"DocDB": {"FreeLocalStorage", "ReadLatency", "WriteLatency"}}
 
 # 옛 수집기가 알람과 **다른 디멘션 집합**으로 물었던 곳 — CloudWatch는 디멘션이 정확히 일치하는 시리즈만 돌려주므로 옛 질의는
 # 데이터가 없었다(WAF: 알람은 WebACL+Rule+Region, 수집기는 Region 없이; S3 요청 지표: 알람은 BucketName+FilterId, 수집기는
@@ -525,8 +537,9 @@ def _expected_from_oracle(rtype, c):
     label = c["label"]
     if rtype == "S3" and key is None:
         key, label = S3_REQUEST_KEYS[c["metric_name"]], "S3"
+    key = ACCEPTED_KEY_RENAMES.get((rtype, key), key)
     return (c["namespace"], c["metric_name"], _dims_key(c["dimensions"]),
-            ACCEPTED_KEY_RENAMES.get((rtype, key), key), c["stat"], c["transform"], label)
+            key, ACCEPTED_STAT_CHANGES.get((rtype, key), c["stat"]), c["transform"], label)
 
 
 def _strip_accepted_dims(rtype, got):
@@ -535,36 +548,52 @@ def _strip_accepted_dims(rtype, got):
             for ns, mn, dims, key, stat, tr, label in got]
 
 
-def _recorded_queries(mod, tags):
+def _recorded_queries(mod, tags, resource_type=None):
     calls = []
 
     def rec(ns, mn, dims, start, end, key, metrics, *, stat="Average", transform=None, resource_label="resource"):
         calls.append((ns, mn, _dims_key(dims), key, stat, bool(transform), resource_label))
 
     with patch("common.collectors.generic.collect_metric", rec):
-        assert mod.get_metrics("RID", dict(tags)) is None
+        kw = {"resource_type": resource_type} if resource_type else {}
+        assert mod.get_metrics("RID", dict(tags), **kw) is None
     return calls
+
+
+def _assert_generic_matches_the_oracle(mod, rtype):
+    oracle = ORACLE["types"][rtype]
+    assert oracle["collector"] == mod.__name__.rsplit(".", 1)[-1]
+    compared = 0
+    for variant, entry in oracle["variants"].items():
+        assert entry["status"] == "ok", (rtype, variant)
+        if any(d["Value"] == "" for c in entry["calls"] for d in c["dimensions"]):
+            # 옛 ECS/SageMaker 코드는 내부 태그가 없으면 빈 디멘션 값으로 질의했다 — CloudWatch가 거부하는 쿼리라
+            # 성립하지 않았고, 알람 쪽 빌더(_build_dimensions)는 그 디멘션을 뺀다. 실제 태그가 있는 변형으로 비교한다.
+            continue
+        expected = [_expected_from_oracle(rtype, c) for c in entry["calls"]
+                    if c["metric_name"] not in ACCEPTED_DROPPED_QUERIES.get(rtype, set())]
+        got = [q for q in _strip_accepted_dims(rtype, _recorded_queries(mod, json.loads(variant), rtype))
+               if q[3] not in ACCEPTED_EXTRA_QUERIES.get(rtype, set())]
+        # 질의 순서는 CloudWatch에 의미가 없다(MetricBatch 키도 순서 무관) — 옛 Aurora 코드는 Connections를 FreeableMemory 앞에 물었다.
+        assert sorted(got) == sorted(expected), (rtype, variant)
+        compared += 1
+    assert compared >= 1, rtype
+
+
+def _served_but_not_primary():
+    return [(n, t) for n in GENERIC for t in _mod(n).COLLECTOR.served_types() if t != _mod(n).COLLECTOR.spec.type]
 
 
 class TestMetricsFromDefinitions:
     @pytest.mark.parametrize("name", GENERIC)
     def test_generic_get_metrics_issues_exactly_the_pre_migration_queries(self, name):
         mod = _mod(name)
-        rtype = mod.COLLECTOR.spec.type
-        oracle = ORACLE["types"][rtype]
-        assert oracle["collector"] == name
-        compared = 0
-        for variant, entry in oracle["variants"].items():
-            assert entry["status"] == "ok", (rtype, variant)
-            if any(d["Value"] == "" for c in entry["calls"] for d in c["dimensions"]):
-                # 옛 ECS/SageMaker 코드는 내부 태그가 없으면 빈 디멘션 값으로 질의했다 — CloudWatch가 거부하는 쿼리라
-                # 성립하지 않았고, 알람 쪽 빌더(_build_dimensions)는 그 디멘션을 뺀다. 실제 태그가 있는 변형으로 비교한다.
-                continue
-            expected = [_expected_from_oracle(rtype, c) for c in entry["calls"]]
-            got = _strip_accepted_dims(rtype, _recorded_queries(mod, json.loads(variant)))
-            assert got == expected, (rtype, variant)
-            compared += 1
-        assert compared >= 1, rtype
+        _assert_generic_matches_the_oracle(mod, mod.COLLECTOR.spec.type)
+
+    @pytest.mark.parametrize("name,rtype", _served_but_not_primary())
+    def test_the_other_types_a_module_serves_match_their_own_oracle(self, name, rtype):
+        """rds 모듈은 AuroraRDS도 낸다 — resource_type=으로 그 스펙의 정의(8변형)를 물어야 옛 get_aurora_metrics와 같은 쿼리다."""
+        _assert_generic_matches_the_oracle(_mod(name), rtype)
 
     def test_get_metrics_is_batch_aware(self):
         mod = _mod("sqs")
@@ -599,3 +628,71 @@ class TestMetricsFromDefinitions:
         col = GenericCollector(spec, alive=lambda n: n, enumerate=lambda: [])
         assert not {c[3] for c in _recorded_queries(col, {})} & opted_in
         assert {c[3] for c in _recorded_queries(col, gate)} >= opted_in
+
+
+# ────────────────────────────────── 09-16 후속: 한 모듈이 내는 타입 여럿 · 단위 변환
+
+
+class TestServedTypesAndUnits:
+    def test_rds_module_serves_two_types_and_picks_definitions_by_resource_type(self):
+        mod = _mod("rds")
+        assert mod.COLLECTOR.served_types() == ["RDS", "AuroraRDS"]
+        prov = {"_is_serverless_v2": "false", "_is_cluster_writer": "true", "_has_readers": "true"}
+        rds = _recorded_queries(mod, prov)
+        aurora = _recorded_queries(mod, prov, "AuroraRDS")
+        assert {c[3] for c in rds} == {d["metric"] for d in R.get("RDS").alarms(prov)}
+        assert {c[3] for c in aurora} == {d["metric"] for d in R.get("AuroraRDS").alarms(prov)}
+        assert "ReplicaLag" in {c[3] for c in aurora} and "ReplicaLag" not in {c[3] for c in rds}
+        assert {c[6] for c in rds} == {"RDS"} and {c[6] for c in aurora} == {"AuroraRDS"}   # 로그 라벨도 타입을 따른다
+        with pytest.raises(ValueError, match="collected by"):
+            mod.get_metrics("db", {}, resource_type="DocDB")
+        with pytest.raises(KeyError):
+            mod.get_metrics("db", {}, resource_type="Nope")
+
+    def test_single_type_modules_accept_their_own_type_and_alias(self):
+        assert _mod("sqs").COLLECTOR.served_types() == ["SQS"]
+        assert _recorded_queries(_mod("sqs"), {}, "SQS") == _recorded_queries(_mod("sqs"), {})
+        assert _mod("natgw").COLLECTOR._spec_for("NATGateway") is R.get("NAT")     # 별칭
+
+    def test_override_modules_ignore_resource_type(self):
+        seen = {}
+        col = GenericCollector(R.get("EC2"), alive=lambda n: n, enumerate=lambda: [],
+                               metrics=lambda rid, tags: seen.setdefault("call", (rid, tags)) and {"CPU": 1.0})
+        assert col.get_metrics("i-1", {"a": "b"}, resource_type="EC2") == {"CPU": 1.0}
+        assert seen["call"] == ("i-1", {"a": "b"})
+
+    def test_byte_metrics_come_back_in_the_display_unit_the_thresholds_use(self):
+        """FreeableMemory 2 GiB(bytes) → 2.0 under the definition key; get_threshold(…, "FreeableMemory")도 GB(기본 2.0)."""
+        from datetime import datetime, timezone
+        from common.tag_resolver import get_threshold
+        mod = _mod("rds")
+        cw = MagicMock()
+        cw.get_metric_statistics.side_effect = lambda **kw: {"Datapoints": [
+            {"Timestamp": datetime(2026, 9, 16, tzinfo=timezone.utc), "Average": 2 * 1024 ** 3}]} \
+            if kw["MetricName"] in ("FreeableMemory", "FreeStorageSpace") else {"Datapoints": []}
+        with patch.object(cb, "_get_cw_client", return_value=cw):
+            assert mod.get_metrics("db-1", {}) == {"FreeableMemory": 2.0, "FreeStorageSpace": 2.0}
+            assert mod.get_metrics("db-1", {"_is_serverless_v2": "false"}, resource_type="AuroraRDS") == {"FreeableMemory": 2.0}
+        assert get_threshold({}, "FreeableMemory") == 2.0
+        assert get_threshold({"Threshold_FreeMemoryGB": "3"}, "FreeableMemory") == 3.0   # 옛 태그 키도 정의 키에 닿는다
+
+    def test_every_threshold_transform_has_its_inverse_and_register_enforces_it(self):
+        pairs = 0
+        for spec in R.all_specs():
+            for tags in spec.variants or ({},):
+                for d in spec.alarms(tags):
+                    if "transform_threshold" in d or "transform_value" in d:
+                        assert "transform_threshold" in d and "transform_value" in d, (spec.type, d["metric"])
+                        assert d["transform_value"](d["transform_threshold"](7.5)) == pytest.approx(7.5)
+                        pairs += 1
+        assert pairs >= 5   # RDS 2 · Aurora 2(변형마다 되풀이) · DocDB 1
+        base_def = {"metric": "M", "namespace": "N", "metric_name": "M", "dimension_key": "D", "stat": "Average",
+                    "comparison": "GreaterThanThreshold", "period": 60, "evaluation_periods": 1}
+        with pytest.raises(ValueError, match="pair"):
+            R.register(R.ResourceTypeSpec(type="BadPair", label="x", collector="sqs",
+                                          alarm_defs=[{**base_def, "transform_threshold": lambda g: g * 2}]))
+        with pytest.raises(ValueError, match="inverse"):
+            R.register(R.ResourceTypeSpec(type="BadInverse", label="x", collector="sqs",
+                                          alarm_defs=[{**base_def, "transform_threshold": lambda g: g * 2,
+                                                       "transform_value": lambda b: b * 2}]))
+        assert "BadPair" not in R.types() and "BadInverse" not in R.types()

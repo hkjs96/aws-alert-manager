@@ -61,7 +61,8 @@ class ResourceTypeSpec:
     #: 파생 규칙에서 벗어나는 것의 이유. 맵은 이유를 말해 주지 않았다 — 스펙은 말한다(요구사항 R9).
     notes: str = ""
     #: 알람 정의 — 리스트(고정) 또는 `Callable[[resource_tags], list]`(태그 조건부). 정의 dict의 필드는
-    #: docs/ALARM-RULES.md. 옛 `alarm_registry._ALARM_DEFS_BY_TYPE`이 여기서 파생된다.
+    #: docs/ALARM-RULES.md. 옛 `alarm_registry._ALARM_DEFS_BY_TYPE`이 여기서 파생된다. 단위 변환이 있는 정의는
+    #: `transform_threshold`(표시 단위 → CloudWatch 단위)와 `transform_value`(그 역)를 짝으로 갖는다 — register가 강제한다.
     alarm_defs: list[dict] | Callable[[dict], list[dict]] = ()
     #: 조건부 정의가 읽는 태그의 **모든 조합** — 파생(메트릭 키·네임스페이스)이 전부 열거해 합친다.
     #: 조건 분기에서 태그를 새로 읽으면 여기에도 적는다(완전성 테스트가 함수 소스를 훑어 잡는다).
@@ -104,6 +105,24 @@ _SPECS: dict[str, ResourceTypeSpec] = {}
 _ALIASES: dict[str, str] = {}
 
 
+def _check_transform_pairs(spec: ResourceTypeSpec) -> None:
+    """`transform_threshold`(표시 단위 → CloudWatch 단위)가 있는 정의는 역함수 `transform_value`도 가져야 한다.
+
+    알람은 임계치를 CloudWatch 단위로 올리고(GB → bytes), 범용 수집기는 수집값을 표시 단위로 내린다(bytes → GB) — 그래서
+    daily run이 태그·기본치(표시 단위)와 바로 비교한다. 둘이 서로 역함수인지 1.0으로 확인한다(2026-09-16, RDS 계열 결과 키 이관).
+    """
+    for tags in spec.variants or ({},):
+        for d in spec.alarms(tags):
+            fwd, inv = d.get("transform_threshold"), d.get("transform_value")
+            if fwd is None and inv is None:
+                continue
+            if fwd is None or inv is None:
+                raise ValueError(f"{spec.type}/{d['metric']}: transform_threshold and transform_value must come as a pair")
+            back = inv(fwd(1.0))
+            if abs(back - 1.0) > 1e-9:
+                raise ValueError(f"{spec.type}/{d['metric']}: transform_value is not the inverse of transform_threshold ({back!r})")
+
+
 def register(spec: ResourceTypeSpec) -> ResourceTypeSpec:
     if spec.type in _SPECS or spec.type in _ALIASES:
         raise ValueError(f"resource type already registered: {spec.type}")
@@ -114,6 +133,7 @@ def register(spec: ResourceTypeSpec) -> ResourceTypeSpec:
         raise ValueError(spec.kind_check())
     if spec.identity is not None and not spec.rgt_prime:
         raise ValueError(f"{spec.type}: identity without rgt_prime — the tag cache would never hold this type's ARNs")
+    _check_transform_pairs(spec)
     _SPECS[spec.type] = spec
     for alias in spec.aliases:
         _ALIASES[alias] = spec.type

@@ -271,17 +271,16 @@ class TestRDSCollector:
         from common.collectors.rds import get_metrics
 
         mock_cw = MagicMock()
-        # 2GB = 2 * 1024^3 bytes
+        # 2GB = 2 * 1024^3 bytes — 바이트 지표 둘에만 데이터, 나머지 정의(CPU·Connections·Latency·ConnectionAttempts)는 데이터 없음
         two_gb = 2 * (1024 ** 3)
-        mock_cw.get_metric_statistics.return_value = {
-            "Datapoints": [{"Timestamp": datetime(2024, 1, 1, tzinfo=timezone.utc),
-                            "Average": float(two_gb)}]
-        }
+        mock_cw.get_metric_statistics.side_effect = lambda **kw: {
+            "Datapoints": [{"Timestamp": datetime(2024, 1, 1, tzinfo=timezone.utc), "Average": float(two_gb)}]
+        } if kw["MetricName"] in ("FreeableMemory", "FreeStorageSpace") else {"Datapoints": []}
         with patch("common.collectors.base._get_cw_client", return_value=mock_cw):
             result = get_metrics("db-123")
 
-        assert result["FreeMemoryGB"] == pytest.approx(2.0)
-        assert result["FreeStorageGB"] == pytest.approx(2.0)
+        # 결과 키는 정의 키, 값은 정의의 transform_value(bytes→GB)를 거친 GB — 데이터 없는 정의는 키가 없다
+        assert result == {"FreeableMemory": pytest.approx(2.0), "FreeStorageSpace": pytest.approx(2.0)}
 
     def test_get_metrics_returns_none_when_no_data(self):
         """CloudWatch 데이터 없을 때 None 반환"""
@@ -717,7 +716,7 @@ class TestRDSAuroraClassification:
 # ──────────────────────────────────────────────
 
 class TestAuroraMetrics:
-    """get_aurora_metrics() 메트릭 수집 검증."""
+    """get_metrics(…, resource_type="AuroraRDS") 메트릭 수집 검증 — 결과 키는 정의 키(09-16)."""
 
     def _make_cw_mock_with_data(self, metric_data: dict[str, float]):
         """CloudWatch mock: metric_name → value 매핑으로 응답 생성."""
@@ -740,7 +739,7 @@ class TestAuroraMetrics:
 
     def test_all_five_metrics_returned(self):
         """Provisioned Writer (w/ readers) 5개 메트릭 모두 반환 — Req 4.1"""
-        from common.collectors.rds import get_aurora_metrics
+        from common.collectors.rds import get_metrics
 
         two_gb = 2.0 * (1024 ** 3)
         five_gb = 5.0 * (1024 ** 3)
@@ -758,18 +757,18 @@ class TestAuroraMetrics:
         }
 
         with patch("common.collectors.base._get_cw_client", return_value=mock_cw):
-            result = get_aurora_metrics("aurora-db-1", resource_tags=tags)
+            result = get_metrics("aurora-db-1", tags, resource_type="AuroraRDS")
 
         assert result is not None
-        assert result["CPU"] == pytest.approx(75.0)
-        assert result["FreeMemoryGB"] == pytest.approx(2.0)
-        assert result["Connections"] == pytest.approx(50.0)
-        assert result["FreeLocalStorageGB"] == pytest.approx(5.0)
+        assert result["CPUUtilization"] == pytest.approx(75.0)
+        assert result["FreeableMemory"] == pytest.approx(2.0)
+        assert result["DatabaseConnections"] == pytest.approx(50.0)
+        assert result["FreeLocalStorage"] == pytest.approx(5.0)
         assert result["ReplicaLag"] == pytest.approx(1500000.0)
 
     def test_freeable_memory_bytes_to_gb(self):
         """FreeableMemory bytes→GB 변환 — Req 4.2"""
-        from common.collectors.rds import get_aurora_metrics
+        from common.collectors.rds import get_metrics
 
         four_gb_bytes = 4.0 * 1073741824
         mock_cw = self._make_cw_mock_with_data({
@@ -777,14 +776,14 @@ class TestAuroraMetrics:
         })
 
         with patch("common.collectors.base._get_cw_client", return_value=mock_cw):
-            result = get_aurora_metrics("aurora-db-1")
+            result = get_metrics("aurora-db-1", resource_type="AuroraRDS")
 
         assert result is not None
-        assert result["FreeMemoryGB"] == pytest.approx(4.0)
+        assert result["FreeableMemory"] == pytest.approx(4.0)
 
     def test_free_local_storage_bytes_to_gb(self):
         """FreeLocalStorage bytes→GB 변환 — Req 4.3"""
-        from common.collectors.rds import get_aurora_metrics
+        from common.collectors.rds import get_metrics
 
         ten_gb_bytes = 10.0 * 1073741824
         mock_cw = self._make_cw_mock_with_data({
@@ -792,14 +791,14 @@ class TestAuroraMetrics:
         })
 
         with patch("common.collectors.base._get_cw_client", return_value=mock_cw):
-            result = get_aurora_metrics("aurora-db-1")
+            result = get_metrics("aurora-db-1", resource_type="AuroraRDS")
 
         assert result is not None
-        assert result["FreeLocalStorageGB"] == pytest.approx(10.0)
+        assert result["FreeLocalStorage"] == pytest.approx(10.0)
 
     def test_replica_lag_raw_microseconds(self):
         """AuroraReplicaLagMaximum raw μs 반환 — Req 4.4"""
-        from common.collectors.rds import get_aurora_metrics
+        from common.collectors.rds import get_metrics
 
         mock_cw = self._make_cw_mock_with_data({
             "AuroraReplicaLagMaximum": 2500000.0,
@@ -811,14 +810,14 @@ class TestAuroraMetrics:
         }
 
         with patch("common.collectors.base._get_cw_client", return_value=mock_cw):
-            result = get_aurora_metrics("aurora-db-1", resource_tags=tags)
+            result = get_metrics("aurora-db-1", tags, resource_type="AuroraRDS")
 
         assert result is not None
         assert result["ReplicaLag"] == pytest.approx(2500000.0)
 
     def test_individual_metric_skip_when_no_data(self):
         """개별 메트릭 데이터 없을 때 skip — Req 4.7"""
-        from common.collectors.rds import get_aurora_metrics
+        from common.collectors.rds import get_metrics
 
         # CPUUtilization만 데이터 있음, 나머지 없음
         mock_cw = self._make_cw_mock_with_data({
@@ -826,34 +825,34 @@ class TestAuroraMetrics:
         })
 
         with patch("common.collectors.base._get_cw_client", return_value=mock_cw):
-            result = get_aurora_metrics("aurora-db-1")
+            result = get_metrics("aurora-db-1", resource_type="AuroraRDS")
 
         assert result is not None
-        assert result["CPU"] == pytest.approx(60.0)
-        assert "FreeMemoryGB" not in result
-        assert "Connections" not in result
-        assert "FreeLocalStorageGB" not in result
+        assert result["CPUUtilization"] == pytest.approx(60.0)
+        assert "FreeableMemory" not in result
+        assert "DatabaseConnections" not in result
+        assert "FreeLocalStorage" not in result
         assert "ReplicaLag" not in result
 
     def test_returns_none_when_all_metrics_empty(self):
         """전체 메트릭 없을 때 None 반환 — Req 4.8"""
-        from common.collectors.rds import get_aurora_metrics
+        from common.collectors.rds import get_metrics
 
         mock_cw = self._make_cw_mock_with_data({})  # 모든 메트릭 데이터 없음
 
         with patch("common.collectors.base._get_cw_client", return_value=mock_cw):
-            result = get_aurora_metrics("aurora-db-1")
+            result = get_metrics("aurora-db-1", resource_type="AuroraRDS")
 
         assert result is None
 
 
 # ──────────────────────────────────────────────
-# get_aurora_metrics() 조건부 분기 단위 테스트
+# Aurora get_metrics 조건부 분기 단위 테스트
 # Validates: Requirements 9.1, 9.2, 9.3, 10.1, 10.2, 10.3
 # ──────────────────────────────────────────────
 
 class TestAuroraMetricsConditionalBranching:
-    """get_aurora_metrics() 변형별 메트릭 수집 검증."""
+    """get_metrics(…, resource_type="AuroraRDS") 변형별 메트릭 수집 검증."""
 
     def _make_cw_mock_all_data(self):
         """CloudWatch mock: 모든 Aurora 메트릭에 데이터 반환."""
@@ -890,7 +889,7 @@ class TestAuroraMetricsConditionalBranching:
     def test_serverless_v2_collects_acu_skips_free_local_storage(self):
         """Serverless v2: ACUUtilization 수집,
         FreeMemoryGB/FreeLocalStorageGB/ServerlessDatabaseCapacity 미수집"""
-        from common.collectors.rds import get_aurora_metrics
+        from common.collectors.rds import get_metrics
 
         tags = {
             "_is_serverless_v2": "true",
@@ -900,23 +899,23 @@ class TestAuroraMetricsConditionalBranching:
         mock_cw = self._make_cw_mock_all_data()
 
         with patch("common.collectors.base._get_cw_client", return_value=mock_cw):
-            result = get_aurora_metrics("aurora-sv2-1", resource_tags=tags)
+            result = get_metrics("aurora-sv2-1", tags, resource_type="AuroraRDS")
 
         assert result is not None
-        assert "CPU" in result
-        assert "Connections" in result
+        assert "CPUUtilization" in result
+        assert "DatabaseConnections" in result
         # Serverless v2 specific
         assert "ACUUtilization" in result
         assert result["ACUUtilization"] == pytest.approx(65.0)
         # Must NOT collect these for Serverless v2
-        assert "FreeMemoryGB" not in result
-        assert "FreeLocalStorageGB" not in result
+        assert "FreeableMemory" not in result
+        assert "FreeLocalStorage" not in result
         assert "ServerlessDatabaseCapacity" not in result
 
     def test_provisioned_collects_free_local_storage_skips_acu(self):
         """Provisioned: FreeLocalStorageGB 수집,
         ACUUtilization/ServerlessDatabaseCapacity 미수집 — Req 10.3"""
-        from common.collectors.rds import get_aurora_metrics
+        from common.collectors.rds import get_metrics
 
         tags = {
             "_is_serverless_v2": "false",
@@ -926,15 +925,15 @@ class TestAuroraMetricsConditionalBranching:
         mock_cw = self._make_cw_mock_all_data()
 
         with patch("common.collectors.base._get_cw_client", return_value=mock_cw):
-            result = get_aurora_metrics("aurora-prov-1", resource_tags=tags)
+            result = get_metrics("aurora-prov-1", tags, resource_type="AuroraRDS")
 
         assert result is not None
         # Always collected
-        assert "CPU" in result
-        assert "FreeMemoryGB" in result
-        assert "Connections" in result
+        assert "CPUUtilization" in result
+        assert "FreeableMemory" in result
+        assert "DatabaseConnections" in result
         # Provisioned specific
-        assert "FreeLocalStorageGB" in result
+        assert "FreeLocalStorage" in result
         # Must NOT collect Serverless v2 metrics
         assert "ACUUtilization" not in result
         assert "ServerlessDatabaseCapacity" not in result
@@ -942,7 +941,7 @@ class TestAuroraMetricsConditionalBranching:
     def test_writer_with_readers_collects_replica_lag(self):
         """Writer (w/ readers): ReplicaLag (AuroraReplicaLagMaximum) 수집
         — Req 9.2"""
-        from common.collectors.rds import get_aurora_metrics
+        from common.collectors.rds import get_metrics
 
         tags = {
             "_is_serverless_v2": "false",
@@ -952,7 +951,7 @@ class TestAuroraMetricsConditionalBranching:
         mock_cw = self._make_cw_mock_all_data()
 
         with patch("common.collectors.base._get_cw_client", return_value=mock_cw):
-            result = get_aurora_metrics("aurora-writer-1", resource_tags=tags)
+            result = get_metrics("aurora-writer-1", tags, resource_type="AuroraRDS")
 
         assert result is not None
         assert "ReplicaLag" in result
@@ -962,7 +961,7 @@ class TestAuroraMetricsConditionalBranching:
 
     def test_reader_collects_reader_replica_lag(self):
         """Reader: ReaderReplicaLag (AuroraReplicaLag) 수집 — Req 9.1"""
-        from common.collectors.rds import get_aurora_metrics
+        from common.collectors.rds import get_metrics
 
         tags = {
             "_is_serverless_v2": "false",
@@ -972,7 +971,7 @@ class TestAuroraMetricsConditionalBranching:
         mock_cw = self._make_cw_mock_all_data()
 
         with patch("common.collectors.base._get_cw_client", return_value=mock_cw):
-            result = get_aurora_metrics("aurora-reader-1", resource_tags=tags)
+            result = get_metrics("aurora-reader-1", tags, resource_type="AuroraRDS")
 
         assert result is not None
         assert "ReaderReplicaLag" in result
@@ -982,7 +981,7 @@ class TestAuroraMetricsConditionalBranching:
 
     def test_writer_no_readers_skips_replica_lag(self):
         """Writer (no readers): replica lag 메트릭 미수집 — Req 9.3"""
-        from common.collectors.rds import get_aurora_metrics
+        from common.collectors.rds import get_metrics
 
         tags = {
             "_is_serverless_v2": "false",
@@ -992,7 +991,7 @@ class TestAuroraMetricsConditionalBranching:
         mock_cw = self._make_cw_mock_all_data()
 
         with patch("common.collectors.base._get_cw_client", return_value=mock_cw):
-            result = get_aurora_metrics("aurora-solo-writer", resource_tags=tags)
+            result = get_metrics("aurora-solo-writer", tags, resource_type="AuroraRDS")
 
         assert result is not None
         # No replica lag metrics at all
@@ -1484,8 +1483,8 @@ class TestDocDBCollector:
 
     # ── get_metrics() 테스트 ──
 
-    def test_get_metrics_returns_six_keys(self):
-        """6개 메트릭 키 반환 — Req 2.1, 2.4, 2.5, 2.6, 2.7"""
+    def test_get_metrics_returns_the_three_standard_keys(self):
+        """표준 3개 키(정의 키)만 — 옛 6개 중 FreeLocalStorage·Read/WriteLatency는 표준이 알람에서 뺀 지표라 데일리 런도 보지 않는다(09-16)"""
         mock_cw = MagicMock()
         two_gb = 2.0 * (1024 ** 3)
         five_gb = 5.0 * (1024 ** 3)
@@ -1516,13 +1515,11 @@ class TestDocDBCollector:
             result = docdb_collector.get_metrics("docdb-inst-1")
 
         assert result is not None
-        expected_keys = {"CPU", "FreeMemoryGB", "FreeLocalStorageGB",
-                         "Connections", "ReadLatency", "WriteLatency"}
+        expected_keys = {"CPUUtilization", "FreeableMemory", "DatabaseConnections"}
         assert set(result.keys()) == expected_keys
-        assert result["CPU"] == pytest.approx(75.0)
-        assert result["Connections"] == pytest.approx(50.0)
-        assert result["ReadLatency"] == pytest.approx(0.015)
-        assert result["WriteLatency"] == pytest.approx(0.025)
+        assert result["CPUUtilization"] == pytest.approx(75.0)
+        assert result["FreeableMemory"] == pytest.approx(2.0)
+        assert result["DatabaseConnections"] == pytest.approx(50.0)
 
     def test_freeable_memory_bytes_to_gb(self):
         """FreeableMemory bytes→GB 변환: 2147483648 → 2.0 — Req 2.2"""
@@ -1545,10 +1542,10 @@ class TestDocDBCollector:
             result = docdb_collector.get_metrics("docdb-inst-1")
 
         assert result is not None
-        assert result["FreeMemoryGB"] == pytest.approx(2.0)
+        assert result["FreeableMemory"] == pytest.approx(2.0)
 
-    def test_free_local_storage_bytes_to_gb(self):
-        """FreeLocalStorage bytes→GB 변환 — Req 2.3"""
+    def test_free_local_storage_is_not_collected_because_the_standard_dropped_its_alarm(self):
+        """FreeLocalStorage는 DocDB 표준(test_pbt_docdb_standard_metrics)이 알람에서 뺀 지표 — 데일리 런도 보지 않는다(09-16)"""
         mock_cw = MagicMock()
 
         def get_metric_stats(**kwargs):
@@ -1567,8 +1564,7 @@ class TestDocDBCollector:
         with patch("common.collectors.base._get_cw_client", return_value=mock_cw):
             result = docdb_collector.get_metrics("docdb-inst-1")
 
-        assert result is not None
-        assert result["FreeLocalStorageGB"] == pytest.approx(10.0)
+        assert result is None   # 표준 밖 지표만 데이터가 있어도 결과 없음
 
     def test_get_metrics_returns_none_when_all_empty(self):
         """모든 메트릭 데이터 없을 때 None 반환 — Req 2.9"""

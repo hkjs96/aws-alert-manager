@@ -33,7 +33,7 @@ def _resolve_free_memory_threshold(
 
     # Serverless v2: 퍼센트 기반 스킵 → GB 절대값만 사용
     if is_serverless:
-        gb = get_threshold(resource_tags, "FreeMemoryGB")
+        gb = get_threshold(resource_tags, "FreeableMemory")   # 옛 Threshold_FreeMemoryGB 태그는 _LEGACY_TAG_MAP으로 닿는다
         return (gb, gb * 1073741824)
 
     # 1단계: 명시적 Threshold_FreeMemoryPct 태그

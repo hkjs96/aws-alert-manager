@@ -33,8 +33,10 @@ resolve_alive_ids = COLLECTOR.resolve_alive_ids
   한 리소스가 TagName 여럿이 되거나 내부 태그를 붙여야 하면 `identities=(arn, tags) -> [(TagName, tags)]`를 모듈에서 준다
   (MQ `{broker}-{1|2}`, OpenSearch `_client_id`, SageMaker `_variant_name`, CLB/WAF의 공유 필터 ARN 판별) — `notes`에 "_identities".
 - **메트릭**: 기본은 스펙의 알람 정의에서 생성된다(namespace·metric_name·stat, 디멘션은 알람과 같은 `dimension_builder._build_dimensions`).
-  타입 고유 `get_metrics`를 새로 쓰지 않는다. 정의로 표현이 안 되는 것(CWAgent 디스크 경로 발견, GB 변환, 추가 인자, 다른 리전 클라이언트)만
+  타입 고유 `get_metrics`를 새로 쓰지 않는다. 정의로 표현이 안 되는 것(CWAgent 디스크 경로 발견, 추가 인자, 다른 리전 클라이언트)만
   `metrics=_metrics` 오버라이드 — `notes`에 "오버라이드" 이유. 수집 결과 키는 정의의 `metric_key`(없으면 `metric`)여야 한다.
+  **단위 변환은 오버라이드 사유가 아니다** — 정의에 `transform_threshold`(표시→CW)와 `transform_value`(CW→표시)를 짝으로 둔다(register가
+  강제). 한 모듈이 타입 여럿을 내면 daily_monitor가 `get_metrics(id, tags, resource_type=)`로 스펙을 고른다 — 모듈에 타입별 함수를 두지 않는다.
 - 한 모듈이 타입 여럿을 내면(rds → RDS·AuroraRDS, elb → ALB·NLB·TG) `_enumerate`가 `(TagName, tags, type)` 3튜플을 준다.
 - 게이트: `tests/test_generic_collector.py`에 (a) RGT 경로 == describe 경로 ResourceInfo 동일, (b) 범용 `get_metrics` 쿼리가 기대 셋과 같음
   (오라클 `tests/fixtures/collector_metrics_snapshot_2026-09.json` 방식)을 추가하고, `test_rgt_enumeration_roster`에 타입을 넣는다.

@@ -8,6 +8,11 @@
     "date": "2026-09-15",
     "what": "TAGGED_SERVICES += elasticfilesystem",
     "why": "P3 wave 1: the generic collector enumerates EFS through the tag cache (spec efs rgt_prime=True); before, the efs collector read Tags from describe_file_systems and never touched the cache."
+   },
+   {
+    "date": "2026-09-16",
+    "what": "alarm_defs_default RDS/AuroraRDS/DocDB: 5 definitions with transform_threshold gain transform_value",
+    "why": "RDS-family collectors moved from a metrics override to definition-based get_metrics; the inverse transform (bytes -> GB) puts collected values in the display unit the thresholds use. register() enforces the pair."
    }
   ]
  },
@@ -1325,6 +1330,7 @@
     "period": 300,
     "evaluation_periods": 1,
     "transform_threshold": "<callable <lambda>>",
+    "transform_value": "<callable <lambda>>",
     "treat_missing_data": "breaching"
    },
    {
@@ -1337,6 +1343,7 @@
     "period": 300,
     "evaluation_periods": 1,
     "transform_threshold": "<callable <lambda>>",
+    "transform_value": "<callable <lambda>>",
     "treat_missing_data": "breaching"
    },
    {
@@ -1566,6 +1573,7 @@
     "period": 300,
     "evaluation_periods": 1,
     "transform_threshold": "<callable <lambda>>",
+    "transform_value": "<callable <lambda>>",
     "treat_missing_data": "breaching"
    },
    {
@@ -1589,6 +1597,7 @@
     "period": 300,
     "evaluation_periods": 1,
     "transform_threshold": "<callable <lambda>>",
+    "transform_value": "<callable <lambda>>",
     "treat_missing_data": "breaching"
    },
    {
@@ -1625,6 +1634,7 @@
     "period": 300,
     "evaluation_periods": 1,
     "transform_threshold": "<callable <lambda>>",
+    "transform_value": "<callable <lambda>>",
     "treat_missing_data": "breaching"
    },
    {

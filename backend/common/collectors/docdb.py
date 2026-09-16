@@ -1,29 +1,26 @@
 """
-DocumentDB 수집기 — 엔진 판별에 describe가 필요해 나열은 describe, 메트릭은 GB 변환(오버라이드) (docs/specs/resource-type-registry P3)
+DocumentDB 수집기 — 엔진 판별에 describe가 필요해 나열은 describe, 메트릭은 정의에서 (docs/specs/resource-type-registry P3)
 
 나열: RGT 필터 `rds:db`는 RDS·Aurora·DocDB 인스턴스를 한데 돌려주고 엔진은 describe_db_instances로만 안다 — 스펙에 `identity`가 없고
 이 모듈의 `_enumerate`(Engine == docdb, deleting/deleted 제외)가 유일한 나열이다(태그는 캐시에서). TagName = DBInstanceIdentifier.
 `_enrich_rds_memory`(rds 모듈)가 `_total_memory_bytes` 내부 태그를 붙인다(퍼센트 기반 FreeMemory 임계치).
-메트릭(오버라이드 `_metrics`): FreeableMemory/FreeLocalStorage는 bytes → GB 변환 뒤 개명 전 키(`FreeMemoryGB`·`FreeLocalStorageGB`)로
-돌려준다 — daily_monitor의 "작을수록 위험" 판정과 GB 단위 임계치가 그 키에 묶여 있다(tasks 3.4). 네임스페이스 AWS/DocDB.
+메트릭: 범용 — 표준 3개(CPUUtilization·FreeableMemory·DatabaseConnections), FreeableMemory는 정의의 `transform_value`가 bytes→GB.
+2026-09-16까지의 오버라이드는 표준에서 뺀 FreeLocalStorage·ReadLatency·WriteLatency까지 개명 전 키(`FreeMemoryGB`…)로 냈다 —
+알람은 없는데 데일리 런만 보던 지표(tests/test_pbt_docdb_standard_metrics.py). 이제 알람 정의와 같은 셋만 본다.
 """
 
 import functools
 import logging
-from datetime import datetime, timedelta, timezone
 
 import boto3
 from botocore.exceptions import ClientError
 
-from common.collectors.base import CW_LOOKBACK_MINUTES, CW_STAT_AVG, collect_metric
 from common.collectors.generic import GenericCollector
 from common.collectors.rds import _enrich_rds_memory
 from common.resource_types.docdb import SPEC
 from common.tag_cache import cached_tags
 
 logger = logging.getLogger(__name__)
-
-_BYTES_PER_GB = 1024 ** 3
 
 
 @functools.lru_cache(maxsize=None)
@@ -60,47 +57,6 @@ def _enumerate() -> list[tuple[str, dict]]:
     return found
 
 
-def _metrics(db_instance_id: str, resource_tags: dict | None = None) -> dict[str, float] | None:
-    """
-    CloudWatch에서 DocDB 메트릭 조회.
-
-    수집 메트릭 (네임스페이스: AWS/DocDB):
-    - CPUUtilization → 'CPU'
-    - FreeableMemory (bytes → GB) → 'FreeMemoryGB'
-    - FreeLocalStorage (bytes → GB) → 'FreeLocalStorageGB'
-    - DatabaseConnections → 'Connections'
-    - ReadLatency → 'ReadLatency'
-    - WriteLatency → 'WriteLatency'
-
-    데이터 없으면 해당 메트릭 skip. 모두 없으면 None 반환.
-    """
-    if resource_tags is None:
-        resource_tags = {}
-
-    end_time = datetime.now(timezone.utc)
-    start_time = end_time - timedelta(minutes=CW_LOOKBACK_MINUTES)
-
-    dim = [{"Name": "DBInstanceIdentifier", "Value": db_instance_id}]
-    metrics: dict[str, float] = {}
-
-    collect_metric("AWS/DocDB", "CPUUtilization", dim, start_time, end_time,
-                   "CPU", metrics, stat=CW_STAT_AVG, transform=None, resource_label="DocDB")
-    collect_metric("AWS/DocDB", "FreeableMemory", dim, start_time, end_time,
-                   "FreeMemoryGB", metrics, stat=CW_STAT_AVG,
-                   transform=lambda v: v / _BYTES_PER_GB, resource_label="DocDB")
-    collect_metric("AWS/DocDB", "FreeLocalStorage", dim, start_time, end_time,
-                   "FreeLocalStorageGB", metrics, stat=CW_STAT_AVG,
-                   transform=lambda v: v / _BYTES_PER_GB, resource_label="DocDB")
-    collect_metric("AWS/DocDB", "DatabaseConnections", dim, start_time, end_time,
-                   "Connections", metrics, stat=CW_STAT_AVG, transform=None, resource_label="DocDB")
-    collect_metric("AWS/DocDB", "ReadLatency", dim, start_time, end_time,
-                   "ReadLatency", metrics, stat=CW_STAT_AVG, transform=None, resource_label="DocDB")
-    collect_metric("AWS/DocDB", "WriteLatency", dim, start_time, end_time,
-                   "WriteLatency", metrics, stat=CW_STAT_AVG, transform=None, resource_label="DocDB")
-
-    return metrics if metrics else None
-
-
 def _alive(tag_names: set[str]) -> set[str]:
     """DocDB 인스턴스 존재 여부 확인 (RDS API 사용)."""
     rds = _get_rds_client()
@@ -133,7 +89,7 @@ def _get_tags(rds_client, db_arn: str) -> dict:
         return {}
 
 
-COLLECTOR = GenericCollector(SPEC, alive=_alive, enumerate=_enumerate, metrics=_metrics)
+COLLECTOR = GenericCollector(SPEC, alive=_alive, enumerate=_enumerate)
 collect_monitored_resources = COLLECTOR.collect_monitored_resources
 get_metrics = COLLECTOR.get_metrics
 resolve_alive_ids = COLLECTOR.resolve_alive_ids

@@ -995,14 +995,12 @@ def _collect_resource_metrics(
 
     메트릭 배치의 record 단계와 본 실행이 반드시 같은 경로를 타야
     기록된 쿼리와 실제 쿼리가 일치한다.
+
+    `resource_type`은 한 모듈이 타입 여럿을 낼 때(rds → RDS·AuroraRDS) 어느 스펙의 정의를 쓸지 고른다 — 2026-09-16까지는
+    AuroraRDS만 `get_aurora_metrics`라는 별도 경로였다. TG는 대상 그룹 디멘션에 연결 LB의 ARN이 필요해 `lb_arn`을 덧붙인다.
     """
-    if resource_type == "TG":
-        # ELB TG의 경우 lb_arn 태그 전달
-        lb_arn = resource_tags.get("_lb_arn")
-        return collector_mod.get_metrics(resource_id, resource_tags, lb_arn=lb_arn)
-    if resource_type == "AuroraRDS":
-        return collector_mod.get_aurora_metrics(resource_id, resource_tags)
-    return collector_mod.get_metrics(resource_id, resource_tags)
+    extra = {"lb_arn": resource_tags.get("_lb_arn")} if resource_type == "TG" else {}
+    return collector_mod.get_metrics(resource_id, resource_tags, resource_type=resource_type, **extra)
 
 
 def _lower_is_worse(metric_name: str) -> bool:

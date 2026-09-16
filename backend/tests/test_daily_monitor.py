@@ -180,7 +180,7 @@ class TestDailyMonitorHandler:
                 patch(f"daily_monitor.lambda_handler.{name}.collect_monitored_resources",
                       return_value=[]))
         stack.enter_context(
-            patch("common.collectors.rds.get_metrics", return_value={"CPU": 50.0}))
+            patch("common.collectors.rds.get_metrics", return_value={"CPUUtilization": 50.0}))
         stack.enter_context(
             patch("daily_monitor.lambda_handler.get_threshold", return_value=80.0))
         mock_err = stack.enter_context(
@@ -206,7 +206,7 @@ class TestDailyMonitorHandler:
 
         call_count = {"n": 0}
 
-        def get_metrics_side_effect(resource_id, tags):
+        def get_metrics_side_effect(resource_id, tags, **_):
             call_count["n"] += 1
             if resource_id == "i-001":
                 raise RuntimeError("metric error")  # must be caught by handler
@@ -227,12 +227,12 @@ class TestDailyMonitorHandler:
         assert result["processed"] == 1
 
     def test_free_memory_below_threshold_sends_alert(self):
-        """FreeMemoryGB가 임계치 미만일 때 알림 발송 (낮을수록 위험)"""
+        """FreeableMemory(GB)가 임계치 미만일 때 알림 발송 (낮을수록 위험)"""
         resources = [_make_resource("db-001", "RDS")]
         with patch_infra_stages(), \
              patch_all_collectors(rds_resources=resources), \
              patch("common.collectors.rds.get_metrics",
-                   return_value={"FreeMemoryGB": 1.0}), \
+                   return_value={"FreeableMemory": 1.0}), \
              patch("daily_monitor.lambda_handler.get_threshold", return_value=2.0), \
              patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
             result = handler({}, MagicMock())
@@ -240,7 +240,7 @@ class TestDailyMonitorHandler:
         mock_alert.assert_called_once_with(
             resource_id="db-001",
             resource_type="RDS",
-            metric_name="FreeMemoryGB",
+            metric_name="FreeableMemory",
             current_value=1.0,
             threshold=2.0,
             tag_name="",
@@ -248,12 +248,12 @@ class TestDailyMonitorHandler:
         assert result["alerts"] == 1
 
     def test_free_memory_above_threshold_no_alert(self):
-        """FreeMemoryGB가 임계치 이상이면 알림 미발송"""
+        """FreeableMemory(GB)가 임계치 이상이면 알림 미발송"""
         resources = [_make_resource("db-001", "RDS")]
         with patch_infra_stages(), \
              patch_all_collectors(rds_resources=resources), \
              patch("common.collectors.rds.get_metrics",
-                   return_value={"FreeMemoryGB": 5.0}), \
+                   return_value={"FreeableMemory": 5.0}), \
              patch("daily_monitor.lambda_handler.get_threshold", return_value=2.0), \
              patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
             result = handler({}, MagicMock())
@@ -517,10 +517,10 @@ class TestCleanupOrphanAlarms:
 class TestProcessResourceAuroraRDS:
     """_process_resource() AuroraRDS 라우팅 및 임계치 비교 검증."""
 
-    def test_aurora_rds_routes_to_get_aurora_metrics(self):
-        """resource_type='AuroraRDS' → collector_mod.get_aurora_metrics() 호출."""
+    def test_aurora_rds_passes_its_type_to_get_metrics(self):
+        """resource_type='AuroraRDS' → get_metrics(…, resource_type='AuroraRDS') — 2026-09-16까지는 get_aurora_metrics 별도 경로."""
         collector_mod = MagicMock()
-        collector_mod.get_aurora_metrics.return_value = {"CPU": 50.0}
+        collector_mod.get_metrics.return_value = {"CPUUtilization": 50.0}
 
         with patch("daily_monitor.lambda_handler.get_threshold", return_value=80.0), \
              patch("daily_monitor.lambda_handler.send_alert"):
@@ -528,16 +528,15 @@ class TestProcessResourceAuroraRDS:
                 "aurora-db-001", "AuroraRDS", {"Monitoring": "on"}, collector_mod,
             )
 
-        collector_mod.get_aurora_metrics.assert_called_once_with(
-            "aurora-db-001", {"Monitoring": "on"},
+        collector_mod.get_metrics.assert_called_once_with(
+            "aurora-db-001", {"Monitoring": "on"}, resource_type="AuroraRDS",
         )
-        # get_metrics should NOT be called for AuroraRDS
-        collector_mod.get_metrics.assert_not_called()
+        collector_mod.get_aurora_metrics.assert_not_called()
 
     def test_aurora_rds_free_local_storage_less_than_threshold_alerts(self):
-        """FreeLocalStorageGB < threshold → 알림 발송 (낮을수록 위험)."""
+        """FreeLocalStorage(GB) < threshold → 알림 발송 (낮을수록 위험)."""
         collector_mod = MagicMock()
-        collector_mod.get_aurora_metrics.return_value = {"FreeLocalStorageGB": 5.0}
+        collector_mod.get_metrics.return_value = {"FreeLocalStorage": 5.0}
 
         with patch("daily_monitor.lambda_handler.get_threshold", return_value=10.0), \
              patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
@@ -549,16 +548,16 @@ class TestProcessResourceAuroraRDS:
         mock_alert.assert_called_once_with(
             resource_id="aurora-db-001",
             resource_type="AuroraRDS",
-            metric_name="FreeLocalStorageGB",
+            metric_name="FreeLocalStorage",
             current_value=5.0,
             threshold=10.0,
             tag_name="",
         )
 
     def test_aurora_rds_free_local_storage_above_threshold_no_alert(self):
-        """FreeLocalStorageGB >= threshold → 알림 미발송."""
+        """FreeLocalStorage(GB) >= threshold → 알림 미발송."""
         collector_mod = MagicMock()
-        collector_mod.get_aurora_metrics.return_value = {"FreeLocalStorageGB": 15.0}
+        collector_mod.get_metrics.return_value = {"FreeLocalStorage": 15.0}
 
         with patch("daily_monitor.lambda_handler.get_threshold", return_value=10.0), \
              patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
@@ -572,7 +571,7 @@ class TestProcessResourceAuroraRDS:
     def test_aurora_rds_no_metrics_returns_zero(self):
         """AuroraRDS 메트릭 없으면 알림 0건."""
         collector_mod = MagicMock()
-        collector_mod.get_aurora_metrics.return_value = None
+        collector_mod.get_metrics.return_value = None
 
         with patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
             alerts = _process_resource(
@@ -662,7 +661,7 @@ class TestProcessResourceNewAuroraMetrics:
     def test_reader_replica_lag_above_threshold_alerts(self):
         """ReaderReplicaLag > threshold → 알림 발송 (높을수록 위험)."""
         collector_mod = MagicMock()
-        collector_mod.get_aurora_metrics.return_value = {"ReaderReplicaLag": 3000000.0}
+        collector_mod.get_metrics.return_value = {"ReaderReplicaLag": 3000000.0}
 
         with patch("daily_monitor.lambda_handler.get_threshold", return_value=2000000.0), \
              patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
@@ -683,7 +682,7 @@ class TestProcessResourceNewAuroraMetrics:
     def test_reader_replica_lag_below_threshold_no_alert(self):
         """ReaderReplicaLag <= threshold → 알림 미발송."""
         collector_mod = MagicMock()
-        collector_mod.get_aurora_metrics.return_value = {"ReaderReplicaLag": 1000000.0}
+        collector_mod.get_metrics.return_value = {"ReaderReplicaLag": 1000000.0}
 
         with patch("daily_monitor.lambda_handler.get_threshold", return_value=2000000.0), \
              patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
@@ -697,7 +696,7 @@ class TestProcessResourceNewAuroraMetrics:
     def test_acu_utilization_above_threshold_alerts(self):
         """ACUUtilization > threshold → 알림 발송 (높을수록 위험)."""
         collector_mod = MagicMock()
-        collector_mod.get_aurora_metrics.return_value = {"ACUUtilization": 95.0}
+        collector_mod.get_metrics.return_value = {"ACUUtilization": 95.0}
 
         with patch("daily_monitor.lambda_handler.get_threshold", return_value=80.0), \
              patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
@@ -718,7 +717,7 @@ class TestProcessResourceNewAuroraMetrics:
     def test_acu_utilization_below_threshold_no_alert(self):
         """ACUUtilization <= threshold → 알림 미발송."""
         collector_mod = MagicMock()
-        collector_mod.get_aurora_metrics.return_value = {"ACUUtilization": 50.0}
+        collector_mod.get_metrics.return_value = {"ACUUtilization": 50.0}
 
         with patch("daily_monitor.lambda_handler.get_threshold", return_value=80.0), \
              patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
@@ -732,7 +731,7 @@ class TestProcessResourceNewAuroraMetrics:
     def test_serverless_database_capacity_above_threshold_alerts(self):
         """ServerlessDatabaseCapacity > threshold → 알림 발송 (높을수록 위험)."""
         collector_mod = MagicMock()
-        collector_mod.get_aurora_metrics.return_value = {"ServerlessDatabaseCapacity": 150.0}
+        collector_mod.get_metrics.return_value = {"ServerlessDatabaseCapacity": 150.0}
 
         with patch("daily_monitor.lambda_handler.get_threshold", return_value=128.0), \
              patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
@@ -753,7 +752,7 @@ class TestProcessResourceNewAuroraMetrics:
     def test_serverless_database_capacity_below_threshold_no_alert(self):
         """ServerlessDatabaseCapacity <= threshold → 알림 미발송."""
         collector_mod = MagicMock()
-        collector_mod.get_aurora_metrics.return_value = {"ServerlessDatabaseCapacity": 64.0}
+        collector_mod.get_metrics.return_value = {"ServerlessDatabaseCapacity": 64.0}
 
         with patch("daily_monitor.lambda_handler.get_threshold", return_value=128.0), \
              patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
@@ -822,9 +821,9 @@ class TestDailyMonitorDocDBIntegration:
         assert "docdb-inst-1" in result["DocDB"]
 
     def test_process_resource_docdb_uses_get_metrics(self):
-        """DocDB 리소스는 기존 else 분기에서 get_metrics() 호출 — Req 7.3"""
+        """DocDB 리소스는 get_metrics(…, resource_type='DocDB') 호출 — Req 7.3"""
         collector_mod = MagicMock()
-        collector_mod.get_metrics.return_value = {"CPU": 50.0}
+        collector_mod.get_metrics.return_value = {"CPUUtilization": 50.0}
 
         with patch("daily_monitor.lambda_handler.get_threshold", return_value=80.0), \
              patch("daily_monitor.lambda_handler.send_alert"):
@@ -833,13 +832,13 @@ class TestDailyMonitorDocDBIntegration:
             )
 
         collector_mod.get_metrics.assert_called_once_with(
-            "docdb-inst-1", {"Monitoring": "on"},
+            "docdb-inst-1", {"Monitoring": "on"}, resource_type="DocDB",
         )
 
     def test_docdb_free_memory_below_threshold_alerts(self):
-        """DocDB FreeMemoryGB < threshold → 알림 발송 (낮을수록 위험) — Req 7.4"""
+        """DocDB FreeableMemory(GB) < threshold → 알림 발송 (낮을수록 위험) — Req 7.4"""
         collector_mod = MagicMock()
-        collector_mod.get_metrics.return_value = {"FreeMemoryGB": 1.0}
+        collector_mod.get_metrics.return_value = {"FreeableMemory": 1.0}
 
         with patch("daily_monitor.lambda_handler.get_threshold", return_value=2.0), \
              patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
@@ -851,30 +850,23 @@ class TestDailyMonitorDocDBIntegration:
         mock_alert.assert_called_once_with(
             resource_id="docdb-inst-1",
             resource_type="DocDB",
-            metric_name="FreeMemoryGB",
+            metric_name="FreeableMemory",
             current_value=1.0,
             threshold=2.0,
             tag_name="",
         )
 
-    def test_docdb_free_local_storage_below_threshold_alerts(self):
-        """DocDB FreeLocalStorageGB < threshold → 알림 발송 (낮을수록 위험) — Req 7.4"""
-        collector_mod = MagicMock()
-        collector_mod.get_metrics.return_value = {"FreeLocalStorageGB": 5.0}
-
-        with patch("daily_monitor.lambda_handler.get_threshold", return_value=10.0), \
-             patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
-            alerts = _process_resource(
-                "docdb-inst-1", "DocDB", {"Monitoring": "on"}, collector_mod,
-            )
-
-        assert alerts == 1
-        mock_alert.assert_called_once()
+    def test_docdb_daily_run_checks_exactly_the_standard_alarm_metrics(self):
+        """DocDB는 알람 정의(표준 3개)와 같은 메트릭만 본다 — 옛 수집기가 더 보던 FreeLocalStorage·Read/WriteLatency는 표준 밖(09-16)."""
+        from common.collectors import docdb
+        from common.resource_types import get
+        assert {d["metric"] for d in get("DocDB").alarms({})} == {"CPUUtilization", "FreeableMemory", "DatabaseConnections"}
+        assert docdb.COLLECTOR.metrics_from_definitions
 
     def test_docdb_cpu_above_threshold_alerts(self):
         """DocDB CPU > threshold → 알림 발송 — Req 7.3"""
         collector_mod = MagicMock()
-        collector_mod.get_metrics.return_value = {"CPU": 95.0}
+        collector_mod.get_metrics.return_value = {"CPUUtilization": 95.0}
 
         with patch("daily_monitor.lambda_handler.get_threshold", return_value=80.0), \
              patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
