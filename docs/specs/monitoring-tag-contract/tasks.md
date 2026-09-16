@@ -15,3 +15,9 @@ design.md의 D1~D4. 각 항목은 커밋 하나, 전체 테스트 + dev 배포 +
 - [x] 5(2026-09-16) **고객 규약 문서(D4)** — `guides/CUSTOMER-ONBOARDING.md`에 "Monitoring 태그 규약" 절: 키·값·대소문자, `Threshold_*`,
       태그 정책 JSON·SCP 예시, IaC(Terraform/CFN) 스니펫. `docs/ALARM-RULES.md`에서 참조.
 - [x] 6(2026-09-16) **dev 검증** — `f2b940d` → dev `v20260916T071647`. `mode=tag_reconcile` 수동 invoke: status ok, 오류·AccessDenied 0, 단계 inventory_sync 10.0s·orphan_cleanup 0.1s·collect 5.2s·alarm_sync(감시 리소스 0). `simulate-principal-policy`(ApiHandlerRole): lambda:TagResource+TagKeys=[Monitoring] allowed, [CostCenter]·[Monitoring,CostCenter] implicitDeny, sqs:TagQueue·ec2:CreateTags allowed, tag:TagResources·s3:PutBucketTagging(키 없음) allowed. 스케줄 `tag-reconcile-schedule-dev` cron(30 * * * ? *) ENABLED. daily monitor 스모크 status ok·12타입 태그 캐시.
+- [x] 7(2026-09-16) **dev 셀프 모니터링 + 라이브 드라이런 골든** — dev 스택 자체 리소스 3개(daily monitor Lambda, remediation DLQ, alert-ingest DLQ)에
+      `Monitoring=on`을 RGT `tag_resources`(토글과 같은 호출)로. 태그 뒤 수 초 안에 remediation이 SQS `TagQueue`를 받아 알람 3+3개를 만들었고(D2 수정 라이브 확인),
+      `tag_reconcile`이 Lambda 2개를 채워 8개·인벤토리 플래그 3건 on. daily run `processed=3`. 배치 Lambda라 기본 `Duration > 2500ms`가 매 실행 울려
+      `Threshold_Duration=60000` 태그 → 다음 정합 런이 알람을 `> 60000ms`로 갱신(`updated=1`). 라이브 드라이런 기준선
+      `docs/reports/alarm-dryrun-dev-2026-09-16.json`(리소스 3·알람 8) — 이후 알람 이름·차원 리팩터는 `scripts/alarm_sync_dryrun.py --diff`로 이 골든과 비교.
+      비용: 계정 알람 8 → 16(무료 10 초과분 6개, 약 $0.6/월). 관찰: remediation의 create 경로는 기존 알람을 지우고 다시 만든다(정합 런과 겹치면 무해한 재생성).

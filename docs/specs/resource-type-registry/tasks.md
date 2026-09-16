@@ -14,7 +14,7 @@
       스텁(`RecordingCloudWatch`) 위에서 돌려 `put_metric_alarm` payload를 그대로 덤프한다 → 디스크 경로 발견·동적
       알람·등급 태그까지 실제와 같다. `--diff before after`가 이관 게이트(종료 코드 0 = 0 diff). 단위 테스트
       `tests/test_alarm_sync_dryrun.py`(쓰기가 실제 클라이언트에 닿지 않음·정렬·diff).
-      **기준선은 비어 있다**: dev·home-dev 모두 `Monitoring=on` 리소스가 0개(P0.1 실측). Phase 3 게이트로 쓰려면
+      **기준선은 비어 있다**(→ 2026-09-16 dev 셀프 모니터링 3개로 채움: `docs/reports/alarm-dryrun-dev-2026-09-16.json`, 알람 8 — docs/specs/monitoring-tag-contract tasks 7): dev·home-dev 모두 `Monitoring=on` 리소스가 0개(P0.1 실측). Phase 3 게이트로 쓰려면
       dev 리소스 몇 개에 태그를 붙여야 한다(사용자 결정 — 알람 개당 월 $0.10). 그때까지는 수집기 단위 테스트
       (`test_collectors.py`, 26개 모듈 mock)가 나열·정체 회귀를 맡는다.
 

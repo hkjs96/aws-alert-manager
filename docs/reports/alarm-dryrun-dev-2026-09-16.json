@@ -1,0 +1,203 @@
+{
+ "_meta": {
+  "region": "us-east-1",
+  "resources": 3,
+  "alarms": 8,
+  "by_type": {
+   "Lambda": 1,
+   "SQS": 2
+  }
+ },
+ "resources": [
+  {
+   "type": "Lambda",
+   "id": "aws-monitoring-engine-daily-monitor-dev",
+   "region": "us-east-1",
+   "name": "",
+   "internal_tags": {},
+   "threshold_tags": {
+    "Threshold_Duration": "60000"
+   },
+   "created_names": [
+    "[Lambda] aws-monitoring-engine-daily-monitor-dev Duration > 60000ms (TagName: aws-monitoring-engine-daily-monitor-dev)",
+    "[Lambda] aws-monitoring-engine-daily-monitor-dev Errors > 0 (TagName: aws-monitoring-engine-daily-monitor-dev)"
+   ],
+   "alarms": [
+    {
+     "AlarmName": "[Lambda] aws-monitoring-engine-daily-monitor-dev Duration > 60000ms (TagName: aws-monitoring-engine-daily-monitor-dev)",
+     "Namespace": "AWS/Lambda",
+     "MetricName": "Duration",
+     "Dimensions": [
+      {
+       "Name": "FunctionName",
+       "Value": "aws-monitoring-engine-daily-monitor-dev"
+      }
+     ],
+     "Statistic": "Average",
+     "Period": 300,
+     "EvaluationPeriods": 5,
+     "DatapointsToAlarm": 3,
+     "Threshold": 60000.0,
+     "ComparisonOperator": "GreaterThanThreshold",
+     "TreatMissingData": "notBreaching"
+    },
+    {
+     "AlarmName": "[Lambda] aws-monitoring-engine-daily-monitor-dev Errors > 0 (TagName: aws-monitoring-engine-daily-monitor-dev)",
+     "Namespace": "AWS/Lambda",
+     "MetricName": "Errors",
+     "Dimensions": [
+      {
+       "Name": "FunctionName",
+       "Value": "aws-monitoring-engine-daily-monitor-dev"
+      }
+     ],
+     "Statistic": "Sum",
+     "Period": 300,
+     "EvaluationPeriods": 3,
+     "DatapointsToAlarm": 2,
+     "Threshold": 0.0,
+     "ComparisonOperator": "GreaterThanThreshold",
+     "TreatMissingData": "notBreaching"
+    }
+   ]
+  },
+  {
+   "type": "SQS",
+   "id": "aws-monitoring-alert-ingest-dlq-dev",
+   "region": "us-east-1",
+   "name": "",
+   "internal_tags": {},
+   "threshold_tags": {},
+   "created_names": [
+    "[SQS] aws-monitoring-alert-ingest-dlq-dev ApproximateAgeOfOldestMessage > 300s (TagName: aws-monitoring-alert-ingest-dlq-dev)",
+    "[SQS] aws-monitoring-alert-ingest-dlq-dev ApproximateNumberOfMessagesVisible > 1000 (TagName: aws-monitoring-alert-ingest-dlq-dev)",
+    "[SQS] aws-monitoring-alert-ingest-dlq-dev NumberOfMessagesSent > 10000 (TagName: aws-monitoring-alert-ingest-dlq-dev)"
+   ],
+   "alarms": [
+    {
+     "AlarmName": "[SQS] aws-monitoring-alert-ingest-dlq-dev ApproximateAgeOfOldestMessage > 300s (TagName: aws-monitoring-alert-ingest-dlq-dev)",
+     "Namespace": "AWS/SQS",
+     "MetricName": "ApproximateAgeOfOldestMessage",
+     "Dimensions": [
+      {
+       "Name": "QueueName",
+       "Value": "aws-monitoring-alert-ingest-dlq-dev"
+      }
+     ],
+     "Statistic": "Maximum",
+     "Period": 300,
+     "EvaluationPeriods": 5,
+     "DatapointsToAlarm": 3,
+     "Threshold": 300.0,
+     "ComparisonOperator": "GreaterThanThreshold",
+     "TreatMissingData": "notBreaching"
+    },
+    {
+     "AlarmName": "[SQS] aws-monitoring-alert-ingest-dlq-dev ApproximateNumberOfMessagesVisible > 1000 (TagName: aws-monitoring-alert-ingest-dlq-dev)",
+     "Namespace": "AWS/SQS",
+     "MetricName": "ApproximateNumberOfMessagesVisible",
+     "Dimensions": [
+      {
+       "Name": "QueueName",
+       "Value": "aws-monitoring-alert-ingest-dlq-dev"
+      }
+     ],
+     "Statistic": "Average",
+     "Period": 300,
+     "EvaluationPeriods": 5,
+     "DatapointsToAlarm": 3,
+     "Threshold": 1000.0,
+     "ComparisonOperator": "GreaterThanThreshold",
+     "TreatMissingData": "notBreaching"
+    },
+    {
+     "AlarmName": "[SQS] aws-monitoring-alert-ingest-dlq-dev NumberOfMessagesSent > 10000 (TagName: aws-monitoring-alert-ingest-dlq-dev)",
+     "Namespace": "AWS/SQS",
+     "MetricName": "NumberOfMessagesSent",
+     "Dimensions": [
+      {
+       "Name": "QueueName",
+       "Value": "aws-monitoring-alert-ingest-dlq-dev"
+      }
+     ],
+     "Statistic": "Sum",
+     "Period": 300,
+     "EvaluationPeriods": 5,
+     "DatapointsToAlarm": 3,
+     "Threshold": 10000.0,
+     "ComparisonOperator": "GreaterThanThreshold",
+     "TreatMissingData": "notBreaching"
+    }
+   ]
+  },
+  {
+   "type": "SQS",
+   "id": "aws-monitoring-engine-remediation-dlq-dev",
+   "region": "us-east-1",
+   "name": "",
+   "internal_tags": {},
+   "threshold_tags": {},
+   "created_names": [
+    "[SQS] aws-monitoring-engine-remediation-dlq-dev ApproximateAgeOfOldestMessage > 300s (TagName: aws-monitoring-engine-remediation-dlq-dev)",
+    "[SQS] aws-monitoring-engine-remediation-dlq-dev ApproximateNumberOfMessagesVisible > 1000 (TagName: aws-monitoring-engine-remediation-dlq-dev)",
+    "[SQS] aws-monitoring-engine-remediation-dlq-dev NumberOfMessagesSent > 10000 (TagName: aws-monitoring-engine-remediation-dlq-dev)"
+   ],
+   "alarms": [
+    {
+     "AlarmName": "[SQS] aws-monitoring-engine-remediation-dlq-dev ApproximateAgeOfOldestMessage > 300s (TagName: aws-monitoring-engine-remediation-dlq-dev)",
+     "Namespace": "AWS/SQS",
+     "MetricName": "ApproximateAgeOfOldestMessage",
+     "Dimensions": [
+      {
+       "Name": "QueueName",
+       "Value": "aws-monitoring-engine-remediation-dlq-dev"
+      }
+     ],
+     "Statistic": "Maximum",
+     "Period": 300,
+     "EvaluationPeriods": 5,
+     "DatapointsToAlarm": 3,
+     "Threshold": 300.0,
+     "ComparisonOperator": "GreaterThanThreshold",
+     "TreatMissingData": "notBreaching"
+    },
+    {
+     "AlarmName": "[SQS] aws-monitoring-engine-remediation-dlq-dev ApproximateNumberOfMessagesVisible > 1000 (TagName: aws-monitoring-engine-remediation-dlq-dev)",
+     "Namespace": "AWS/SQS",
+     "MetricName": "ApproximateNumberOfMessagesVisible",
+     "Dimensions": [
+      {
+       "Name": "QueueName",
+       "Value": "aws-monitoring-engine-remediation-dlq-dev"
+      }
+     ],
+     "Statistic": "Average",
+     "Period": 300,
+     "EvaluationPeriods": 5,
+     "DatapointsToAlarm": 3,
+     "Threshold": 1000.0,
+     "ComparisonOperator": "GreaterThanThreshold",
+     "TreatMissingData": "notBreaching"
+    },
+    {
+     "AlarmName": "[SQS] aws-monitoring-engine-remediation-dlq-dev NumberOfMessagesSent > 10000 (TagName: aws-monitoring-engine-remediation-dlq-dev)",
+     "Namespace": "AWS/SQS",
+     "MetricName": "NumberOfMessagesSent",
+     "Dimensions": [
+      {
+       "Name": "QueueName",
+       "Value": "aws-monitoring-engine-remediation-dlq-dev"
+      }
+     ],
+     "Statistic": "Sum",
+     "Period": 300,
+     "EvaluationPeriods": 5,
+     "DatapointsToAlarm": 3,
+     "Threshold": 10000.0,
+     "ComparisonOperator": "GreaterThanThreshold",
+     "TreatMissingData": "notBreaching"
+    }
+   ]
+  }
+ ]
+}
