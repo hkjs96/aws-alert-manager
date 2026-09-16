@@ -1403,7 +1403,6 @@ Resources:
                 Action:
                   - ec2:DescribeInstances
                   - ec2:DescribeTags
-                  - ec2:CreateTags
                   - ec2:DescribeNatGateways
                   - rds:DescribeDBInstances
                   - rds:ListTagsForResource
@@ -1418,24 +1417,9 @@ Resources:
                   - elasticache:DescribeCacheClusters
                   - elasticache:ListTagsForResource
                 Resource: "*"
-              # 모니터링 토글(Resource Groups Tagging API) + 확장 리소스 디스커버리.
-              # RGT tag_resources는 tag:TagResources + 서비스별 태깅 권한을 위임 호출한다.
-              # (거버넌스 AP-19: 태깅 경로가 권한을 빠뜨리면 토글이 영구 AccessDenied로 고착.)
+              # 확장 리소스 디스커버리 read (api_handler sync_resources용). 태그 쓰기는 아래 "모니터링 토글" statement 셋.
               - Effect: Allow
                 Action:
-                  - tag:TagResources
-                  # RGT가 위임하는 서비스별 태그 쓰기 (ec2:CreateTags는 위에 이미 있음)
-                  - rds:AddTagsToResource
-                  - elasticache:AddTagsToResource
-                  - lambda:TagResource
-                  - s3:PutBucketTagging
-                  - elasticloadbalancing:AddTags
-                  - sqs:TagQueue
-                  - dynamodb:TagResource
-                  - elasticfilesystem:TagResource
-                  - es:AddTags
-                  - ecs:TagResource
-                  # 확장 리소스 디스커버리 read (api_handler sync_resources용)
                   - sqs:ListQueues
                   - sqs:ListQueueTags
                   - dynamodb:ListTables
@@ -1450,7 +1434,7 @@ Resources:
                   - es:DescribeDomains
                   - es:ListTags
                 Resource: "*"
-              # Batch 2 확장 디스커버리(read) + 모니터링 토글(RGT 위임 태그 write).
+              # Batch 2 확장 디스커버리(read). 태그 쓰기는 아래 "모니터링 토글" statement 셋으로 옮겼다(2026-09-16).
               - Effect: Allow
                 Action:
                   # read (api_handler sync_resources 디스커버리)
@@ -1475,7 +1459,29 @@ Resources:
                   - cloudfront:ListTagsForResource
                   - route53:ListHealthChecks
                   - route53:ListTagsForResource
-                  # tag write (RGT가 위임; ec2:CreateTags는 위에 이미 있어 VPN 커버)
+                Resource: "*"
+              # ── 모니터링 토글(Resource Groups Tagging API) — docs/specs/monitoring-tag-contract D1 ──
+              # RGT tag_resources는 tag:TagResources 뒤에 리소스 소유 서비스의 태깅 액션을 위임 호출하고, aws:TagKeys 조건은
+              # 그 서비스 액션에서 평가된다. tag:TagResources 자체는 조건 키가 없어 조건 없이 준다.
+              # (거버넌스 AP-19: 태깅 경로가 권한을 빠뜨리면 토글이 영구 AccessDenied로 고착.)
+              - Effect: Allow
+                Action:
+                  - tag:TagResources
+                Resource: "*"
+              # 태그 쓰기는 Monitoring 키가 든 요청만 — 다른 키(비용·ABAC 태그)는 이 역할로 건드릴 수 없다.
+              # 아래 액션은 전부 aws:TagKeys를 지원한다(Service Authorization Reference, 2026-09-16 액션마다 확인).
+              - Effect: Allow
+                Action:
+                  - ec2:CreateTags
+                  - rds:AddTagsToResource
+                  - elasticache:AddTagsToResource
+                  - lambda:TagResource
+                  - elasticloadbalancing:AddTags
+                  - sqs:TagQueue
+                  - dynamodb:TagResource
+                  - elasticfilesystem:TagResource
+                  - es:AddTags
+                  - ecs:TagResource
                   - acm:AddTagsToCertificate
                   - backup:TagResource
                   - mq:CreateTags
@@ -1485,6 +1491,18 @@ Resources:
                   - sagemaker:AddTags
                   - sns:TagResource
                   - cloudfront:TagResource
+                Resource: "*"
+                Condition:
+                  "Null":
+                    "aws:TagKeys": "false"
+                  "ForAllValues:StringEquals":
+                    "aws:TagKeys":
+                      - "Monitoring"
+              # 조건 키를 지원하지 않는 둘 — s3:PutBucketTagging(태그 셋 전체 교체, RGT가 s3:GetBucketTagging으로 읽어 합친다)·
+              # route53:ChangeTagsForResource(Route 53에는 태그 조건 키가 없다). 키 제한이 불가능하므로 조건 없이 준다.
+              - Effect: Allow
+                Action:
+                  - s3:PutBucketTagging
                   - route53:ChangeTagsForResource
                 Resource: "*"
               # APIGW 태깅 하드닝(별도 statement). RGT의 API Gateway 태깅 동사는
@@ -1873,6 +1891,35 @@ Resources:
       Action: lambda:InvokeFunction
       Principal: scheduler.amazonaws.com
       SourceArn: !GetAtt MetricSnapshotSchedule.Arn
+
+  # -- EventBridge Scheduler: 시간 단위 태그 정합 런 (Orchestrator 경유) — docs/specs/monitoring-tag-contract D2 --
+  # 태그 변경에 즉시 반응하는 CloudTrail 생명주기는 4타입(EC2 RDS ALB SQS)뿐이다. 나머지 타입은 이 런이 한 시간 안에
+  # 태그 ↔ 알람 ↔ 인벤토리를 맞춘다. mode=tag_reconcile이 Worker까지 전달된다(메트릭·임계치 알림·런 히스토리 없음).
+  # 매시 30분 — 00:00 UTC의 daily run과 겹치지 않게.
+  TagReconcileSchedule:
+    Type: AWS::Scheduler::Schedule
+    Properties:
+      Name: !Sub
+        - tag-reconcile-schedule-${EnvShort}
+        - EnvShort: !FindInMap [EnvShortName, !Ref Environment, short]
+      Description: Hourly Monitoring-tag reconciliation (alarms and inventory follow the tags)
+      ScheduleExpression: "cron(30 * * * ? *)"
+      ScheduleExpressionTimezone: UTC
+      State: ENABLED
+      FlexibleTimeWindow:
+        Mode: "OFF"
+      Target:
+        Arn: !GetAtt OrchestratorFunction.Arn
+        RoleArn: !GetAtt SchedulerInvokeRole.Arn
+        Input: '{"mode": "tag_reconcile"}'
+
+  TagReconcileSchedulerPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt OrchestratorFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: scheduler.amazonaws.com
+      SourceArn: !GetAtt TagReconcileSchedule.Arn
 
   # -- 임계치 재보정 Shadow 잡: 주간 스냅샷 1시간 뒤(01:00 KST 월요일). 제안만 기록, 알람 미변경 --
   ThresholdRecalibrationSchedule:

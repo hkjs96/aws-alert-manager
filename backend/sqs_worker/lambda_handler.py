@@ -7,13 +7,16 @@ SQS FIFO 큐에서 메시지를 수신하여 리소스별 알람 CRUD를 수행�
 메시지 스키마:
   {
     "job_id":       "job-xxx",
-    "action":       "create_alarms" | "delete_alarms" | "sync_alarms" | "toggle_monitoring",
+    "action":       "create_alarms" | "delete_alarms" | "sync_alarms",
     "resource_id":  "i-xxx",
     "resource_type": "EC2",
     "resource_tags": {...},
-    "monitoring":   true | false,  # toggle_monitoring 전용
     "role_arn":     "arn:aws:iam::...:role/...",  # 크로스 어카운트 (선택)
   }
+
+`toggle_monitoring`은 2026-09-16에 없어졌다 — 태그·인벤토리를 건너뛰고 알람만 만들어 다음 daily run이 되돌렸다. 벌크 전환은
+api_handler `routes/bulk.py`가 태그·인벤토리를 먼저 쓰고 알람만 `create_alarms`/`delete_alarms`로 보낸다
+(docs/specs/monitoring-tag-contract D3).
 """
 
 import functools
@@ -31,9 +34,7 @@ from common import alarm_manager
 logger = logging.getLogger(__name__)
 logging.getLogger().setLevel(logging.INFO)
 
-_VALID_ACTIONS = frozenset(
-    {"create_alarms", "delete_alarms", "sync_alarms", "toggle_monitoring"}
-)
+_VALID_ACTIONS = frozenset({"create_alarms", "delete_alarms", "sync_alarms"})
 
 
 # ──────────────────────────────────────────────
@@ -154,16 +155,6 @@ def _run_action(msg: dict) -> None:
         alarm_manager.sync_alarms_for_resource(
             resource_id, resource_type, resource_tags, **kwargs
         )
-    elif action == "toggle_monitoring":
-        monitoring_on = bool(msg.get("monitoring", False))
-        if monitoring_on:
-            alarm_manager.create_alarms_for_resource(
-                resource_id, resource_type, resource_tags, **kwargs
-            )
-        else:
-            alarm_manager.delete_alarms_for_resource(
-                resource_id, resource_type, **kwargs
-            )
     else:
         raise ValueError(f"알 수 없는 action: {action}")
 

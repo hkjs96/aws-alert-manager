@@ -594,3 +594,78 @@ class TestLambdaHandler:
 
         mock_create.assert_called_once()
         assert result["status"] == "ok"
+
+
+class TestTagChangeParamShapes:
+    """SQS TagQueue/UntagQueue 파라미터 모양과 추가/제거 판정 (docs/specs/monitoring-tag-contract D2).
+
+    2026-09-16까지 SQS `tags`는 dict라 리스트처럼 훑어 빈 집합이 됐고(태그 변경 무시), 추가 판정은 EC2·RDS·ELB 이벤트 셋만
+    열거해 TagQueue가 "제거"로 분류될 위험이 있었다.
+    """
+
+    def test_tag_queue_dict_shaped_tags_are_read(self):
+        from remediation_handler.lambda_handler import _extract_tags_from_params
+        keys, kvs = _extract_tags_from_params(
+            {"queueUrl": "https://sqs.us-east-1.amazonaws.com/123456789012/orders", "tags": {"Monitoring": "on", "Team": "pay"}},
+            "TagQueue")
+        assert keys == {"Monitoring", "Team"} and kvs == {"Monitoring": "on", "Team": "pay"}
+
+    def test_untag_queue_tag_keys_are_read(self):
+        from remediation_handler.lambda_handler import _extract_tags_from_params
+        keys, kvs = _extract_tags_from_params(
+            {"queueUrl": "https://sqs.us-east-1.amazonaws.com/123456789012/orders", "tagKeys": ["Monitoring"]},
+            "UntagQueue")
+        assert keys == {"Monitoring"} and kvs == {"Monitoring": ""}
+
+    def test_elb_remove_tags_still_reads_tag_keys(self):
+        from remediation_handler.lambda_handler import _extract_tags_from_params
+        keys, _ = _extract_tags_from_params({"resourceArns": ["arn:x"], "tagKeys": ["Monitoring"]}, "RemoveTags")
+        assert keys == {"Monitoring"}
+
+    def test_tag_queue_monitoring_on_creates_alarms(self):
+        from remediation_handler.lambda_handler import _handle_tag_change, ParsedEvent
+        parsed = ParsedEvent(
+            resource_id="orders", resource_type="SQS", event_name="TagQueue", event_category="TAG_CHANGE",
+            change_summary="tag", request_params={"queueUrl": "https://sqs.us-east-1.amazonaws.com/123456789012/orders",
+                                                  "tags": {"Monitoring": "on"}})
+        with pytest.MonkeyPatch.context() as mp:
+            for k, v in _ENV.items():
+                mp.setenv(k, v)
+            with (
+                patch("remediation_handler.lambda_handler.get_resource_tags", return_value={}),   # 이름으로는 못 읽는다 → 이벤트 태그
+                patch("remediation_handler.lambda_handler.create_alarms_for_resource", return_value=["a"]) as create,
+                patch("remediation_handler.lambda_handler.delete_alarms_for_resource") as delete,
+                patch("remediation_handler.lambda_handler.send_lifecycle_alert") as alert,
+            ):
+                _handle_tag_change(parsed)
+        create.assert_called_once_with("orders", "SQS", {"Monitoring": "on"})
+        delete.assert_not_called()
+        alert.assert_not_called()
+
+    def test_untag_queue_removes_alarms(self):
+        from remediation_handler.lambda_handler import _handle_tag_change, ParsedEvent
+        parsed = ParsedEvent(
+            resource_id="orders", resource_type="SQS", event_name="UntagQueue", event_category="TAG_CHANGE",
+            change_summary="untag", request_params={"queueUrl": "https://sqs.us-east-1.amazonaws.com/123456789012/orders",
+                                                    "tagKeys": ["Monitoring"]})
+        with pytest.MonkeyPatch.context() as mp:
+            for k, v in _ENV.items():
+                mp.setenv(k, v)
+            with (
+                patch("remediation_handler.lambda_handler.create_alarms_for_resource") as create,
+                patch("remediation_handler.lambda_handler.delete_alarms_for_resource", return_value=[]) as delete,
+                patch("remediation_handler.lambda_handler.send_lifecycle_alert") as alert,
+            ):
+                _handle_tag_change(parsed)
+        delete.assert_called_once()
+        create.assert_not_called()
+        assert alert.call_args.kwargs["event_type"] == "MONITORING_REMOVED"
+
+    def test_remove_event_set_covers_every_registered_tag_change_event(self):
+        """레지스트리의 TAG_CHANGE 이벤트는 전부 추가 또는 제거로 분류돼야 한다 — 제거 집합에 없는 Untag/Remove/Delete 이름이 새면 잡힌다."""
+        from remediation_handler.lambda_handler import _TAG_REMOVE_EVENTS
+        from common.resource_types import all_specs
+        events = {e.event for s in all_specs() for e in s.events() if e.kind == "TAG_CHANGE"}
+        removals = {e for e in events if e.startswith(("Untag", "Remove", "Delete"))}
+        assert removals <= _TAG_REMOVE_EVENTS, sorted(removals - _TAG_REMOVE_EVENTS)
+        assert not {e for e in events if e.startswith(("Tag", "Add", "Create"))} & _TAG_REMOVE_EVENTS

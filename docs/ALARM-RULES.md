@@ -1,5 +1,7 @@
 # 알람 규칙 (Alarm Rules)
 
+> 감시 여부의 진실은 리소스의 `Monitoring` 태그다(값 `on`). 콘솔 토글도 이 태그를 쓰고, 알람·인벤토리는 태그를 따른다 — `docs/specs/monitoring-tag-contract`, 고객 규약은 `guides/CUSTOMER-ONBOARDING.md` §1.5.
+
 > 알람 네이밍/디멘전/임계치/Severity 계약의 단일 원본(SSOT).
 > (구 `.kiro/steering/alarm-rules.md` + `phase2-severity-rules.md` + `resource-naming.md` 통합본)
 > Python 알람 코드(`backend/common/alarm_*`, `collectors/`)를 수정할 때 반드시 이 문서를 기준으로 한다.

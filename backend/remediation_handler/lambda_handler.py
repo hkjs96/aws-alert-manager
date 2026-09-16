@@ -1086,6 +1086,11 @@ def _remove_monitoring_and_notify(
     )
 
 
+#: 태그 **제거** CloudTrail 이벤트 — 이 밖의 TAG_CHANGE 이벤트(CreateTags·AddTagsToResource·AddTags·TagQueue·TagResource…)는
+#: 추가/변경으로 본다. 2026-09-16까지는 추가 쪽을 셋만 열거해 SQS TagQueue가 "제거"로 분류됐다.
+_TAG_REMOVE_EVENTS = frozenset({"DeleteTags", "RemoveTagsFromResource", "RemoveTags", "UntagQueue", "UntagResource"})
+
+
 def _handle_tag_change(parsed: ParsedEvent) -> None:
     """
     TAG_CHANGE 이벤트 처리.
@@ -1122,7 +1127,7 @@ def _handle_tag_change(parsed: ParsedEvent) -> None:
         _handle_threshold_only_change(parsed, threshold_involved)
         return
 
-    is_add = parsed.event_name in ("CreateTags", "AddTagsToResource", "AddTags")
+    is_add = parsed.event_name not in _TAG_REMOVE_EVENTS   # 추가/변경 이벤트는 서비스마다 이름이 달라 제거 쪽을 열거한다
     if is_add:
         _handle_monitoring_tag_add(parsed, tag_kvs)
     else:
@@ -1220,10 +1225,14 @@ def _extract_tags_from_params(
     if not items:
         items = params.get("tags", [])
 
-    # ELB RemoveTags: tagKeys 리스트 (키만 있음)
-    if not items and event_name == "RemoveTags":
-        tag_keys_list = params.get("tagKeys", [])
-        tag_keys = set(tag_keys_list)
+    # SQS TagQueue(Lambda TagResource 류도): tags가 {key: value} dict — 2026-09-16까지 dict를 리스트처럼 훑어 빈 집합이 됐고
+    # SQS 태그 변경이 조용히 무시됐다(docs/specs/monitoring-tag-contract D2).
+    if isinstance(items, dict):
+        return set(items), {k: str(v) for k, v in items.items()}
+
+    # 제거 이벤트(ELB RemoveTags·SQS UntagQueue·UntagResource…): tagKeys 리스트 (키만 있음)
+    if not items and params.get("tagKeys"):
+        tag_keys = set(params.get("tagKeys") or [])
         return tag_keys, {k: "" for k in tag_keys}
 
     tag_keys = {item["key"] for item in items if "key" in item}

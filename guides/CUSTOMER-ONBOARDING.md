@@ -110,6 +110,71 @@ aws cloudformation deploy \
 
 ---
 
+## 1.5 Monitoring 태그 규약 — 고객사가 알아야 할 전부
+
+감시 여부의 진실은 **리소스에 붙은 태그**다. 우리 콘솔의 토글도 결국 이 태그를 쓴다(`docs/specs/monitoring-tag-contract`).
+AWS의 태깅 모범 사례("Tags for automation": 자동화 opt-in/opt-out을 태그로)와 같은 방식이고, AWS Backup·Systems Manager가
+리소스를 고르는 방식과도 같다.
+
+| 항목 | 값 |
+|---|---|
+| 키 | `Monitoring` — 대소문자 정확히 |
+| 값 | `on` = 감시. 그 외 값(`off` 권장)이나 태그 없음 = 감시 안 함. 값은 대소문자를 가리지 않는다 |
+| 리소스별 임계치 | `Threshold_<메트릭>` 태그(예 `Threshold_CPUUtilization=85`). 목록은 `docs/ALARM-RULES.md` |
+| 반영 시각 | EC2·RDS·ALB·SQS는 CloudTrail 태그 이벤트로 수 분 안에, 나머지 타입은 **한 시간 단위 정합 런**이 알람과 콘솔 표시를 맞춘다 |
+| 리소스 교체 | 오토스케일링·재생성으로 ID가 바뀌어도 새 리소스에 태그가 있으면 자동 감시 — IaC에 태그를 두는 이유 |
+| 우리 역할이 쓰는 태그 | `Monitoring` 키 **하나만**. 온보딩 스택의 태그 쓰기 권한은 `aws:TagKeys` 조건으로 이 키에 묶여 있어 비용 배분·ABAC 태그는 건드릴 수 없다 |
+
+IaC 예시:
+
+```hcl
+# Terraform
+tags = {
+  Monitoring               = "on"
+  Threshold_CPUUtilization = "85"
+}
+```
+
+```yaml
+# CloudFormation
+Tags:
+  - Key: Monitoring
+    Value: "on"
+```
+
+**조직 태그 정책(권장).** AWS는 태그 표준화를 Organizations 태그 정책 + SCP로 하라고 권한다. 키 대소문자와 값 집합을 고정하고,
+지원 리소스 타입에는 비준수 태깅을 차단(enforced)한다. IaC로 만드는 리소스의 필수 키 누락은 태그 정책의 reporting으로 잡는다.
+
+```json
+{
+  "tags": {
+    "monitoring": {
+      "tag_key": { "@@assign": "Monitoring" },
+      "tag_value": { "@@assign": ["on", "off"] },
+      "enforced_for": { "@@assign": ["ec2:instance", "rds:db", "lambda:function", "sqs:queue", "dynamodb:table"] }
+    }
+  }
+}
+```
+
+**태그 삭제 방지 SCP(선택).** 플랫폼 관리자 역할 외에는 `Monitoring` 키를 떼지 못하게 한다(주체 ARN은 고객사에 맞게).
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Deny",
+    "Action": ["ec2:DeleteTags", "rds:RemoveTagsFromResource", "lambda:UntagResource", "sqs:UntagQueue",
+               "elasticloadbalancing:RemoveTags", "tag:UntagResources"],
+    "Resource": "*",
+    "Condition": {
+      "ForAnyValue:StringEquals": { "aws:TagKeys": ["Monitoring"] },
+      "ArnNotLike": { "aws:PrincipalArn": "arn:aws:iam::*:role/PlatformAdmin" }
+    }
+  }]
+}
+```
+
 ## 2. 앱에 계정 등록 (중앙 계정에서 — 내가 함)
 
 화면: **Customers → 계정 등록**. 필요한 값 네 개.

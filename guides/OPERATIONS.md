@@ -156,6 +156,19 @@ aws cloudwatch describe-alarm-history --alarm-name "<alarm>" --history-item-type
 > failures) plus the remediation DLQ. It must never be routed through the alert
 > pipeline itself — a failure there would take its own alarm down with it.
 
+## Scheduled Runs (Daily Monitor)
+
+| 스케줄 | 시각(UTC) | 페이로드 | 하는 일 |
+|---|---|---|---|
+| `daily-monitor-schedule-<env>` | 00:00 매일 | (없음) | 인벤토리 동기화 → 고아 정리 → 나열 → 알람 sync → 메트릭·임계치 알림, 런 히스토리 |
+| `tag-reconcile-schedule-<env>` | 매시 30분 | `{"mode":"tag_reconcile"}` | 위에서 메트릭·임계치 알림·런 히스토리를 뺀 것 — 태그 ↔ 알람 ↔ 인벤토리 정합 |
+| `metric-snapshot-schedule-<env>` | 일 15:00 | `{"mode":"metric_snapshot"}` | 주간 메트릭 통계 적재 |
+| `threshold-recalibration-schedule-<env>` | 일 16:00 | `{"mode":"threshold_recalibration"}` | 임계치 재보정 제안(shadow) |
+
+모두 EventBridge Scheduler → Orchestrator(계정 팬아웃, `mode` 전달) → Daily Monitor Worker.
+
+> **시간 단위 태그 정합 런(2026-09-16)** — `tag-reconcile-schedule-<env>`가 매시 30분(UTC) Orchestrator에 `{"mode":"tag_reconcile"}`를 보내 계정마다 인벤토리 동기화 → 고아 정리 → 나열 → 알람 sync를 돈다. 메트릭·임계치 알림·런 히스토리는 없고 `PERF_METRIC reconcile_stage` 로그로 본다. 수동: `aws lambda invoke --function-name aws-monitoring-engine-daily-monitor-<env> --payload '{"mode":"tag_reconcile"}'`. 배경: `docs/specs/monitoring-tag-contract`.
+
 ## Frontend Deployment
 
 Frontend deployment is infrastructure from an ownership perspective, but hosting

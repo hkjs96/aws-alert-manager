@@ -561,29 +561,112 @@ class TestBulk:
         assert resp["statusCode"] == 400
         assert json.loads(resp["body"])["code"] == "BAD_REQUEST"
 
-    def test_bulk_monitoring_enqueues_and_returns_job_id(self):
+    @staticmethod
+    def _inventory(*ids, rtype="EC2"):
+        return {rid: {"resource_id": rid, "type": rtype, "account_id": "123456789012", "dim_hints": {}} for rid in ids}
+
+    def test_bulk_monitoring_writes_the_tag_and_inventory_then_enqueues_alarm_work(self):
+        """태그가 진실 — 리소스별 PUT과 같은 순서(태그 → 인벤토리 → 알람 큐). 2026-09-16까지는 알람만 만들어 daily run이 되돌렸다."""
         mock_table = MagicMock()
         mock_table.put_item.return_value = {}
         mock_sqs = MagicMock()
         mock_sqs.send_message.return_value = {}
 
-        with patch("api_handler.routes.bulk.job_status_table", return_value=mock_table):
-            with patch("api_handler.routes.bulk._get_sqs", return_value=mock_sqs):
-                from api_handler.lambda_handler import lambda_handler
-                resp = lambda_handler(
-                    _event("POST", "/bulk/monitoring", body={
-                        "resource_ids": ["i-001", "i-002"],
-                        "resource_type": "EC2",
-                        "monitoring": True,
-                    }), None
-                )
+        with patch("api_handler.routes.bulk.job_status_table", return_value=mock_table), \
+             patch("api_handler.routes.bulk._get_sqs", return_value=mock_sqs), \
+             patch("api_handler.routes.bulk._inventory_by_id", return_value=self._inventory("i-001", "i-002")), \
+             patch("api_handler.routes.bulk._set_resource_monitoring_tag") as set_tag, \
+             patch("api_handler.routes.bulk._update_inventory_monitoring") as set_inv, \
+             patch("api_handler.routes.bulk._find_account", return_value={"role_arn": "arn:aws:iam::123456789012:role/R"}):
+            from api_handler.lambda_handler import lambda_handler
+            resp = lambda_handler(
+                _event("POST", "/bulk/monitoring", body={
+                    "resource_ids": ["i-001", "i-002"],
+                    "resource_type": "EC2",
+                    "monitoring": True,
+                }), None
+            )
 
         assert resp["statusCode"] == 202
         body = json.loads(resp["body"])
         assert body["job_id"].startswith("job-")
-        assert body["total"] == 2
-        assert body["status"] == "pending"
-        assert mock_sqs.send_message.call_count == 2
+        assert (body["total"], body["queued"], body["failed"], body["status"]) == (2, 2, [], "pending")
+        assert [c.args[1] for c in set_tag.call_args_list] == [True, True]
+        assert set_inv.call_count == 2
+        msgs = [json.loads(c.kwargs["MessageBody"]) for c in mock_sqs.send_message.call_args_list]
+        assert [m["action"] for m in msgs] == ["create_alarms", "create_alarms"]
+        assert msgs[0]["resource_tags"] == {"Monitoring": "on"}
+        assert msgs[0]["role_arn"] == "arn:aws:iam::123456789012:role/R"
+        # 태그 쓰기가 알람 큐보다 먼저다
+        assert set_tag.call_args_list[0].args[0]["resource_id"] == "i-001"
+
+    def test_bulk_monitoring_off_deletes_alarms_and_writes_off(self):
+        mock_table = MagicMock()
+        mock_sqs = MagicMock()
+        with patch("api_handler.routes.bulk.job_status_table", return_value=mock_table), \
+             patch("api_handler.routes.bulk._get_sqs", return_value=mock_sqs), \
+             patch("api_handler.routes.bulk._inventory_by_id", return_value=self._inventory("i-001")), \
+             patch("api_handler.routes.bulk._set_resource_monitoring_tag") as set_tag, \
+             patch("api_handler.routes.bulk._update_inventory_monitoring"), \
+             patch("api_handler.routes.bulk._find_account", return_value=None):
+            from api_handler.lambda_handler import lambda_handler
+            resp = lambda_handler(_event("POST", "/bulk/monitoring", body={
+                "resource_ids": ["i-001"], "resource_type": "EC2", "monitoring": False}), None)
+        assert resp["statusCode"] == 202
+        assert set_tag.call_args.args[1] is False
+        msg = json.loads(mock_sqs.send_message.call_args.kwargs["MessageBody"])
+        assert msg["action"] == "delete_alarms" and msg["resource_tags"] == {} and msg["role_arn"] == ""
+
+    def test_bulk_monitoring_skips_resources_missing_from_inventory_or_failing_the_tag_write(self):
+        """인벤토리에 없거나 태그 쓰기가 실패한 리소스는 알람을 만들지 않고 failed로 돌아간다(daily run이 되돌릴 알람은 만들지 않는다)."""
+        from botocore.exceptions import ClientError
+        mock_table = MagicMock()
+        mock_sqs = MagicMock()
+        denied = ClientError({"Error": {"Code": "AccessDeniedException", "Message": "no"}}, "TagResources")
+
+        def tag(resource, monitoring):
+            if resource["resource_id"] == "i-002":
+                raise denied
+
+        with patch("api_handler.routes.bulk.job_status_table", return_value=mock_table), \
+             patch("api_handler.routes.bulk._get_sqs", return_value=mock_sqs), \
+             patch("api_handler.routes.bulk._inventory_by_id", return_value=self._inventory("i-001", "i-002")), \
+             patch("api_handler.routes.bulk._set_resource_monitoring_tag", side_effect=tag), \
+             patch("api_handler.routes.bulk._update_inventory_monitoring") as set_inv, \
+             patch("api_handler.routes.bulk._find_account", return_value=None):
+            from api_handler.lambda_handler import lambda_handler
+            resp = lambda_handler(_event("POST", "/bulk/monitoring", body={
+                "resource_ids": ["i-001", "i-002", "i-999"], "resource_type": "EC2", "monitoring": True}), None)
+
+        body = json.loads(resp["body"])
+        assert (body["total"], body["queued"], body["status"]) == (3, 1, "pending")
+        assert body["failed"] == ["i-002", "i-999"]
+        assert mock_sqs.send_message.call_count == 1
+        assert set_inv.call_count == 1                      # 태그가 실패한 리소스의 인벤토리는 건드리지 않는다
+        upd = mock_table.update_item.call_args.kwargs
+        assert upd["ExpressionAttributeValues"][":n"] == 2 and "#st" not in upd.get("ExpressionAttributeNames", {})
+
+    def test_bulk_monitoring_all_failed_before_the_queue_marks_the_job_failed(self):
+        mock_table = MagicMock()
+        mock_sqs = MagicMock()
+        with patch("api_handler.routes.bulk.job_status_table", return_value=mock_table), \
+             patch("api_handler.routes.bulk._get_sqs", return_value=mock_sqs), \
+             patch("api_handler.routes.bulk._inventory_by_id", return_value={}):
+            from api_handler.lambda_handler import lambda_handler
+            resp = lambda_handler(_event("POST", "/bulk/monitoring", body={
+                "resource_ids": ["i-404"], "resource_type": "EC2"}), None)
+        body = json.loads(resp["body"])
+        assert resp["statusCode"] == 202 and body["status"] == "failed" and body["failed"] == ["i-404"]
+        mock_sqs.send_message.assert_not_called()
+        upd = mock_table.update_item.call_args.kwargs
+        assert upd["ExpressionAttributeValues"][":st"] == "failed"
+
+    def test_bulk_monitoring_rejects_unsupported_type(self):
+        from api_handler.lambda_handler import lambda_handler
+        resp = lambda_handler(_event("POST", "/bulk/monitoring", body={
+            "resource_ids": ["x"], "resource_type": "Kinesis"}), None)
+        assert resp["statusCode"] == 400
+        assert json.loads(resp["body"])["code"] == "UNSUPPORTED_RESOURCE_TYPE"
 
     def test_bulk_monitoring_handles_invalid_json(self):
         from api_handler.lambda_handler import lambda_handler
@@ -603,15 +686,19 @@ class TestBulk:
             "SendMessage",
         )
 
-        with patch("api_handler.routes.bulk.job_status_table", return_value=mock_table):
-            with patch("api_handler.routes.bulk._get_sqs", return_value=mock_sqs):
-                from api_handler.lambda_handler import lambda_handler
-                resp = lambda_handler(
-                    _event("POST", "/bulk/monitoring", body={
-                        "resource_ids": ["i-001"],
-                        "resource_type": "EC2",
-                    }), None
-                )
+        with patch("api_handler.routes.bulk.job_status_table", return_value=mock_table), \
+             patch("api_handler.routes.bulk._get_sqs", return_value=mock_sqs), \
+             patch("api_handler.routes.bulk._inventory_by_id", return_value=self._inventory("i-001")), \
+             patch("api_handler.routes.bulk._set_resource_monitoring_tag"), \
+             patch("api_handler.routes.bulk._update_inventory_monitoring"), \
+             patch("api_handler.routes.bulk._find_account", return_value=None):
+            from api_handler.lambda_handler import lambda_handler
+            resp = lambda_handler(
+                _event("POST", "/bulk/monitoring", body={
+                    "resource_ids": ["i-001"],
+                    "resource_type": "EC2",
+                }), None
+            )
 
         assert resp["statusCode"] == 500
         assert json.loads(resp["body"])["code"] == "QUEUE_ERROR"

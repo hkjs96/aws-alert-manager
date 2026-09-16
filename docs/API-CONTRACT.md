@@ -828,17 +828,18 @@ Admin only for global silences. Response `200`: `{ "id": "...", "deleted": true,
 
 ## POST /api/bulk/monitoring
 
-Current backend request shape:
+리소스별 `PUT /resources/{id}/monitoring`과 **같은 의미**를 여러 리소스에 비동기로 적용한다(docs/specs/monitoring-tag-contract D3):
+리소스마다 ① 인벤토리 확인 → ② 리소스에 `Monitoring=on|off` 태그 쓰기 → ③ 인벤토리 `monitoring` 플래그 → ④ 알람 생성/삭제는
+SQS 워커. ①~③은 요청 안에서 동기로 끝나고, 실패한 리소스는 워커를 거치지 않고 job의 `failed_count`와 응답 `failed`에 적힌다.
+(2026-09-16 전에는 알람만 만들고 태그를 쓰지 않아 다음 daily run이 되돌렸다.)
+
+Request:
 
 ```json
 {
-  "resource_ids": ["i-123"],
+  "resource_ids": ["i-123", "i-456"],
   "resource_type": "EC2",
-  "monitoring": true,
-  "role_arn": "arn:aws:iam::123456789012:role/RoleName",
-  "resource_tags": {
-    "i-123": {"Monitoring": "on"}
-  }
+  "monitoring": true
 }
 ```
 
@@ -847,14 +848,15 @@ Response `202`:
 ```json
 {
   "job_id": "job-abc123",
-  "total": 1,
-  "status": "pending"
+  "total": 2,
+  "status": "pending",
+  "queued": 1,
+  "failed": ["i-456"]
 }
 ```
 
-Note: `frontend/types/api.ts::BulkMonitoringRequest` currently exposes an older
-shape with `action`, `thresholds`, and `custom_metrics`. This is a known
-contract gap and must be resolved before relying on bulk monitoring from the UI.
+`status`는 큐에 하나라도 들어갔으면 `pending`, 전부 태그/인벤토리 단계에서 떨어졌으면 `failed`. `400 UNSUPPORTED_RESOURCE_TYPE`,
+`500 QUEUE_ERROR`(SQS 전송 전체 실패). 진행은 `GET /api/jobs/{id}`.
 
 ## GET /api/jobs/{id}
 

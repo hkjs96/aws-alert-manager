@@ -191,35 +191,24 @@ class TestLambdaHandler(unittest.TestCase):
         mock_sync.assert_called_once()
 
     @patch("sqs_worker.lambda_handler.alarm_manager.create_alarms_for_resource")
-    def test_toggle_monitoring_on(self, mock_create):
-        mock_create.return_value = []
-        from sqs_worker.lambda_handler import lambda_handler
-        event = _make_event(_make_record({
-            "job_id": "job-ok",
-            "action": "toggle_monitoring",
-            "resource_id": "i-001",
-            "resource_type": "EC2",
-            "resource_tags": {},
-            "monitoring": True,
-        }))
-        result = lambda_handler(event, None)
-        assert result["batchItemFailures"] == []
-        mock_create.assert_called_once()
-
     @patch("sqs_worker.lambda_handler.alarm_manager.delete_alarms_for_resource")
-    def test_toggle_monitoring_off(self, mock_delete):
-        mock_delete.return_value = []
+    def test_toggle_monitoring_is_no_longer_an_action(self, mock_delete, mock_create):
+        """toggle_monitoring은 태그·인벤토리를 건너뛰어 daily run이 되돌렸다 — 벌크 경로가 태그를 쓰고 알람만
+        create/delete로 보낸다(docs/specs/monitoring-tag-contract D3). 옛 메시지는 알 수 없는 action으로 실패한다."""
         from sqs_worker.lambda_handler import lambda_handler
         event = _make_event(_make_record({
             "job_id": "job-ok",
             "action": "toggle_monitoring",
             "resource_id": "i-001",
             "resource_type": "EC2",
-            "monitoring": False,
-        }))
+            "monitoring": True,
+        }, "old-toggle-msg"))
         result = lambda_handler(event, None)
-        assert result["batchItemFailures"] == []
-        mock_delete.assert_called_once()
+        assert result["batchItemFailures"] == [{"itemIdentifier": "old-toggle-msg"}]
+        mock_create.assert_not_called()
+        mock_delete.assert_not_called()
+        item = self.table.get_item(Key={"job_id": "job-ok"})["Item"]
+        assert int(item["failed_count"]) == 1
 
     def test_invalid_json_body(self):
         from sqs_worker.lambda_handler import lambda_handler

@@ -449,11 +449,12 @@ describe("7.2 벌크 액션 속성", () => {
     fc.assert(
       fc.property(
         fc.array(safeId, { minLength: 1, maxLength: 50 }),
-        fc.constantFrom<"enable" | "disable">("enable", "disable"),
-        (resourceIds, action) => {
+        fc.boolean(),
+        (resourceIds, monitoring) => {
           const request: BulkMonitoringRequest = {
             resource_ids: resourceIds,
-            action,
+            resource_type: "EC2",
+            monitoring,
           };
           expect(request.resource_ids.length).toBeGreaterThanOrEqual(1);
           // job 생성 시 total_count = resource_ids.length

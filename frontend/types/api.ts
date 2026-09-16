@@ -83,17 +83,19 @@ export interface AlarmListParams extends GlobalFilterParams, PaginationParams {
 
 // --- 벌크 모니터링 ---
 
+// POST /api/bulk/monitoring — 리소스별 PUT /resources/{id}/monitoring과 같은 의미(태그 → 인벤토리 → 알람)를 비동기로.
 export interface BulkMonitoringRequest {
   resource_ids: string[];
-  action: "enable" | "disable";
-  thresholds?: Record<string, number>;
-  custom_metrics?: CustomMetricConfig[];
+  resource_type: string;
+  monitoring: boolean;
 }
 
 export interface BulkOperationResponse {
   job_id: string;
   total: number;
-  status: "pending";
+  status: "pending" | "failed";
+  queued: number;
+  failed: string[];
 }
 
 // --- 작업 상태 ---

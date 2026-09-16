@@ -177,6 +177,9 @@ def lambda_handler(event, context):
         return _handle_metric_snapshot(event, context)
     if isinstance(event, dict) and event.get("mode") == "threshold_recalibration":
         return _handle_threshold_recalibration(event, context)
+    # 시간 단위 태그 정합 (tag-reconcile-schedule → Orchestrator → mode 전달)
+    if isinstance(event, dict) and event.get("mode") == "tag_reconcile":
+        return _handle_tag_reconcile(event, context)
     """
     Lambda 핸들러 진입점 (Worker).
 
@@ -245,29 +248,7 @@ def lambda_handler(event, context):
     # 컬렉터별 리소스 수집 (메트릭 배치를 위해 목록을 먼저 확정)
     collect_timer = Timer("daily_stage", stage="collect_resources", account=account_id)
     collect_timer.__enter__()
-    _prime_tag_cache(account_id)
-    collected: list[tuple[object, list]] = []
-    for collector_mod in _COLLECTOR_MODULES:
-        try:
-            resources = collector_mod.collect_monitored_resources()
-        except ClientError as e:
-            logger.error(
-                "Failed to collect resources from %s: %s",
-                collector_mod.__name__, e,
-            )
-            send_error_alert(
-                context=f"collect_monitored_resources [{collector_mod.__name__}]",
-                error=e,
-            )
-            continue
-
-        if not resources:
-            logger.info("No monitored resources found in %s", collector_mod.__name__)
-            continue
-        collected.append((collector_mod, resources))
-
-    log_tag_cache_stats(f"collectors account={account_id}")
-    set_active_tag_cache(None)
+    collected = _collect_from_all_collectors(account_id)
     collect_timer.set(resources=sum(len(r) for _m, r in collected), collectors=len(collected))
     collect_timer.__exit__(None, None, None)
 
@@ -352,6 +333,115 @@ def lambda_handler(event, context):
         run_table, run_id, run_started_at, run_started_ts, run_status, result,
         inventory_stats.get("error"),
     )
+    return result
+
+
+def _collect_from_all_collectors(account_id: str) -> list[tuple[object, list]]:
+    """현재 세션 계정의 Monitoring=on 리소스를 모든 수집기에서 모은다 — [(수집기 모듈, ResourceInfo 목록)].
+
+    런 스코프 태그 캐시를 프라임하고(RGT GetResources 수 콜), 끝나면 해제한다. 수집기 하나의 실패는 오류 알림을 보내고 다음으로
+    넘어간다. daily run과 시간 단위 태그 정합 런(`_handle_tag_reconcile`)이 같은 나열을 써야 두 경로가 다른 리소스를 보지 않는다.
+    """
+    _prime_tag_cache(account_id)
+    collected: list[tuple[object, list]] = []
+    for collector_mod in _COLLECTOR_MODULES:
+        try:
+            resources = collector_mod.collect_monitored_resources()
+        except ClientError as e:
+            logger.error(
+                "Failed to collect resources from %s: %s",
+                collector_mod.__name__, e,
+            )
+            send_error_alert(
+                context=f"collect_monitored_resources [{collector_mod.__name__}]",
+                error=e,
+            )
+            continue
+
+        if not resources:
+            logger.info("No monitored resources found in %s", collector_mod.__name__)
+            continue
+        collected.append((collector_mod, resources))
+
+    log_tag_cache_stats(f"collectors account={account_id}")
+    set_active_tag_cache(None)
+    return collected
+
+
+def _handle_tag_reconcile(event: dict, context) -> dict:
+    """시간 단위 태그 정합 런 (mode=tag_reconcile) — docs/specs/monitoring-tag-contract D2.
+
+    태그가 진실인데 태그 변경에 즉시 반응하는 CloudTrail 생명주기는 29타입 중 4타입(EC2 RDS ALB SQS)뿐이라, 나머지는 daily run까지
+    최대 하루 알람이 없거나(켠 뒤) 남았다(끈 뒤). 이 런은 daily 흐름에서 메트릭·임계치 알림·런 히스토리를 뺀 것이다:
+    인벤토리 동기화(태그 → monitoring 플래그·알람 스냅숏, 세션 전환 전) → 고아 정리(태그 off·삭제된 리소스의 알람 삭제) →
+    수집기 나열(Monitoring=on) → 리소스별 알람 sync. 런 히스토리는 쓰지 않는다(시간마다 한 줄씩 daily 목록을 덮는다) —
+    `PERF_METRIC reconcile_stage` 로그로 본다. 멱등이라 daily run과 겹쳐도 무해하다.
+    """
+    role_arn = event.get("role_arn", "") if isinstance(event, dict) else ""
+    account_id = event.get("account_id", "self") if isinstance(event, dict) else "self"
+
+    # 0) 인벤토리 동기화 — 세션 전환 전(메인 계정 DDB). 콘솔이 태그로 켠/끈 리소스를 다음 discovery까지 기다리지 않고 본다.
+    prefetched_alarms: list[dict] = []
+    try:
+        with Timer("reconcile_stage", stage="inventory_sync", account=account_id) as t:
+            inventory_stats = _sync_inventory(account_id, role_arn)
+            prefetched_alarms = inventory_stats.pop("_alarms", [])
+            t.set(discovered=inventory_stats.get("discovered", 0), alarms=len(prefetched_alarms))
+    except (ClientError, RuntimeError, KeyError) as e:
+        logger.error("Tag reconcile: inventory sync failed: %s", e)
+        inventory_stats = {"error": str(e)}
+    alarm_index = AlarmIndex(prefetched_alarms) if prefetched_alarms else None
+
+    if role_arn:
+        try:
+            _switch_account_session(role_arn, account_id)
+        except ClientError:
+            return {"status": "error", "mode": "tag_reconcile", "account_id": account_id, "reason": "assume_role_failed"}
+
+    # 1) 고아 정리 — 태그가 꺼졌거나 사라진 리소스의 알람을 지운다(끈 뒤 하루 남던 알람).
+    orphaned: list[str] = []
+    try:
+        with Timer("reconcile_stage", stage="orphan_cleanup", account=account_id) as t:
+            orphaned = _cleanup_orphan_alarms()
+            t.set(deleted=len(orphaned))
+    except ClientError as e:
+        logger.error("Tag reconcile: orphan cleanup failed: %s", e)
+
+    # 2) 나열 + 3) 알람 sync — 태그를 켠 뒤 하루 없던 알람이 여기서 생긴다.
+    with Timer("reconcile_stage", stage="collect_resources", account=account_id) as t:
+        collected = _collect_from_all_collectors(account_id)
+        total = sum(len(r) for _m, r in collected)
+        t.set(resources=total, collectors=len(collected))
+
+    alarms_synced = {"created": 0, "updated": 0, "ok": 0}
+    with Timer("reconcile_stage", stage="alarm_sync", account=account_id) as t:
+        for _collector_mod, resources in collected:
+            for resource in resources:
+                try:
+                    sync_result = sync_alarms_for_resource(
+                        resource["id"], resource["type"], resource.get("tags", {}),
+                        alarm_index=alarm_index,
+                        resource_region=resource.get("region", ""),
+                    )
+                    for key in alarms_synced:
+                        alarms_synced[key] += len(sync_result.get(key, []))
+                except ClientError as e:
+                    logger.error(
+                        "Tag reconcile: alarm sync failed for %s (%s): %s",
+                        resource["id"], resource["type"], e,
+                    )
+        t.set(**alarms_synced)
+
+    result = {
+        "status": "partial" if inventory_stats.get("error") else "ok",
+        "mode": "tag_reconcile",
+        "account_id": account_id,
+        "resources": total,
+        "alarms_synced": alarms_synced,
+        "orphans_deleted": len(orphaned),
+        "inventory_synced": inventory_stats,
+    }
+    logger.info("Tag reconcile complete: %s", result)
     return result
 
 

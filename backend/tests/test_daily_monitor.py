@@ -1502,3 +1502,78 @@ class TestAlertDirectionFromRegistry:
              patch("daily_monitor.lambda_handler.send_alert") as mock_alert:
             assert _process_resource("arn:tg", "TG", tags, collector_mod) == 0
         mock_alert.assert_not_called()
+
+
+# ──────────────────────────────────────────────
+# 시간 단위 태그 정합 런 (mode=tag_reconcile) — docs/specs/monitoring-tag-contract D2
+# ──────────────────────────────────────────────
+
+
+class TestTagReconcile:
+    def test_mode_dispatches_to_the_reconcile_handler(self):
+        with patch("daily_monitor.lambda_handler._handle_tag_reconcile", return_value={"status": "ok"}) as h:
+            assert handler({"mode": "tag_reconcile", "account_id": "self"}, MagicMock()) == {"status": "ok"}
+        h.assert_called_once()
+
+    def test_reconcile_runs_the_sync_stages_but_no_metrics_alerts_or_run_history(self):
+        """인벤토리 동기화 → 고아 정리 → 나열 → 알람 sync. 메트릭·임계치 알림·런 히스토리는 없다."""
+        from daily_monitor.lambda_handler import _handle_tag_reconcile
+        collector = MagicMock()
+        resources = [_make_resource("db-1", "RDS"), _make_resource("q-1", "SQS")]
+        with patch("daily_monitor.lambda_handler._sync_inventory",
+                   return_value={"discovered": 3, "synced": 3, "_alarms": []}) as inv, \
+             patch("daily_monitor.lambda_handler._cleanup_orphan_alarms", return_value=["stale"]) as orphan, \
+             patch("daily_monitor.lambda_handler._collect_from_all_collectors",
+                   return_value=[(collector, resources)]) as collect, \
+             patch("daily_monitor.lambda_handler.sync_alarms_for_resource",
+                   return_value={"created": ["a"], "updated": [], "ok": ["b"]}) as sync, \
+             patch("daily_monitor.lambda_handler._process_resource") as process, \
+             patch("daily_monitor.lambda_handler._put_monitor_run_start") as run_start, \
+             patch("daily_monitor.lambda_handler._switch_account_session") as switch:
+            result = _handle_tag_reconcile({"mode": "tag_reconcile", "account_id": "self"}, MagicMock())
+
+        assert result["status"] == "ok" and result["mode"] == "tag_reconcile"
+        assert result["resources"] == 2 and result["orphans_deleted"] == 1
+        assert result["alarms_synced"] == {"created": 2, "updated": 0, "ok": 2}
+        assert result["inventory_synced"] == {"discovered": 3, "synced": 3}
+        inv.assert_called_once_with("self", "")
+        orphan.assert_called_once()
+        collect.assert_called_once_with("self")
+        assert [c.args[:2] for c in sync.call_args_list] == [("db-1", "RDS"), ("q-1", "SQS")]
+        process.assert_not_called()
+        run_start.assert_not_called()
+        switch.assert_not_called()
+
+    def test_reconcile_switches_session_after_inventory_and_stops_when_assume_role_fails(self):
+        from daily_monitor.lambda_handler import _handle_tag_reconcile
+        order = []
+        with patch("daily_monitor.lambda_handler._sync_inventory",
+                   side_effect=lambda *a: order.append("inventory") or {"discovered": 0, "synced": 0}), \
+             patch("daily_monitor.lambda_handler._switch_account_session",
+                   side_effect=lambda *a: order.append("switch") or (_ for _ in ()).throw(_make_client_error())), \
+             patch("daily_monitor.lambda_handler._cleanup_orphan_alarms") as orphan, \
+             patch("daily_monitor.lambda_handler._collect_from_all_collectors") as collect:
+            result = _handle_tag_reconcile(
+                {"mode": "tag_reconcile", "account_id": "222222222222", "role_arn": "arn:aws:iam::222222222222:role/R"},
+                MagicMock())
+        assert order == ["inventory", "switch"]          # 인벤토리(메인 계정 DDB)는 세션 전환 전에
+        assert result == {"status": "error", "mode": "tag_reconcile", "account_id": "222222222222",
+                          "reason": "assume_role_failed"}
+        orphan.assert_not_called()
+        collect.assert_not_called()
+
+    def test_reconcile_survives_an_inventory_failure_and_reports_partial(self):
+        from daily_monitor.lambda_handler import _handle_tag_reconcile
+        with patch("daily_monitor.lambda_handler._sync_inventory", side_effect=RuntimeError("ddb down")), \
+             patch("daily_monitor.lambda_handler._cleanup_orphan_alarms", return_value=[]), \
+             patch("daily_monitor.lambda_handler._collect_from_all_collectors", return_value=[]):
+            result = _handle_tag_reconcile({"mode": "tag_reconcile"}, MagicMock())
+        assert result["status"] == "partial" and result["resources"] == 0
+        assert "ddb down" in result["inventory_synced"]["error"]
+
+    def test_daily_run_and_reconcile_share_the_collector_enumeration(self):
+        """두 경로가 같은 나열 함수를 쓴다 — 아니면 daily run과 정합 런이 다른 리소스를 볼 수 있다."""
+        import inspect
+        from daily_monitor import lambda_handler as dm
+        assert "_collect_from_all_collectors(account_id)" in inspect.getsource(dm.lambda_handler)
+        assert "_collect_from_all_collectors(account_id)" in inspect.getsource(dm._handle_tag_reconcile)
