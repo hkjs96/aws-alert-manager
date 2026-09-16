@@ -1705,11 +1705,14 @@ Resources:
           SNS_TOPIC_ARN_LIFECYCLE: !Ref LifecycleAlertTopic
           SNS_TOPIC_ARN_ERROR: !Ref ErrorAlertTopic
           SNS_TOPIC_ARN_GLOBAL_ALERT: !GetAtt GlobalAlertSetup.TopicArn
+          # 이름 규칙: tag_resolver.get_threshold가 DEFAULT_{metric_key.upper()}_THRESHOLD로 읽는다(정의 키 또는 옛 태그 키 —
+          # _LEGACY_TAG_MAP). 밑줄로 쪼개면 아무도 읽지 않는 죽은 변수가 된다(2026-09-16까지 FREE_MEMORY_GB가 그랬다, KI-010).
+          # tests/test_resource_type_registry.py가 템플릿 env 이름 == 코드가 읽는 이름을 고정한다.
           DEFAULT_CPU_THRESHOLD: !Ref DefaultCpuThreshold
           DEFAULT_MEMORY_THRESHOLD: !Ref DefaultMemoryThreshold
           DEFAULT_CONNECTIONS_THRESHOLD: !Ref DefaultConnectionsThreshold
-          DEFAULT_FREE_MEMORY_GB_THRESHOLD: !Ref DefaultFreeMemoryGBThreshold
-          DEFAULT_FREE_STORAGE_GB_THRESHOLD: !Ref DefaultFreeStorageGBThreshold
+          DEFAULT_FREEMEMORYGB_THRESHOLD: !Ref DefaultFreeMemoryGBThreshold
+          DEFAULT_FREESTORAGEGB_THRESHOLD: !Ref DefaultFreeStorageGBThreshold
           DEFAULT_DISK_THRESHOLD: !Ref DefaultDiskThreshold
           ENVIRONMENT: !FindInMap [EnvShortName, !Ref Environment, short]
           ACCOUNTS_TABLE: !Ref AccountsTable
@@ -1783,11 +1786,14 @@ Resources:
           SNS_TOPIC_ARN_LIFECYCLE: !Ref LifecycleAlertTopic
           SNS_TOPIC_ARN_ERROR: !Ref ErrorAlertTopic
           SNS_TOPIC_ARN_GLOBAL_ALERT: !GetAtt GlobalAlertSetup.TopicArn
+          # 이름 규칙: tag_resolver.get_threshold가 DEFAULT_{metric_key.upper()}_THRESHOLD로 읽는다(정의 키 또는 옛 태그 키 —
+          # _LEGACY_TAG_MAP). 밑줄로 쪼개면 아무도 읽지 않는 죽은 변수가 된다(2026-09-16까지 FREE_MEMORY_GB가 그랬다, KI-010).
+          # tests/test_resource_type_registry.py가 템플릿 env 이름 == 코드가 읽는 이름을 고정한다.
           DEFAULT_CPU_THRESHOLD: !Ref DefaultCpuThreshold
           DEFAULT_MEMORY_THRESHOLD: !Ref DefaultMemoryThreshold
           DEFAULT_CONNECTIONS_THRESHOLD: !Ref DefaultConnectionsThreshold
-          DEFAULT_FREE_MEMORY_GB_THRESHOLD: !Ref DefaultFreeMemoryGBThreshold
-          DEFAULT_FREE_STORAGE_GB_THRESHOLD: !Ref DefaultFreeStorageGBThreshold
+          DEFAULT_FREEMEMORYGB_THRESHOLD: !Ref DefaultFreeMemoryGBThreshold
+          DEFAULT_FREESTORAGEGB_THRESHOLD: !Ref DefaultFreeStorageGBThreshold
           DEFAULT_DISK_THRESHOLD: !Ref DefaultDiskThreshold
           ENVIRONMENT: !FindInMap [EnvShortName, !Ref Environment, short]
 

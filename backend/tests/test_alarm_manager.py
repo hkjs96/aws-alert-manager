@@ -1345,7 +1345,7 @@ class TestAuroraRDSIntegration:
             f"[AuroraRDS] my-aurora FreeableMemory < 2GB (TagName: {db_id})",
             f"[AuroraRDS] my-aurora DatabaseConnections > 100 (TagName: {db_id})",
             f"[AuroraRDS] my-aurora FreeLocalStorage < 10GB (TagName: {db_id})",
-            f"[AuroraRDS] my-aurora AuroraReplicaLagMaximum > 2000000μs (TagName: {db_id})",
+            f"[AuroraRDS] my-aurora AuroraReplicaLagMaximum > 2000ms (TagName: {db_id})",
         ]
 
         def _make_desc(metric_key):
@@ -1360,7 +1360,7 @@ class TestAuroraRDSIntegration:
             "FreeableMemory": ("FreeMemoryGB", 2.0 * 1073741824),
             "DatabaseConnections": ("Connections", 100.0),
             "FreeLocalStorage": ("FreeLocalStorageGB", 10.0 * 1073741824),
-            "AuroraReplicaLagMaximum": ("ReplicaLag", 2000000.0),
+            "AuroraReplicaLagMaximum": ("ReplicaLag", 2000.0),
         }
 
         def describe_side_effect(**kwargs):
@@ -1402,7 +1402,7 @@ class TestAuroraRDSIntegration:
             f"[AuroraRDS] my-aurora FreeableMemory < 2GB (TagName: {db_id})",
             f"[AuroraRDS] my-aurora DatabaseConnections > 100 (TagName: {db_id})",
             f"[AuroraRDS] my-aurora FreeLocalStorage < 10GB (TagName: {db_id})",
-            f"[AuroraRDS] my-aurora AuroraReplicaLagMaximum > 2000000μs (TagName: {db_id})",
+            f"[AuroraRDS] my-aurora AuroraReplicaLagMaximum > 2000ms (TagName: {db_id})",
         ]
 
         def _make_desc(metric_key):
@@ -1417,7 +1417,7 @@ class TestAuroraRDSIntegration:
             "FreeableMemory": ("FreeMemoryGB", 2.0 * 1073741824),
             "DatabaseConnections": ("Connections", 100.0),
             "FreeLocalStorage": ("FreeLocalStorageGB", 10.0 * 1073741824),
-            "AuroraReplicaLagMaximum": ("ReplicaLag", 2000000.0),
+            "AuroraReplicaLagMaximum": ("ReplicaLag", 2000.0),
         }
 
         def describe_side_effect(**kwargs):
@@ -1500,7 +1500,7 @@ class TestAuroraRDSIntegration:
         lag_call = [c for c in put_calls if c.kwargs["MetricName"] == "AuroraReplicaLagMaximum"][0]
         assert lag_call.kwargs["Statistic"] == "Maximum"
         assert lag_call.kwargs["ComparisonOperator"] == "GreaterThanThreshold"
-        assert lag_call.kwargs["Threshold"] == 2000000.0
+        assert lag_call.kwargs["Threshold"] == 2000.0   # ms (KI-010)
 
     def test_dynamic_alarm_for_aurora_rds(self):
         mock_cw = self._make_mock_cw()

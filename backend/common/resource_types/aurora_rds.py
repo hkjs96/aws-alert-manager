@@ -156,8 +156,10 @@ SPEC = register(ResourceTypeSpec(
         "CPUUtilization": ("CPUUtilization", ">", "%"),
         "ACUUtilization": ("ACUUtilization", ">", "%"),
         "DatabaseConnections": ("DatabaseConnections", ">", ""),
-        "ReplicaLag": ("AuroraReplicaLagMaximum", ">", "μs"),
-        "ReaderReplicaLag": ("AuroraReplicaLag", ">", "μs"),
+        # ms — AWS 문서(Amazon CloudWatch metrics for Amazon Aurora): AuroraReplicaLag·AuroraReplicaLagMaximum = Milliseconds.
+        # 2026-09-16까지 "μs"·기본치 2,000,000(≈33분)이라 사실상 울리지 않았다(docs/KNOWN-ISSUES.md KI-010). 2000ms = 2초가 원래 의도.
+        "ReplicaLag": ("AuroraReplicaLagMaximum", ">", "ms"),
+        "ReaderReplicaLag": ("AuroraReplicaLag", ">", "ms"),
         "FreeableMemory": ("FreeableMemory", "<", "GB"),
         "FreeLocalStorage": ("FreeLocalStorage", "<", "GB"),
         # ServerlessDatabaseCapacity: 정의(_AURORA_SERVERLESS_CAPACITY)는 있으나 어떤 변형도 emit하지 않는다 —
@@ -168,8 +170,8 @@ SPEC = register(ResourceTypeSpec(
         "CPUUtilization": 80.0,
         "ACUUtilization": 80.0,
         "DatabaseConnections": 100.0,
-        "ReplicaLag": 2000000.0,
-        "ReaderReplicaLag": 2000000.0,
+        "ReplicaLag": 2000.0,
+        "ReaderReplicaLag": 2000.0,
         "FreeableMemory": 2.0,
         "FreeLocalStorage": 10.0,
         "ServerlessDatabaseCapacity": 128.0,

@@ -796,12 +796,12 @@ class TestAuroraMetrics:
         assert result is not None
         assert result["FreeLocalStorage"] == pytest.approx(10.0)
 
-    def test_replica_lag_raw_microseconds(self):
-        """AuroraReplicaLagMaximum raw μs 반환 — Req 4.4"""
+    def test_replica_lag_raw_milliseconds(self):
+        """AuroraReplicaLagMaximum은 CloudWatch 값(ms) 그대로 — 변환 없음(KI-010) — Req 4.4"""
         from common.collectors.rds import get_metrics
 
         mock_cw = self._make_cw_mock_with_data({
-            "AuroraReplicaLagMaximum": 2500000.0,
+            "AuroraReplicaLagMaximum": 2500.0,
         })
         tags = {
             "_is_serverless_v2": "false",
@@ -813,7 +813,7 @@ class TestAuroraMetrics:
             result = get_metrics("aurora-db-1", tags, resource_type="AuroraRDS")
 
         assert result is not None
-        assert result["ReplicaLag"] == pytest.approx(2500000.0)
+        assert result["ReplicaLag"] == pytest.approx(2500.0)
 
     def test_individual_metric_skip_when_no_data(self):
         """개별 메트릭 데이터 없을 때 skip — Req 4.7"""

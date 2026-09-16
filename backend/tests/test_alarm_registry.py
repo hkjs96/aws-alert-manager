@@ -352,7 +352,7 @@ def test_aurora_rds_constant_mappings():
     assert _DIMENSION_KEY_MAP["AuroraRDS"] == "DBInstanceIdentifier"
 
     assert _METRIC_DISPLAY["FreeLocalStorage"] == ("FreeLocalStorage", "<", "GB")
-    assert _METRIC_DISPLAY["ReplicaLag"] == ("AuroraReplicaLagMaximum", ">", "μs")
+    assert _METRIC_DISPLAY["ReplicaLag"] == ("AuroraReplicaLagMaximum", ">", "ms")   # CloudWatch 단위 ms (KI-010)
 
     # metric key == CW metric name for FreeLocalStorage; ReplicaLag uses special CW metric name
     assert "FreeLocalStorage" in _HARDCODED_METRIC_KEYS["AuroraRDS"]
@@ -448,7 +448,7 @@ class TestAuroraConstantMappings:
 
     def test_metric_display_reader_replica_lag(self):
         assert "ReaderReplicaLag" in _METRIC_DISPLAY
-        assert _METRIC_DISPLAY["ReaderReplicaLag"] == ("AuroraReplicaLag", ">", "μs")
+        assert _METRIC_DISPLAY["ReaderReplicaLag"] == ("AuroraReplicaLag", ">", "ms")
 
     def test_metric_display_acu_utilization(self):
         assert "ACUUtilization" in _METRIC_DISPLAY

@@ -255,7 +255,7 @@ def test_remediation_fails_loudly_when_an_extractor_is_missing(monkeypatch):
 
 # ── 4. CFN 템플릿과의 정합 (R8)
 
-def _template_event_names() -> list[set[str]]:
+def _template_doc() -> dict:
     class Loader(yaml.SafeLoader):
         pass
 
@@ -267,7 +267,11 @@ def _template_event_names() -> list[set[str]]:
         return loader.construct_mapping(node)
 
     Loader.add_multi_constructor("!", any_tag)
-    doc = yaml.load(TEMPLATE.read_text(encoding="utf-8"), Loader=Loader)
+    return yaml.load(TEMPLATE.read_text(encoding="utf-8"), Loader=Loader)
+
+
+def _template_event_names() -> list[set[str]]:
+    doc = _template_doc()
     found = []
     for res in doc["Resources"].values():
         pattern = (res.get("Properties") or {}).get("EventPattern") or {}
@@ -285,3 +289,23 @@ def test_template_cloudtrail_event_pattern_equals_the_registry_events():
     assert any(p == expected for p in patterns), (
         f"템플릿 eventName 집합이 레지스트리와 다르다: only template={sorted(patterns[0] - expected)} "
         f"only registry={sorted(expected - patterns[0])}")
+
+
+def _template_threshold_env_names() -> set[str]:
+    names: set[str] = set()
+    for res in _template_doc()["Resources"].values():
+        env = ((res.get("Properties") or {}).get("Environment") or {}).get("Variables") or {}
+        names.update(k for k in env if k.startswith("DEFAULT_") and k.endswith("_THRESHOLD"))
+    return names
+
+
+def test_template_default_threshold_env_vars_are_names_get_threshold_reads():
+    """템플릿 파라미터 → env DEFAULT_*_THRESHOLD → tag_resolver.get_threshold. 이름이 어긋나면 파라미터가 조용히 죽는다 —
+    2026-09-16까지 DEFAULT_FREE_MEMORY_GB_THRESHOLD·DEFAULT_FREE_STORAGE_GB_THRESHOLD가 그랬다(코드는 FREEMEMORYGB를 읽는다, KI-010)."""
+    from common import HARDCODED_DEFAULTS
+    from common.tag_resolver import _LEGACY_TAG_MAP
+    readable = {f"DEFAULT_{k.upper()}_THRESHOLD" for k in HARDCODED_DEFAULTS}
+    readable |= {f"DEFAULT_{legacy.upper()}_THRESHOLD" for legacy in _LEGACY_TAG_MAP.values()}
+    names = _template_threshold_env_names()
+    assert names, "템플릿에 DEFAULT_*_THRESHOLD env가 있어야 한다"
+    assert names <= readable, f"get_threshold가 읽지 않는 env 이름: {sorted(names - readable)}"

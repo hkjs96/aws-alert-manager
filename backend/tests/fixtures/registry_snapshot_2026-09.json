@@ -13,6 +13,11 @@
     "date": "2026-09-16",
     "what": "alarm_defs_default RDS/AuroraRDS/DocDB: 5 definitions with transform_threshold gain transform_value",
     "why": "RDS-family collectors moved from a metrics override to definition-based get_metrics; the inverse transform (bytes -> GB) puts collected values in the display unit the thresholds use. register() enforces the pair."
+   },
+   {
+    "date": "2026-09-16",
+    "what": "_METRIC_DISPLAY ReplicaLag/ReaderReplicaLag unit us -> ms; HARDCODED_DEFAULTS 2000000 -> 2000",
+    "why": "KI-010: AuroraReplicaLag and AuroraReplicaLagMaximum are reported in milliseconds (AWS docs); the old microsecond default made the threshold ~33 minutes, so the alarm effectively never fired. 2000 ms keeps the intended 2 seconds."
    }
   ]
  },
@@ -515,12 +520,12 @@
   "ReplicaLag": [
    "AuroraReplicaLagMaximum",
    ">",
-   "μs"
+   "ms"
   ],
   "ReaderReplicaLag": [
    "AuroraReplicaLag",
    ">",
-   "μs"
+   "ms"
   ],
   "ACUUtilization": [
    "ACUUtilization",
@@ -949,8 +954,8 @@
   "RequestCountPerTarget": 1000.0,
   "FreeLocalStorageGB": 10.0,
   "FreeLocalStorage": 10.0,
-  "ReplicaLag": 2000000.0,
-  "ReaderReplicaLag": 2000000.0,
+  "ReplicaLag": 2000.0,
+  "ReaderReplicaLag": 2000.0,
   "ACUUtilization": 80.0,
   "ServerlessDatabaseCapacity": 128.0,
   "FreeMemoryPct": 20.0,

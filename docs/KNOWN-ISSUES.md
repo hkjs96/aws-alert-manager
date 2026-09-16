@@ -211,3 +211,24 @@ Threshold_CPU=90                      → CPU > 90 시 ALARM
 ```
 
 **구현 위치:** `backend/common/alarm_manager.py` `_parse_threshold_tags()` — `LT_` prefix 감지 후 `LessThanThreshold` 반환.
+
+---
+
+## KI-010: ~~Aurora 복제 지연 알람 단위 오류(μs vs ms)~~ — **해결됨(2026-09-16)**
+
+### 증상
+
+`ReplicaLag`(AuroraReplicaLagMaximum)·`ReaderReplicaLag`(AuroraReplicaLag) 알람의 표시 단위가 "μs", 기본 임계치가 2,000,000이었다.
+AWS 문서(Amazon CloudWatch metrics for Amazon Aurora)상 두 메트릭의 단위는 **Milliseconds**라 임계치가 약 33분이 되어 알람이
+사실상 울리지 않았다. 알람 이름도 `AuroraReplicaLagMaximum > 2000000μs`로 만들어졌다.
+
+### 해결
+
+`backend/common/resource_types/aurora_rds.py` 표시 단위 "ms", 기본치 2000(= 2초, 원래 의도). 알람 이름이 `… > 2000ms`로 바뀌므로
+다음 alarm-sync가 기존 알람을 새 이름으로 재생성한다(태그 기반 정체 판별). `Threshold_ReplicaLag`/`Threshold_ReaderReplicaLag`
+태그를 μs 값으로 적어 둔 리소스가 있다면 ms로 고쳐야 한다(2026-09-16 기준 감시 대상 Aurora 없음). FE 메트릭 카탈로그
+(`frontend/components/resources/MetricConfigSection.tsx`)·`docs/ALARM-RULES.md` AuroraRDS 표·레지스트리 스냅숏 픽스처를 함께 수정.
+같은 커밋에서 템플릿 파라미터 `DefaultFreeMemoryGBThreshold`/`DefaultFreeStorageGBThreshold`가 닿는 env 이름을
+`DEFAULT_FREEMEMORYGB_THRESHOLD`/`DEFAULT_FREESTORAGEGB_THRESHOLD`로 고쳤다 — 이전 이름(`DEFAULT_FREE_MEMORY_GB_THRESHOLD`)은
+`tag_resolver.get_threshold`가 읽지 않는 이름이라 파라미터가 죽어 있었다(기본치가 같아 무해). `tests/test_resource_type_registry.py`가
+템플릿 env 이름 == 코드가 읽는 이름을 고정한다.

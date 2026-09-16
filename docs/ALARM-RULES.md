@@ -158,8 +158,8 @@
 | Threshold_FreeMemoryGB | FreeMemoryGB | FreeableMemory | AWS/RDS | 2 | GB | GB→bytes |
 | Threshold_Connections | Connections | DatabaseConnections | AWS/RDS | 100 | Count | - |
 | Threshold_FreeLocalStorageGB | FreeLocalStorageGB | FreeLocalStorage | AWS/RDS | 10 | GB | GB→bytes |
-| Threshold_ReplicaLag | ReplicaLag | AuroraReplicaLagMaximum | AWS/RDS | 2000000 | μs | - |
-| Threshold_ReaderReplicaLag | ReaderReplicaLag | AuroraReplicaLag | AWS/RDS | 2000000 | μs | - |
+| Threshold_ReplicaLag | ReplicaLag | AuroraReplicaLagMaximum | AWS/RDS | 2000 | ms | - (KI-010: CloudWatch 단위 ms) |
+| Threshold_ReaderReplicaLag | ReaderReplicaLag | AuroraReplicaLag | AWS/RDS | 2000 | ms | - (KI-010) |
 | Threshold_ACUUtilization | ACUUtilization | ACUUtilization | AWS/RDS | 80 | % | - |
 | Threshold_ServerlessDatabaseCapacity | ServerlessDatabaseCapacity | ServerlessDatabaseCapacity | AWS/RDS | 128 | ACU | - |
 | Threshold_FreeMemoryPct | FreeMemoryPct | (FreeableMemory 퍼센트 변환) | AWS/RDS | 20 | % | pct→bytes |
