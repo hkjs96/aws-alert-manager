@@ -142,17 +142,24 @@ Resources:
                   - route53:ListHealthChecks
                   - route53:ListTagsForResource
                 Resource: "*"
-              # 3) Monitoring toggle (tag write) - per-service tag-write permissions that the
-              #    Resource Groups Tagging API delegates. (Governance AP-19: a missing one makes
-              #    the toggle permanently AccessDenied.)
+              # 3) Monitoring toggle (tag write) — docs/specs/monitoring-tag-contract D1.
+              #    The Resource Groups Tagging API needs tag:TagResources and then delegates to the
+              #    tagging action of the service that owns the resource; aws:TagKeys is evaluated on
+              #    that service action (tag:TagResources itself has no condition keys).
+              #    (Governance AP-19: a missing service action makes the toggle permanently AccessDenied.)
               - Effect: Allow
                 Action:
                   - tag:TagResources
+                Resource: "*"
+              # 3a) The central account may only write the Monitoring tag key — cost-allocation or ABAC
+              #     tags cannot be touched through this role. Every action below supports aws:TagKeys
+              #     (Service Authorization Reference, verified per action 2026-09-16).
+              - Effect: Allow
+                Action:
                   - ec2:CreateTags
                   - rds:AddTagsToResource
                   - elasticache:AddTagsToResource
                   - lambda:TagResource
-                  - s3:PutBucketTagging
                   - elasticloadbalancing:AddTags
                   - sqs:TagQueue
                   - dynamodb:TagResource
@@ -168,6 +175,19 @@ Resources:
                   - sagemaker:AddTags
                   - sns:TagResource
                   - cloudfront:TagResource
+                Resource: "*"
+                Condition:
+                  "Null":
+                    "aws:TagKeys": "false"
+                  "ForAllValues:StringEquals":
+                    "aws:TagKeys":
+                      - "Monitoring"
+              # 3b) Two actions have no tag condition keys at all, so the key cannot be restricted:
+              #     s3:PutBucketTagging (replaces the whole tag set; RGT reads via s3:GetBucketTagging and
+              #     merges) and route53:ChangeTagsForResource.
+              - Effect: Allow
+                Action:
+                  - s3:PutBucketTagging
                   - route53:ChangeTagsForResource
                 Resource: "*"
       Tags:
