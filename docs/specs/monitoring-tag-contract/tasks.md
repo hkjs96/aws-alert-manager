@@ -14,4 +14,4 @@ design.md의 D1~D4. 각 항목은 커밋 하나, 전체 테스트 + dev 배포 +
 - [x] 4(2026-09-16) **인벤토리 신선도** — D2의 인벤토리 동기화가 맡는다(별도 코드 없음). 정합 런 결과에 `inventory_synced` 포함.
 - [x] 5(2026-09-16) **고객 규약 문서(D4)** — `guides/CUSTOMER-ONBOARDING.md`에 "Monitoring 태그 규약" 절: 키·값·대소문자, `Threshold_*`,
       태그 정책 JSON·SCP 예시, IaC(Terraform/CFN) 스니펫. `docs/ALARM-RULES.md`에서 참조.
-- [ ] 6 **dev 검증** — 배포 후 `mode=tag_reconcile` 수동 invoke(status ok·오류 0), 권한 시뮬레이션, daily monitor 스모크.
+- [x] 6(2026-09-16) **dev 검증** — `f2b940d` → dev `v20260916T071647`. `mode=tag_reconcile` 수동 invoke: status ok, 오류·AccessDenied 0, 단계 inventory_sync 10.0s·orphan_cleanup 0.1s·collect 5.2s·alarm_sync(감시 리소스 0). `simulate-principal-policy`(ApiHandlerRole): lambda:TagResource+TagKeys=[Monitoring] allowed, [CostCenter]·[Monitoring,CostCenter] implicitDeny, sqs:TagQueue·ec2:CreateTags allowed, tag:TagResources·s3:PutBucketTagging(키 없음) allowed. 스케줄 `tag-reconcile-schedule-dev` cron(30 * * * ? *) ENABLED. daily monitor 스모크 status ok·12타입 태그 캐시.
