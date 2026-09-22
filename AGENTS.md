@@ -24,6 +24,9 @@
 - **백엔드 규칙:** [backend/AGENTS.md](./backend/AGENTS.md)
 - **프론트엔드 규칙:** [frontend/AGENTS.md](./frontend/AGENTS.md), [frontend/CLAUDE.md](./frontend/CLAUDE.md)
 - **알람/네이밍/디멘션/Severity 계약:** [docs/ALARM-RULES.md](./docs/ALARM-RULES.md)
+- **리소스 타입 온보딩 체크리스트:** [docs/RESOURCE-ONBOARDING.md](./docs/RESOURCE-ONBOARDING.md)
+- **작업 하네스(스프린트 계약/평가/복구 규칙):** [docs/AGENT-HARNESS-GUIDE.md](./docs/AGENT-HARNESS-GUIDE.md)
+- **배포 전 사전 점검 및 운영:** [guides/OPERATIONS.md](./guides/OPERATIONS.md)
 - **기능 스펙 및 백로그:** `docs/specs/` (활성 초안 + `BACKLOG.md`)
 
 ## 5. 안티패턴 (Anti-Patterns) — 통합 목록

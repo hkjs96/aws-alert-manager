@@ -2,7 +2,7 @@
 
 백엔드 영역(`backend/`)에서 작업하는 모든 에이전트는 아래 규칙을 준수해야 합니다.
 알람 네이밍/디멘션/Severity 계약은 `docs/ALARM-RULES.md`, 새 리소스 타입 온보딩은
-`/new-collector` 커맨드(`.claude/commands/new-collector.md`)를 따르십시오.
+`docs/RESOURCE-ONBOARDING.md`(SSOT)를 따르십시오.
 
 ## 0. 기술 스택 및 버전
 

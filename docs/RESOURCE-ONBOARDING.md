@@ -1,7 +1,12 @@
-# /new-collector resource onboarding checklist
+# Resource Onboarding Checklist
 
-Use this command when adding a backend-supported AWS resource type.
-(구 `.kiro/steering/resource-checklist.md` 전문 병합본 — 이 파일이 SSOT)
+백엔드가 지원하는 AWS 리소스 타입을 추가·수정할 때 반드시 따르는 체크리스트다.
+**이 파일이 SSOT다.** (구 `.kiro/steering/resource-checklist.md` 전문 병합본 →
+구 `.claude/commands/new-collector.md`에서 이전)
+
+- 트리거 스킬: `.claude/skills/new-collector/SKILL.md`
+- 알람 네이밍·디멘션·Severity 계약: `docs/ALARM-RULES.md`
+- 안티패턴 전체 목록: 루트 `AGENTS.md` §5
 
 ## Collector 인터페이스 (§5) — 범용 수집기 위에 쓴다 (docs/specs/resource-type-registry P3)
 
@@ -104,6 +109,8 @@ resolve_alive_ids = COLLECTOR.resolve_alive_ids
    - **수집기 모듈** `backend/common/collectors/<모듈>.py`: 위 §5의 셋(`_get*client`·`_enumerate`·`_alive`)과 `GenericCollector` 묶기.
      `_enumerate`의 태그 조회 래퍼는 `common.tag_cache.cached_tags(arn)`를 먼저 보고 `None`일 때만 리소스별 API를 부른다.
    - TagName ≠ resource_id인 타입은 `_alive` 역매핑 필수 (§5-1); 옛 `resolve_alive_ids` 역매핑 규칙 그대로.
+   - **복합 디멘션**은 파생되지 않는다 — 타입이 복합 디멘션(ECS·WAF·S3·SageMaker 계열)을 쓰면
+     `backend/common/dimension_builder.py`에 손으로 쓴 분기가 여전히 필요하다. 그 외 타입은 스펙만으로 끝난다.
 7. **테스트:** `backend/tests/` 하위에 추가.
 8. **프론트엔드 노출 시:**
    - `frontend/lib/constants.ts`, `frontend/types`

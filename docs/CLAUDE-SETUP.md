@@ -8,7 +8,8 @@
 |------|--------|------|
 | `.claude/settings.json` | ✅ | 환경 독립 자동화: `defaultMode: "acceptEdits"` + 광범위 `permissions.allow` + 자동화 hooks |
 | `.claude/settings.local.json` | ❌ (`.gitignore`) | 본인 PC 특화: 절대 경로(`/Users/jsb/.aws/**` 등), Lambda 패키징 임시 디렉토리 |
-| `.claude/commands/*.md` | ✅ | 팀 공유 슬래시 커맨드 (`/deploy`, `/test`, `/governance-check` 등) |
+| `.claude/commands/*.md` | ✅ | 명시 호출용 슬래시 커맨드 (`/deploy`, `/test`, `/spec`) — 사용자 의도 확인이 필요한 작업 |
+| `.claude/skills/*/SKILL.md` | ✅ | frontmatter `description`으로 **자동 트리거**되는 스킬 — 언제 무엇을 읽을지만 지시하고 규칙 본문은 SSOT에 남긴다 |
 
 ## 동작
 
@@ -28,13 +29,31 @@
 reminder/자동화 기반 hooks (`.claude/settings.json`):
 
 - **PreToolUse** — 편집 전 `.bak` 백업, `secret-leak-guard`, `governance-check` 리마인더
+  (훅은 리마인더만 출력하고, 실제 검사는 `governance-check` 스킬이 담당한다)
 - **PostToolUse** — `pylint-on-save`, `pytest-on-save`(대응 테스트 파일 자동 실행),
   `typecheck-on-save`, `vitest-on-test-save`, 편집 파일 자동 `git add`,
   backend 변경 시 자동 배포(`.claude/deploy-backend-stack.py`)
 - **Stop** — `python scripts/verify_all.py` (옵트아웃: `.claude/verify.off` 파일 생성)
 
-관련 슬래시 커맨드: `/deploy`, `/test`, `/governance-check`, `/dimension-check`,
-`/new-collector`, `/spec` (`docs/specs/` 기반)
+## Skills — 트리거 레이어
+
+거버넌스 **본문은 `AGENTS.md` 계층과 `docs/`에만 둔다**(이식 가능하고 다른 에이전트도 읽는다).
+`.claude/skills/`는 "언제 어떤 파일을 읽을지"만 지시하는 얇은 트리거다. 스킬에 규칙을 복사하지
+않는다 — 이전에 `new-collector` 체크리스트와 AP 목록이 여러 사본으로 갈라진 사례가 있었다.
+
+| 스킬 | 트리거 상황 | 읽는 SSOT |
+|------|-----------|-----------|
+| `new-collector` | `resource_types/`·`collectors/` 수정, 알람 정의·생명주기 이벤트 추가 | `docs/RESOURCE-ONBOARDING.md` |
+| `dimension-check` | `dimension_builder.py`·스펙 알람 정의 수정 후 | `docs/ALARM-RULES.md` §6-1·§8·§10 |
+| `governance-check` | `backend/**/*.py` 작성·수정 후 | `backend/AGENTS.md`, `AGENTS.md` §5 |
+| `task-harness` | 여러 레이어에 걸친 작업 착수, 완료 보고 직전 | `docs/AGENT-HARNESS-GUIDE.md` |
+| `premortem-deploy` | 배포·마이그레이션·벌크 작업 직전 | `guides/OPERATIONS.md` 배포 전 사전 점검 |
+
+명시 호출 커맨드: `/deploy`, `/test`, `/spec` (`docs/specs/` 기반) — 사용자 의도 확인이
+필요해서 자동 트리거로 전환하지 않았다.
+
+> 스킬은 세션 시작 시점에 로드된다. 스킬을 추가·수정한 뒤에는 목록에 `description`이
+> 붙어 노출되는지 확인한다.
 
 ## 다른 PC에서 셋업
 
