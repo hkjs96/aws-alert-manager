@@ -257,6 +257,20 @@ aws cloudwatch delete-alarms --profile home-dev --region ap-northeast-2 \
 
 교차계정 전달은 **양쪽이 다 맞아야** 동작한다. 한쪽만 봐서는 원인을 못 찾는다.
 
+**먼저 앱에서 연결 테스트를 누른다.** Settings → 계정 → Test. 이 버튼은 AssumeRole뿐 아니라 **우리 버스
+정책에 그 계정이 있는지**까지 보고, 빠져 있으면 그 자리에서 다시 넣는다(`alert forwarding: repaired`).
+2026-09-22 전에는 AssumeRole만 봐서 "연결됨"인데 알람은 영영 안 오는 상태를 통과시켰다.
+
+| 테스트 결과 | 뜻 | 다음 |
+| --- | --- | --- |
+| `connected` + `alert forwarding: ok` | 양쪽 다 정상 | 아래 ①로 — 룰·리전 문제다 |
+| `connected` + `repaired` | 버스 권한이 없었고 방금 복구됨 | 알람 하나를 강제 발화해 도달 확인(4장) |
+| `connected` + `failed` | 버스 정책을 못 고친다 | 중앙 계정 권한 확인 — 오류 알림도 함께 나갔다 |
+| `failed` | AssumeRole·리전 접근 문제 | RoleArn·리전 목록 확인, 전달과는 별개다 |
+
+수동으로 같은 일을 하려면 관리자 계정으로 `POST /api/accounts/alert-forwarding/reconcile`을 부른다 —
+등록된 모든 계정을 한 번에 맞춘다(스케줄로도 매시 돈다).
+
 **① 고객사 룰이 실패하고 있나** (고객사 계정, 서울)
 
 ```bash

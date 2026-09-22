@@ -187,6 +187,11 @@ export interface ConnectionTestResult {
     status: "connected" | "failed";
     error?: string;
   }>;
+  // 알림 전달 경로는 AssumeRole과 독립이다 — status가 connected여도 여기가 막히면 알람은 오지 않는다.
+  alert_forwarding?: {
+    status: "ok" | "repaired" | "failed" | "self" | "skipped";
+    detail?: string;
+  };
 }
 
 // --- 임계치 오버라이드 ---

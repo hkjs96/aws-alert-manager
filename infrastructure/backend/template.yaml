@@ -1306,6 +1306,9 @@ Resources:
           CUSTOMERS_TABLE: !Ref CustomersTable
           ACCOUNTS_TABLE: !Ref AccountsTable
           ALERT_EVENT_BUS_NAME: !Ref AlertEventBus
+          # 버스 정책 드리프트·부여 실패를 운영자에게 올린다(accounts._forwarding_incident).
+          # 없으면 sns_notifier가 로그만 남기고 물러나 — 그 손실은 "알람이 안 온다"로만 드러난다.
+          SNS_TOPIC_ARN_ERROR: !Ref ErrorAlertTopic
           EVENT_HISTORY_TABLE: !Ref EventHistoryTable
           ALERT_STATE_TABLE: !Ref AlertStateTable
           NOTIFICATION_CHANNEL_TABLE: !Ref NotificationChannelTable
@@ -1390,6 +1393,11 @@ Resources:
                   - events:RemovePermission
                   - events:DescribeEventBus
                 Resource: !GetAtt AlertEventBus.Arn
+              # 전달 권한이 끊겼거나 되돌렸을 때 운영 오류 알림 (monitoring-tag-contract 후속, 2026-09-22).
+              # 오류 토픽 하나로 좁힌다 — api_handler는 다른 토픽에 쓸 일이 없다.
+              - Effect: Allow
+                Action: sns:Publish
+                Resource: !Ref ErrorAlertTopic
               - Effect: Allow
                 Action:
                   - cloudwatch:DescribeAlarms

@@ -150,13 +150,27 @@ export function AccountSection({ accounts, customers }: AccountSectionProps) {
     try {
       const data = await testConnection(account.account_id, account.customer_id);
       setStatuses((prev) => ({ ...prev, [account.account_id]: data.status }));
+      // 전달 경로는 AssumeRole과 별개다 — 막혀 있으면 "연결됨"이어도 알람이 오지 않으므로 함께 보여준다.
+      const forwarding = data.alert_forwarding;
+      const forwardingOk =
+        !forwarding || ["ok", "self", "skipped", "repaired"].includes(forwarding.status);
       setTestDetails((prev) => ({
         ...prev,
-        [account.account_id]: (data.regions ?? []).map((region) => `${region.region}: ${region.status}`),
+        [account.account_id]: [
+          ...(data.regions ?? []).map((region) => `${region.region}: ${region.status}`),
+          ...(forwarding
+            ? [`alert forwarding: ${forwarding.status}${forwarding.detail ? ` — ${forwarding.detail}` : ""}`]
+            : []),
+        ],
       }));
+      const passed = data.status === "connected" && forwardingOk;
       showToast(
-        data.status === "connected" ? "success" : "error",
-        data.status === "connected" ? "Connection test passed" : "Connection test failed.",
+        passed ? "success" : "error",
+        passed
+          ? "Connection test passed"
+          : data.status === "connected"
+            ? "Connected, but alarm forwarding is blocked — alarms will not arrive."
+            : "Connection test failed.",
       );
     } catch (e) {
       setStatuses((prev) => ({ ...prev, [account.account_id]: "failed" }));

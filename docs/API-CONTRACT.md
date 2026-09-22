@@ -493,14 +493,34 @@ Query:
 | --- | --- | --- |
 | `customer_id` | string | yes |
 
+AssumeRole·리전 접근과 **알림 전달 경로**를 함께 본다. 둘은 독립된 조건이다 — 역할이 멀쩡해도 중앙
+버스 정책에 그 계정이 없으면 알람 이벤트는 EventBridge에서 조용히 버려진다. `status`는 예전대로
+AssumeRole·리전 접근만 뜻하고, 전달 경로는 `alert_forwarding`에 따로 나온다.
+
 Response `200`:
 
 ```json
 {
   "account_id": "123456789012",
-  "status": "connected"
+  "status": "connected",
+  "regions": [{ "region": "ap-northeast-2", "status": "connected" }],
+  "alert_forwarding": {
+    "status": "ok",
+    "detail": "aws-monitoring-alert-dev accepts alarm events from 123456789012"
+  },
+  "tested_at": "2026-09-22T10:00:00+00:00"
 }
 ```
+
+`alert_forwarding.status`:
+
+| 값 | 뜻 |
+| --- | --- |
+| `ok` | 버스 정책에 이 계정의 statement가 기대한 모양 그대로 있다 |
+| `repaired` | 없거나 옛 형식이라 이 호출이 다시 썼다 — 그 전에 보낸 알람 이벤트는 이미 버려졌다 |
+| `failed` | 확인하거나 고칠 수 없다(권한·정책 파손). 운영 오류 알림이 함께 나간다 |
+| `self` | 중앙 계정 자신 — 기본 버스로 들어오므로 교차계정 정책이 필요 없다 |
+| `skipped` | 버스가 설정되지 않은 환경 |
 
 Failed connection response is also `200` with:
 
@@ -508,7 +528,8 @@ Failed connection response is also `200` with:
 {
   "account_id": "123456789012",
   "status": "failed",
-  "error": "AWS error message"
+  "error": "AWS error message",
+  "alert_forwarding": { "status": "ok" }
 }
 ```
 

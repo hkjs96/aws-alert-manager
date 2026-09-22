@@ -313,3 +313,171 @@ class TestRevokeOnDelete:
         assert resp["statusCode"] == 204
         events.remove_permission.assert_not_called()
         events.put_permission.assert_not_called()
+
+
+# ──────────────────────────────────────────────
+# 2026-09-22 — 전달이 끊기면 드러나게 한다.
+# AssumeRole이 되는 것과 알람 이벤트가 도착하는 것은 다른 조건이다. 그전까지 연결 테스트는 앞만 봐서
+# "연결됨"인데 알람은 영영 오지 않는 상태(등록 전 온보딩 스택, 동시 등록으로 지워진 statement)를
+# 통과시켰고, 주기 점검은 손실을 조용히 되돌렸다.
+# ──────────────────────────────────────────────
+
+
+def _test_conn(account_id="222233334444", events=None, *, current=CENTRAL,
+               region_status="connected", assume_raises=False):
+    from api_handler.lambda_handler import lambda_handler
+    from api_handler.routes import accounts
+    table = MagicMock()
+    table.get_item.return_value = {"Item": {
+        "customer_id": "cust-1", "account_id": account_id,
+        "role_arn": f"arn:aws:iam::{account_id}:role/R", "regions": ["ap-northeast-2"]}}
+    assume = patch.object(accounts, "_assume_role_kwargs", return_value={})
+    if assume_raises:
+        assume = patch.object(accounts, "_assume_role_kwargs", side_effect=ClientError(
+            {"Error": {"Code": "AccessDenied", "Message": "no"}}, "AssumeRole"))
+    with patch.object(accounts, "accounts_table", return_value=table), \
+         patch.object(accounts, "_events_client", return_value=events if events is not None else fake_events()), \
+         patch.object(accounts, "_current_account_id", return_value=current), \
+         assume, \
+         patch.object(accounts, "_test_region_access",
+                      return_value={"region": "ap-northeast-2", "status": region_status}):
+        resp = lambda_handler(
+            _event("POST", f"/accounts/{account_id}/test", qs={"customer_id": "cust-1"},
+                   path_params={"id": account_id}), None)
+    return resp, table
+
+
+def _granted_events(account_id="222233334444"):
+    """이미 정상적으로 부여된 상태의 버스."""
+    events = fake_events()
+    _create(_body(account_id), events)
+    return events
+
+
+class TestConnectionTestSeesForwarding:
+    def test_present_statement_is_reported_ok(self):
+        resp, _ = _test_conn(events=_granted_events())
+        body = json.loads(resp["body"])
+        assert resp["statusCode"] == 200
+        assert body["status"] == "connected"
+        assert body["alert_forwarding"]["status"] == "ok"
+
+    def test_missing_statement_is_repaired_and_said_so(self):
+        """온보딩 스택만 배포하고 등록 전이거나, 동시 등록이 지운 경우 — 그 사이 이벤트는 이미 버려졌다."""
+        events = fake_events()
+        resp, _ = _test_conn(events=events)
+        body = json.loads(resp["body"])
+        assert body["alert_forwarding"]["status"] == "repaired"
+        assert "dropped" in body["alert_forwarding"]["detail"]
+        assert [x["Sid"] for x in events.statements["statements"]] == ["acct-222233334444"]
+
+    def test_outdated_statement_without_conditions_is_repaired(self):
+        events = fake_events([other_statement("acct-222233334444")])   # 조건 없는 옛 형식
+        resp, _ = _test_conn(events=events)
+        assert json.loads(resp["body"])["alert_forwarding"]["status"] == "repaired"
+        stmt = events.statements["statements"][0]
+        assert stmt["Condition"]["ForAllValues:StringEquals"]["events:source"] == "aws.cloudwatch"
+
+    def test_unrepairable_policy_is_reported_failed_and_alerted(self):
+        events = fake_events()
+        events.describe_event_bus.side_effect = ClientError(
+            {"Error": {"Code": "AccessDeniedException", "Message": "nope"}}, "DescribeEventBus")
+        from api_handler.routes import accounts
+        with patch.object(accounts, "send_error_alert") as alert:
+            resp, _ = _test_conn(events=events)
+        assert json.loads(resp["body"])["alert_forwarding"]["status"] == "failed"
+        alert.assert_not_called()      # 읽기 실패는 호출자가 화면에서 본다 — 알림은 고치지 못했을 때만
+
+    def test_repair_failure_raises_an_operational_alert(self):
+        events = fake_events()
+        events.put_permission.side_effect = ClientError(
+            {"Error": {"Code": "AccessDeniedException", "Message": "nope"}}, "PutPermission")
+        from api_handler.routes import accounts
+        with patch.object(accounts, "send_error_alert") as alert:
+            resp, _ = _test_conn(events=events)
+        assert json.loads(resp["body"])["alert_forwarding"]["status"] == "failed"
+        alert.assert_called_once()
+
+    def test_status_still_means_assume_role_and_region_access(self):
+        """기존 동작 보존 — `status`의 의미를 바꾸면 화면·저장된 connection_status가 어긋난다."""
+        resp, _ = _test_conn(events=fake_events())          # 전달은 repaired, 리전은 정상
+        body = json.loads(resp["body"])
+        assert body["status"] == "connected"
+        resp, _ = _test_conn(events=_granted_events(), region_status="failed")
+        body = json.loads(resp["body"])
+        assert body["status"] == "failed" and body["alert_forwarding"]["status"] == "ok"
+
+    def test_forwarding_is_checked_even_when_assume_role_fails(self):
+        """둘은 독립된 조건이다 — 역할이 깨져도 전달 상태는 진단에 필요하다."""
+        resp, _ = _test_conn(events=_granted_events(), assume_raises=True)
+        body = json.loads(resp["body"])
+        assert body["status"] == "failed"
+        assert body["alert_forwarding"]["status"] == "ok"
+
+    def test_forwarding_status_is_persisted_next_to_the_connection_status(self):
+        _, table = _test_conn(events=_granted_events())
+        values = table.update_item.call_args.kwargs["ExpressionAttributeValues"]
+        assert values[":f"] == "ok" and values[":s"] == "connected"
+        assert "alert_forwarding" in table.update_item.call_args.kwargs["UpdateExpression"]
+
+    def test_our_own_account_needs_no_cross_account_policy(self):
+        resp, _ = _test_conn(account_id=CENTRAL, events=fake_events())
+        assert json.loads(resp["body"])["alert_forwarding"]["status"] == "self"
+
+    def test_no_bus_configured_is_skipped_not_failed(self, monkeypatch):
+        monkeypatch.delenv("ALERT_EVENT_BUS_NAME", raising=False)
+        resp, _ = _test_conn(events=fake_events())
+        assert json.loads(resp["body"])["alert_forwarding"]["status"] == "skipped"
+
+
+class TestForwardingFailuresAreReported:
+    """조용한 복구는 손실이 있었다는 사실까지 지운다 — 수렴은 자동, 보고는 사람에게."""
+
+    def test_reconcile_drift_raises_an_operational_alert(self):
+        from api_handler.routes import accounts
+        events = fake_events()
+        with patch.object(accounts, "send_error_alert") as alert:
+            out = _reconcile(events, [{"account_id": "111122223333"}])
+        assert out["changed"] is True
+        alert.assert_called_once()
+        assert "acct-111122223333" in alert.call_args.kwargs["error"].args[0]
+
+    def test_reconcile_without_drift_stays_quiet(self):
+        from api_handler.routes import accounts
+        events = _granted_events()
+        with patch.object(accounts, "send_error_alert") as alert:
+            out = _reconcile(events, [{"account_id": "222233334444"}])
+        assert out["changed"] is False
+        alert.assert_not_called()
+
+    def test_reconcile_read_failure_raises_an_operational_alert(self):
+        from api_handler.routes import accounts
+        events = fake_events()
+        events.describe_event_bus.side_effect = ClientError(
+            {"Error": {"Code": "AccessDeniedException", "Message": "nope"}}, "DescribeEventBus")
+        with patch.object(accounts, "send_error_alert") as alert:
+            out = _reconcile(events, [{"account_id": "111122223333"}])
+        assert "error" in out
+        alert.assert_called_once()
+
+    def test_failed_grant_on_registration_raises_an_operational_alert(self):
+        """등록은 201로 성공시킨다(기존 동작) — 대신 조용히 넘어가지 않는다."""
+        from api_handler.routes import accounts
+        events = fake_events([other_statement()])
+
+        def _drops_others(EventBusName, Policy=None, **_):
+            events.statements["statements"] = [
+                x for x in json.loads(Policy)["Statement"] if x["Sid"] == "acct-222233334444"]
+        events.put_permission.side_effect = _drops_others
+        with patch.object(accounts, "send_error_alert") as alert:
+            resp, table = _create(_body(), events)
+        assert resp["statusCode"] == 201
+        assert table.put_item.call_args.kwargs["Item"]["alert_forwarding"] == "grant_failed"
+        alert.assert_called_once()
+
+    def test_successful_registration_stays_quiet(self):
+        from api_handler.routes import accounts
+        with patch.object(accounts, "send_error_alert") as alert:
+            resp, _ = _create(_body(), fake_events())
+        assert resp["statusCode"] == 201
+        alert.assert_not_called()

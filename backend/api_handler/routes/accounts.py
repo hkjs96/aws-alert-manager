@@ -4,7 +4,12 @@
 GET    /accounts                  → 어카운트 목록 (?customer_id=X)
 POST   /accounts                  → 어카운트 생성
 DELETE /accounts/{id}             → 어카운트 삭제
-POST   /accounts/{id}/test        → AWS 연결 테스트 (STS AssumeRole)
+POST   /accounts/{id}/test        → AWS 연결 테스트 (STS AssumeRole + 알림 전달 경로)
+
+**교차계정 알림 전달은 두 쪽이 다 있어야 한다**: 고객 계정의 전달 룰·역할(온보딩 스택)과 우리 버스의
+정책(이 파일). 버스 정책이 없으면 EventBridge는 이벤트를 **조용히 버린다** — 고객 계정에도 우리에게도
+오류가 남지 않는다. 그래서 이 파일의 모든 경로는 실패를 드러내는 쪽으로 기운다: 등록은 read-back으로
+확인하고, 매시 정합 점검이 드리프트를 되돌리며, 되돌린 사실과 실패는 운영 오류 알림으로 올린다.
 """
 
 import functools
@@ -17,6 +22,7 @@ import boto3
 from botocore.exceptions import ClientError
 
 from api_handler.db import accounts_table, scan_all, query_by_pk
+from common.sns_notifier import send_error_alert
 
 logger = logging.getLogger(__name__)
 
@@ -122,6 +128,56 @@ def _grant_alert_forwarding(account_id: str) -> str:
         return "grant_failed"
 
 
+def _forwarding_incident(context: str, detail: str) -> None:
+    """전달 권한 문제를 운영 오류 알림으로 올린다 — 로그만 남기면 아무도 안 본다.
+
+    이 경로의 실패는 "그 계정 알람이 안 온다"로만 드러나고, 그때는 이미 이벤트가 버려진 뒤다. 토픽이
+    없는 환경에서는 `sns_notifier`가 로그만 남기고 조용히 물러나므로 호출부는 신경 쓰지 않아도 된다.
+    """
+    send_error_alert(context=context, error=RuntimeError(detail))
+
+
+def check_alert_forwarding(account_id: str) -> dict:
+    """이 계정이 우리 버스로 알람 이벤트를 보낼 수 있는가 — 버스 정책을 읽어 답하고, 어긋나 있으면 고친다.
+
+    AssumeRole이 되는 것과 알람 이벤트가 도착하는 것은 다른 조건이다. 2026-09-22까지 연결 테스트는
+    AssumeRole만 봐서 "연결됨"인데 알람은 영영 오지 않는 상태를 통과시켰다 — 온보딩 스택을 만든 뒤
+    계정 등록 전이거나, 동시 등록으로 statement가 지워졌을 때가 그렇다.
+
+    Returns: ``{"status": ..., "detail": ...}``
+      ``ok``       statement가 기대한 모양 그대로 있다
+      ``repaired`` 없거나 옛 형식이라 다시 썼다 — 그 전에 보낸 이벤트는 이미 버려졌다
+      ``failed``   확인하거나 고칠 수 없다(권한·정책 파손)
+      ``self``     우리 계정 자신 — 기본 버스 룰로 들어오므로 교차계정 정책이 필요 없다
+      ``skipped``  버스가 설정되지 않은 환경
+    """
+    bus = os.environ.get("ALERT_EVENT_BUS_NAME", "")
+    if not bus or not account_id:
+        return {"status": "skipped", "detail": "alert event bus is not configured"}
+    if account_id == _current_account_id():
+        return {"status": "self", "detail": "central account forwards through the default bus"}
+
+    sid = _forward_statement_id(account_id)
+    try:
+        bus_arn, statements = _read_bus_policy(bus)
+    except (ClientError, ConditionalWriteError) as e:
+        logger.error("Could not read bus %s policy while checking %s: %s", bus, account_id, e)
+        return {"status": "failed", "detail": f"could not read the {bus} policy: {e}"}
+
+    current = next((s for s in statements if s.get("Sid") == sid), None)
+    if current == _forward_statement(account_id, bus_arn):
+        return {"status": "ok", "detail": f"{bus} accepts alarm events from {account_id}"}
+
+    was = "missing" if current is None else "outdated"
+    if _grant_alert_forwarding(account_id) != "granted":
+        _forwarding_incident(
+            f"alert forwarding for account {account_id}",
+            f"bus {bus} statement was {was} and could not be repaired")
+        return {"status": "failed", "detail": f"statement was {was} and could not be repaired"}
+    return {"status": "repaired",
+            "detail": f"statement was {was}; rewritten — alarm events sent before now were dropped"}
+
+
 def reconcile_alert_forwarding() -> dict:
     """계정 표와 버스 정책을 맞춘다 — 등록된 계정의 statement가 빠졌거나 옛 형식이면 다시 쓰고,
     표에 없는 `acct-*` statement는 뗀다 (review-phase2 L1).
@@ -140,6 +196,7 @@ def reconcile_alert_forwarding() -> dict:
         bus_arn, statements = _read_bus_policy(bus)
     except (ClientError, ConditionalWriteError) as e:
         logger.error("alert forwarding reconcile could not read state: %s", e)
+        _forwarding_incident("alert forwarding reconcile", f"could not read state: {e}")
         return {"error": str(e)}
 
     wanted = sorted({str(r.get("account_id") or "") for r in rows} - {"", me})
@@ -168,9 +225,16 @@ def reconcile_alert_forwarding() -> dict:
         _write_bus_policy(bus, kept)
     except ClientError as e:
         logger.error("alert forwarding reconcile could not write policy: %s", e)
+        _forwarding_incident("alert forwarding reconcile", f"could not write the {bus} policy: {e}")
         return {**result, "error": str(e)}
     logger.warning("alert forwarding drift fixed on bus %s: added=%s updated=%s removed=%s",
                    bus, added, updated, removed)
+    # 드리프트를 되돌렸다는 것은 그때까지 그 계정 이벤트가 버려지고 있었다는 뜻이다 — 조용히 고치면
+    # 손실이 있었다는 사실 자체가 사라진다. 수렴은 자동이지만 보고는 사람에게 한다.
+    _forwarding_incident(
+        "alert forwarding reconcile",
+        f"bus {bus} drifted and was repaired: added={added} updated={updated} removed={removed}; "
+        "alarm events from those accounts were dropped until now")
     return result
 
 
@@ -258,6 +322,11 @@ def create_account(event: dict) -> dict:
         "created_at": datetime.now(UTC).isoformat(),
     }
     item["alert_forwarding"] = _grant_alert_forwarding(account_id)
+    if item["alert_forwarding"] == "grant_failed":
+        _forwarding_incident(
+            f"alert forwarding for account {account_id}",
+            "registration completed but the bus grant failed — this account's alarms will not arrive "
+            "until the hourly reconcile or a connection test repairs it")
     try:
         table.put_item(Item=item)
     except ClientError as e:
@@ -286,8 +355,31 @@ def delete_account(event: dict) -> dict:
     return {"statusCode": 204, "body": ""}
 
 
+def _probe_regions(item: dict) -> tuple[str, list[dict], str]:
+    """AssumeRole → 리전별 CloudWatch 접근. ``(status, 리전별 결과, 오류 메시지)``.
+
+    `_test_region_access`가 리전 단위 `ClientError`를 스스로 삼키므로, 여기서 잡히는 것은 AssumeRole
+    실패뿐이다 — 그때는 모든 리전을 같은 이유로 실패 처리한다(기존 동작 그대로).
+    """
+    regions = item.get("regions") or []
+    try:
+        session_kwargs = _assume_role_kwargs(item)
+    except ClientError as e:
+        message = str(e)
+        return "failed", [{"region": r, "status": "failed", "error": message} for r in regions], message
+
+    results = [_test_region_access(region, session_kwargs) for region in regions]
+    reachable = bool(regions) and all(r["status"] == "connected" for r in results)
+    first_error = next((r.get("error", "") for r in results if r["status"] == "failed"), "")
+    return ("connected" if reachable else "failed"), results, first_error
+
+
 def test_connection(event: dict) -> dict:
-    """STS AssumeRole로 실제 AWS 연결 가능 여부를 확인한다."""
+    """AWS 연결 가능 여부를 확인한다 — STS AssumeRole·리전 접근에 더해 **알림 전달 경로**까지.
+
+    `status`는 예전 그대로 AssumeRole·리전 접근 기준이다(화면·저장 값 호환). 전달 경로는 별도 필드
+    `alert_forwarding`으로 낸다 — 둘은 다른 조건이고, 전달만 끊긴 계정은 여기서만 드러난다.
+    """
     path_params = event.get("pathParameters") or {}
     account_id = path_params.get("id", "").strip()
     qs = event.get("queryStringParameters") or {}
@@ -311,31 +403,21 @@ def test_connection(event: dict) -> dict:
     if not role_arn:
         return _err(400, "MISSING_ROLE", "role_arn이 설정되지 않았습니다")
 
-    try:
-        session_kwargs = _assume_role_kwargs(item)
-        regions = item.get("regions") or []
-        region_results = [
-            _test_region_access(region, session_kwargs)
-            for region in regions
-        ]
-        status = "connected" if regions and all(r["status"] == "connected" for r in region_results) else "failed"
-        error_msg = next((r.get("error") for r in region_results if r["status"] == "failed"), None)
-    except ClientError as e:
-        status = "failed"
-        error_msg = str(e)
-        region_results = [
-            {"region": region, "status": "failed", "error": error_msg}
-            for region in (item.get("regions") or [])
-        ]
+    status, region_results, error_msg = _probe_regions(item)
+
+    # 전달 경로 점검 — AssumeRole이 실패해도 본다(둘은 독립된 조건이고, 진단에는 둘 다 필요하다).
+    forwarding = check_alert_forwarding(account_id)
 
     # 연결 상태 업데이트
     try:
         table.update_item(
             Key={"customer_id": customer_id, "account_id": account_id},
-            UpdateExpression="SET connection_status = :s, last_tested_at = :t",
+            UpdateExpression=(
+                "SET connection_status = :s, last_tested_at = :t, alert_forwarding = :f"),
             ExpressionAttributeValues={
                 ":s": status,
                 ":t": datetime.now(UTC).isoformat(),
+                ":f": forwarding["status"],
             },
         )
     except ClientError:
@@ -345,6 +427,7 @@ def test_connection(event: dict) -> dict:
         "account_id": account_id,
         "status": status,
         "regions": region_results,
+        "alert_forwarding": forwarding,
         "tested_at": datetime.now(UTC).isoformat(),
     }
     if error_msg:
