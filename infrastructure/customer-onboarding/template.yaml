@@ -78,12 +78,24 @@ Resources:
                   - cloudwatch:DescribeAlarms
                   - cloudwatch:ListTagsForResource
                   - cloudwatch:PutMetricAlarm
-                  - cloudwatch:DeleteAlarms
                   - cloudwatch:TagResource
                   - cloudwatch:ListMetrics
                   - cloudwatch:GetMetricStatistics
                   - cloudwatch:GetMetricData
                 Resource: "*"
+              # 1-0) Deleting an alarm is the only destructive thing this role can do, so it is limited to
+              #      alarms the engine itself created and tagged (PutMetricAlarm is always followed by
+              #      TagResource with ManagedBy=AlarmManager). Your own alarms cannot be deleted through
+              #      this role even if they happen to look like ours. The central account's own role has
+              #      carried this condition since the beginning; customer accounts had it missing, and the
+              #      only thing standing between an unrelated alarm and deletion was a name/description
+              #      heuristic (AGENTS.md AP-18/AP-19).
+              - Effect: Allow
+                Action: cloudwatch:DeleteAlarms
+                Resource: "*"
+                Condition:
+                  StringEquals:
+                    "aws:ResourceTag/ManagedBy": "AlarmManager"
               # 1-1) Resource Groups Tagging API: Monitoring=on 리소스 태그 일괄 조회
               - Effect: Allow
                 Action:

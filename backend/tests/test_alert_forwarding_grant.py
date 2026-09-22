@@ -481,3 +481,68 @@ class TestForwardingFailuresAreReported:
             resp, _ = _create(_body(), fake_events())
         assert resp["statusCode"] == 201
         alert.assert_not_called()
+
+
+# ──────────────────────────────────────────────
+# 2026-09-22 — 알람 삭제는 우리가 태그한 알람에만.
+# 첫 실고객 계정(알람 166개, 전부 고객이 만든 것)을 등록하기 직전에 발견: 중앙 역할에는 처음부터 있던
+# ManagedBy 조건이 **고객사 온보딩 역할에는 없었다**. daily monitor는 고객 계정을 처리할 때 그 역할을
+# 뒤집어쓰므로, 고객 알람과 우리 알람을 가르는 것이 이름·설명 휴리스틱 하나뿐이었다(AP-18/AP-19).
+# ──────────────────────────────────────────────
+
+TEMPLATES = ("infrastructure/backend/template.yaml", "infrastructure/customer-onboarding/template.yaml",
+             "frontend/public/customer-onboarding.yaml")
+
+
+def _roles_that_delete_alarms(rel: str):
+    import pathlib
+    import yaml
+
+    class Loader(yaml.SafeLoader):
+        pass
+
+    def any_tag(loader, suffix, node):
+        if isinstance(node, yaml.ScalarNode):
+            return loader.construct_scalar(node)
+        if isinstance(node, yaml.SequenceNode):
+            return loader.construct_sequence(node)
+        return loader.construct_mapping(node)
+
+    Loader.add_multi_constructor("!", any_tag)
+    root = pathlib.Path(__file__).resolve().parents[2]
+    doc = yaml.load((root / rel).read_text(encoding="utf-8"), Loader=Loader)
+    found = []
+    for name, res in doc["Resources"].items():
+        if res.get("Type") != "AWS::IAM::Role":
+            continue
+        for policy in res.get("Properties", {}).get("Policies") or []:
+            for st in policy["PolicyDocument"]["Statement"]:
+                actions = st.get("Action")
+                actions = actions if isinstance(actions, list) else [actions]
+                if "cloudwatch:DeleteAlarms" in actions:
+                    found.append((name, st.get("Condition")))
+    return found
+
+
+class TestDeleteAlarmsIsTagGated:
+    @pytest.mark.parametrize("rel", ["infrastructure/customer-onboarding/template.yaml",
+                                     "frontend/public/customer-onboarding.yaml"])
+    def test_customer_role_can_only_delete_alarms_it_manages(self, rel):
+        roles = _roles_that_delete_alarms(rel)
+        assert roles, f"{rel}: 알람 삭제 권한을 가진 역할이 있어야 한다"
+        for name, condition in roles:
+            assert condition == {"StringEquals": {"aws:ResourceTag/ManagedBy": "AlarmManager"}}, \
+                f"{rel}:{name} — 고객 계정에서 태그 조건 없는 DeleteAlarms는 남의 알람까지 지울 수 있다"
+
+    def test_the_daily_monitor_role_keeps_its_guard(self):
+        roles = dict(_roles_that_delete_alarms("infrastructure/backend/template.yaml"))
+        assert roles["MonitoringEngineRole"] == {
+            "StringEquals": {"aws:ResourceTag/ManagedBy": "AlarmManager"}}
+
+    def test_the_two_published_copies_match_the_source(self):
+        """공개 S3 사본은 손으로 올린다 — 소스와 갈라지면 원클릭 배포가 옛 권한을 만든다."""
+        import pathlib
+        root = pathlib.Path(__file__).resolve().parents[2]
+        source = (root / "infrastructure/customer-onboarding/template.yaml").read_text(encoding="utf-8")
+        published = (root / "frontend/public/customer-onboarding.yaml").read_text(encoding="utf-8")
+        assert source == published
