@@ -515,3 +515,37 @@ class TestGetDiskDimensions:
         }
         assert paths_found == {"/", "/data"}
         _get_cw_client.cache_clear()
+
+
+class TestPseudoFilesystemsAreNotDisks:
+    """2026-09-23 첫 실고객 EC2: CWAgent가 26개 파일시스템을 냈고(22개 tmpfs) 디스크 알람이 경로마다 만들어졌다."""
+
+    @staticmethod
+    def _metric(path, fstype):
+        dims = [{"Name": "InstanceId", "Value": "i-1"}, {"Name": "path", "Value": path}]
+        if fstype:
+            dims.append({"Name": "fstype", "Value": fstype})
+        return {"Dimensions": dims}
+
+    def _paths(self, metrics, extra=None):
+        from unittest.mock import MagicMock
+        from common.dimension_builder import _get_disk_dimensions
+        cw = MagicMock()
+        cw.list_metrics.return_value = {"Metrics": metrics}
+        dims = _get_disk_dimensions("i-1", extra, cw=cw)
+        return sorted(next(d["Value"] for d in ds if d["Name"] == "path") for ds in dims)
+
+    def test_the_real_customer_mix_yields_root_only(self):
+        metrics = [self._metric("/", "xfs"), self._metric("/dev", "devtmpfs"), self._metric("/boot/efi", "vfat"),
+                   self._metric("/run", "tmpfs"), self._metric("/dev/shm", "tmpfs"), self._metric("/tmp", "tmpfs")]
+        metrics += [self._metric(f"/run/user/{uid}", "tmpfs") for uid in (0, 1000, 1011, 1025)]
+        assert self._paths(metrics) == ["/"]
+
+    def test_real_data_volumes_are_kept(self):
+        assert self._paths([self._metric("/", "xfs"), self._metric("/data", "ext4"), self._metric("/var/lib/docker", "xfs")])             == ["/", "/data", "/var/lib/docker"]
+
+    def test_pseudo_paths_are_skipped_even_without_an_fstype_dimension(self):
+        assert self._paths([self._metric("/", ""), self._metric("/run/user/1000", ""), self._metric("/dev/shm", "")]) == ["/"]
+
+    def test_an_explicitly_tagged_path_is_honoured_whatever_its_type(self):
+        assert self._paths([self._metric("/", "xfs"), self._metric("/dev/shm", "tmpfs")], {"/dev/shm"}) == ["/", "/dev/shm"]

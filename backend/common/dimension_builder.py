@@ -214,6 +214,16 @@ def _resolve_metric_dimensions(
 
 _EXCLUDED_DEFAULT_DISK_PATHS = {"/boot", "/boot/efi"}
 
+#: 디스크가 아닌 메모리·가상 파일시스템. CWAgent는 기본 설정에서 마운트된 **모든** 파일시스템의 disk_used_percent를 낸다 —
+#: 2026-09-23 첫 실고객 EC2는 26개 시리즈 중 22개가 tmpfs(`/run/user/<uid>` 로그인 세션마다 하나)였고, 이 필터가 없어 디스크 알람이
+#: 경로마다 만들어졌다(11개까지 만들다 30초 시간 초과). 명시적으로 태그한 경로(`Threshold_Disk_*`)는 종류와 상관없이 따른다.
+_PSEUDO_FSTYPES = frozenset({
+    "tmpfs", "devtmpfs", "ramfs", "overlay", "squashfs", "proc", "sysfs", "cgroup", "cgroup2", "efivarfs",
+    "autofs", "nsfs", "tracefs", "debugfs", "securityfs", "fuse.lxcfs",
+})
+#: fstype 차원이 없는 에이전트 설정에 대비한 경로 규칙 — 이 아래는 디스크가 아니다.
+_PSEUDO_PATH_ROOTS = ("/run", "/dev", "/sys", "/proc")
+
 
 def _get_disk_dimensions(instance_id: str, extra_paths: set[str] | None = None, *, cw=None) -> list[list[dict]]:
     """
@@ -256,7 +266,8 @@ def _get_disk_dimensions(instance_id: str, extra_paths: set[str] | None = None, 
         result = []
         for m in metrics:
             path = next((d["Value"] for d in m["Dimensions"] if d["Name"] == "path"), None)
-            if path and path not in seen_paths and _is_default_disk_path(path, target_paths):
+            fstype = next((d["Value"] for d in m["Dimensions"] if d["Name"] == "fstype"), "")
+            if path and path not in seen_paths and _is_default_disk_path(path, target_paths, fstype):
                 seen_paths.add(path)
                 result.append(m["Dimensions"])
 
@@ -272,9 +283,13 @@ def _get_disk_dimensions(instance_id: str, extra_paths: set[str] | None = None, 
         return []
 
 
-def _is_default_disk_path(path: str, explicit_paths: set[str]) -> bool:
+def _is_default_disk_path(path: str, explicit_paths: set[str], fstype: str = "") -> bool:
     if path in explicit_paths or path == "/":
         return True
     if path in _EXCLUDED_DEFAULT_DISK_PATHS or path.startswith("/boot/"):
+        return False
+    if fstype in _PSEUDO_FSTYPES:
+        return False
+    if any(path == root or path.startswith(root + "/") for root in _PSEUDO_PATH_ROOTS):
         return False
     return not explicit_paths
