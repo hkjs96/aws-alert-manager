@@ -268,6 +268,12 @@ class TestNoDiskAlarmsTriggersRecreate:
                 "common.alarm_manager.create_alarms_for_resource",
                 return_value=["new"],
             ) as mock_create,
+            # 디스크가 실제로 지표를 내는 인스턴스 — 알람만 없다. (지표가 없으면 만들 게 없어 재생성하지 않는다:
+            # test_alarm_sync.py::TestNoDiskMetricsNoChurn, 2026-09-23 매시간 재생성 버그)
+            patch(
+                "common.alarm_sync._get_disk_dimensions",
+                return_value=[[{"Name": "InstanceId", "Value": iid}, {"Name": "path", "Value": "/"}]],
+            ),
             patch.dict(os.environ, _ENV),
         ):
             sync_alarms_for_resource(iid, "EC2", tags)

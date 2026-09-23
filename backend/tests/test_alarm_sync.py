@@ -699,3 +699,51 @@ class TestConfigDrift:
         assert changed is True
         assert result["updated"] == [alarm["AlarmName"]]
         assert result["ok"] == []
+
+
+class TestNoDiskMetricsNoChurn:
+    """2026-09-23: CWAgent 디스크 지표가 없는 EC2가 동기화마다 알람 전체를 지웠다 다시 만들었다(정합 런이 매시간이라 매시간)."""
+
+    @staticmethod
+    def _alarm(metric, name):
+        return {"AlarmName": name, "MetricName": metric, "Threshold": 80.0, "Dimensions": []}
+
+    def test_no_disk_metrics_means_nothing_to_create(self):
+        from common.alarm_sync import _sync_disk_alarms
+        result = {"created": [], "updated": [], "ok": [], "deleted": []}
+        with patch("common.alarm_sync._get_disk_dimensions", return_value=[]):
+            changed = _sync_disk_alarms({}, "i-001", {}, result, cw=MagicMock())
+        assert changed is False and result["created"] == []
+
+    def test_disk_metrics_without_an_alarm_still_request_creation(self):
+        from common.alarm_sync import _sync_disk_alarms
+        result = {"created": [], "updated": [], "ok": [], "deleted": []}
+        dims = [[{"Name": "InstanceId", "Value": "i-001"}, {"Name": "path", "Value": "/"}]]
+        with patch("common.alarm_sync._get_disk_dimensions", return_value=dims):
+            changed = _sync_disk_alarms({}, "i-001", {}, result, cw=MagicMock())
+        assert changed is True and result["created"] == ["disk_used_percent"]
+
+    def test_a_resync_of_an_unchanged_ec2_without_disk_metrics_recreates_nothing(self):
+        """끝단 — 기존 알람이 다 맞으면 삭제도 생성도 없어야 한다."""
+        import json
+        existing = {
+            "CPUUtilization": "[EC2] srv CPUUtilization > 80% (TagName: i-001)",
+            "mem_used_percent": "[EC2] srv mem_used_percent > 80% (TagName: i-001)",
+            "StatusCheckFailed": "[EC2] srv StatusCheckFailed > 0 (TagName: i-001)",
+        }
+        cw = MagicMock()
+        cw.describe_alarms.return_value = {"MetricAlarms": [
+            {"AlarmName": name, "MetricName": metric, "Threshold": 0.0 if metric == "StatusCheckFailed" else 80.0,
+             "AlarmDescription": "Auto-created | " + json.dumps(
+                 {"metric_key": metric, "resource_id": "i-001", "resource_type": "EC2", "severity": "SEV-3"}),
+             **alarm_config_fields("EC2", metric)}
+            for metric, name in existing.items()]}
+        with patch("common._clients._get_cw_client", return_value=cw), \
+             patch("common.alarm_manager._find_alarms_for_resource", return_value=list(existing.values())), \
+             patch("common.alarm_sync._get_disk_dimensions", return_value=[]), \
+             patch("common.alarm_manager.create_alarms_for_resource") as full_recreate, \
+             patch("common.alarm_manager._delete_all_alarms_for_resource") as delete_all:
+            result = sync_alarms_for_resource("i-001", "EC2", {"Monitoring": "on"})
+        full_recreate.assert_not_called()
+        delete_all.assert_not_called()
+        assert result["created"] == []

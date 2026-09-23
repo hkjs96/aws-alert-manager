@@ -157,20 +157,30 @@ def _sync_disk_alarms(
     alarm_def: dict | None = None,
     cw=None,
 ) -> bool:
-    """Disk 알람 동기화. 변경 필요 시 True 반환."""
-    disk_alarms = {k: v for k, v in key_to_alarm.items() if k.startswith("Disk_")}
-    if not disk_alarms:
-        result["created"].append("disk_used_percent")
-        return True
+    """Disk 알람 동기화. 변경 필요 시 True 반환.
 
+    디스크 알람이 하나도 없다고 곧바로 "생성 필요"로 보지 않는다 — **CWAgent가 디스크 지표를 안 내는 인스턴스는 만들 게 없다.**
+    예전에는 그 판정이 `_apply_sync_changes`에서 알람 전체 삭제·재생성(`create_alarms_for_resource`)으로 이어졌고, 생성 쪽은 지표가
+    없어 디스크를 건너뛰므로 다음 동기화에서 또 같은 판정이 났다 — 동기화마다 그 인스턴스의 모든 알람이 지워졌다 다시 만들어졌다.
+    상태가 INSUFFICIENT_DATA로 초기화되고, 이력이 끊기고, 설정 변경 이벤트가 알림 파이프라인으로 흘렀다. 정합 런이 매시간이 된
+    2026-09-16부터는 매시간이었다(2026-09-23 첫 실고객 EC2에서 발견).
+    """
+    disk_alarms = {k: v for k, v in key_to_alarm.items() if k.startswith("Disk_")}
     extra_paths = {
         tag_suffix_to_disk_path(k[len("Threshold_Disk_"):])
         for k in resource_tags
         if k.startswith("Threshold_Disk_") and k != "Threshold_Disk_root"
     }
+    disk_dimensions = _get_disk_dimensions(resource_id, extra_paths or None, cw=cw)
+    if not disk_alarms:
+        if not disk_dimensions:
+            return False
+        result["created"].append("disk_used_percent")
+        return True
+
     expected_paths = {
         next((d["Value"] for d in dims if d["Name"] == "path"), "/")
-        for dims in _get_disk_dimensions(resource_id, extra_paths or None, cw=cw)
+        for dims in disk_dimensions
     }
     existing_paths = {
         next((d["Value"] for d in alarm.get("Dimensions", []) if d["Name"] == "path"), "/")
