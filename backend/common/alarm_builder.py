@@ -87,25 +87,54 @@ def _tag_alarm_with_severity(alarm_name: str, metric_key: str, cw, severity: str
     설명 메타데이터(`_build_alarm_description`)와 같은 값이어야 한다.
     tag_resource 실패는 알람 생성 성공에 영향을 주지 않도록 예외를 흡수한다.
     BotoCoreError: NoCredentialsError 등 자격증명 문제 포함.
+
+    **조립한 ARN이 틀릴 수 있다.** 계정 ID는 람다 기본 세션의 STS를 캐시한 값인데, API 토글·SQS 워커는 고객 계정 세션의
+    클라이언트를 넘긴다 — 고객 계정 알람에 중앙 계정 ID가 든 ARN이 만들어져 TagResource가 거부됐고, 알람이 ManagedBy 없이 남아
+    고객 역할의 태그 조건부 DeleteAlarms로는 지울 수 없게 됐다(AP-18, 2026-09-23 첫 실고객 토글). 그래서 첫 시도가 실패하면
+    **알람을 만든 그 클라이언트로** 실제 ARN을 조회해 한 번 더 단다. 평소(같은 계정)에는 조회 호출이 없다 — 데일리 런이 알람
+    수만큼 describe를 더 부르지 않게.
     """
     severity = severity or get_severity(metric_key)
+    tags = [
+        {"Key": "Severity", "Value": severity},
+        {"Key": "ManagedBy", "Value": "AlarmManager"},
+    ]
+    assembled = ""
     try:
-        region = cw.meta.region_name
-        account_id = _get_aws_account_id()
-        alarm_arn = f"arn:aws:cloudwatch:{region}:{account_id}:alarm:{alarm_name}"
-        cw.tag_resource(
-            ResourceARN=alarm_arn,
-            Tags=[
-                {"Key": "Severity", "Value": severity},
-                {"Key": "ManagedBy", "Value": "AlarmManager"},
-            ],
-        )
+        # 계정 ID 조회(STS)도 실패할 수 있다(자격증명 없음 등) — 예전처럼 여기서 흡수하고 조회 경로로 넘어간다.
+        assembled = _alarm_arn(cw, alarm_name)
+        cw.tag_resource(ResourceARN=assembled, Tags=tags)
+        return
     except (ClientError, BotoCoreError) as e:
-        logger.warning("Failed to tag alarm %s with severity: %s", alarm_name, e)
+        error = e
+    actual = _looked_up_alarm_arn(cw, alarm_name)
+    if actual and actual != assembled:
+        try:
+            cw.tag_resource(ResourceARN=actual, Tags=tags)
+            return
+        except (ClientError, BotoCoreError) as e:
+            error = e
+    logger.warning("Failed to tag alarm %s with severity: %s", alarm_name, error)
 
 
 def _alarm_arn(cw, alarm_name: str) -> str:
+    """조립한 알람 ARN — 계정 ID는 람다 기본 세션 기준이라 교차계정 클라이언트에서는 틀릴 수 있다(`_looked_up_alarm_arn`)."""
     return f"arn:aws:cloudwatch:{cw.meta.region_name}:{_get_aws_account_id()}:alarm:{alarm_name}"
+
+
+def _looked_up_alarm_arn(cw, alarm_name: str) -> str:
+    """알람을 만든 그 클라이언트로 조회한 실제 ARN. 못 찾으면 ""."""
+    try:
+        resp = cw.describe_alarms(AlarmNames=[alarm_name])
+    except (ClientError, BotoCoreError) as e:
+        logger.warning("Could not look up the ARN of %s: %s", alarm_name, e)
+        return ""
+    if not isinstance(resp, dict):
+        return ""
+    for alarm in resp.get("MetricAlarms") or []:
+        if alarm.get("AlarmArn"):
+            return str(alarm["AlarmArn"])
+    return ""
 
 
 def _tagged_severity(cw, alarm_arn: str) -> str:

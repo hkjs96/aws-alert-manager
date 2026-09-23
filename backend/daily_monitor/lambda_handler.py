@@ -149,6 +149,9 @@ def _clear_all_client_caches() -> None:
 
     # 핸들러 + 공통 모듈 클라이언트
     _get_cw_client.cache_clear()
+    # 알람 ARN 폴백이 쓰는 계정 ID도 세션을 따라가야 한다 — 남아 있으면 다음 계정의 알람 ARN에 이전 계정 ID가 들어간다.
+    from common import alarm_builder as _ab
+    _ab._get_aws_account_id.cache_clear()
     _get_ddb_resource.cache_clear()
     _cl._get_cw_client.cache_clear()
     _cl._get_cw_client_for_region.cache_clear()
