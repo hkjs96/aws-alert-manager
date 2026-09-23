@@ -315,11 +315,14 @@ class TestResourceInventoryLogic:
         assert resp["statusCode"] == 400
         assert json.loads(resp["body"])["code"] == "UNSUPPORTED_RESOURCE_TYPE"
 
+    @patch("api_handler.routes.resources._refresh_alarm_rows")
+    @patch("api_handler.routes.resources._live_resource_tags", return_value={})
     @patch("api_handler.routes.resources.delete_alarms_for_resource")
     @patch("api_handler.routes.resources.sync_alarms_for_resource")
     @patch("api_handler.routes.resources._get_cw_client_for_region")
     @patch("api_handler.routes.resources._find_account", return_value=None)
-    def test_apply_alarms_for_toggle_creates_on_deletes_off(self, mock_find, mock_cw, mock_sync, mock_delete, mock_db_env):
+    def test_apply_alarms_for_toggle_creates_on_deletes_off(self, mock_find, mock_cw, mock_sync, mock_delete,
+                                                             mock_live, mock_rows, mock_db_env):
         # 갭 축소: 토글 ON은 알람 즉시 생성, OFF는 즉시 삭제 (다음 daily run을 안 기다림).
         from api_handler.routes.resources import _apply_alarms_for_toggle
         res = {"resource_id": "i-9", "type": "EC2", "region": "us-east-1", "account_id": "123"}
@@ -338,9 +341,137 @@ class TestResourceInventoryLogic:
         _apply_alarms_for_toggle(res_hints, True)
         assert mock_sync.call_args.args[2] == {"Monitoring": "on", "_api_type": "HTTP"}
 
+        mock_delete.return_value = ["[EC2] web CPUUtilization > 80% (TagName: i-9)"]
         _apply_alarms_for_toggle(res, False)
         mock_delete.assert_called_once()
         assert mock_delete.call_args.args[0] == "i-9"
+        assert mock_rows.call_args.kwargs["deleted"] == ["[EC2] web CPUUtilization > 80% (TagName: i-9)"]
+
+
+class TestToggleUsesTheResourcesRealTags:
+    """2026-09-23 첫 실고객 토글: 알람 이름이 `[EC2] i-08e54786d6a2dae9d CPUUtilization …`로 만들어졌다. 고객 알람은
+    `[EC2]EC2-AN2-HOME-PRD-BASTION-01A …` — 라벨이 Name 태그가 아니라 인스턴스 ID로 떨어진 것. 동기화는 기존 알람을 메트릭으로
+    대조하므로 데일리 런이 이름을 고치지 않는다 — 토글이 처음부터 데일리 런과 같은 태그로 만들어야 한다."""
+
+    def test_live_tags_give_the_alarm_its_name_and_thresholds(self):
+        from api_handler.routes import resources as r
+        res = {"resource_id": "i-08e5", "type": "EC2", "region": "ap-northeast-2", "account_id": "771283576189"}
+        live = {"Name": "EC2-AN2-HOME-PRD-BASTION-01A", "Threshold_CPUUtilization": "90", "Monitoring": "off"}
+        with patch.object(r, "_live_resource_tags", return_value=live):
+            tags = r._toggle_alarm_tags(res)
+        assert tags["Name"] == "EC2-AN2-HOME-PRD-BASTION-01A"
+        assert tags["Threshold_CPUUtilization"] == "90"
+        assert tags["Monitoring"] == "on"          # 방금 쓴 태그는 RGT 최종 일관성 때문에 아직 off로 보일 수 있다
+
+    def test_dimension_hints_win_over_live_tags(self):
+        from api_handler.routes import resources as r
+        res = {"resource_id": "tg", "type": "TG", "region": "us-east-1", "account_id": "1",
+               "dim_hints": {"_lb_arn": "arn:lb"}}
+        with patch.object(r, "_live_resource_tags", return_value={"_lb_arn": "stale", "Name": "tg-a"}):
+            assert r._toggle_alarm_tags(res) == {"_lb_arn": "arn:lb", "Name": "tg-a", "Monitoring": "on"}
+
+    def test_name_label_reaches_the_alarm_name(self):
+        """실제 알람 이름 빌더까지 — 라벨이 ID가 아니라 Name이어야 한다."""
+        from common.alarm_naming import _pretty_alarm_name
+        name = _pretty_alarm_name("EC2", "i-08e5", "EC2-AN2-HOME-PRD-BASTION-01A", "CPUUtilization", 80.0)
+        assert name.startswith("[EC2] EC2-AN2-HOME-PRD-BASTION-01A CPUUtilization")
+        assert name.endswith("(TagName: i-08e5)")
+
+    def test_live_tags_are_read_through_the_account_session(self):
+        from api_handler.routes import resources as r
+        client = MagicMock()
+        client.get_resources.return_value = {"ResourceTagMappingList": [
+            {"ResourceARN": "arn:x", "Tags": [{"Key": "Name", "Value": "bastion"}]}]}
+        session = MagicMock()
+        session.client.return_value = client
+        res = {"resource_id": "i-1", "type": "EC2", "account_id": "771283576189", "region": "ap-northeast-2"}
+        with patch.object(r, "_resource_arn_for_tagging", return_value="arn:x"), \
+             patch.object(r, "_resource_aws_session", return_value=(session, "ap-northeast-2", "771283576189")):
+            assert r._live_resource_tags(res) == {"Name": "bastion"}
+        session.client.assert_called_once_with("resourcegroupstaggingapi", region_name="ap-northeast-2")
+        client.get_resources.assert_called_once_with(ResourceARNList=["arn:x"])
+
+    def test_unreadable_tags_fall_back_to_the_old_behaviour(self):
+        from botocore.exceptions import ClientError
+        from api_handler.routes import resources as r
+        client = MagicMock()
+        client.get_resources.side_effect = ClientError({"Error": {"Code": "AccessDenied", "Message": "x"}}, "GetResources")
+        with patch.object(r, "_resource_arn_for_tagging", return_value="arn:x"), \
+             patch.object(r, "_resource_aws_session", return_value=(None, "us-east-1", "1")), \
+             patch.object(r, "_get_tagging_client_for_region", return_value=client):
+            assert r._live_resource_tags({"resource_id": "i-1", "type": "EC2"}) == {}
+
+
+class TestToggleRefreshesTheAlarmRows:
+    """리소스 상세 화면의 알람 표는 인벤토리 알람 행을 읽는다. 예전에는 데일리 런·정합 런만 그 행을 써서, 켜도 끄도 화면이
+    최대 한 시간 그대로였다(2026-09-23 첫 실고객 토글: 알람 3개가 생겼는데 표는 비어 있었다)."""
+
+    ALARM = {
+        "AlarmName": "[EC2] bastion CPUUtilization > 80% (TagName: i-08e5)",
+        "AlarmArn": "arn:aws:cloudwatch:ap-northeast-2:771283576189:alarm:[EC2] bastion CPUUtilization > 80% (TagName: i-08e5)",
+        "AlarmDescription": 'Auto-created | {"metric_key":"CPUUtilization","resource_id":"i-08e5","resource_type":"EC2"}',
+        "StateValue": "OK", "MetricName": "CPUUtilization", "Namespace": "AWS/EC2", "Threshold": 80.0,
+        "ComparisonOperator": "GreaterThanThreshold",
+    }
+    CUSTOMERS_OWN = {  # 고객이 만든 비슷한 이름 — 관리 포맷이 아니라 행이 되면 안 된다
+        "AlarmName": "[EC2]EC2-AN2-HOME-PRD-BASTION-01A STATUS_CHECK_FAILED (TagName:EC2-AN2-HOME-PRD-BASTION-01A)",
+        "AlarmArn": "arn:aws:cloudwatch:ap-northeast-2:771283576189:alarm:custom", "StateValue": "OK",
+    }
+
+    def _run(self, *, deleted=None, alarms=()):
+        from api_handler.routes import resources as r
+        cw = MagicMock()
+        cw.meta.region_name = "ap-northeast-2"
+        cw.describe_alarms.return_value = {"MetricAlarms": list(alarms)}
+        table = MagicMock()
+        batch = table.batch_writer.return_value.__enter__.return_value
+        res = {"resource_id": "i-08e5", "type": "EC2", "account_id": "771283576189"}
+        with patch.dict("os.environ", {"RESOURCE_INVENTORY_TABLE": "inv"}), \
+             patch.object(r, "resource_inventory_table", return_value=table), \
+             patch.object(r, "_find_alarms_for_resource", return_value=[a["AlarmName"] for a in alarms]):
+            r._refresh_alarm_rows(res, cw, deleted=deleted)
+        return batch, cw
+
+    def test_on_writes_a_row_per_managed_alarm(self):
+        batch, cw = self._run(alarms=[self.ALARM, self.CUSTOMERS_OWN])
+        rows = [c.kwargs["Item"] for c in batch.put_item.call_args_list]
+        assert len(rows) == 1
+        row = rows[0]
+        assert row["resource_id"] == f"alarm#{self.ALARM['AlarmArn']}"
+        assert row["account_id"] == "771283576189"
+        assert row["resource"] == "i-08e5" and row["entity_type"] == "alarm" and row["state"] == "OK"
+        batch.delete_item.assert_not_called()
+
+    def test_off_removes_the_rows_of_the_deleted_alarms(self):
+        name = "[EC2] bastion CPUUtilization > 80% (TagName: i-08e5)"
+        batch, cw = self._run(deleted=[name])
+        batch.delete_item.assert_called_once_with(Key={
+            "resource_id": f"alarm#arn:aws:cloudwatch:ap-northeast-2:771283576189:alarm:{name}",
+            "account_id": "771283576189"})
+        batch.put_item.assert_not_called()
+        cw.describe_alarms.assert_not_called()
+
+    def test_rows_use_the_same_builder_as_the_daily_run(self):
+        """두 경로의 행이 어긋나면 화면이 토글 직후와 정합 런 뒤에 다르게 보인다."""
+        from common.alarm_inventory import alarm_snapshot_items
+        from daily_monitor.lambda_handler import _write_alarm_snapshots
+        table = MagicMock()
+        batch = table.batch_writer.return_value.__enter__.return_value
+        _, fresh = _write_alarm_snapshots(table, [self.ALARM])
+        daily_row = batch.put_item.call_args.kwargs["Item"]
+        assert daily_row == alarm_snapshot_items([self.ALARM])[0]
+        assert fresh == {(daily_row["resource_id"], "771283576189")}
+
+    def test_a_failed_refresh_does_not_fail_the_toggle(self):
+        from botocore.exceptions import ClientError
+        from api_handler.routes import resources as r
+        cw = MagicMock()
+        cw.meta.region_name = "ap-northeast-2"
+        table = MagicMock()
+        table.batch_writer.side_effect = ClientError({"Error": {"Code": "Throttling", "Message": "x"}}, "BatchWriteItem")
+        with patch.dict("os.environ", {"RESOURCE_INVENTORY_TABLE": "inv"}), \
+             patch.object(r, "resource_inventory_table", return_value=table):
+            r._refresh_alarm_rows({"resource_id": "i-1", "type": "EC2", "account_id": "1"}, cw, deleted=[])
 
     @patch("api_handler.routes.resources._apply_alarms_for_toggle",
            side_effect=KeyError("_lb_arn"))

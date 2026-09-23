@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 
 from common.alarm_builder import resolve_alarm_severity
 from common.alarm_identity import group_alarms_by_resource, identify_alarm
+from common.alarm_inventory import alarm_snapshot_items, build_alarm_item as _build_alarm_item  # noqa: F401 — 테스트 경로
 from common.perf_log import Timer
 from common.tag_cache import log_tag_cache_stats, prime_tag_cache, set_active_tag_cache
 from common.alarm_index import AlarmIndex
@@ -1234,71 +1235,10 @@ def _scan_all_accounts(table) -> list[dict]:
 
 
 def _write_alarm_snapshots(inv_table, alarms: list[dict]) -> tuple[int, set[tuple[str, str]]]:
-    items = []
-    fresh_keys = set()
-    for alarm in alarms:
-        # 인벤토리에는 이 엔진이 관리하는 포맷의 알람만 기록한다.
-        # (페치는 AlarmIndex용으로 전체를 가져온다.) 단순 "[" 접두사 필터는
-        # CFN이 만든 [RemediationDLQ] 같은 인프라 알람까지 리소스 없는 유령 행으로
-        # 넣었으므로, 리소스를 역추출할 수 있는 관리 포맷만 통과시킨다.
-        if identify_alarm(alarm) is None:
-            continue
-        arn = alarm.get("AlarmArn", "")
-        if not arn:
-            continue
-        db_key = f"alarm#{arn}"
-        arn_parts = arn.split(":")
-        acc = arn_parts[4] if len(arn_parts) > 4 and arn_parts[4] else alarm.get("_account_id", "unknown")
-
-        items.append(_build_alarm_item(alarm, db_key, acc, arn_parts))
-        fresh_keys.add((db_key, acc))
-
+    """관리 포맷 알람을 인벤토리 알람 행으로 쓴다 — 행 모양은 API 토글과 공유(`common.alarm_inventory`)."""
+    items = alarm_snapshot_items(alarms)
+    fresh_keys = {(item["resource_id"], item["account_id"]) for item in items}
     return _batch_put_items(inv_table, items), fresh_keys
-
-
-def _build_alarm_item(alarm: dict, db_key: str, account: str, arn_parts: list[str]) -> dict:
-    alarm_name = alarm["AlarmName"]
-    region = arn_parts[3] if len(arn_parts) > 3 and arn_parts[3] else alarm.get("_region", "unknown")
-    
-    # resource = 정본(Full) ID → 프론트 링크 /resources/{token}와 대시보드의 인벤토리
-    # 조인이 ALB/NLB/TG에서도 맞는다. tag_name은 이름의 short ID (표시·레거시 매칭용).
-    identity = identify_alarm(alarm)
-    if identity is not None:
-        res_type, res_id, tag_name = identity.resource_type, identity.resource_id, identity.tag_name
-    else:
-        res_type, res_id, tag_name = "", alarm_name, ""
-
-    tags = {t["Key"]: t["Value"] for t in alarm.get("Tags", [])} if alarm.get("Tags") else {}
-    severity = resolve_alarm_severity(alarm)
-    ts = alarm.get("StateUpdatedTimestamp")
-    ts_str = ts.isoformat() if hasattr(ts, "isoformat") else str(ts or "")
-
-    return {
-        "resource_id": db_key,
-        "account_id": account,
-        "alarm_name": alarm_name,
-        "arn": alarm.get("AlarmArn", ""),
-        "entity_type": "alarm",
-        "state": alarm.get("StateValue", ""),
-        "metric": alarm.get("MetricName", ""),
-        "namespace": alarm.get("Namespace", ""),
-        "comparison": alarm.get("ComparisonOperator", ""),
-        "threshold": str(alarm.get("Threshold", "0")),
-        "severity": severity,
-        "time": ts_str,
-        "region": region,
-        "type": res_type,
-        "resource": res_id,
-        "tag_name": tag_name,
-        "inventory_source": "alarms",
-        "tags": tags,
-        "status": "active",
-        "period": alarm.get("Period"),
-        "evaluation_periods": alarm.get("EvaluationPeriods"),
-        "datapoints_to_alarm": alarm.get("DatapointsToAlarm"),
-        "treat_missing_data": alarm.get("TreatMissingData"),
-        "statistic": alarm.get("Statistic"),
-    }
 
 
 def _cleanup_stale_snapshots(inv_table, fresh_keys: set[tuple[str, str]], target_acc_regions: set[tuple[str, str]]) -> int:

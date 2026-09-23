@@ -18,6 +18,8 @@ from api_handler.cw_helper import (
 from api_handler.db import accounts_table, resource_inventory_table, scan_all, query_by_pk
 from common import SUPPORTED_RESOURCE_TYPES, dimension_builder
 from common.alarm_identity import identify_alarm
+from common.alarm_inventory import alarm_snapshot_items, snapshot_key
+from common.alarm_search import _find_alarms_for_resource
 from common.tag_resolver import disk_path_to_tag_suffix
 from common.resource_discovery import _get_session_for_account
 from common.alarm_manager import sync_alarms_for_resource, delete_alarms_for_resource
@@ -753,14 +755,73 @@ def _set_resource_monitoring_tag(resource: dict, monitoring: bool) -> None:
         raise RuntimeError(f"Failed to tag {arn}: {failed}")
 
 
+def _live_resource_tags(resource: dict) -> dict:
+    """리소스의 실제 태그 — 데일리 런이 수집기에서 보는 것과 같은 것. 못 읽으면 {} (예전 동작과 같다).
+
+    토글 즉시 생성은 예전에 `{Monitoring: on}`과 디멘션 힌트만 넘겼다. 그러면 알람 이름의 라벨이 `Name` 태그가 아니라
+    리소스 ID로 떨어지고(`[EC2] i-08e5… CPUUtilization …`), `Threshold_*` 태그도 무시된다. 동기화는 기존 알람을 **메트릭으로**
+    대조하므로 다음 데일리 런이 이름을 고치지 않는다 — 한 번 ID로 만들어지면 그대로 남는다(2026-09-23 첫 실고객 토글에서 발견).
+    인벤토리의 `name`으로 대신하지 않는 이유: 타입에 따라 그 값이 `Name` 태그가 아니고, APIGW처럼 `Name` 태그로 디멘션을 만드는
+    타입이 있어 추정값을 넣으면 알람이 엉뚱한 시리즈를 본다.
+    """
+    arn = _resource_arn_for_tagging(resource)
+    if not arn:
+        return {}
+    session, region, _ = _resource_aws_session(resource)
+    client = (session.client("resourcegroupstaggingapi", region_name=region)
+              if session is not None else _get_tagging_client_for_region(region))
+    try:
+        mappings = client.get_resources(ResourceARNList=[arn]).get("ResourceTagMappingList", [])
+    except ClientError as exc:
+        logger.warning("Could not read tags of %s before creating alarms: %s", arn, exc)
+        return {}
+    return {t["Key"]: t["Value"] for m in mappings for t in m.get("Tags", [])}
+
+
+def _toggle_alarm_tags(resource: dict) -> dict:
+    """토글 ON 때 알람을 만들 태그 — 실제 태그 + `Monitoring=on`(방금 쓴 태그는 RGT 최종 일관성 때문에 아직 안 보일 수 있다)
+    + 인벤토리의 디멘션 힌트(`_lb_arn`·`_api_type` 같은 수집기 내부 태그 — 실제 태그에는 없다)."""
+    return {**_live_resource_tags(resource), "Monitoring": "on", **(resource.get("dim_hints") or {})}
+
+
+def _alarm_rows_for(cw, resource_id: str, resource_type: str) -> list[dict]:
+    """이 리소스의 관리 알람 → 인벤토리 알람 행."""
+    names = _find_alarms_for_resource(resource_id, resource_type, cw=cw)
+    alarms: list[dict] = []
+    for i in range(0, len(names), 100):
+        alarms.extend(cw.describe_alarms(AlarmNames=names[i:i + 100]).get("MetricAlarms", []))
+    return alarm_snapshot_items(alarms)
+
+
+def _refresh_alarm_rows(resource: dict, cw, *, deleted: list[str] | None = None) -> None:
+    """토글 직후 인벤토리의 알람 행을 맞춘다 — 리소스 상세 화면의 알람 표는 이 행을 읽는다.
+
+    예전에는 데일리 런·정합 런만 이 행을 써서, 켜도 끄도 화면은 최대 한 시간 그대로였다. 실패해도 토글은 성공이다 —
+    다음 정합 런이 같은 행을 다시 쓴다.
+    """
+    if not os.environ.get("RESOURCE_INVENTORY_TABLE"):
+        return
+    resource_id = resource.get("resource_id") or resource.get("id")
+    account_id = resource.get("account_id")
+    region = cw.meta.region_name
+    try:
+        table = resource_inventory_table()
+        with table.batch_writer(overwrite_by_pkeys=["resource_id", "account_id"]) as batch:
+            for name in deleted or []:
+                arn = f"arn:aws:cloudwatch:{region}:{account_id}:alarm:{name}"
+                batch.delete_item(Key={"resource_id": snapshot_key(arn), "account_id": account_id})
+            if deleted is None:
+                for item in _alarm_rows_for(cw, resource_id, resource.get("type", "")):
+                    batch.put_item(Item=item)
+    except ClientError as exc:
+        logger.warning("Alarm rows for %s not refreshed; the next reconcile will: %s", resource_id, exc)
+
+
 def _apply_alarms_for_toggle(resource: dict, monitoring: bool) -> None:
     """토글 즉시 알람 생성/삭제 — 다음 daily monitor 실행을 기다리지 않고 갭을 줄인다.
 
-    ON 시 {Monitoring: on} + 인벤토리에 영속화된 디멘션 힌트(dim_hints —
-    _api_type/_lb_arn/_cluster_name 등)를 합쳐 알람을 생성한다. 힌트 덕에
-    APIGW v2(ApiId)·TG(LoadBalancer 복합 디멘션) 같은 타입도 즉시 생성이
-    정확하다. Threshold_* 등 실제 리소스 태그 기반 정밀화는 알람 빌더가
-    재조회하며, 잔여 차이는 다음 daily monitor가 self-heal 한다.
+    ON은 데일리 런과 **같은 태그**로 만든다(`_toggle_alarm_tags` — 실제 태그 + 디멘션 힌트). 그래야 알람 이름·임계치가
+    데일리 런이 만들었을 것과 같다. 끝나면 인벤토리의 알람 행을 맞춰 화면이 바로 바뀐다(`_refresh_alarm_rows`).
     """
     resource_id = resource.get("resource_id") or resource.get("id")
     resource_type = resource.get("type")
@@ -768,10 +829,11 @@ def _apply_alarms_for_toggle(resource: dict, monitoring: bool) -> None:
     cw = (session.client("cloudwatch", region_name=region)
           if session is not None else _get_cw_client_for_region(region))
     if monitoring:
-        tags = {"Monitoring": "on", **(resource.get("dim_hints") or {})}
-        sync_alarms_for_resource(resource_id, resource_type, tags, cw=cw)
+        sync_alarms_for_resource(resource_id, resource_type, _toggle_alarm_tags(resource), cw=cw)
+        _refresh_alarm_rows(resource, cw)
     else:
-        delete_alarms_for_resource(resource_id, resource_type, cw=cw)
+        deleted = delete_alarms_for_resource(resource_id, resource_type, cw=cw)
+        _refresh_alarm_rows(resource, cw, deleted=list(deleted or []))
 
 
 def _update_inventory_monitoring(resource: dict, monitoring: bool) -> None:

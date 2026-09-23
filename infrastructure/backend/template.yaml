@@ -1475,6 +1475,8 @@ Resources:
               - Effect: Allow
                 Action:
                   - tag:TagResources
+                  # 토글 즉시 생성이 리소스의 실제 태그(Name·Threshold_*)를 읽는다 — 데일리 런과 같은 알람 이름을 위해.
+                  - tag:GetResources
                 Resource: "*"
               # 태그 쓰기는 Monitoring 키가 든 요청만 — 다른 키(비용·ABAC 태그)는 이 역할로 건드릴 수 없다.
               # 아래 액션은 전부 aws:TagKeys를 지원한다(Service Authorization Reference, 2026-09-16 액션마다 확인).
