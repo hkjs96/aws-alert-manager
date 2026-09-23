@@ -1858,7 +1858,10 @@ Resources:
       Environment:
         Variables:
           WORKER_FUNCTION_NAME: !Ref DailyMonitorFunction
-          MONITORED_ACCOUNTS: ""   # JSON array — Phase 2에서 DynamoDB로 교체
+          # 계정 목록의 정본. 비워 두면 오케스트레이터가 현재 계정 하나로만 폴백한다 —
+          # 2026-09-23까지 그 상태라 고객사 계정을 등록해도 데일리 런이 돌지 않았다.
+          ACCOUNTS_TABLE: !Ref AccountsTable
+          MONITORED_ACCOUNTS: ""   # JSON array — 수동 오버라이드(비상용). 비어 있으면 ACCOUNTS_TABLE을 읽는다.
 
   # -- EventBridge Scheduler: Daily Monitor (Orchestrator 경유) --
   DailyMonitorSchedule:
@@ -2432,6 +2435,10 @@ Resources:
               - Effect: Allow
                 Action: lambda:InvokeFunction
                 Resource: !GetAtt DailyMonitorFunction.Arn
+              # 어느 계정을 돌릴지 등록된 계정 표에서 읽는다(읽기 전용).
+              - Effect: Allow
+                Action: dynamodb:Scan
+                Resource: !GetAtt AccountsTable.Arn
 
   # -- IAM Role: Remediation Handler ---------
   RemediationHandlerRole:
