@@ -546,3 +546,73 @@ class TestDeleteAlarmsIsTagGated:
         source = (root / "infrastructure/customer-onboarding/template.yaml").read_text(encoding="utf-8")
         published = (root / "frontend/public/customer-onboarding.yaml").read_text(encoding="utf-8")
         assert source == published
+
+
+class TestCentralRolesCanAssumeTheOnboardedRole:
+    """중앙 역할의 AssumeRole 대상 == 온보딩 스택이 만드는 역할 이름.
+
+    두 템플릿이 따로 진화하면서 어긋났다: 중앙은 `AlarmManagerRole`, 온보딩은
+    `AlarmManagerMonitoringRole`. 교차계정 호출이 전부 AccessDenied였는데 등록된 고객사 계정이 없어
+    2026-09-23 첫 실고객 온보딩까지 드러나지 않았다.
+    """
+
+    @staticmethod
+    def _onboarding_role_name() -> str:
+        import pathlib
+        import yaml
+
+        class Loader(yaml.SafeLoader):
+            pass
+
+        def any_tag(loader, suffix, node):
+            if isinstance(node, yaml.ScalarNode):
+                return loader.construct_scalar(node)
+            if isinstance(node, yaml.SequenceNode):
+                return loader.construct_sequence(node)
+            return loader.construct_mapping(node)
+
+        Loader.add_multi_constructor("!", any_tag)
+        root = pathlib.Path(__file__).resolve().parents[2]
+        doc = yaml.load((root / "infrastructure/customer-onboarding/template.yaml").read_text(encoding="utf-8"),
+                        Loader=Loader)
+        return doc["Parameters"]["RoleName"]["Default"]
+
+    @staticmethod
+    def _assume_role_targets():
+        import pathlib
+        import yaml
+
+        class Loader(yaml.SafeLoader):
+            pass
+
+        def any_tag(loader, suffix, node):
+            if isinstance(node, yaml.ScalarNode):
+                return loader.construct_scalar(node)
+            if isinstance(node, yaml.SequenceNode):
+                return loader.construct_sequence(node)
+            return loader.construct_mapping(node)
+
+        Loader.add_multi_constructor("!", any_tag)
+        root = pathlib.Path(__file__).resolve().parents[2]
+        doc = yaml.load((root / "infrastructure/backend/template.yaml").read_text(encoding="utf-8"), Loader=Loader)
+        out = {}
+        for name, res in doc["Resources"].items():
+            if res.get("Type") != "AWS::IAM::Role":
+                continue
+            for policy in res.get("Properties", {}).get("Policies") or []:
+                for st in policy["PolicyDocument"]["Statement"]:
+                    actions = st.get("Action")
+                    actions = actions if isinstance(actions, list) else [actions]
+                    if "sts:AssumeRole" in actions:
+                        r = st.get("Resource")
+                        out.setdefault(name, []).extend(r if isinstance(r, list) else [r])
+        return out
+
+    def test_every_central_role_may_assume_the_role_the_onboarding_stack_creates(self):
+        wanted = f"arn:aws:iam::*:role/{self._onboarding_role_name()}"
+        targets = self._assume_role_targets()
+        assert targets, "sts:AssumeRole을 가진 중앙 역할이 있어야 한다"
+        for role, resources in targets.items():
+            assert wanted in resources, (
+                f"{role}이 온보딩 역할({wanted})을 위임받을 수 없다 — 교차계정 호출이 전부 AccessDenied가 된다. "
+                f"현재 대상: {resources}")

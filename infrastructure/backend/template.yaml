@@ -1535,10 +1535,17 @@ Resources:
                   "ForAllValues:StringEquals":
                     "aws:TagKeys":
                       - "Monitoring"
+              # 고객사 온보딩 스택이 만드는 역할 이름과 **정확히** 같아야 한다
+              # (`infrastructure/customer-onboarding/template.yaml`의 RoleName 기본값).
+              # 2026-09-23까지 `AlarmManagerRole` 하나만 적혀 있어 교차계정 AssumeRole이 전부 AccessDenied였다 —
+              # 첫 실고객 계정을 등록하고 연결 테스트를 누르기 전까지 아무도 몰랐다. 옛 이름도 남겨 그 이름으로
+              # 온보딩한 계정을 깨뜨리지 않는다. 드리프트는 tests/test_alert_forwarding_grant.py가 막는다.
               - Effect: Allow
                 Action:
                   - sts:AssumeRole
-                Resource: "arn:aws:iam::*:role/AlarmManagerRole"
+                Resource:
+                  - "arn:aws:iam::*:role/AlarmManagerMonitoringRole"
+                  - "arn:aws:iam::*:role/AlarmManagerRole"
               - Effect: Allow
                 Action:
                   - lambda:InvokeFunction
@@ -1605,10 +1612,17 @@ Resources:
                   - cloudwatch:ListTagsForResource
                   - cloudwatch:TagResource
                 Resource: "*"
+              # 고객사 온보딩 스택이 만드는 역할 이름과 **정확히** 같아야 한다
+              # (`infrastructure/customer-onboarding/template.yaml`의 RoleName 기본값).
+              # 2026-09-23까지 `AlarmManagerRole` 하나만 적혀 있어 교차계정 AssumeRole이 전부 AccessDenied였다 —
+              # 첫 실고객 계정을 등록하고 연결 테스트를 누르기 전까지 아무도 몰랐다. 옛 이름도 남겨 그 이름으로
+              # 온보딩한 계정을 깨뜨리지 않는다. 드리프트는 tests/test_alert_forwarding_grant.py가 막는다.
               - Effect: Allow
                 Action:
                   - sts:AssumeRole
-                Resource: "arn:aws:iam::*:role/AlarmManagerRole"
+                Resource:
+                  - "arn:aws:iam::*:role/AlarmManagerMonitoringRole"
+                  - "arn:aws:iam::*:role/AlarmManagerRole"
 
   SqsWorkerEventSourceMapping:
     Type: AWS::Lambda::EventSourceMapping
@@ -2381,10 +2395,17 @@ Resources:
                   - dynamodb:GetItem
                 Resource: !GetAtt JobStatusTable.Arn
               # -- 멀티 어카운트: 대상 계정 Role AssumeRole --
+              # 고객사 온보딩 스택이 만드는 역할 이름과 **정확히** 같아야 한다
+              # (`infrastructure/customer-onboarding/template.yaml`의 RoleName 기본값).
+              # 2026-09-23까지 `AlarmManagerRole` 하나만 적혀 있어 교차계정 AssumeRole이 전부 AccessDenied였다 —
+              # 첫 실고객 계정을 등록하고 연결 테스트를 누르기 전까지 아무도 몰랐다. 옛 이름도 남겨 그 이름으로
+              # 온보딩한 계정을 깨뜨리지 않는다. 드리프트는 tests/test_alert_forwarding_grant.py가 막는다.
               - Effect: Allow
                 Action:
                   - sts:AssumeRole
-                Resource: "arn:aws:iam::*:role/AlarmManagerRole"
+                Resource:
+                  - "arn:aws:iam::*:role/AlarmManagerMonitoringRole"
+                  - "arn:aws:iam::*:role/AlarmManagerRole"
                 # TODO: Phase 2에서 각 고객사의 실제 Role ARN으로 교체
 
   # -- IAM Role: Orchestrator ----------------
