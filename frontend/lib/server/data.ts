@@ -15,6 +15,7 @@ import type { AlarmSummary, DashboardStats } from "@/types/api";
 import { cache } from "react";
 import { encodeResourceId } from "@/lib/resource-id";
 import { getSession } from "@/lib/server/session";
+import { collectAllPages, type Page } from "@/lib/paginate";
 
 const API_BASE_URL =
   process.env.API_GATEWAY_URL ??
@@ -65,14 +66,24 @@ function normalizeResource(resource: ApiResource): Resource {
   };
 }
 
+// 목록 화면은 필터를 브라우저에서 걸므로 전체가 필요하다 — 첫 페이지만 받으면 100개에서 잘린다(lib/paginate.ts).
+const LIST_PAGE_SIZE = 100;
+
 export async function fetchAlarms(): Promise<Alarm[]> {
-  const data = await apiFetch<{ items: Alarm[] }>("/api/alarms?page_size=100");
-  return data.items;
+  return collectAllPages(
+    (page) => apiFetch<Page<Alarm>>(`/api/alarms?page_size=${LIST_PAGE_SIZE}&page=${page}`),
+    LIST_PAGE_SIZE,
+    (alarm) => alarm.arn || alarm.id,
+  );
 }
 
 export async function fetchResources(): Promise<Resource[]> {
-  const data = await apiFetch<{ items: ApiResource[] }>("/api/resources?page_size=100");
-  return data.items.map(normalizeResource);
+  const items = await collectAllPages(
+    (page) => apiFetch<Page<ApiResource>>(`/api/resources?page_size=${LIST_PAGE_SIZE}&page=${page}`),
+    LIST_PAGE_SIZE,
+    (resource) => `${resource.account_id || resource.account}:${resource.id}`,
+  );
+  return items.map(normalizeResource);
 }
 
 export async function fetchCustomers(): Promise<Customer[]> {
