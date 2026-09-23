@@ -191,7 +191,9 @@ def _create_disk_alarms(
         for k in resource_tags
         if k.startswith("Threshold_Disk_") and k != "Threshold_Disk_root"
     }
-    disk_dim_sets = _get_disk_dimensions(resource_id, extra_paths or None)
+    # 받은 클라이언트로 찾는다 — 빠뜨리면 중앙 계정에서 찾아 고객 계정 디스크를 "없음"으로 본다. 동기화는 고객 계정에서
+    # 디스크를 찾아 "알람 없음 → 재생성"을 요구하고, 생성은 또 건너뛰어 동기화마다 전체 재생성이 됐다(2026-09-23).
+    disk_dim_sets = _get_disk_dimensions(resource_id, extra_paths or None, cw=cw)
     if not disk_dim_sets:
         logger.warning(
             "Skipping disk_used_percent alarm for %s: no CWAgent metrics found. "

@@ -747,3 +747,45 @@ class TestNoDiskMetricsNoChurn:
         full_recreate.assert_not_called()
         delete_all.assert_not_called()
         assert result["created"] == []
+
+
+class TestClientIsForwardedEverywhere:
+    """고객 계정 세션의 CloudWatch 클라이언트를 받은 함수가 그걸 빠뜨리고 헬퍼를 부르면, 헬퍼는 중앙 계정 기본 클라이언트를 쓴다.
+    2026-09-23 첫 실고객 EC2: 알람 태그 ARN(중앙 계정 ID)과 디스크 지표 조회(중앙 계정)가 그랬다 — 앞은 지울 수 없는 알람을,
+    뒤는 동기화마다 전체 재생성을 낳았다. 이 테스트는 그 종류의 누락을 소스에서 잡는다."""
+
+    CW_AWARE = {"_get_disk_dimensions", "_find_alarms_for_resource", "_describe_alarms_batch",
+                "_delete_all_alarms_for_resource", "create_alarms_for_resource", "delete_alarms_for_resource",
+                "sync_alarms_for_resource", "_create_single_alarm", "_recreate_alarm_by_name", "_delete_alarm_names",
+                "_create_dynamic_alarm", "_refresh_alarm_description"}
+    MODULES = ("common/alarm_builder.py", "common/alarm_manager.py", "common/alarm_sync.py",
+               "common/alarm_search.py", "common/dimension_builder.py")
+
+    def test_functions_that_receive_a_client_pass_it_on(self):
+        import ast
+        import pathlib
+        root = pathlib.Path(__file__).resolve().parents[1]
+        dropped = []
+        for rel in self.MODULES:
+            tree = ast.parse((root / rel).read_text(encoding="utf-8"))
+            for fn in (n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)):
+                if "cw" not in {a.arg for a in fn.args.args + fn.args.kwonlyargs}:
+                    continue
+                for call in (n for n in ast.walk(fn) if isinstance(n, ast.Call)):
+                    name = getattr(call.func, "id", None) or getattr(call.func, "attr", "")
+                    if name not in self.CW_AWARE:
+                        continue
+                    passes = any(k.arg in ("cw", None) for k in call.keywords) or \
+                        any(isinstance(a, ast.Name) and a.id == "cw" for a in call.args)
+                    if not passes:
+                        dropped.append(f"{rel}:{call.lineno} {fn.name}() -> {name}()")
+        assert not dropped, "클라이언트를 받고도 넘기지 않는 호출: " + ", ".join(dropped)
+
+    def test_disk_alarms_look_for_disk_metrics_in_the_callers_account(self):
+        from common.alarm_builder import _create_disk_alarms
+        from common.alarm_registry import _get_alarm_defs
+        disk_def = next(d for d in _get_alarm_defs("EC2", {}) if d["metric"] == "disk_used_percent")
+        customer_cw = MagicMock()
+        with patch("common.alarm_builder._get_disk_dimensions", return_value=[]) as dims:
+            _create_disk_alarms("i-001", "EC2", "srv", {}, disk_def, customer_cw, "")
+        assert dims.call_args.kwargs.get("cw") is customer_cw
