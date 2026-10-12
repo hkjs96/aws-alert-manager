@@ -188,6 +188,9 @@ export function AccountSection({ accounts, customers }: AccountSectionProps) {
           ...(forwarding
             ? [`alert forwarding: ${forwarding.status}${forwarding.detail ? ` — ${forwarding.detail}` : ""}`]
             : []),
+          ...(data.unchecked_regions?.length
+            ? [`region detection: ${data.unchecked_regions.length} regions not checked in time (${data.unchecked_regions.join(", ")})`]
+            : []),
         ],
       }));
       const passed = data.status === "connected" && forwardingOk;

@@ -324,7 +324,7 @@ def _notify_unregistered_regions(account_id: str, creds: dict | None, regions: l
     kwargs = ({"aws_access_key_id": creds["AccessKeyId"], "aws_secret_access_key": creds["SecretAccessKey"],
                "aws_session_token": creds["SessionToken"]} if creds else {})
     try:
-        missing = unregistered_regions(detect_regions(kwargs), regions)
+        missing = unregistered_regions(detect_regions(kwargs).regions, regions)
     except (ClientError, BotoCoreError, RuntimeError) as e:
         logger.warning("Region detection failed for %s: %s", account_id, e)
         return []

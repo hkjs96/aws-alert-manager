@@ -22,7 +22,7 @@ import boto3
 from botocore.exceptions import ClientError
 
 from api_handler.db import accounts_table, scan_all, query_by_pk
-from common.region_discovery import CANDIDATE_REGIONS, detect_regions, unregistered_regions
+from common.region_discovery import CANDIDATE_REGIONS, Detection, detect_regions, unregistered_regions
 from common.sns_notifier import send_error_alert
 
 logger = logging.getLogger(__name__)
@@ -421,7 +421,7 @@ def test_connection(event: dict) -> dict:
                 ":s": status,
                 ":t": datetime.now(UTC).isoformat(),
                 ":f": forwarding["status"],
-                **({":d": detected} if detected is not None else {}),
+                **({":d": detected.regions} if detected is not None else {}),
             },
         )
     except ClientError:
@@ -435,17 +435,23 @@ def test_connection(event: dict) -> dict:
         "tested_at": datetime.now(UTC).isoformat(),
     }
     if detected is not None:
-        result["detected_regions"] = detected
-        result["unregistered_regions"] = unregistered_regions(detected, item.get("regions") or [])
+        result["detected_regions"] = detected.regions
+        result["unregistered_regions"] = unregistered_regions(detected.regions, item.get("regions") or [])
+        if detected.unchecked:
+            result["unchecked_regions"] = detected.unchecked
     if error_msg:
         result["error"] = error_msg
     return _ok(result)
 
 
-def _detect_account_regions(item: dict) -> list[str] | None:
+# API Gateway 30초 한도 안 — 리전 탐지는 거의 직렬이라(region_discovery 문서) 34리전에 람다에서 ~14초 걸린다.
+_DETECT_DEADLINE_SECONDS = 15
+
+
+def _detect_account_regions(item: dict) -> Detection | None:
     """리소스가 있는 리전(common.region_discovery). 자격증명을 못 얻으면 None — 연결 테스트 결과는 그대로 낸다."""
     try:
-        return detect_regions(_assume_role_kwargs(item))
+        return detect_regions(_assume_role_kwargs(item), deadline=_DETECT_DEADLINE_SECONDS)
     except ClientError as e:
         logger.warning("Region detection skipped for %s: %s", item.get("account_id"), e)
         return None

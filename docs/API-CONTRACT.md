@@ -537,6 +537,8 @@ Failed connection response is also `200` with:
 병렬로 물어 리소스가 있는 리전을 찾는다(고객 역할의 기존 `tag:GetResources`만 쓴다). 탐지 결과는 계정 행의
 `detected_regions`에 저장되고, 화면은 `unregistered_regions`를 "리소스가 있지만 감시 밖"으로 보여준다.
 제안만 한다 — 감시 리전은 아래 `PUT …/regions`로 사람이 바꾼다. 실패 응답에는 두 필드가 없다.
+탐지는 연결마다 CA 번들을 읽는 TLS 설정이 줄을 서서 거의 직렬이다(람다 1024MB에서 34리전 ~14초). API 안에서는 15초
+기한을 두고, 못 끝낸 리전은 `unchecked_regions`로 낸다(있을 때만). 정기 daily 실행은 기한 없이 전부 본다.
 
 ```json
 {

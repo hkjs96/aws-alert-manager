@@ -14,7 +14,8 @@
 from __future__ import annotations
 
 import logging
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, wait
+from dataclasses import dataclass, field
 
 import boto3
 from botocore.config import Config
@@ -39,11 +40,8 @@ ALWAYS_COVERED = frozenset({"us-east-1"})
 _PROBE_CONFIG = Config(connect_timeout=3, read_timeout=5, retries={"max_attempts": 1})
 
 
-def _has_resources(region: str, session_kwargs: dict) -> bool:
+def _has_resources(region: str, client) -> bool:
     try:
-        # 스레드마다 세션을 따로 — boto3 기본 세션에서 여러 스레드가 동시에 클라이언트를 만들면 안전하지 않다.
-        client = boto3.session.Session(**session_kwargs).client(
-            "resourcegroupstaggingapi", region_name=region, config=_PROBE_CONFIG)
         resp = client.get_resources(ResourcesPerPage=1)
     except (ClientError, BotoCoreError) as e:
         logger.debug("Region probe skipped for %s: %s", region, e)
@@ -51,12 +49,36 @@ def _has_resources(region: str, session_kwargs: dict) -> bool:
     return bool(resp.get("ResourceTagMappingList"))
 
 
-def detect_regions(session_kwargs: dict, regions: tuple[str, ...] = CANDIDATE_REGIONS) -> list[str]:
-    """리소스가 있는 리전 — 후보 순서 유지. `session_kwargs`는 대상 계정 자격증명(우리 계정이면 `{}`)."""
-    # 전부 동시에 — 응답 없는 리전이 있어도 연결 3초+읽기 5초로 끝난다(API 람다 타임아웃 30초 안).
-    with ThreadPoolExecutor(max_workers=max(1, len(regions))) as pool:
-        found = list(pool.map(lambda r: _has_resources(r, session_kwargs), regions))
-    return [r for r, hit in zip(regions, found) if hit]
+@dataclass(frozen=True)
+class Detection:
+    """탐지 결과 — `regions`: 리소스가 있는 리전(후보 순서), `unchecked`: 기한 안에 답을 못 받은 리전."""
+    regions: list[str]
+    unchecked: list[str] = field(default_factory=list)
+
+
+def detect_regions(session_kwargs: dict, regions: tuple[str, ...] = CANDIDATE_REGIONS,
+                   deadline: float | None = None) -> Detection:
+    """리소스가 있는 리전. `session_kwargs`는 대상 계정 자격증명(우리 계정이면 `{}`).
+
+    세션은 **하나**, 클라이언트는 이 스레드에서 차례로 만든다 — 세션마다 서비스 모델을 따로 읽어 스레드별 세션 34개는
+    256MB API 람다를 OOM으로 죽였다(2026-10-12 첫 라이브 호출). 클라이언트 생성은 스레드 안전하지 않지만 호출은 안전하다.
+
+    병렬로 불러도 거의 직렬로 끝난다: 연결마다 CA 번들을 읽는 TLS 설정(urllib3 `ssl_wrap_socket`)이 줄을 선다 —
+    리전당 람다 ~0.4초, 34리전 ~14초(1024MB). API 요청 안에서는 `deadline`(초)을 줘 30초 한도를 지키고, 못 끝낸 리전은
+    `unchecked`로 돌려준다. 정기 실행은 기한 없이 전부 본다.
+    """
+    session = boto3.session.Session(**session_kwargs)
+    clients = [session.client("resourcegroupstaggingapi", region_name=r, config=_PROBE_CONFIG) for r in regions]
+    pool = ThreadPoolExecutor(max_workers=max(1, len(regions)))
+    futures = [pool.submit(_has_resources, r, c) for r, c in zip(regions, clients)]
+    done, _pending = wait(futures, timeout=deadline)
+    # 기한을 넘긴 호출은 기다리지 않는다(남은 스레드는 응답 뒤 버려진다).
+    pool.shutdown(wait=False, cancel_futures=True)
+    found = [r for r, f in zip(regions, futures) if f in done and f.result()]
+    unchecked = [r for r, f in zip(regions, futures) if f not in done]
+    if unchecked:
+        logger.warning("Region detection hit the %.0fs deadline; unchecked: %s", deadline or 0, unchecked)
+    return Detection(found, unchecked)
 
 
 def unregistered_regions(detected: list[str], registered: list[str]) -> list[str]:

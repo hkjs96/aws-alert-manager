@@ -1293,7 +1293,9 @@ Resources:
       Description: REST API handler for Alarm Manager frontend
       Runtime: !FindInMap [LambdaConfig, Settings, Runtime]
       Timeout: 30
-      MemorySize: 256
+      # 1024: 람다 CPU는 메모리에 비례한다. 연결 테스트의 리전 탐지(34리전 병렬)는 리전마다 TLS 설정이 CPU를 써서
+      # 256MB에서 19초가 걸렸다(API Gateway 30초 한도에 근접, 2026-10-12).
+      MemorySize: 1024
       Handler: lambda_handler.lambda_handler
       Role: !GetAtt ApiHandlerRole.Arn
       Layers:

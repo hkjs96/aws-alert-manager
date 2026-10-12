@@ -5,6 +5,8 @@ from unittest.mock import MagicMock, patch
 
 from botocore.exceptions import ClientError, EndpointConnectionError
 
+from common.region_discovery import Detection
+
 
 def _sessions(by_region):
     """region → 결과(list = 리소스 목록, Exception = 실패)인 Session 목."""
@@ -31,7 +33,27 @@ class TestDetectRegions:
         by_region = {"us-east-1": [{"ResourceARN": "a"}], "ap-northeast-2": [{"ResourceARN": "b"}],
                      "ap-east-1": denied, "me-south-1": EndpointConnectionError(endpoint_url="x")}
         with patch("common.region_discovery.boto3.session.Session", side_effect=_sessions(by_region)):
-            assert rd.detect_regions({}) == ["us-east-1", "ap-northeast-2"]
+            got = rd.detect_regions({})
+        assert got.regions == ["us-east-1", "ap-northeast-2"] and got.unchecked == []
+
+    def test_deadline_returns_what_finished_and_names_the_rest(self):
+        import threading
+        from common import region_discovery as rd
+        release = threading.Event()
+        session = MagicMock()
+
+        def client(_name, region_name, **_k):
+            c = MagicMock()
+            if region_name == "ap-northeast-2":
+                c.get_resources.return_value = {"ResourceTagMappingList": [{"ResourceARN": "b"}]}
+            else:
+                c.get_resources.side_effect = lambda **_: release.wait(5) and {"ResourceTagMappingList": []}
+            return c
+        session.client.side_effect = client
+        with patch("common.region_discovery.boto3.session.Session", return_value=session):
+            got = rd.detect_regions({}, regions=("ap-northeast-2", "eu-west-1"), deadline=0.5)
+        release.set()
+        assert got.regions == ["ap-northeast-2"] and got.unchecked == ["eu-west-1"]
 
     def test_unregistered_excludes_registered_and_virginia(self):
         from common.region_discovery import unregistered_regions
@@ -49,7 +71,8 @@ class TestConnectionTestReportsRegions:
              patch.object(accounts, "_probe_regions", return_value=("connected", [], "")), \
              patch.object(accounts, "check_alert_forwarding", return_value={"status": "ok"}), \
              patch.object(accounts, "_assume_role_kwargs", return_value={}), \
-             patch.object(accounts, "detect_regions", return_value=["us-east-1", "ap-northeast-2", "ap-northeast-1"]):
+             patch.object(accounts, "detect_regions",
+                          return_value=Detection(["us-east-1", "ap-northeast-2", "ap-northeast-1"])):
             resp = accounts.test_connection({"pathParameters": {"id": "771283576189"},
                                              "queryStringParameters": {"customer_id": "c"}})
         body = json.loads(resp["body"])
@@ -103,14 +126,14 @@ class TestUpdateRegions:
 class TestDailyNotice:
     def test_alerts_with_the_missing_regions(self):
         from daily_monitor import lambda_handler as lh
-        with patch.object(lh, "detect_regions", return_value=["ap-northeast-2", "ap-northeast-1"]), \
+        with patch.object(lh, "detect_regions", return_value=Detection(["ap-northeast-2", "ap-northeast-1"])), \
              patch.object(lh, "send_error_alert") as alert:
             assert lh._notify_unregistered_regions("1", None, ["ap-northeast-2"]) == ["ap-northeast-1"]
         assert "ap-northeast-1" in str(alert.call_args.kwargs["error"])
 
     def test_nothing_missing_no_alert(self):
         from daily_monitor import lambda_handler as lh
-        with patch.object(lh, "detect_regions", return_value=["ap-northeast-2", "us-east-1"]), \
+        with patch.object(lh, "detect_regions", return_value=Detection(["ap-northeast-2", "us-east-1"])), \
              patch.object(lh, "send_error_alert") as alert:
             assert lh._notify_unregistered_regions("1", None, ["ap-northeast-2"]) == []
         alert.assert_not_called()
