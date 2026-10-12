@@ -12,6 +12,7 @@ SQS FIFO 큐에서 메시지를 수신하여 리소스별 알람 CRUD를 수행�
     "resource_type": "EC2",
     "resource_tags": {...},
     "role_arn":     "arn:aws:iam::...:role/...",  # 크로스 어카운트 (선택)
+    "region":       "ap-northeast-2",              # 리소스 리전 (없으면 람다 리전)
   }
 
 `toggle_monitoring`은 2026-09-16에 없어졌다 — 태그·인벤토리를 건너뛰고 알람만 만들어 다음 daily run이 되돌렸다. 벌크 전환은
@@ -108,8 +109,11 @@ _CREDS_TTL_SECONDS = 900
 
 
 @functools.lru_cache(maxsize=8)
-def _assume_cw_client(role_arn: str, _creds_bucket: int):
-    """AssumeRole로 대상 어카운트 CloudWatch 클라이언트 생성 (시간 버킷당 1회)."""
+def _assume_cw_client(role_arn: str, region: str, _creds_bucket: int):
+    """AssumeRole로 대상 어카운트·리전의 CloudWatch 클라이언트 생성 (시간 버킷당 1회).
+
+    리전을 안 주면 람다 리전(us-east-1)이 된다 — 2026-10까지 그랬고, 서울 리소스를 벌크로 켜면 알람이 고객 계정 us-east-1에
+    서울 인스턴스 디멘션으로 생겼다(데이터 없음으로 영영 INSUFFICIENT_DATA)."""
     sts = boto3.client("sts")
     creds = sts.assume_role(
         RoleArn=role_arn,
@@ -117,16 +121,23 @@ def _assume_cw_client(role_arn: str, _creds_bucket: int):
     )["Credentials"]
     return boto3.client(
         "cloudwatch",
+        region_name=region or None,
         aws_access_key_id=creds["AccessKeyId"],
         aws_secret_access_key=creds["SecretAccessKey"],
         aws_session_token=creds["SessionToken"],
     )
 
 
-def _get_cw_for_role(role_arn: str):
-    """AssumeRole을 통해 대상 어카운트의 CloudWatch 클라이언트를 반환."""
+def _get_cw_for_role(role_arn: str, region: str = ""):
+    """AssumeRole을 통해 대상 어카운트·리전의 CloudWatch 클라이언트를 반환."""
     bucket = int(datetime.now(timezone.utc).timestamp() // _CREDS_TTL_SECONDS)
-    return _assume_cw_client(role_arn, bucket)
+    return _assume_cw_client(role_arn, region, bucket)
+
+
+@functools.lru_cache(maxsize=None)
+def _cw_for_region(region: str):
+    """중앙 계정 리소스(role_arn 없음)의 리전별 CloudWatch 클라이언트."""
+    return boto3.client("cloudwatch", region_name=region)
 
 
 # ──────────────────────────────────────────────
@@ -139,8 +150,12 @@ def _run_action(msg: dict) -> None:
     resource_type = msg["resource_type"]
     resource_tags = msg.get("resource_tags") or {}
     role_arn = msg.get("role_arn") or ""
+    region = msg.get("region") or ""
 
-    cw = _get_cw_for_role(role_arn) if role_arn else None
+    if role_arn:
+        cw = _get_cw_for_role(role_arn, region)
+    else:
+        cw = _cw_for_region(region) if region else None
     kwargs = {"cw": cw} if cw is not None else {}
 
     if action == "create_alarms":

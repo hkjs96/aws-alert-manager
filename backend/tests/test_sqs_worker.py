@@ -247,3 +247,44 @@ class TestLambdaHandler(unittest.TestCase):
         item = self.table.get_item(Key={"job_id": "job-multi"})["Item"]
         assert int(item["completed_count"]) == 2
         assert item["status"] == "completed"
+
+
+class TestAlarmsGoToTheResourcesRegion:
+    """2026-10: 벌크 메시지에 리전이 없어 워커가 람다 리전(us-east-1)에 알람을 만들었다 — 서울 리소스면 엉뚱한 리전."""
+
+    def test_cross_account_client_uses_the_message_region(self):
+        from sqs_worker import lambda_handler as lh
+        lh._assume_cw_client.cache_clear()
+        sts = MagicMock()
+        sts.assume_role.return_value = {"Credentials": {"AccessKeyId": "a", "SecretAccessKey": "s", "SessionToken": "t"}}
+        made = {}
+
+        def fake_client(name, **kw):
+            if name == "sts":
+                return sts
+            made.update(kw)
+            return MagicMock()
+
+        with patch("sqs_worker.lambda_handler.boto3.client", side_effect=fake_client), \
+             patch("sqs_worker.lambda_handler.alarm_manager.create_alarms_for_resource") as create:
+            lh._run_action({"action": "create_alarms", "resource_id": "i-1", "resource_type": "EC2",
+                            "role_arn": "arn:aws:iam::771283576189:role/R", "region": "ap-northeast-2"})
+        assert made["region_name"] == "ap-northeast-2"
+        assert create.call_args.kwargs["cw"] is not None
+        lh._assume_cw_client.cache_clear()
+
+    def test_central_account_resource_in_another_region(self):
+        from sqs_worker import lambda_handler as lh
+        lh._cw_for_region.cache_clear()
+        with patch("sqs_worker.lambda_handler.boto3.client") as client, \
+             patch("sqs_worker.lambda_handler.alarm_manager.delete_alarms_for_resource") as delete:
+            lh._run_action({"action": "delete_alarms", "resource_id": "i-1", "resource_type": "EC2",
+                            "region": "ap-northeast-2"})
+        client.assert_called_once_with("cloudwatch", region_name="ap-northeast-2")
+        assert delete.call_args.kwargs["cw"] is client.return_value
+        lh._cw_for_region.cache_clear()
+
+    def test_bulk_message_carries_the_resource_region(self):
+        import inspect
+        from api_handler.routes import bulk
+        assert '"region": resource.get("region")' in inspect.getsource(bulk)
