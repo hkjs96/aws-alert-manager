@@ -160,3 +160,15 @@ def sample_elb_resource() -> ResourceInfo:
         },
         region="us-east-1",
     )
+
+
+@pytest.fixture(autouse=True)
+def _worker_single_region(request):
+    """정기 워커 테스트는 예전 범위(us-east-1 한 리전)로 고정한다 — 리전 순회 자체는 test_worker_regions.py가 본다.
+    없으면 계정 표가 없는 테스트가 폴백 리전(ap-northeast-2)+us-east-1 두 번을 돌아 집계가 두 배가 된다."""
+    name = request.node.fspath.basename
+    if not (name.startswith("test_daily_monitor") or name == "test_worker_multiacccount.py"):
+        yield
+        return
+    with patch("daily_monitor.lambda_handler._worker_regions", return_value=["us-east-1"]):
+        yield

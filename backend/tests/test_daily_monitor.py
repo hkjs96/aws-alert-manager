@@ -1575,5 +1575,8 @@ class TestTagReconcile:
         """두 경로가 같은 나열 함수를 쓴다 — 아니면 daily run과 정합 런이 다른 리소스를 볼 수 있다."""
         import inspect
         from daily_monitor import lambda_handler as dm
-        assert "_collect_from_all_collectors(account_id)" in inspect.getsource(dm.lambda_handler)
-        assert "_collect_from_all_collectors(account_id)" in inspect.getsource(dm._handle_tag_reconcile)
+        # 2026-10부터 리전별 패스 함수가 나열을 부른다(핸들러는 리전을 돈다)
+        assert "_collect_from_all_collectors(account_id)" in inspect.getsource(dm._daily_region_pass)
+        assert "_collect_from_all_collectors(account_id)" in inspect.getsource(dm._reconcile_region_pass)
+        assert "_daily_region_pass(" in inspect.getsource(dm.lambda_handler)
+        assert "_reconcile_region_pass(" in inspect.getsource(dm._handle_tag_reconcile)

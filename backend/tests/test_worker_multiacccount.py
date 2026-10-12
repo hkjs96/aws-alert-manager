@@ -25,26 +25,40 @@ FAKE_CREDS = {
 # ── _switch_account_session ──────────────────────────────────────
 
 
-def test_switch_account_session_calls_assume_role():
+def test_switch_account_session_calls_assume_role_with_the_lambdas_own_credentials():
+    """STS는 새 Session(람다 자격증명)으로 — 기본 세션은 이전 전환의 고객 자격증명일 수 있다."""
     mock_sts = MagicMock()
     mock_sts.assume_role.return_value = {"Credentials": FAKE_CREDS}
 
-    with patch("boto3.client", return_value=mock_sts) as mock_boto:
-        with patch("boto3.setup_default_session") as mock_session:
-            with patch("daily_monitor.lambda_handler._clear_all_client_caches") as mock_clear:
-                from daily_monitor.lambda_handler import _switch_account_session
-                _switch_account_session("arn:aws:iam::111:role/R", "111")
+    with patch("boto3.session.Session") as session_cls, patch("boto3.client") as default_client:
+        session_cls.return_value.client.return_value = mock_sts
+        from daily_monitor.lambda_handler import _switch_account_session
+        creds = _switch_account_session("arn:aws:iam::111:role/R", "111")
 
+    session_cls.return_value.client.assert_called_once_with("sts")
+    default_client.assert_not_called()
     mock_sts.assume_role.assert_called_once_with(
         RoleArn="arn:aws:iam::111:role/R",
         RoleSessionName="DailyMonitor-111",
     )
-    mock_session.assert_called_once_with(
-        aws_access_key_id=FAKE_CREDS["AccessKeyId"],
-        aws_secret_access_key=FAKE_CREDS["SecretAccessKey"],
-        aws_session_token=FAKE_CREDS["SessionToken"],
-    )
-    mock_clear.assert_called_once()
+    assert creds == FAKE_CREDS
+
+
+def test_enter_region_sets_credentials_and_region():
+    with patch("boto3.setup_default_session") as mock_session:
+        with patch("daily_monitor.lambda_handler._clear_all_client_caches") as mock_clear:
+            from daily_monitor.lambda_handler import _enter_region
+            _enter_region(FAKE_CREDS, "111", "ap-northeast-2")
+            _enter_region(None, "self", "eu-west-1")
+
+    assert mock_session.call_args_list[0].kwargs == {
+        "aws_access_key_id": FAKE_CREDS["AccessKeyId"],
+        "aws_secret_access_key": FAKE_CREDS["SecretAccessKey"],
+        "aws_session_token": FAKE_CREDS["SessionToken"],
+        "region_name": "ap-northeast-2",
+    }
+    assert mock_session.call_args_list[1].kwargs == {"region_name": "eu-west-1"}
+    assert mock_clear.call_count == 2
 
 
 def test_switch_account_session_raises_on_assume_role_failure():
@@ -54,11 +68,11 @@ def test_switch_account_session_raises_on_assume_role_failure():
     )
     mock_sts.assume_role.side_effect = error
 
-    with patch("boto3.client", return_value=mock_sts):
-        with patch("boto3.setup_default_session"):
-            from daily_monitor.lambda_handler import _switch_account_session
-            with pytest.raises(ClientError):
-                _switch_account_session("arn:aws:iam::111:role/R", "111")
+    with patch("boto3.session.Session") as session_cls:
+        session_cls.return_value.client.return_value = mock_sts
+        from daily_monitor.lambda_handler import _switch_account_session
+        with pytest.raises(ClientError):
+            _switch_account_session("arn:aws:iam::111:role/R", "111")
 
 
 # ── _clear_all_client_caches ─────────────────────────────────────

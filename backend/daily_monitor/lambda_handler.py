@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 
 import boto3
 from boto3.dynamodb.conditions import Attr, Key
-from botocore.exceptions import ClientError
+from botocore.exceptions import BotoCoreError, ClientError
 
 # Lambda 환경에서 root logger 레벨 설정 (모든 모듈에 적용)
 logging.getLogger().setLevel(logging.INFO)
@@ -101,15 +101,14 @@ def _get_ddb_resource():
 # ──────────────────────────────────────────────
 
 
-def _switch_account_session(role_arn: str, account_id: str) -> None:
-    """STS AssumeRole로 대상 계정 세션 전환 후 모든 lru_cache 클라이언트 무효화.
+def _switch_account_session(role_arn: str, account_id: str) -> dict:
+    """STS AssumeRole로 대상 계정 임시 자격증명을 받는다 — 계정당 한 번, 리전 전환(`_enter_region`)은 이걸 재사용한다.
 
-    boto3.setup_default_session()으로 프로세스 전체 기본 자격증명을 교체하므로
-    이후 생성되는 모든 boto3 클라이언트가 대상 계정 credentials를 사용한다.
-    Lambda는 컨테이너당 단일 invocation이므로 setup_default_session은 안전하다.
-    Warm start 재사용 시 캐시된 이전 계정 클라이언트를 무효화하기 위해 cache_clear 필수.
+    STS는 **람다 자체 자격증명**(새 Session = 환경 변수)으로 부른다. 기본 세션은 `_enter_region`이 고객 자격증명으로 바꿔
+    두므로, `boto3.client("sts")`로 부르면 같은 실행의 두 번째 전환이나 warm 컨테이너의 다음 실행이 고객 역할로 다른 역할을
+    assume하려다 실패한다(2026-10 리전 순회 전까지는 실행마다 전환이 한 번이고 매시간 사이 컨테이너가 식어서 드러나지 않았다).
     """
-    sts = boto3.client("sts")
+    sts = boto3.session.Session().client("sts")
     try:
         resp = sts.assume_role(
             RoleArn=role_arn,
@@ -118,15 +117,54 @@ def _switch_account_session(role_arn: str, account_id: str) -> None:
     except ClientError as e:
         logger.error("AssumeRole failed for %s (account=%s): %s", role_arn, account_id, e)
         raise
+    logger.info("Assumed role for account %s", account_id)
+    return resp["Credentials"]
 
-    creds = resp["Credentials"]
-    boto3.setup_default_session(
-        aws_access_key_id=creds["AccessKeyId"],
-        aws_secret_access_key=creds["SecretAccessKey"],
-        aws_session_token=creds["SessionToken"],
-    )
+
+def _enter_region(creds: dict | None, account_id: str, region: str) -> None:
+    """기본 세션을 (대상 계정, 리전)으로 바꾸고 모든 lru_cache 클라이언트를 무효화한다.
+
+    boto3.setup_default_session()은 프로세스 전체 기본 세션을 교체하므로 이후 만드는 클라이언트가 그 계정·리전을 쓴다.
+    `creds`가 None이면 우리 계정(람다 자격증명) — 리전만 바꾼다. 2026-10까지는 리전을 안 넘겨 고객 계정을 람다 리전
+    (us-east-1)에서만 봤다 — 서울 리소스의 고아 정리·알람 동기화·임계치 알림이 정기 실행에서 빠졌다.
+    """
+    if creds:
+        boto3.setup_default_session(
+            aws_access_key_id=creds["AccessKeyId"],
+            aws_secret_access_key=creds["SecretAccessKey"],
+            aws_session_token=creds["SessionToken"],
+            region_name=region,
+        )
+    else:
+        boto3.setup_default_session(region_name=region)
     _clear_all_client_caches()
-    logger.info("Switched to account %s via AssumeRole", account_id)
+    logger.info("Entered account %s region %s", account_id, region)
+
+
+def _restore_lambda_session() -> None:
+    """기본 세션을 람다 자신의 자격증명·리전으로 되돌린다. warm 컨테이너의 다음 실행(세션 전환 전에 중앙 DDB에 쓰는
+    인벤토리 동기화)이 이전 실행의 고객 세션을 물려받지 않게."""
+    boto3.setup_default_session()
+    _clear_all_client_caches()
+
+
+# 정기 실행이 항상 보는 리전 — 글로벌 서비스(CloudFront용 ACM 인증서, Route53, CloudFront, WAF global)가 여기에 있다.
+# 2026-10까지는 이 리전만 봤으므로 계정 리전 목록에 없어도 넣어야 예전 범위가 줄지 않는다.
+_ALWAYS_REGION = "us-east-1"
+
+
+def _worker_regions(account_id: str, role_arn: str) -> list[str]:
+    """정기 실행이 돌 리전 — 계정 표의 `regions` + us-east-1, 순서 유지·중복 제거. 세션 전환 전에 부른다(중앙 DDB)."""
+    regions: list[str] = []
+    try:
+        accounts = _resolve_accounts_for_inventory(account_id, role_arn)
+    except (ClientError, BotoCoreError) as e:
+        logger.warning("Could not resolve regions for %s, using %s only: %s", account_id, _ALWAYS_REGION, e)
+        accounts = []
+    for acc in accounts[:1]:
+        regions.extend(acc.get("regions") or [])
+    regions.append(_ALWAYS_REGION)
+    return list(dict.fromkeys(r for r in regions if r))
 
 
 def _prime_tag_cache(account_id: str) -> None:
@@ -225,9 +263,11 @@ def lambda_handler(event, context):
     # 페치 실패(빈 목록) 시에는 기존 라이브 조회로 폴백한다.
     alarm_index = AlarmIndex(prefetched_alarms) if prefetched_alarms else None
 
+    regions = _worker_regions(account_id, role_arn)
+    creds = None
     if role_arn:
         try:
-            _switch_account_session(role_arn, account_id)
+            creds = _switch_account_session(role_arn, account_id)
         except ClientError:
             result = {"status": "error", "account_id": account_id, "reason": "assume_role_failed"}
             _finish_monitor_run(
@@ -236,25 +276,61 @@ def lambda_handler(event, context):
             )
             return result
 
-    # 1단계: 고아 알람 정리
+    total_processed = 0
+    total_alerts = 0
+    alarms_synced = {"created": 0, "updated": 0, "ok": 0}
     try:
-        with Timer("daily_stage", stage="orphan_cleanup", account=account_id) as t:
-            orphaned = _cleanup_orphan_alarms()
-            t.set(deleted=len(orphaned))
-        if orphaned:
-            logger.info("Cleaned up orphan alarms: %s", orphaned)
-    except ClientError as e:
-        logger.error("Failed to cleanup orphan alarms: %s", e)
+        for region in regions:
+            _enter_region(creds, account_id, region)
+            processed, alerts, synced = _daily_region_pass(account_id, region, alarm_index)
+            total_processed += processed
+            total_alerts += alerts
+            for key in alarms_synced:
+                alarms_synced[key] += synced[key]
+    finally:
+        _restore_lambda_session()
+
+    logger.info(
+        "Daily monitor complete: account=%s, processed=%d, alerts=%d, alarms_synced=%s, inventory=%s",
+        account_id, total_processed, total_alerts, alarms_synced, inventory_stats,
+    )
+    result = {
+        "status": "ok",
+        "account_id": account_id,
+        "processed": total_processed,
+        "alerts": total_alerts,
+        "alarms_synced": alarms_synced,
+        "regions": regions,
+        "inventory_synced": inventory_stats,
+    }
+    run_status = "partial" if inventory_stats.get("error") else "success"
+    _finish_monitor_run(
+        run_table, run_id, run_started_at, run_started_ts, run_status, result,
+        inventory_stats.get("error"),
+    )
+    return result
+
+
+def _daily_region_pass(account_id: str, region: str, alarm_index) -> tuple[int, int, dict]:
+    """한 (계정, 리전)의 daily 흐름 — 기본 세션이 이미 그 계정·리전이다. (처리 리소스 수, 알림 수, 알람 sync 집계)."""
     total_processed = 0
     total_alerts = 0
     alarms_synced = {"created": 0, "updated": 0, "ok": 0}
 
+    # 1단계: 고아 알람 정리
+    try:
+        with Timer("daily_stage", stage="orphan_cleanup", account=account_id, region=region) as t:
+            orphaned = _cleanup_orphan_alarms()
+            t.set(deleted=len(orphaned))
+        if orphaned:
+            logger.info("Cleaned up orphan alarms in %s: %s", region, orphaned)
+    except ClientError as e:
+        logger.error("Failed to cleanup orphan alarms in %s: %s", region, e)
+
     # 컬렉터별 리소스 수집 (메트릭 배치를 위해 목록을 먼저 확정)
-    collect_timer = Timer("daily_stage", stage="collect_resources", account=account_id)
-    collect_timer.__enter__()
-    collected = _collect_from_all_collectors(account_id)
-    collect_timer.set(resources=sum(len(r) for _m, r in collected), collectors=len(collected))
-    collect_timer.__exit__(None, None, None)
+    with Timer("daily_stage", stage="collect_resources", account=account_id, region=region) as t:
+        collected = _collect_from_all_collectors(account_id)
+        t.set(resources=sum(len(r) for _m, r in collected), collectors=len(collected))
 
     # 메트릭 배치: record(쿼리 수집, API 콜 없음) → execute(GetMetricData 일괄).
     # 리소스×메트릭당 1콜이던 get_metric_statistics를 500쿼리/콜로 줄인다.
@@ -319,25 +395,7 @@ def lambda_handler(event, context):
     finally:
         # 배치는 이 런 전용 — 다른 경로(sqs_worker 등)가 재사용하지 않도록 해제
         set_active_metric_batch(None)
-
-    logger.info(
-        "Daily monitor complete: account=%s, processed=%d, alerts=%d, alarms_synced=%s, inventory=%s",
-        account_id, total_processed, total_alerts, alarms_synced, inventory_stats,
-    )
-    result = {
-        "status": "ok",
-        "account_id": account_id,
-        "processed": total_processed,
-        "alerts": total_alerts,
-        "alarms_synced": alarms_synced,
-        "inventory_synced": inventory_stats,
-    }
-    run_status = "partial" if inventory_stats.get("error") else "success"
-    _finish_monitor_run(
-        run_table, run_id, run_started_at, run_started_ts, run_status, result,
-        inventory_stats.get("error"),
-    )
-    return result
+    return total_processed, total_alerts, alarms_synced
 
 
 def _collect_from_all_collectors(account_id: str) -> list[tuple[object, list]]:
@@ -396,29 +454,61 @@ def _handle_tag_reconcile(event: dict, context) -> dict:
         inventory_stats = {"error": str(e)}
     alarm_index = AlarmIndex(prefetched_alarms) if prefetched_alarms else None
 
+    regions = _worker_regions(account_id, role_arn)
+    creds = None
     if role_arn:
         try:
-            _switch_account_session(role_arn, account_id)
+            creds = _switch_account_session(role_arn, account_id)
         except ClientError:
             return {"status": "error", "mode": "tag_reconcile", "account_id": account_id, "reason": "assume_role_failed"}
 
+    orphaned: list[str] = []
+    total = 0
+    alarms_synced = {"created": 0, "updated": 0, "ok": 0}
+    try:
+        for region in regions:
+            _enter_region(creds, account_id, region)
+            deleted, resources, synced = _reconcile_region_pass(account_id, region, alarm_index)
+            orphaned.extend(deleted)
+            total += resources
+            for key in alarms_synced:
+                alarms_synced[key] += synced[key]
+    finally:
+        _restore_lambda_session()
+
+    result = {
+        "status": "partial" if inventory_stats.get("error") else "ok",
+        "mode": "tag_reconcile",
+        "account_id": account_id,
+        "resources": total,
+        "regions": regions,
+        "alarms_synced": alarms_synced,
+        "orphans_deleted": len(orphaned),
+        "inventory_synced": inventory_stats,
+    }
+    logger.info("Tag reconcile complete: %s", result)
+    return result
+
+
+def _reconcile_region_pass(account_id: str, region: str, alarm_index) -> tuple[list[str], int, dict]:
+    """한 (계정, 리전)의 정합 흐름 — 기본 세션이 이미 그 계정·리전이다. (삭제한 알람, 리소스 수, 알람 sync 집계)."""
     # 1) 고아 정리 — 태그가 꺼졌거나 사라진 리소스의 알람을 지운다(끈 뒤 하루 남던 알람).
     orphaned: list[str] = []
     try:
-        with Timer("reconcile_stage", stage="orphan_cleanup", account=account_id) as t:
+        with Timer("reconcile_stage", stage="orphan_cleanup", account=account_id, region=region) as t:
             orphaned = _cleanup_orphan_alarms()
             t.set(deleted=len(orphaned))
     except ClientError as e:
-        logger.error("Tag reconcile: orphan cleanup failed: %s", e)
+        logger.error("Tag reconcile: orphan cleanup failed in %s: %s", region, e)
 
     # 2) 나열 + 3) 알람 sync — 태그를 켠 뒤 하루 없던 알람이 여기서 생긴다.
-    with Timer("reconcile_stage", stage="collect_resources", account=account_id) as t:
+    with Timer("reconcile_stage", stage="collect_resources", account=account_id, region=region) as t:
         collected = _collect_from_all_collectors(account_id)
         total = sum(len(r) for _m, r in collected)
         t.set(resources=total, collectors=len(collected))
 
     alarms_synced = {"created": 0, "updated": 0, "ok": 0}
-    with Timer("reconcile_stage", stage="alarm_sync", account=account_id) as t:
+    with Timer("reconcile_stage", stage="alarm_sync", account=account_id, region=region) as t:
         for _collector_mod, resources in collected:
             for resource in resources:
                 try:
@@ -435,18 +525,7 @@ def _handle_tag_reconcile(event: dict, context) -> dict:
                         resource["id"], resource["type"], e,
                     )
         t.set(**alarms_synced)
-
-    result = {
-        "status": "partial" if inventory_stats.get("error") else "ok",
-        "mode": "tag_reconcile",
-        "account_id": account_id,
-        "resources": total,
-        "alarms_synced": alarms_synced,
-        "orphans_deleted": len(orphaned),
-        "inventory_synced": inventory_stats,
-    }
-    logger.info("Tag reconcile complete: %s", result)
-    return result
+    return orphaned, total, alarms_synced
 
 
 def _handle_metric_snapshot(event: dict, context) -> dict:
