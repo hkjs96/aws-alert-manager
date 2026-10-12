@@ -558,6 +558,39 @@ class TestCleanupOrphanAlarms:
         assert len(resp["MetricAlarms"]) == 1
 
     @mock_aws
+    def test_acm_monitoring_check_reads_tags_by_certificate_arn(self):
+        """ACM 알람 이름의 TagName은 도메인이다 — 태그는 메타데이터의 인증서 ARN으로 읽어야 한다.
+        2026-10까지는 도메인을 넘겨 ARN 검증에 걸렸고, '못 읽음'으로 건너뛰어 끄기가 안 먹었다."""
+        import json
+        from daily_monitor.lambda_handler import (
+            _RESOURCE_TYPE_TO_COLLECTOR, _cleanup_orphan_alarms, _get_cw_client,
+        )
+
+        _get_cw_client.cache_clear()
+        cert_arn = "arn:aws:acm:us-east-1:123456789012:certificate/abc"
+        alarm_name = "[ACM] example.com DaysToExpiry < 14days (TagName: example.com)"
+
+        with pytest.MonkeyPatch.context() as mp:
+            for k, v in _ENV.items():
+                mp.setenv(k, v)
+            boto3.client("cloudwatch", region_name="us-east-1").put_metric_alarm(
+                AlarmName=alarm_name,
+                AlarmDescription="Auto-created | " + json.dumps(
+                    {"metric_key": "DaysToExpiry", "resource_id": cert_arn, "resource_type": "ACM"}),
+                MetricName="DaysToExpiry", Namespace="AWS/CertificateManager", Statistic="Minimum",
+                Period=86400, EvaluationPeriods=1, Threshold=14.0, ComparisonOperator="LessThanThreshold",
+                Dimensions=[{"Name": "CertificateArn", "Value": cert_arn}],
+            )
+            with (
+                patch.object(_RESOURCE_TYPE_TO_COLLECTOR["ACM"], "resolve_alive_ids", return_value={"example.com"}),
+                patch("daily_monitor.lambda_handler.get_resource_tags_or_none", return_value={}) as tags,
+            ):
+                deleted = _cleanup_orphan_alarms()
+
+        tags.assert_called_once_with(cert_arn, "ACM")
+        assert deleted == [alarm_name]
+
+    @mock_aws
     def test_unknown_resource_type_alarm_skipped(self):
         """알 수 없는 resource_type은 collector 없으므로 스킵 (삭제 안 함)."""
         from daily_monitor.lambda_handler import _cleanup_orphan_alarms, _get_cw_client

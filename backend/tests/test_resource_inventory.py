@@ -370,6 +370,20 @@ class TestToggleUsesTheResourcesRealTags:
         with patch.object(r, "_live_resource_tags", return_value={"_lb_arn": "stale", "Name": "tg-a"}):
             assert r._toggle_alarm_tags(res) == {"_lb_arn": "arn:lb", "Name": "tg-a", "Monitoring": "on"}
 
+    def test_acm_gets_the_domain_as_name_like_the_collector_gives_it(self):
+        """2026-10 ACM이 켜기 대상이 됐다. 수집기는 Name=도메인을 넣고, 고아 정리는 TagName을 도메인으로 살아 있는지 본다 —
+        토글이 빠뜨리면 라벨이 ARN이 되고 다음 정리에서 지워진다. 벌크도 같은 헬퍼를 쓴다."""
+        from api_handler.routes import resources as r
+        from common.alarm_naming import _shorten_elb_resource_id
+        arn = "arn:aws:acm:us-east-1:771283576189:certificate/abc"
+        res = {"resource_id": arn, "type": "ACM", "name": "homeniq.co.kr", "region": "us-east-1", "account_id": "1"}
+        with patch.object(r, "_live_resource_tags", return_value={"Team": "web"}):
+            tags = r._toggle_alarm_tags(res)
+        assert tags == {"Team": "web", "Monitoring": "on", "Name": "homeniq.co.kr"}
+        assert _shorten_elb_resource_id(arn, "ACM", tags) == "homeniq.co.kr"
+        # 도메인을 못 얻어 이름이 ARN인 인벤토리 항목에는 넣지 않는다
+        assert "Name" not in r._collector_tags({**res, "name": arn})
+
     def test_name_label_reaches_the_alarm_name(self):
         """실제 알람 이름 빌더까지 — 라벨이 ID가 아니라 Name이어야 한다."""
         from common.alarm_naming import _pretty_alarm_name

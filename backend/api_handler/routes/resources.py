@@ -778,10 +778,23 @@ def _live_resource_tags(resource: dict) -> dict:
     return {t["Key"]: t["Value"] for m in mappings for t in m.get("Tags", [])}
 
 
+def _collector_tags(resource: dict) -> dict:
+    """수집기가 실제 태그 위에 덧붙이는 태그 — 즉시 생성 알람이 데일리 런의 알람과 같아지려면 똑같이 붙여야 한다.
+
+    - 인벤토리의 디멘션 힌트(`_lb_arn`·`_api_type` 같은 수집기 내부 태그 — 실제 태그에는 없다).
+    - ACM은 `Name`=도메인(인벤토리 `name`). 수집기가 그렇게 넣고, 고아 정리는 알람 이름의 TagName(=Name)을 **도메인으로**
+      살아 있는지 본다 — 빠지면 라벨이 ARN이 되고 다음 정리에서 "없는 인증서"로 지워진다(2026-10 ACM이 켜기 대상이 되며 생긴 경로).
+    """
+    tags = dict(resource.get("dim_hints") or {})
+    if resource.get("type") == "ACM" and resource.get("name") and resource.get("name") != resource.get("resource_id"):
+        tags["Name"] = resource["name"]
+    return tags
+
+
 def _toggle_alarm_tags(resource: dict) -> dict:
     """토글 ON 때 알람을 만들 태그 — 실제 태그 + `Monitoring=on`(방금 쓴 태그는 RGT 최종 일관성 때문에 아직 안 보일 수 있다)
-    + 인벤토리의 디멘션 힌트(`_lb_arn`·`_api_type` 같은 수집기 내부 태그 — 실제 태그에는 없다)."""
-    return {**_live_resource_tags(resource), "Monitoring": "on", **(resource.get("dim_hints") or {})}
+    + 수집기가 덧붙이는 태그(`_collector_tags`)."""
+    return {**_live_resource_tags(resource), "Monitoring": "on", **_collector_tags(resource)}
 
 
 def _alarm_rows_for(cw, resource_id: str, resource_type: str) -> list[dict]:

@@ -834,10 +834,10 @@ def _discover_apigw(session, account_id, region, customer_id):
 
 
 def _discover_acm(session, account_id, region, customer_id):
-    """ACM 인증서를 인벤토리로 수집한다 (ISSUED 전수, 만료 제외).
+    """ACM 인증서를 인벤토리로 수집한다 (ISSUED 전수, 만료 제외). id/arn은 인증서 ARN.
 
-    collector가 full-collection으로 모든 ISSUED 인증서를 모니터링하므로
-    monitoring=True 고정. id/arn은 인증서 ARN.
+    monitoring은 다른 타입처럼 Monitoring 태그로 정한다 — 2026-10까지는 수집기가 태그 없이 전부 감시해 True 고정이었다.
+    태그는 프라임된 캐시, 없으면 RGT(`tag:GetResources` — 고객 역할에 `acm:ListTagsForCertificate`가 없다).
     """
     resources = []
     try:
@@ -864,8 +864,23 @@ def _discover_acm(session, account_id, region, customer_id):
                 logger.error("ACM describe_certificate failed for %s: %s", cert_arn, e)
             resources.append(_inv_item(cert_arn, domain or cert_arn, "ACM", cert_arn,
                                        account_id, region, customer_id,
-                                       {"Monitoring": "on"}, True))
+                                       _acm_tags(session, region, cert_arn)))
     return resources
+
+
+def _acm_tags(session, region, cert_arn):
+    tags = cached_tags(cert_arn)
+    if tags is not None:
+        return tags
+    try:
+        resp = session.client("resourcegroupstaggingapi", region_name=region).get_resources(ResourceARNList=[cert_arn])
+    except ClientError as e:
+        logger.warning("ACM tag lookup failed for %s: %s", cert_arn, e)
+        return {}
+    for mapping in resp.get("ResourceTagMappingList", []):
+        if mapping.get("ResourceARN") == cert_arn:
+            return {t["Key"]: t["Value"] for t in mapping.get("Tags", [])}
+    return {}
 
 
 def _discover_backup(session, account_id, region, customer_id):

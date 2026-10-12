@@ -2800,7 +2800,16 @@ from common.collectors import acm as acm_collector
 
 
 class TestACMCollector:
-    """ACM Collector 단위 테스트 — collect_monitored_resources() + get_metrics()."""
+    """ACM Collector 단위 테스트 — collect_monitored_resources() + get_metrics().
+
+    태그 캐시가 없는 경로(_enumerate). 기본은 모든 인증서가 Monitoring=on — 태그 없는 경우는 테스트가 덮어쓴다.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _tagged_on(self):
+        with patch("common.collectors.acm.get_resource_tags_or_none", return_value={"Monitoring": "on"}) as tags:
+            self.tags = tags
+            yield
 
     def _mock_acm_for_collection(self, certs, domain="example.com", days_until_expiry=90):
         """ACM 클라이언트 mock 생성 (수집 테스트용).
@@ -2828,8 +2837,8 @@ class TestACMCollector:
 
     # ── collect_monitored_resources() 테스트 ──
 
-    def test_collect_all_issued_certs(self):
-        """Full_Collection: ISSUED 인증서 전체 수집, Monitoring=on 자동 삽입 — Req 4.3, 13.3"""
+    def test_collect_tagged_issued_certs(self):
+        """Monitoring=on인 ISSUED 인증서 수집, 도메인은 Name으로"""
         certs = [
             {"CertificateArn": "arn:aws:acm:us-east-1:123:certificate/cert-1"},
             {"CertificateArn": "arn:aws:acm:us-east-1:123:certificate/cert-2"},
@@ -2848,12 +2857,14 @@ class TestACMCollector:
             assert r["tags"]["Monitoring"] == "on"
             assert r["tags"]["Name"] == "example.com"
 
-    def test_untagged_certs_still_collected(self):
-        """태그 없어도 수집 (Full_Collection) — Req 4.3, 13.1"""
+    @pytest.mark.parametrize("tags", [{}, None, {"Monitoring": "off"}])
+    def test_untagged_certs_are_not_collected(self, tags):
+        """태그가 없거나(못 읽거나) off면 감시 안 함 — 2026-10까지는 전체 수집이라 고객이 안 켠 인증서에 알람이 생겼다."""
         certs = [
             {"CertificateArn": "arn:aws:acm:us-east-1:123:certificate/no-tag"},
         ]
         mock_client = self._mock_acm_for_collection(certs)
+        self.tags.return_value = tags
 
         with patch.object(acm_collector, "_get_acm_client",
                           return_value=mock_client), \
@@ -2861,9 +2872,7 @@ class TestACMCollector:
             ms.return_value.region_name = "us-east-1"
             result = acm_collector.collect_monitored_resources()
 
-        assert len(result) == 1
-        assert result[0]["tags"]["Monitoring"] == "on"
-        assert result[0]["tags"]["Name"] == "example.com"
+        assert result == []
 
     def test_expired_cert_excluded(self):
         """이미 만료된 인증서는 수집 제외 — Req 13.2"""
@@ -3919,25 +3928,34 @@ class TestNewResourceTagResolver:
         )
 
     def test_acm_tag_retrieval(self):
-        """get_resource_tags(arn, 'ACM') → list_tags_for_certificate 호출."""
+        """get_resource_tags(arn, 'ACM') → 인증서 리전의 RGT get_resources (고객 역할엔 acm:ListTagsForCertificate가 없다)."""
         from common.tag_resolver import get_resource_tags
 
         cert_arn = "arn:aws:acm:us-east-1:123456789012:certificate/abc-123"
-        mock_acm = MagicMock()
-        mock_acm.list_tags_for_certificate.return_value = {
+        rgt = MagicMock()
+        rgt.get_resources.return_value = {"ResourceTagMappingList": [{
+            "ResourceARN": cert_arn,
             "Tags": [
                 {"Key": "Monitoring", "Value": "on"},
                 {"Key": "Threshold_DaysToExpiry", "Value": "30"},
             ],
-        }
+        }]}
 
-        with patch("common.tag_resolver._get_acm_client", return_value=mock_acm):
+        with patch("common.tag_resolver._get_tagging_client", return_value=rgt) as factory:
             tags = get_resource_tags(cert_arn, "ACM")
 
         assert tags == {"Monitoring": "on", "Threshold_DaysToExpiry": "30"}
-        mock_acm.list_tags_for_certificate.assert_called_once_with(
-            CertificateArn=cert_arn,
-        )
+        factory.assert_called_once_with("us-east-1")
+        rgt.get_resources.assert_called_once_with(ResourceARNList=[cert_arn])
+
+    def test_acm_untagged_certificate_has_no_tags(self):
+        """태그가 없는 인증서는 RGT 결과에 없다 → {} (Monitoring 꺼짐)."""
+        from common.tag_resolver import get_resource_tags_or_none
+
+        rgt = MagicMock()
+        rgt.get_resources.return_value = {"ResourceTagMappingList": []}
+        with patch("common.tag_resolver._get_tagging_client", return_value=rgt):
+            assert get_resource_tags_or_none("arn:aws:acm:ap-northeast-2:1:certificate/x", "ACM") == {}
 
     def test_backup_tag_retrieval(self):
         """get_resource_tags(name, 'Backup') → describe_backup_vault + list_tags 호출."""

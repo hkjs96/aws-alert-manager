@@ -973,6 +973,7 @@ def _sanitize_inventory_item(resource: dict) -> dict:
 
 
 def _collect_alarm_resource_ids(
+    full_ids: dict[tuple[str, str], str] | None = None,
 ) -> dict[str, dict[str, list[str]]]:
     """모든 알람에서 resource_type별 resource_id → 알람 이름 매핑 추출.
 
@@ -981,6 +982,7 @@ def _collect_alarm_resource_ids(
 
     Returns:
         {"EC2": {"i-xxx": ["alarm1", ...]}, "RDS": {...}, "ELB": {...}, "TG": {...}}
+        `full_ids`를 주면 (type, 키) → 메타데이터의 Full ID를 채운다(태그 조회용 — 키는 short ID일 수 있다).
     """
     cw = _get_cw_client()
     result: dict[str, dict[str, list[str]]] = {}
@@ -988,7 +990,7 @@ def _collect_alarm_resource_ids(
 
     for page in paginator.paginate(AlarmTypes=["MetricAlarm"]):
         for alarm in page.get("MetricAlarms", []):
-            _classify_alarm(alarm, result)
+            _classify_alarm(alarm, result, full_ids)
 
     return result
 
@@ -996,6 +998,7 @@ def _collect_alarm_resource_ids(
 def _classify_alarm(
     alarm: dict | str,
     result: dict[str, dict[str, list[str]]],
+    full_ids: dict[tuple[str, str], str] | None = None,
 ) -> None:
     """단일 알람을 {type: {tag_name: [alarm_name]}}로 분류하여 result에 추가.
 
@@ -1013,6 +1016,8 @@ def _classify_alarm(
         return
     key = identity.tag_name or identity.resource_id
     result.setdefault(identity.resource_type, {}).setdefault(key, []).append(alarm["AlarmName"])
+    if full_ids is not None and identity.resource_id:
+        full_ids.setdefault((identity.resource_type, key), identity.resource_id)
 
 
 def _cleanup_orphan_alarms() -> list[str]:
@@ -1025,7 +1030,8 @@ def _cleanup_orphan_alarms() -> list[str]:
     Returns:
         삭제된 알람 이름 목록
     """
-    alarm_map = _collect_alarm_resource_ids()
+    full_ids: dict[tuple[str, str], str] = {}
+    alarm_map = _collect_alarm_resource_ids(full_ids)
     if not alarm_map:
         return []
 
@@ -1050,7 +1056,9 @@ def _cleanup_orphan_alarms() -> list[str]:
                     "Orphan alarms for %s %s: %s", rtype, rid, alarm_names,
                 )
                 continue
-            if not _is_currently_monitored(rid, rtype):
+            # 태그는 Full ID로 읽는다 — ACM 키는 도메인이라 그대로 넘기면 ARN 검증에 걸려 "못 읽음"으로
+            # 건너뛰었다(2026-10까지 ACM은 끄기가 안 먹었다; 그땐 전체 수집이라 드러나지 않았다).
+            if not _is_currently_monitored(full_ids.get((rtype, rid), rid), rtype):
                 to_delete.extend(alarm_names)
                 logger.info(
                     "Monitoring disabled for %s %s: deleting alarms %s",

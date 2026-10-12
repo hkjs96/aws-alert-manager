@@ -511,11 +511,25 @@ def _get_apigw_tags(resource_id: str) -> dict:
     return {}
 
 
+@functools.lru_cache(maxsize=None)
+def _get_tagging_client(region: str):
+    return boto3.client("resourcegroupstaggingapi", region_name=region)
+
+
 def _get_acm_tags(certificate_arn: str) -> dict:
-    """ACM 인증서 태그 조회."""
-    client = _get_acm_client()
-    resp = client.list_tags_for_certificate(CertificateArn=certificate_arn)
-    return {t["Key"]: t["Value"] for t in resp.get("Tags", [])}
+    """ACM 인증서 태그 조회 — Resource Groups Tagging API로 읽는다.
+
+    고객 계정 역할(customer-onboarding)에는 `acm:ListTagsForCertificate`가 없고 `tag:GetResources`는 있다. 2026-10까지
+    ACM은 태그를 안 봤으므로(전체 수집) 이 차이가 드러나지 않았다. 인증서 리전은 ARN의 리전이다(CloudFront용은 us-east-1).
+    태그가 하나도 없는 리소스는 RGT 결과에 안 나온다 → `{}`.
+    """
+    region = certificate_arn.split(":")[3] if certificate_arn.count(":") >= 5 else ""
+    client = _get_tagging_client(region or (boto3.session.Session().region_name or "us-east-1"))
+    resp = client.get_resources(ResourceARNList=[certificate_arn])
+    for mapping in resp.get("ResourceTagMappingList", []):
+        if mapping.get("ResourceARN") == certificate_arn:
+            return {t["Key"]: t["Value"] for t in mapping.get("Tags", [])}
+    return {}
 
 
 def _get_backup_tags(vault_name: str) -> dict:

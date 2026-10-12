@@ -204,7 +204,7 @@ class TestIdentity:
         """어느 타입이 태그 캐시로 나열되는지 — 설계(D4)의 16개 중 실제로는 9개. 나머지 이유는 스펙 notes."""
         via_rgt = {_mod(n).COLLECTOR.spec.type for n in GENERIC if _mod(n).COLLECTOR.rgt_capable}
         assert via_rgt == {"SQS", "SNS", "Lambda", "DynamoDB", "MSK", "Backup", "EFS", "MQ", "OpenSearch", "SageMaker",
-                           "CLB", "WAF"}
+                           "CLB", "WAF", "ACM"}  # ACM: 2026-10 태그를 따르게 되면서 합류
         assert all(_mod(n).COLLECTOR.metrics_from_definitions for n in GENERIC)
 
 
@@ -316,19 +316,25 @@ class TestEnumerationEquivalence:
         assert client.describe_broker.call_count == 2
         client.get_paginator.assert_not_called()
 
-    def test_acm_ignores_the_cache_because_it_collects_untagged_certificates(self):
+    def test_acm_lists_only_tagged_certificates_from_the_cache(self):
+        """2026-10: ACM도 Monitoring 태그를 따른다 — 캐시가 Monitoring=on 인증서를 주고, describe는 도메인·만료만 본다."""
         from datetime import datetime, timedelta, timezone
         mod = _mod("acm")
-        _activate_cache([(f"arn:aws:acm:{REGION}:{ACCOUNT}:certificate/tagged", {"Monitoring": "on"})])
+        tagged = f"arn:aws:acm:{REGION}:{ACCOUNT}:certificate/tagged"
+        expired = f"arn:aws:acm:{REGION}:{ACCOUNT}:certificate/expired"
+        _activate_cache([(tagged, {"Monitoring": "on"}), (expired, {"Monitoring": "on"}),
+                         (f"arn:aws:acm:{REGION}:{ACCOUNT}:certificate/off", {"Team": "x"})])
         client = MagicMock()
-        _paginated(client, [{"CertificateSummaryList": [{"CertificateArn": f"arn:aws:acm:{REGION}:{ACCOUNT}:certificate/untagged"}]}])
-        client.describe_certificate.return_value = {"Certificate": {
-            "DomainName": "shop.example.com", "NotAfter": datetime.now(timezone.utc) + timedelta(days=30)}}
+        now = datetime.now(timezone.utc)
+        client.describe_certificate.side_effect = lambda CertificateArn: {"Certificate": {
+            "DomainName": "shop.example.com", "Status": "ISSUED",
+            "NotAfter": now - timedelta(days=1) if CertificateArn == expired else now + timedelta(days=30)}}
         with patch.object(mod, "_get_acm_client", return_value=client):
             got = mod.collect_monitored_resources()
-        assert mod.COLLECTOR.last_source == "enumerate"
-        assert got == [ResourceInfo(id=f"arn:aws:acm:{REGION}:{ACCOUNT}:certificate/untagged", type="ACM",
+        assert mod.COLLECTOR.last_source == "rgt"
+        assert got == [ResourceInfo(id=tagged, type="ACM",
                                     tags={"Monitoring": "on", "Name": "shop.example.com"}, region=REGION)]
+        client.get_paginator.assert_not_called()
 
     def test_dx_keeps_describe_for_the_state_filter_but_reads_tags_from_the_cache(self):
         mod = _mod("dx")

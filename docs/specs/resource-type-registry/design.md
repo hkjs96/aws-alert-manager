@@ -136,7 +136,7 @@ APIGW(REST/HTTP/WS 판별) · S3·CloudFront·Route53(글로벌 → us-east-1) �
 - **모듈은 삭제되지 않고 축소된다.** describe 폴백은 IAM 미부여·`TAG_CACHE=off`·프라임 실패에서 동작을 같게 하는 데 필요하고,
   존재 확인은 describe 고정이다. 남는 건 팩토리·`_enumerate`·`_alive` 셋 — 1파 10개가 1,386 → 883줄.
 - 위 16개 중 **ACM과 DX는 RGT 나열이 아니다**: ACM은 Full_Collection(태그 없는 인증서도 수집)이라 태그 기반 RGT로는 대상을 다 못
-  본다. DX는 `connectionState=available` 필터에 describe_connections가 어차피 필요해 아낄 콜이 없다. MQ는 브로커 1 → 인스턴스
+  본다(→ 2026-10 ACM도 태그를 따르게 되어 RGT 나열로 합류, monitoring-tag-contract D5). DX는 `connectionState=available` 필터에 describe_connections가 어차피 필요해 아낄 콜이 없다. MQ는 브로커 1 → 인스턴스
   1~2(`{name}-{1|2}`)에 DeploymentMode describe가 들어가 스펙 `identity` 대신 모듈 `_identities`가 맡는다(캐시 경로는 쓴다).
   스펙에 `identity`가 없으면 `notes`에 "identity 없음"과 이유 — 테스트가 강제.
 - `matching()`은 필터의 서비스가 프라임 목록에 없으면 빈 목록이 아니라 `None`을 돌려 폴백시킨다(빈 결과를 "0개"로 오판하지 않게).

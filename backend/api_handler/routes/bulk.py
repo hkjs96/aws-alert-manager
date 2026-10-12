@@ -25,6 +25,7 @@ from botocore.exceptions import ClientError
 
 from api_handler.db import job_status_table, resource_inventory_table, scan_all
 from api_handler.routes.resources import (
+    _collector_tags,
     _find_account,
     _set_resource_monitoring_tag,
     _update_inventory_monitoring,
@@ -142,7 +143,7 @@ def bulk_monitoring(event: dict) -> dict:
             "resource_id": resource_id,
             "resource_type": resource_type,
             # 즉시 생성에 필요한 디멘션 힌트(_lb_arn·_api_type…)는 인벤토리에 영속화돼 있다 — 리소스별 PUT과 같은 태그 셋.
-            "resource_tags": {"Monitoring": "on", **(resource.get("dim_hints") or {})} if monitoring else {},
+            "resource_tags": {"Monitoring": "on", **_collector_tags(resource)} if monitoring else {},
             "role_arn": (account or {}).get("role_arn") or "",
         }
         try:

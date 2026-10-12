@@ -1,9 +1,15 @@
 """
-ACM 수집기 — Full_Collection: 태그 없이 ISSUED 인증서 전체를 모으므로 태그 캐시(RGT)로 나열하지 않는다 (docs/specs/resource-type-registry P3)
+ACM 수집기 — 다른 타입과 같이 **Monitoring=on 태그가 붙은** 인증서만 감시한다.
 
-RGT는 태그가 있는 리소스만 돌려주는데 여기는 태그 없는 인증서도 대상이다(Req 13.1) — 스펙에 `identity`가 없고 이 모듈의
-`_enumerate`가 유일한 나열이다. Monitoring=on 태그를 자동 삽입하여 하위 파이프라인 호환성 유지. TagName은 도메인명(Name 태그).
-메트릭은 스펙(`common/resource_types/acm.py`)의 알람 정의에서 만든다. 네임스페이스 AWS/CertificateManager, 디멘션 CertificateArn.
+2026-03(Req 4.3·13.1)부터 2026-10까지는 태그 없이 ISSUED 인증서 전체를 모았다(Full_Collection) — 우리 계정 하나를 보던
+시절엔 편했지만, 첫 실고객 계정에서 고객이 켜지 않은 인증서 2개에 만료 알람이 생겼다. 태그 계약("태그=의도",
+docs/specs/monitoring-tag-contract)과도 어긋났다. 지금은:
+
+- 태그 캐시(RGT)가 살아 있으면 Monitoring=on 인증서만 받아 `_identities`가 describe로 도메인·만료를 확인한다.
+- 캐시가 없으면 `_enumerate`가 전체를 나열하되 태그를 RGT로 읽어(`tag_resolver._get_acm_tags`) 걸러진다.
+
+TagName은 도메인명(Name 태그로 넣는다 — `_alive`가 도메인으로 역매핑). 메트릭은 스펙(`common/resource_types/acm.py`)의
+알람 정의에서 만든다. 네임스페이스 AWS/CertificateManager, 디멘션 CertificateArn.
 """
 
 import functools
@@ -15,6 +21,7 @@ from botocore.exceptions import ClientError
 
 from common.collectors.generic import GenericCollector
 from common.resource_types.acm import SPEC
+from common.tag_resolver import get_resource_tags_or_none
 
 logger = logging.getLogger(__name__)
 
@@ -25,45 +32,56 @@ def _get_acm_client():
     return boto3.client("acm")
 
 
-def _enumerate() -> list[tuple[str, dict]]:
-    """계정 내 모든 ISSUED·미만료 ACM 인증서 (cert_arn, {"Monitoring": "on", "Name": domain}).
+def _live_domain(client, cert_arn: str) -> str | None:
+    """ISSUED·미만료 인증서면 도메인(없으면 ""), 아니면 None. describe 실패도 None."""
+    try:
+        detail = client.describe_certificate(CertificateArn=cert_arn).get("Certificate", {})
+    except ClientError as e:
+        logger.error("ACM describe_certificate failed for %s: %s", cert_arn, e)
+        return None
+    if detail.get("Status", "ISSUED") != "ISSUED":
+        return None
+    not_after = detail.get("NotAfter")
+    if not_after and not_after < datetime.now(timezone.utc):
+        logger.info("Skipping expired ACM cert %s (expired: %s)", cert_arn, not_after)
+        return None
+    return _domain_from_cert(detail)
 
-    만료된 인증서는 제외. 도메인 이름을 Name 태그로 설정하여 알람 이름에 도메인이 표시되도록 한다.
+
+def _with_domain(tags: dict, domain: str) -> dict:
+    return {**tags, "Name": domain} if domain else dict(tags)
+
+
+def _identities(cert_arn: str, tags: dict) -> list[tuple[str, dict]]:
+    """태그 캐시 경로 — Monitoring=on 인증서 하나 → [(cert_arn, 태그+Name=도메인)], 발급 안 됐거나 만료면 []."""
+    domain = _live_domain(_get_acm_client(), cert_arn)
+    return [] if domain is None else [(cert_arn, _with_domain(tags, domain))]
+
+
+def _enumerate() -> list[tuple[str, dict]]:
+    """태그 캐시가 없을 때 — ISSUED·미만료 인증서 전체 (cert_arn, 실제 태그+Name=도메인). Monitoring 필터는 GenericCollector가 한다.
+
+    태그를 못 읽으면 감시하지 않는다(켜졌다고 가정하지 않는다).
     """
     try:
         client = _get_acm_client()
-        paginator = client.get_paginator("list_certificates")
-        pages = paginator.paginate(CertificateStatuses=["ISSUED"])
+        pages = client.get_paginator("list_certificates").paginate(CertificateStatuses=["ISSUED"])
     except ClientError as e:
         logger.error("ACM list_certificates failed: %s", e)
         raise
 
     found: list[tuple[str, dict]] = []
-    now = datetime.now(timezone.utc)
-
     for page in pages:
         for cert in page.get("CertificateSummaryList", []):
             cert_arn = cert["CertificateArn"]
-            try:
-                detail = client.describe_certificate(CertificateArn=cert_arn)
-            except ClientError as e:
-                logger.error("ACM describe_certificate failed for %s: %s", cert_arn, e)
+            domain = _live_domain(client, cert_arn)
+            if domain is None:
                 continue
-
-            cert_detail = detail.get("Certificate", {})
-            not_after = cert_detail.get("NotAfter")
-
-            # 이미 만료된 인증서 제외
-            if not_after and not_after < now:
-                logger.info("Skipping expired ACM cert %s (expired: %s)", cert_arn, not_after)
-                continue
-
-            domain = _domain_from_cert(cert_detail)
-            tags: dict = {"Monitoring": "on"}
-            if domain:
-                tags["Name"] = domain
-            found.append((cert_arn, tags))
-
+            tags = get_resource_tags_or_none(cert_arn, "ACM")
+            if tags is None:
+                logger.warning("ACM tags unreadable for %s; not monitoring it", cert_arn)
+                tags = {}
+            found.append((cert_arn, _with_domain(tags, domain)))
     return found
 
 
@@ -113,7 +131,7 @@ def _alive(tag_names: set[str]) -> set[str]:
     return tag_names & alive_domains
 
 
-COLLECTOR = GenericCollector(SPEC, alive=_alive, enumerate=_enumerate)
+COLLECTOR = GenericCollector(SPEC, alive=_alive, enumerate=_enumerate, identities=_identities)
 collect_monitored_resources = COLLECTOR.collect_monitored_resources
 get_metrics = COLLECTOR.get_metrics
 resolve_alive_ids = COLLECTOR.resolve_alive_ids

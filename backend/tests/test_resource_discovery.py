@@ -327,20 +327,34 @@ def test_discover_apigw_rest_and_v2():
     assert by_id["h1"]["tags"]["_api_type"] == "HTTP"
 
 
-def test_discover_acm_full_collection_monitoring_on():
-    acm = MagicMock()
+def _acm_with_tagging(tags_by_arn):
+    """ACM·RGT 클라이언트를 같은 세션에서 돌려주는 목 — RGT는 태그가 있는 ARN만 돌려준다."""
+    acm, rgt = MagicMock(), MagicMock()
+    rgt.get_resources.side_effect = lambda ResourceARNList: {"ResourceTagMappingList": [
+        {"ResourceARN": a, "Tags": [{"Key": k, "Value": v} for k, v in tags_by_arn[a].items()]}
+        for a in ResourceARNList if tags_by_arn.get(a)]}
+    session = MagicMock()
+    session.client.side_effect = lambda name, **_kw: rgt if name == "resourcegroupstaggingapi" else acm
+    return acm, session
+
+
+def test_discover_acm_follows_the_monitoring_tag():
+    """2026-10: 태그 없는 인증서는 감시 안 함(예전엔 전체 수집이라 True 고정 — 고객이 안 켠 인증서에 알람이 생겼다)."""
+    acm, session = _acm_with_tagging({"arn:acm:on": {"Monitoring": "on"}})
     _paginated(acm, [{"CertificateSummaryList": [
-        {"CertificateArn": "arn:acm:c1", "DomainName": "ex.com"},
+        {"CertificateArn": "arn:acm:on", "DomainName": "ex.com"},
+        {"CertificateArn": "arn:acm:off", "DomainName": "other.com"},
     ]}])
-    acm.describe_certificate.return_value = {"Certificate": {"DomainName": "ex.com"}}
+    acm.describe_certificate.side_effect = lambda CertificateArn: {"Certificate": {
+        "DomainName": "ex.com" if CertificateArn == "arn:acm:on" else "other.com"}}
 
-    out = _discover_acm(_session_returning(acm), "123", "us-east-1", "cust")
+    out = {r["resource_id"]: r for r in _discover_acm(session, "123", "us-east-1", "cust")}
 
-    assert out[0]["type"] == "ACM"
-    assert out[0]["resource_id"] == "arn:acm:c1"
-    assert out[0]["arn"] == "arn:acm:c1"
-    assert out[0]["name"] == "ex.com"
-    assert out[0]["monitoring"] is True
+    assert out["arn:acm:on"]["type"] == "ACM"
+    assert out["arn:acm:on"]["arn"] == "arn:acm:on"
+    assert out["arn:acm:on"]["name"] == "ex.com"
+    assert out["arn:acm:on"]["monitoring"] is True
+    assert out["arn:acm:off"]["monitoring"] is False
 
 
 def test_discover_backup_vault_arn():
