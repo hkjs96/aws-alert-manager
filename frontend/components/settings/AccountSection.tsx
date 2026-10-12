@@ -2,11 +2,19 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { CheckCircle2, Cloud, Link as LinkIcon, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Cloud, Link as LinkIcon, X, XCircle } from "lucide-react";
 import type { Account, Customer } from "@/types";
 import { useToast } from "@/components/shared/Toast";
 import { LoadingButton } from "@/components/shared/LoadingButton";
-import { createAccount, testConnection } from "@/lib/api-functions";
+import { createAccount, testConnection, updateAccountRegions } from "@/lib/api-functions";
+
+// 정기 실행이 등록과 무관하게 항상 도는 리전(글로벌 서비스) — 백엔드 region_discovery.ALWAYS_COVERED와 같다.
+const ALWAYS_COVERED = new Set(["us-east-1"]);
+
+/** 리소스가 있는데 감시 밖인 리전 — 등록 리전도, 항상 도는 리전도 아닌 것. */
+export function unregisteredRegions(detected: string[] | undefined, registered: string[]): string[] {
+  return (detected ?? []).filter((r) => !registered.includes(r) && !ALWAYS_COVERED.has(r));
+}
 
 interface AccountSectionProps {
   accounts: Account[];
@@ -115,6 +123,22 @@ export function AccountSection({ accounts, customers }: AccountSectionProps) {
   const [testingId, setTestingId] = useState<string | null>(null);
   const [statuses, setStatuses] = useState<Record<string, string>>({});
   const [testDetails, setTestDetails] = useState<Record<string, string[]>>({});
+  // 방금 연결 테스트가 찾은 리전 — 없으면 저장된 값(account.detected_regions)을 쓴다.
+  const [detected, setDetected] = useState<Record<string, string[]>>({});
+  const [savingRegionsId, setSavingRegionsId] = useState<string | null>(null);
+
+  const saveRegions = async (account: Account, next: string[], message: string) => {
+    setSavingRegionsId(account.account_id);
+    try {
+      await updateAccountRegions(account.account_id, account.customer_id, next);
+      showToast("success", message);
+      router.refresh();
+    } catch (e) {
+      showToast("error", e instanceof Error ? e.message : "Failed to update regions.");
+    } finally {
+      setSavingRegionsId(null);
+    }
+  };
 
   const handleConnect = async () => {
     if (!accountId.trim() || !roleArn.trim() || !name.trim() || !customerId || regions.length === 0) {
@@ -150,6 +174,9 @@ export function AccountSection({ accounts, customers }: AccountSectionProps) {
     try {
       const data = await testConnection(account.account_id, account.customer_id);
       setStatuses((prev) => ({ ...prev, [account.account_id]: data.status }));
+      if (data.detected_regions) {
+        setDetected((prev) => ({ ...prev, [account.account_id]: data.detected_regions ?? [] }));
+      }
       // 전달 경로는 AssumeRole과 별개다 — 막혀 있으면 "연결됨"이어도 알람이 오지 않으므로 함께 보여준다.
       const forwarding = data.alert_forwarding;
       const forwardingOk =
@@ -230,6 +257,8 @@ export function AccountSection({ accounts, customers }: AccountSectionProps) {
                 const status = getStatus(acc);
                 const style = STATUS_STYLES[status] ?? DEFAULT_STATUS_STYLE;
                 const details = testDetails[acc.account_id];
+                const missing = unregisteredRegions(detected[acc.account_id] ?? acc.detected_regions, acc.regions);
+                const saving = savingRegionsId === acc.account_id;
                 return (
                   <tr key={acc.account_id} className="hover:bg-slate-50 transition-colors">
                     <td className="px-4 py-3 font-mono text-xs text-primary">
@@ -244,11 +273,49 @@ export function AccountSection({ accounts, customers }: AccountSectionProps) {
                     <td className="px-4 py-3">
                       <div className="flex flex-wrap gap-1">
                         {acc.regions.map((region) => (
-                          <span key={region} className="rounded-md bg-slate-100 px-2 py-1 font-mono text-[10px] text-slate-600">
+                          <span key={region} className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-1 font-mono text-[10px] text-slate-600">
                             {region}
+                            {acc.regions.length > 1 && (
+                              <button
+                                type="button"
+                                disabled={saving}
+                                aria-label={`Remove ${region}`}
+                                title="감시 리전에서 빼기"
+                                onClick={() => {
+                                  if (window.confirm(`${region}(${regionLabel(region)})을 감시 리전에서 뺄까요? 정기 실행이 다음부터 이 리전을 보지 않습니다.`)) {
+                                    void saveRegions(acc, acc.regions.filter((r) => r !== region), `${region} removed from monitoring regions.`);
+                                  }
+                                }}
+                                className="text-slate-400 hover:text-red-600 disabled:opacity-40"
+                              >
+                                <X size={10} />
+                              </button>
+                            )}
                           </span>
                         ))}
                       </div>
+                      {missing.length > 0 && (
+                        <div className="mt-2 rounded-md bg-amber-50 px-2 py-1.5 ring-1 ring-amber-200">
+                          <div className="flex items-center gap-1 text-[10px] font-semibold text-amber-700">
+                            <AlertTriangle size={11} /> 리소스가 있지만 감시 밖
+                          </div>
+                          <div className="mt-1 flex flex-wrap items-center gap-1">
+                            {missing.map((region) => (
+                              <span key={region} className="rounded bg-white px-1.5 py-0.5 font-mono text-[10px] text-amber-800 ring-1 ring-amber-200">
+                                {region} <span className="font-sans text-amber-600">{regionLabel(region)}</span>
+                              </span>
+                            ))}
+                            <button
+                              type="button"
+                              disabled={saving}
+                              onClick={() => void saveRegions(acc, [...acc.regions, ...missing], `Added ${missing.join(", ")} to monitoring regions.`)}
+                              className="text-[10px] font-semibold text-primary hover:underline disabled:opacity-40"
+                            >
+                              {saving ? "Saving…" : "감시 리전에 추가"}
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       <div className="space-y-1">

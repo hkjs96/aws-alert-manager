@@ -177,6 +177,14 @@ export function testConnection(id: string, customerId: string): Promise<Connecti
   return apiFetch(`/api/accounts/${id}/test?${qs}`, { method: "POST" });
 }
 
+export function updateAccountRegions(id: string, customerId: string, regions: string[]): Promise<Account> {
+  const qs = buildQueryString({ customer_id: customerId });
+  return apiFetch(`/api/accounts/${id}/regions?${qs}`, {
+    method: "PUT",
+    body: JSON.stringify({ regions }),
+  });
+}
+
 // --- Thresholds ---
 
 export function fetchThresholds(

@@ -73,6 +73,8 @@ export interface Account {
   regions: string[];
   connection_status: "connected" | "failed" | "untested";
   last_tested_at?: string;
+  /** 마지막 연결 테스트가 찾은, 리소스가 있는 리전. */
+  detected_regions?: string[];
 }
 
 export interface DashboardStats {

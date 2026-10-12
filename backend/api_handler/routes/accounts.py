@@ -22,6 +22,7 @@ import boto3
 from botocore.exceptions import ClientError
 
 from api_handler.db import accounts_table, scan_all, query_by_pk
+from common.region_discovery import CANDIDATE_REGIONS, detect_regions, unregistered_regions
 from common.sns_notifier import send_error_alert
 
 logger = logging.getLogger(__name__)
@@ -404,6 +405,7 @@ def test_connection(event: dict) -> dict:
         return _err(400, "MISSING_ROLE", "role_arn이 설정되지 않았습니다")
 
     status, region_results, error_msg = _probe_regions(item)
+    detected = _detect_account_regions(item) if status == "connected" else None
 
     # 전달 경로 점검 — AssumeRole이 실패해도 본다(둘은 독립된 조건이고, 진단에는 둘 다 필요하다).
     forwarding = check_alert_forwarding(account_id)
@@ -413,11 +415,13 @@ def test_connection(event: dict) -> dict:
         table.update_item(
             Key={"customer_id": customer_id, "account_id": account_id},
             UpdateExpression=(
-                "SET connection_status = :s, last_tested_at = :t, alert_forwarding = :f"),
+                "SET connection_status = :s, last_tested_at = :t, alert_forwarding = :f"
+                + (", detected_regions = :d" if detected is not None else "")),
             ExpressionAttributeValues={
                 ":s": status,
                 ":t": datetime.now(UTC).isoformat(),
                 ":f": forwarding["status"],
+                **({":d": detected} if detected is not None else {}),
             },
         )
     except ClientError:
@@ -430,9 +434,59 @@ def test_connection(event: dict) -> dict:
         "alert_forwarding": forwarding,
         "tested_at": datetime.now(UTC).isoformat(),
     }
+    if detected is not None:
+        result["detected_regions"] = detected
+        result["unregistered_regions"] = unregistered_regions(detected, item.get("regions") or [])
     if error_msg:
         result["error"] = error_msg
     return _ok(result)
+
+
+def _detect_account_regions(item: dict) -> list[str] | None:
+    """리소스가 있는 리전(common.region_discovery). 자격증명을 못 얻으면 None — 연결 테스트 결과는 그대로 낸다."""
+    try:
+        return detect_regions(_assume_role_kwargs(item))
+    except ClientError as e:
+        logger.warning("Region detection skipped for %s: %s", item.get("account_id"), e)
+        return None
+
+
+def update_account_regions(event: dict) -> dict:
+    """감시 리전 변경 — `PUT /accounts/{id}/regions?customer_id=`, 본문 `{"regions": [...]}`.
+
+    탐지(연결 테스트의 `unregistered_regions`)는 제안만 하고, 감시 범위는 사람이 여기서 바꾼다. 정기 워커는 다음 실행부터
+    새 목록 + us-east-1을 돈다.
+    """
+    path_params = event.get("pathParameters") or {}
+    account_id = path_params.get("id", "").strip()
+    customer_id = (event.get("queryStringParameters") or {}).get("customer_id", "").strip()
+    if not account_id or not customer_id:
+        return _err(400, "MISSING_PARAM", "account_id와 customer_id가 필요합니다")
+    try:
+        body = json.loads(event.get("body") or "{}")
+    except json.JSONDecodeError:
+        return _err(400, "INVALID_JSON", "요청 본문이 JSON 형식이 아닙니다")
+
+    regions = list(dict.fromkeys(_normalize_regions(body.get("regions"))))
+    if not regions:
+        return _err(400, "VALIDATION_ERROR", "regions must include at least one AWS region")
+    unknown = [r for r in regions if r not in CANDIDATE_REGIONS]
+    if unknown:
+        return _err(400, "VALIDATION_ERROR", f"unknown regions: {', '.join(unknown)}")
+
+    try:
+        resp = accounts_table().update_item(
+            Key={"customer_id": customer_id, "account_id": account_id},
+            UpdateExpression="SET regions = :r",
+            ConditionExpression="attribute_exists(account_id)",
+            ExpressionAttributeValues={":r": regions},
+            ReturnValues="ALL_NEW",
+        )
+    except ClientError as e:
+        if e.response.get("Error", {}).get("Code") == "ConditionalCheckFailedException":
+            return _err(404, "NOT_FOUND", "어카운트를 찾을 수 없습니다")
+        return _err(500, "DB_ERROR", str(e))
+    return _ok(resp.get("Attributes", {}))
 
 
 # ── 헬퍼 ──────────────────────────────────────────────────────────

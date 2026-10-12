@@ -135,6 +135,7 @@ _ROUTES: list[tuple[str, re.Pattern, object]] = [
     ("POST",   re.compile(r"^/accounts$"),                            accounts.create_account),
     ("DELETE", re.compile(r"^/accounts/(?P<id>[^/]+)$"),              accounts.delete_account),
     ("POST",   re.compile(r"^/accounts/(?P<id>[^/]+)/test$"),         accounts.test_connection),
+    ("PUT",    re.compile(r"^/accounts/(?P<id>[^/]+)/regions$"),      accounts.update_account_regions),
     ("POST",   re.compile(r"^/accounts/alert-forwarding/reconcile$"), accounts.reconcile_alert_forwarding_route),
     # Thresholds
     ("GET",    re.compile(r"^/thresholds/(?P<type>[^/]+)$"),          thresholds.get_thresholds),

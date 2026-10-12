@@ -170,5 +170,6 @@ def _worker_single_region(request):
     if not (name.startswith("test_daily_monitor") or name == "test_worker_multiacccount.py"):
         yield
         return
-    with patch("daily_monitor.lambda_handler._worker_regions", return_value=["us-east-1"]):
+    with patch("daily_monitor.lambda_handler._worker_regions", return_value=["us-east-1"]), \
+         patch("daily_monitor.lambda_handler._notify_unregistered_regions", return_value=[]):
         yield

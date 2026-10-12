@@ -533,6 +533,33 @@ Failed connection response is also `200` with:
 }
 ```
 
+연결이 성공하면 **리전 탐지** 결과가 붙는다(2026-10). 후보 리전 34개에 태깅 API `GetResources`를 1건씩
+병렬로 물어 리소스가 있는 리전을 찾는다(고객 역할의 기존 `tag:GetResources`만 쓴다). 탐지 결과는 계정 행의
+`detected_regions`에 저장되고, 화면은 `unregistered_regions`를 "리소스가 있지만 감시 밖"으로 보여준다.
+제안만 한다 — 감시 리전은 아래 `PUT …/regions`로 사람이 바꾼다. 실패 응답에는 두 필드가 없다.
+
+```json
+{
+  "detected_regions": ["us-east-1", "ap-northeast-2", "ap-northeast-1"],
+  "unregistered_regions": ["ap-northeast-1"]
+}
+```
+
+`unregistered_regions` = 탐지 − 등록 `regions` − `us-east-1`(정기 실행이 글로벌 서비스 때문에 항상 돈다).
+태그가 하나도 없는 리소스는 탐지되지 않지만, 우리는 Monitoring 태그가 붙은 리소스만 감시하므로 놓치는 것은 없다.
+정기 daily 실행도 계정마다 같은 탐지를 돌려, 감시 밖 리전이 있으면 운영 알림을 보낸다(해결될 때까지 매일, 자동 추가 없음).
+
+## PUT /api/accounts/{id}/regions
+
+Query: `customer_id` (required). Body:
+
+```json
+{ "regions": ["ap-northeast-2", "ap-northeast-1"] }
+```
+
+감시 리전을 통째로 바꾼다(중복은 접는다). 정기 실행은 다음 실행부터 이 목록 + `us-east-1`을 돈다.
+Response `200`은 갱신된 계정 행. `400` — 비었거나 알 수 없는 리전, `404` — 계정 없음.
+
 ## GET /api/thresholds/{type}
 
 `{type}` must be a supported resource type.

@@ -39,6 +39,7 @@ def _run(handler_name, event, regions):
          patch.object(lh, "_switch_account_session", return_value=FAKE_CREDS) as switch, \
          patch.object(lh, "_enter_region", side_effect=lambda c, a, r: entered.append((c, r))), \
          patch.object(lh, "_restore_lambda_session") as restore, \
+         patch.object(lh, "_notify_unregistered_regions", return_value=[]), \
          patch.object(lh, "_cleanup_orphan_alarms", return_value=[]) as cleanup, \
          patch.object(lh, "_collect_from_all_collectors", return_value=[]) as collect, \
          patch.object(lh, "_put_monitor_run_start"), patch.object(lh, "_mark_stale_runs"), \

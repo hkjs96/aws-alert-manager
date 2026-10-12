@@ -192,6 +192,9 @@ export interface ConnectionTestResult {
     status: "ok" | "repaired" | "failed" | "self" | "skipped";
     detail?: string;
   };
+  // 리소스가 있는 리전(태깅 API 탐지)과 그중 감시 밖인 리전 — 연결이 성공했을 때만 온다.
+  detected_regions?: string[];
+  unregistered_regions?: string[];
 }
 
 // --- 임계치 오버라이드 ---

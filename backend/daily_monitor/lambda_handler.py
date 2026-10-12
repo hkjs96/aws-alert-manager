@@ -66,6 +66,7 @@ from common.collectors import efs as efs_collector
 from common.collectors import s3 as s3_collector
 from common.collectors import sagemaker as sagemaker_collector
 from common.collectors import sns as sns_collector
+from common.region_discovery import detect_regions, unregistered_regions
 from common.sns_notifier import send_alert, send_error_alert
 from common.tag_resolver import get_resource_tags_or_none, get_threshold, has_monitoring_tag
 
@@ -276,6 +277,8 @@ def lambda_handler(event, context):
             )
             return result
 
+    unregistered = _notify_unregistered_regions(account_id, creds, regions)
+
     total_processed = 0
     total_alerts = 0
     alarms_synced = {"created": 0, "updated": 0, "ok": 0}
@@ -301,6 +304,7 @@ def lambda_handler(event, context):
         "alerts": total_alerts,
         "alarms_synced": alarms_synced,
         "regions": regions,
+        "unregistered_regions": unregistered,
         "inventory_synced": inventory_stats,
     }
     run_status = "partial" if inventory_stats.get("error") else "success"
@@ -309,6 +313,29 @@ def lambda_handler(event, context):
         inventory_stats.get("error"),
     )
     return result
+
+
+def _notify_unregistered_regions(account_id: str, creds: dict | None, regions: list[str]) -> list[str]:
+    """리소스가 있는데 감시 밖인 리전을 찾아 알린다(daily만 — 하루 한 번, 해결될 때까지 매일). 자동으로 추가하지 않는다.
+
+    고객사는 대개 서울+버지니아지만 간혹 다른 리전을 쓴다 — 등록에서 빠지면 그 리전 리소스는 조용히 감시 밖이다.
+    탐지 실패는 실행을 막지 않는다. 세션 전환 전에(기본 세션 = 람다) 자격증명을 명시해 부른다.
+    """
+    kwargs = ({"aws_access_key_id": creds["AccessKeyId"], "aws_secret_access_key": creds["SecretAccessKey"],
+               "aws_session_token": creds["SessionToken"]} if creds else {})
+    try:
+        missing = unregistered_regions(detect_regions(kwargs), regions)
+    except (ClientError, BotoCoreError, RuntimeError) as e:
+        logger.warning("Region detection failed for %s: %s", account_id, e)
+        return []
+    if missing:
+        logger.warning("Account %s has resources in unregistered regions: %s", account_id, missing)
+        send_error_alert(
+            context=f"region discovery account={account_id}",
+            error=RuntimeError(
+                f"리소스가 있지만 감시 리전에 없는 리전: {', '.join(missing)} — 설정 > 계정에서 연결 테스트 후 추가하세요"),
+        )
+    return missing
 
 
 def _daily_region_pass(account_id: str, region: str, alarm_index) -> tuple[int, int, dict]:
