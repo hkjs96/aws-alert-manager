@@ -15,6 +15,7 @@ from botocore.exceptions import ClientError
 from common.collectors.generic import GenericCollector
 from common.resource_types.dx import SPEC
 from common.tag_cache import cached_tags
+from common._clients import current_region
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +40,7 @@ def _enumerate() -> list[tuple[str, dict]]:
         raise
 
     found: list[tuple[str, dict]] = []
-    region = boto3.session.Session().region_name or "us-east-1"
+    region = current_region()
 
     for conn in response.get("connections", []):
         conn_id = conn["connectionId"]

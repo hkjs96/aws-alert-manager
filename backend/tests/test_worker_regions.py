@@ -78,3 +78,40 @@ def test_session_is_restored_even_when_a_region_pass_fails():
         with pytest.raises(RuntimeError):
             lh._handle_tag_reconcile({"mode": "tag_reconcile", "account_id": "self"}, None)
     restore.assert_called_once()
+
+
+class TestSeoulPassFindsSeoulAlarms:
+    """2026-10-12 07:32 첫 서울 순회 사고 — 바스티온 알람 4개가 지워지고 재생성이 실패했다."""
+
+    def test_resource_region_follows_the_switched_default_session(self):
+        import boto3
+        from common.collectors.generic import session_region
+        try:
+            boto3.setup_default_session(region_name="ap-northeast-2")
+            assert session_region() == "ap-northeast-2"
+        finally:
+            boto3.setup_default_session()
+
+    @pytest.mark.parametrize("client_region, expected", [
+        ("ap-northeast-2", ""),                                         # 다른 리전 토픽은 붙이지 않는다
+        ("us-east-1", "arn:aws:sns:us-east-1:949501913924:alert"),    # 같은 리전이면 그대로
+    ])
+    def test_alarm_actions_only_use_a_topic_in_the_alarms_region(self, client_region, expected):
+        from common.alarm_builder import _same_region_topic
+        cw = MagicMock()
+        cw.meta.region_name = client_region
+        assert _same_region_topic(cw, "arn:aws:sns:us-east-1:949501913924:alert") == expected
+
+    def test_seoul_alarm_is_created_without_the_virginia_topic(self):
+        import os
+        from common.alarm_manager import create_alarms_for_resource
+        cw = MagicMock()
+        cw.meta.region_name = "ap-northeast-2"
+        cw.describe_alarms.return_value = {"MetricAlarms": []}
+        cw.get_paginator.return_value.paginate.return_value = [{"MetricAlarms": []}]
+        cw.list_metrics.return_value = {"Metrics": []}
+        with patch.dict(os.environ, {"SNS_TOPIC_ARN_ALERT": "arn:aws:sns:us-east-1:949501913924:alert"}), \
+             patch("common.alarm_builder._get_disk_dimensions", return_value=[]):
+            create_alarms_for_resource("i-1", "EC2", {"Monitoring": "on", "Name": "bastion"}, cw=cw)
+        puts = [c.kwargs for c in cw.put_metric_alarm.call_args_list]
+        assert puts and all(p["AlarmActions"] == [] for p in puts)

@@ -14,6 +14,7 @@ from botocore.exceptions import ClientError
 from common.collectors.generic import GenericCollector
 from common.resource_types.sns import SPEC
 from common.tag_cache import cached_tags
+from common._clients import current_region
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +51,7 @@ def _alive(tag_names: set[str]) -> set[str]:
         try:
             sts = boto3.client("sts")
             account_id = sts.get_caller_identity()["Account"]
-            region = boto3.session.Session().region_name or "us-east-1"
+            region = current_region()
             topic_arn = f"arn:aws:sns:{region}:{account_id}:{name}"
             client.get_topic_attributes(TopicArn=topic_arn)
             alive.add(name)

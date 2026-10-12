@@ -11,6 +11,16 @@ from botocore.exceptions import ClientError
 logger = logging.getLogger(__name__)
 
 
+def current_region() -> str:
+    """기본 세션의 리전 — 워커가 `setup_default_session(region_name=…)`로 바꾼 리전.
+
+    `boto3.session.Session().region_name`은 **새** 세션이라 환경 변수(람다 리전 us-east-1)를 읽는다. 리전 순회 첫 실행
+    (2026-10-12 07:32)에서 서울 리소스가 us-east-1로 표시돼 알람 색인이 기존 알람을 못 찾았고, 동기화가 "새 리소스"로 보고
+    바스티온 알람 4개를 지웠다 다시 만들려 했다.
+    """
+    return boto3._get_default_session().region_name or "us-east-1"
+
+
 @functools.lru_cache(maxsize=None)
 def _get_cw_client():
     return boto3.client("cloudwatch")

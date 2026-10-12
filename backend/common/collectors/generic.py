@@ -34,6 +34,7 @@ from common.collectors.base import CW_LOOKBACK_MINUTES, collect_metric
 from common.dimension_builder import _build_dimensions
 from common.resource_types.base import ResourceTypeSpec, all_specs, get as spec_get
 from common.tag_cache import cached_matching
+from common._clients import current_region
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +55,7 @@ Metrics = Callable[..., "dict[str, float] | None"]
 
 def session_region() -> str:
     """기본 세션의 리전 — 옛 수집기들이 ResourceInfo.region에 넣던 값 그대로."""
-    return boto3.session.Session().region_name or "us-east-1"
+    return current_region()
 
 
 def is_monitored(tags: dict) -> bool:

@@ -90,6 +90,7 @@ from common.alarm_builder import (  # noqa: E402, F401
     _recreate_alarm_by_name,
     _recreate_disk_alarm,
     _recreate_standard_alarm,
+    _same_region_topic,
     _severity_overrides,
 )
 from common.alarm_sync import (  # noqa: E402, F401
@@ -195,7 +196,7 @@ def create_alarms_for_resource(
         cw = _clients._get_cw_client_for_region(global_region)
     _fwd: dict = {"cw": cw} if cw is not None else {}
     cw = cw or _clients._get_cw_client()
-    sns_arn = _get_sns_alert_arn()
+    sns_arn = _same_region_topic(cw, _get_sns_alert_arn())
     alarm_defs = _get_alarm_defs(resource_type, resource_tags)
     created: list[str] = []
     resource_name = resource_tags.get("Name", "")

@@ -314,10 +314,11 @@ def _sync_dynamic_alarms(
 ) -> None:
     """동적 알람 동기화: 생성/삭제/업데이트."""
     # Avoid circular import: _parse_threshold_tags lives in alarm_manager
+    from common.alarm_builder import _same_region_topic
     from common.alarm_manager import _get_sns_alert_arn, _parse_threshold_tags
 
     cw = cw or _clients._get_cw_client()
-    sns_arn = _get_sns_alert_arn()
+    sns_arn = _same_region_topic(cw, _get_sns_alert_arn())
     resource_name = resource_tags.get("Name", "")
     alarm_defs = _get_alarm_defs(resource_type, resource_tags)
     hardcoded_keys = (

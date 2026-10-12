@@ -13,6 +13,7 @@ import boto3
 from botocore.exceptions import BotoCoreError, ClientError
 
 from common import HARDCODED_DEFAULTS
+from common._clients import current_region
 
 logger = logging.getLogger(__name__)
 
@@ -502,7 +503,7 @@ def _get_apigw_tags(resource_id: str) -> dict:
         for page in paginator.paginate():
             for api in page.get("items", []):
                 if api.get("name") == resource_id:
-                    region = boto3.session.Session().region_name or "us-east-1"
+                    region = current_region()
                     arn = f"arn:aws:apigateway:{region}::/restapis/{api['id']}"
                     tag_resp = client.get_tags(resourceArn=arn)
                     return tag_resp.get("tags", {})
@@ -524,7 +525,7 @@ def _get_acm_tags(certificate_arn: str) -> dict:
     태그가 하나도 없는 리소스는 RGT 결과에 안 나온다 → `{}`.
     """
     region = certificate_arn.split(":")[3] if certificate_arn.count(":") >= 5 else ""
-    client = _get_tagging_client(region or (boto3.session.Session().region_name or "us-east-1"))
+    client = _get_tagging_client(region or (current_region()))
     resp = client.get_resources(ResourceARNList=[certificate_arn])
     for mapping in resp.get("ResourceTagMappingList", []):
         if mapping.get("ResourceARN") == certificate_arn:

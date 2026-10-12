@@ -50,6 +50,18 @@ def _get_sns_alert_arn() -> str:
     return os.environ.get("SNS_TOPIC_ARN_ALERT", "")
 
 
+def _same_region_topic(cw, topic_arn: str) -> str:
+    """알람 액션 토픽 — 알람을 만드는 클라이언트와 **같은 리전**일 때만. CloudWatch는 다른 리전 SNS를 액션으로 거부한다
+    (`Invalid region us-east-1 specified. Only ap-northeast-2 is supported`). 정기 워커만 중앙 us-east-1 토픽을 환경 변수로
+    갖고 있어, 리전 순회 첫 실행에서 서울 알람 재생성이 전부 실패했다(2026-10-12). 고객 계정 알람은 EventBridge 포워딩으로
+    중앙에 오므로 액션이 없어도 알림은 간다. 목 클라이언트처럼 리전을 모르면 그대로 둔다."""
+    region = getattr(getattr(cw, "meta", None), "region_name", None)
+    if not topic_arn or not isinstance(region, str):
+        return topic_arn
+    parts = topic_arn.split(":")
+    return topic_arn if len(parts) > 3 and parts[3] == region else ""
+
+
 def _get_global_sns_arn() -> str:
     """us-east-1 글로벌 서비스 알람용 SNS ARN. 미설정 시 빈 문자열(AlarmActions 비움)."""
     return os.environ.get("SNS_TOPIC_ARN_GLOBAL_ALERT", "")
@@ -273,6 +285,7 @@ def _create_standard_alarm(
         cw = _clients._get_cw_client_for_region(region)
         # 글로벌 서비스 알람: us-east-1 전용 SNS ARN 사용 (미설정 시 AlarmActions 비움)
         sns_arn = _get_global_sns_arn()
+    sns_arn = _same_region_topic(cw, sns_arn)
 
     threshold, cw_threshold = resolve_threshold(alarm_def, resource_tags)
 
@@ -494,6 +507,7 @@ def _create_single_alarm(
     if region:
         cw = _clients._get_cw_client_for_region(region)
         sns_arn = _get_global_sns_arn()
+    sns_arn = _same_region_topic(cw, sns_arn)
 
     threshold, cw_threshold = resolve_threshold(alarm_def, resource_tags)
 
@@ -552,7 +566,7 @@ def _recreate_alarm_by_name(
     Disk 알람의 경우 기존 Dimensions(path, device, fstype 등)를 재사용한다.
     """
     cw = cw or _clients._get_cw_client()
-    sns_arn = _get_sns_alert_arn()
+    sns_arn = _same_region_topic(cw, _get_sns_alert_arn())
     resource_name = resource_tags.get("Name", "")
 
     # 1. 기존 알람 설정 조회 (Dimensions 재사용 목적)
