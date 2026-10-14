@@ -11,6 +11,22 @@ from unittest.mock import patch, MagicMock
 # tests/ 디렉터리를 sys.path에 추가 — patch_helpers 등 로컬 헬퍼 import 지원
 sys.path.insert(0, os.path.dirname(__file__))
 
+# 테스트는 실제 AWS에 닿지 않는다 — boto3가 세션을 만들기 전에(import 시점) 개발자 PC의 프로필·자격증명을 지우고
+# 가짜 자격증명을 준다. 2026-10-14: 목이 빠진 호출이 개발자의 (만료된) SSO 프로필로 실제 엔드포인트에 나가 재시도·토큰
+# 갱신을 기다렸다 — 한 테스트가 968초, 빠른 게이트 전체가 33분. 순서에 따라 자격증명 없음 500이 나던 테스트도 같은 원인.
+for _var in ("AWS_PROFILE", "AWS_DEFAULT_PROFILE", "AWS_SSO_SESSION"):
+    os.environ.pop(_var, None)
+os.environ.update({
+    "AWS_ACCESS_KEY_ID": "testing",
+    "AWS_SECRET_ACCESS_KEY": "testing",
+    "AWS_SESSION_TOKEN": "testing",
+    "AWS_DEFAULT_REGION": "us-east-1",
+    "AWS_EC2_METADATA_DISABLED": "true",
+    # ~/.aws/config의 SSO 프로필을 읽지 않게 존재하지 않는 경로로
+    "AWS_CONFIG_FILE": os.devnull,
+    "AWS_SHARED_CREDENTIALS_FILE": os.devnull,
+})
+
 import pytest
 
 from common import ResourceInfo
@@ -41,6 +57,20 @@ def pytest_collection_modifyitems(items):
 def _aws_default_region():
     """모든 테스트에 AWS_DEFAULT_REGION을 설정해 NoRegionError 방지."""
     with patch.dict(os.environ, {"AWS_DEFAULT_REGION": "us-east-1"}, clear=False):
+        yield
+
+
+@pytest.fixture(autouse=True)
+def _region_probes_offline(request):
+    """리전 탐지의 리전별 호출을 막는다 — 탐지 자체를 검증하는 test_region_discovery.py만 예외(거기선 목 세션을 쓴다).
+
+    2026-10-14: 연결 테스트 API를 부르는 테스트가 34리전에 실제 TLS 연결을 열었고, 15초 기한 뒤 버려진 스레드가
+    계속 돌며 CPU를 잡아 뒤 테스트 전체가 느려졌다(빠른 게이트 33분, 한 테스트 968초).
+    """
+    if request.node.fspath.basename == "test_region_discovery.py":
+        yield
+        return
+    with patch("common.region_discovery._has_resources", return_value=False):
         yield
 
 

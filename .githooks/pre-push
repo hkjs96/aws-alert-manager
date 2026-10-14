@@ -25,7 +25,8 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     else
         changed="backend/"
     fi
-    if echo "$changed" | grep -qE '^(backend/|infrastructure/backend/)'; then
+    # Tests alone change no Lambda code — no deploy for a push that only touches backend/tests/.
+    if echo "$changed" | grep -E '^(backend/|infrastructure/backend/)' | grep -qvE '^backend/tests/'; then
         python scripts/deploy_verified.py deploy "$local_sha"
     else
         echo "[pre-push] no backend changes in this push — nothing to deploy." >&2
