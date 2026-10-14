@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# pre-push: test the commit being pushed in a clean checkout, then deploy it to dev if it touches
+# backend/ or infrastructure/backend/. Blocks the push only when tests fail.
+# Install once per clone: git config core.hooksPath .githooks
+# Runs regardless of which agent (Claude Code, Codex, Gemini, etc.) is pushing.
+# Skip the deploy (tests still run): ALARM_MANAGER_AUTO_DEPLOY=0 git push
+
+set -euo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
+ZERO=0000000000000000000000000000000000000000
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+    [ "$local_sha" = "$ZERO" ] && continue   # branch deletion
+    python scripts/deploy_verified.py gate "$local_sha" || {
+        echo "[pre-push] PUSH BLOCKED: backend tests failed for ${local_sha:0:7}." >&2
+        exit 1
+    }
+    # Only main deploys. Range: what this push adds (new branch -> compare with origin/main).
+    [ "$remote_ref" = "refs/heads/main" ] || continue
+    if [ "$remote_sha" = "$ZERO" ]; then base="$(git merge-base "$local_sha" origin/main 2>/dev/null || echo "")"; else base="$remote_sha"; fi
+    if [ -n "$base" ]; then
+        changed="$(git diff --name-only "$base" "$local_sha")"
+    else
+        changed="backend/"
+    fi
+    if echo "$changed" | grep -qE '^(backend/|infrastructure/backend/)'; then
+        python scripts/deploy_verified.py deploy "$local_sha"
+    else
+        echo "[pre-push] no backend changes in this push — nothing to deploy." >&2
+    fi
+done
+exit 0

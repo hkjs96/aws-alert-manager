@@ -123,14 +123,18 @@ git push origin main
 ```
 
 **배포:** 백엔드/인프라 코드가 배포 대상이면 검증/커밋/푸시 완료 후 배포까지 이어서 진행하십시오.
-- 자동: Claude Code PostToolUse 훅이 backend Python 변경 시 자동 배포합니다 (`.claude/deploy-backend-stack.py`).
-- 수동/CLI: `python scripts/deploy-backend-stack.py` (옵션: `--all-artifacts`, `--changed-path <path>`,
-  `--dry-run`; 기본값/오버라이드는 `guides/OPERATIONS.md` 참조).
-- 배포 전 `python scripts/verify_all.py`를 통과해야 하며, 배포 권한 또는 AWS 인증이 없으면 중단하고
-  사용자에게 필요한 권한/프로필 정보를 요청하십시오.
+- 자동: **검증을 통과한 커밋만** 배포된다. `main`으로 push하면 pre-push 훅(`.githooks/pre-push`)이 푸시되는
+  커밋을 깨끗한 checkout(git worktree)에서 테스트하고, 통과했고 `backend/`·`infrastructure/backend/`가 바뀌었으면
+  그 커밋을 dev에 배포한다(`scripts/deploy_verified.py`). 작업 폴더의 미커밋 변경은 테스트에도 배포에도 섞이지 않는다.
+- **편집 중 배포 금지:** 파일을 고칠 때마다 배포하던 Claude PostToolUse 훅은 2026-10-14 제거했다 — 고치던 중간
+  상태가 dev(실고객 계정을 감시한다)에 올라가 워커가 시작부터 죽었다(2026-10-12, `NameError: dataclass`).
+- 수동/CLI: 배포가 실패했거나 SSO가 만료돼 건너뛰었으면 `python scripts/deploy_verified.py deploy <sha>`.
+  `scripts/deploy-backend-stack.py`를 작업 폴더에서 직접 돌리는 것은 미커밋 변경까지 배포하므로 비상시에만
+  (옵션·오버라이드는 `guides/OPERATIONS.md`).
+- 배포 권한 또는 AWS 인증이 없으면 배포는 건너뛰고(푸시는 진행) 사용자에게 필요한 권한/프로필 정보를 요청하십시오.
 
-**pre-push hook이 설치되어 있습니다.** `git push`를 실행하면 backend 테스트가 자동으로 게이트됩니다.
-테스트가 실패하면 push가 차단됩니다 — 이 경우 오류를 수정하고 재커밋 후 다시 push하십시오.
+**pre-push hook 설치(클론마다 1회):** `git config core.hooksPath .githooks`. 테스트가 실패하면 push가 차단됩니다 —
+오류를 수정하고 재커밋 후 다시 push하십시오. 배포만 끄려면 `ALARM_MANAGER_AUTO_DEPLOY=0 git push`.
 
 ---
 *이 문서는 프로젝트의 헌법과 같으며, 수정이 필요한 경우 사용자에게 먼저 확인을 받으십시오.*

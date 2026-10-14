@@ -72,11 +72,27 @@ Expected deployment artifacts:
 
 ## Backend Lambda Auto Deploy
 
-Claude PostToolUse hooks package and deploy backend Lambda code changes
-automatically. When a Python file changes under one of these directories, the
-hook builds the affected artifact, copies unchanged artifacts from the currently
-deployed `CodeVersion`, uploads all artifacts to a new S3 prefix, and runs
-CloudFormation deploy with `infrastructure/backend/template.yaml`.
+Only verified commits are deployed. `git push` to `main` runs `.githooks/pre-push`
+(install once per clone: `git config core.hooksPath .githooks`), which for the pushed
+commit:
+
+1. checks it out into a temporary `git worktree` and runs the fast test tier there
+   (`python scripts/deploy_verified.py gate <sha>`) — failure blocks the push;
+2. if the push touches `backend/` or `infrastructure/backend/`, deploys **that checkout**
+   with all artifacts (`python scripts/deploy_verified.py deploy <sha>`). A deploy failure
+   or missing AWS credentials does not block the push; it prints the command to retry.
+
+Uncommitted changes in the working tree never reach tests or artifacts. The Claude
+PostToolUse hook that deployed on every file edit was removed on 2026-10-14: it shipped a
+half-edited file and the worker crashed on start (2026-10-12 10:26 UTC). The dev stack
+watches real customer accounts, so treat it like production.
+
+Skip the deploy for one push (tests still run): `ALARM_MANAGER_AUTO_DEPLOY=0 git push`.
+
+The deploy script packages backend Lambda code as follows: it builds the affected
+artifact, copies unchanged artifacts from the currently deployed `CodeVersion`,
+uploads all artifacts to a new S3 prefix, and runs CloudFormation deploy with
+`infrastructure/backend/template.yaml`.
 
 | Changed path | Rebuilt artifact |
 | --- | --- |
@@ -106,19 +122,14 @@ $env:AWS_REGION = "us-east-1"
 $env:ALARM_MANAGER_ENVIRONMENT = "development"
 ```
 
-Disable auto deploy for a local edit session:
+Retry a verified deploy (e.g. after `aws sso login`):
 
 ```powershell
-$env:ALARM_MANAGER_AUTO_DEPLOY = "0"
+python scripts/deploy_verified.py deploy HEAD
 ```
 
-Manual trigger example (hook-style, stdin JSON):
-
-```powershell
-'{"tool_input":{"file_path":"backend/common/alarm_registry.py"}}' | python .claude\deploy-backend-stack.py
-```
-
-Manual CLI deploy (`scripts/deploy-backend-stack.py`, superset of the hook):
+Emergency manual CLI deploy from the working tree (`scripts/deploy-backend-stack.py` —
+includes uncommitted changes, so prefer the verified path):
 
 ```powershell
 python scripts/deploy-backend-stack.py                 # git diff 기반 변경 아티팩트만
