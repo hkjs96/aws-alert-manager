@@ -77,6 +77,11 @@ def _get_bucket_tags(s3_client, bucket_name: str) -> dict:
         code = e.response["Error"]["Code"]
         if code in ("NoSuchTagSet", "NoSuchTagConfiguration"):
             return {}
+        if code == "AccessDenied":
+            # 고객이 버킷 정책으로 태그 조회를 막은 경우(첫 실고객 s3-server-accesslog-home-prd, explicit deny) — 고객 설정이지
+            # 우리 오류가 아니다. 태그를 못 읽으니 감시하지 않는다(Monitoring=on 판단 불가). 2026-10까지는 매시간 ERROR였다.
+            logger.warning("S3 bucket %s denies tag reads (bucket policy); not monitored: %s", bucket_name, e)
+            return {}
         logger.error("S3 get_bucket_tagging failed for %s: %s", bucket_name, e)
         return {}
 

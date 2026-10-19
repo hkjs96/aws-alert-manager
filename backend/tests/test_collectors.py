@@ -6095,3 +6095,19 @@ class TestCloudFrontCollector:
 
         # us-east-1 전용 CW 클라이언트가 호출되었는지 검증
         assert mock_cw.get_metric_statistics.called
+
+
+class TestS3BucketPolicyDeniesTagReads:
+    """첫 실고객 s3-server-accesslog-home-prd: 버킷 정책이 GetBucketTagging을 막는다 — 고객 설정이라 ERROR가 아니라 WARNING."""
+
+    def test_access_denied_is_a_warning_and_the_bucket_is_not_monitored(self, caplog):
+        import logging
+        from botocore.exceptions import ClientError
+        from common.collectors import s3 as s3_collector
+        client = MagicMock()
+        client.get_bucket_tagging.side_effect = ClientError(
+            {"Error": {"Code": "AccessDenied", "Message": "explicit deny in a resource-based policy"}}, "GetBucketTagging")
+        with caplog.at_level(logging.WARNING, logger="common.collectors.s3"):
+            assert s3_collector._get_bucket_tags(client, "s3-server-accesslog-home-prd") == {}
+        records = [r for r in caplog.records if "s3-server-accesslog-home-prd" in r.getMessage()]
+        assert records and all(r.levelno == logging.WARNING for r in records)
