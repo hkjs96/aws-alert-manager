@@ -101,6 +101,18 @@ export function toggleMonitoring(
   });
 }
 
+export interface AlarmOverlap {
+  metric: string;
+  namespace: string;
+  metric_name: string;
+  customer_alarms: Array<{ name: string; threshold?: number; comparison?: string; state?: string }>;
+}
+
+/** 켜기 전 중복 점검 — 우리가 만들 알람과 같은 지표·디멘션을 보는 고객 알람. 읽기 전용. */
+export function fetchAlarmOverlaps(id: string): Promise<{ resource_id: string; region: string; overlaps: AlarmOverlap[] }> {
+  return apiFetch(`/api/resources/${encodeResourceId(id)}/alarm-overlaps`);
+}
+
 export function fetchAvailableMetrics(id: string): Promise<AvailableMetric[]> {
   return apiFetch(`/api/resources/${encodeResourceId(id)}/metrics`);
 }

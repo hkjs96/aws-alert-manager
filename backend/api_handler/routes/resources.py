@@ -23,6 +23,7 @@ from common.alarm_search import _find_alarms_for_resource
 from common.tag_resolver import disk_path_to_tag_suffix
 from common.resource_discovery import _get_session_for_account
 from common.alarm_manager import sync_alarms_for_resource, delete_alarms_for_resource
+from common.alarm_overlap import find_overlaps
 from common.alarm_naming import (
     _build_alarm_description,
     _pretty_alarm_name,
@@ -294,6 +295,35 @@ def get_disk_paths(event: dict) -> dict:
             seen.add(path)
             paths.append(path)
     return _ok(sorted(paths))
+
+
+def get_alarm_overlaps(event: dict) -> dict:
+    """켜기 전 중복 점검 — 우리가 만들 알람과 같은 지표·디멘션을 보는 **고객 알람**(common.alarm_overlap). 읽기만 한다.
+
+    화면은 모니터링을 켜기 전 확인창에서 이것을 보여준다. 겹쳐도 막지 않는다 — 빼려면 `Threshold_<지표>=off`.
+    """
+    resource_id = _path_id(event)
+    if not resource_id:
+        return _err(400, "MISSING_PARAM", "resource_id is required")
+    try:
+        items = query_by_pk(resource_inventory_table(), "resource_id", resource_id)
+    except ClientError as exc:
+        return _err(500, "DB_ERROR", str(exc))
+    resource = next((item for item in items if _is_resource_snapshot(item)), None)
+    if not resource:
+        return _err(404, "NOT_FOUND", f"Resource '{resource_id}' was not found")
+    resource_type = resource.get("type")
+    if resource_type not in SUPPORTED_RESOURCE_TYPES:
+        return _err(400, "UNSUPPORTED_RESOURCE_TYPE", f"Unsupported resource type: {resource_type}")
+
+    session, region, _ = _resource_aws_session(resource)
+    cw = (session.client("cloudwatch", region_name=region)
+          if session is not None else _get_cw_client_for_region(region))
+    try:
+        overlaps = find_overlaps(resource_id, resource_type, _toggle_alarm_tags(resource), cw)
+    except ClientError as exc:
+        return _err(502, "CW_ERROR", str(exc))
+    return _ok({"resource_id": resource_id, "region": region, "overlaps": overlaps})
 
 
 def create_resource_alarm(event: dict) -> dict:

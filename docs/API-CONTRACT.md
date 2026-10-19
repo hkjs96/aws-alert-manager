@@ -284,6 +284,35 @@ Errors:
 - `404 NO_METRIC`
 - `500 CW_ERROR`
 
+## GET /api/resources/{id}/alarm-overlaps
+
+켜기 전 중복 점검(2026-10). 이 리소스에 우리가 만들 알람과 **같은 Namespace·MetricName·디멘션 집합**을 보는
+고객 알람(우리 형식이 아닌 알람)을 돌려준다. 리소스의 계정·리전에서 `DescribeAlarms`로 읽기만 한다(고객 역할에
+`DescribeAlarmsForMetric`이 없다). 디스크 알람은 경로별 디멘션을 미리 알 수 없어 제외한다. 화면은 모니터링을
+켜기 전 확인창에 보여주고, 막지는 않는다 — 특정 지표만 빼려면 `Threshold_<지표>=off` 태그.
+
+Response `200`:
+
+```json
+{
+  "resource_id": "i-08e54786d6a2dae9d",
+  "region": "ap-northeast-2",
+  "overlaps": [
+    {
+      "metric": "StatusCheckFailed",
+      "namespace": "AWS/EC2",
+      "metric_name": "StatusCheckFailed",
+      "customer_alarms": [
+        { "name": "[EC2]EC2-AN2-HOME-PRD-BASTION-01A STATUS_CHECK_FAILED",
+          "threshold": 1.0, "comparison": "GreaterThanOrEqualToThreshold", "state": "OK" }
+      ]
+    }
+  ]
+}
+```
+
+`404` — 인벤토리에 없음, `400` — 지원하지 않는 타입, `502` — 알람을 읽지 못함(화면은 점검 없이 진행).
+
 ## GET /api/resources/{id}/disk-paths
 
 Response `200`:

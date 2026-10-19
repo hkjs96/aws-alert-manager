@@ -7,9 +7,10 @@ import { useMonitoringToggle } from "../useMonitoringToggle";
 // toggleMonitoring mock
 vi.mock("@/lib/api-functions", () => ({
   toggleMonitoring: vi.fn(),
+  fetchAlarmOverlaps: vi.fn(async () => ({ resource_id: "", region: "", overlaps: [] })),
 }));
 
-import { toggleMonitoring } from "@/lib/api-functions";
+import { fetchAlarmOverlaps, toggleMonitoring } from "@/lib/api-functions";
 
 const wrapper = ({ children }: { children: ReactNode }) =>
   createElement(ToastProvider, null, children);
@@ -89,5 +90,52 @@ describe("useMonitoringToggle", () => {
     });
 
     expect(result.current.loadingIds.has("res-5")).toBe(false);
+  });
+});
+
+describe("useMonitoringToggle — 켜기 전 중복 점검", () => {
+  const DONE = { job_id: "j", status: "completed", total_count: 1, completed_count: 1, failed_count: 0, results: [] } as never;
+  const OVERLAP = {
+    resource_id: "i-1", region: "ap-northeast-2",
+    overlaps: [{ metric: "StatusCheckFailed", namespace: "AWS/EC2", metric_name: "StatusCheckFailed",
+      customer_alarms: [{ name: "[EC2]BASTION STATUS_CHECK_FAILED" }] }],
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(toggleMonitoring).mockResolvedValue(DONE);
+  });
+
+  it("겹치는 고객 알람이 있으면 확인을 받고, 취소하면 켜지 않는다", async () => {
+    vi.mocked(fetchAlarmOverlaps).mockResolvedValue(OVERLAP);
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const { result } = renderHook(() => useMonitoringToggle(), { wrapper });
+    let success = true;
+    await act(async () => { success = await result.current.toggle("i-1", false); });
+    expect(confirm.mock.calls[0]?.[0]).toContain("[EC2]BASTION STATUS_CHECK_FAILED");
+    expect(success).toBe(false);
+    expect(toggleMonitoring).not.toHaveBeenCalled();
+    confirm.mockRestore();
+  });
+
+  it("확인하면 켠다", async () => {
+    vi.mocked(fetchAlarmOverlaps).mockResolvedValue(OVERLAP);
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const { result } = renderHook(() => useMonitoringToggle(), { wrapper });
+    await act(async () => { await result.current.toggle("i-1", false); });
+    expect(toggleMonitoring).toHaveBeenCalledWith("i-1", true);
+    confirm.mockRestore();
+  });
+
+  it("끌 때와 점검 실패 시에는 묻지 않는다", async () => {
+    const confirm = vi.spyOn(window, "confirm");
+    const { result } = renderHook(() => useMonitoringToggle(), { wrapper });
+    await act(async () => { await result.current.toggle("i-1", true); });
+    expect(fetchAlarmOverlaps).not.toHaveBeenCalled();
+    vi.mocked(fetchAlarmOverlaps).mockRejectedValue(new Error("502"));
+    await act(async () => { await result.current.toggle("i-1", false); });
+    expect(confirm).not.toHaveBeenCalled();
+    expect(toggleMonitoring).toHaveBeenLastCalledWith("i-1", true);
+    confirm.mockRestore();
   });
 });
