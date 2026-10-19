@@ -89,3 +89,24 @@ class TestOverlapRoute:
         from api_handler import lambda_handler as lh
         src = open(lh.__file__, encoding="utf-8").read()
         assert "alarm-overlaps$" in src and "resources.get_alarm_overlaps" in src
+
+
+class TestDiskPathsUseTheResourcesAccount:
+    """GET /resources/{id}/disk-paths는 리전만 맞추고 중앙 계정 CW를 봐서 고객 EC2는 늘 빈 목록이었다(2026-10-19 발견)."""
+
+    def test_customer_ec2_disk_paths_come_from_the_customer_session(self):
+        from api_handler.routes import resources as r
+        item = {"resource_id": IID, "account_id": "771283576189", "type": "EC2", "region": "ap-northeast-2"}
+        session, cw = MagicMock(), MagicMock()
+        session.client.return_value = cw
+        cw.list_metrics.return_value = {"Metrics": [
+            {"Dimensions": [{"Name": "InstanceId", "Value": IID}, {"Name": "path", "Value": "/"}]}]}
+        with patch.dict("os.environ", {"RESOURCE_INVENTORY_TABLE": "t"}), \
+             patch.object(r, "query_by_pk", return_value=[item]), patch.object(r, "resource_inventory_table"), \
+             patch.object(r, "_is_resource_snapshot", return_value=True), \
+             patch.object(r, "_resource_aws_session", return_value=(session, "ap-northeast-2", "771283576189")), \
+             patch.object(r, "_get_cw_client") as central:
+            resp = r.get_disk_paths({"pathParameters": {"id": IID}})
+        assert json.loads(resp["body"]) == ["/"]
+        session.client.assert_called_once_with("cloudwatch", region_name="ap-northeast-2")
+        central.assert_not_called()

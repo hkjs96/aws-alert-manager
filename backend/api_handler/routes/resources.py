@@ -273,10 +273,21 @@ def get_disk_paths(event: dict) -> dict:
     if not resource_id:
         return _err(400, "MISSING_PARAM", "resource_id is required")
 
-    # EC2가 api_handler와 다른 리전이면 default 리전 CW에는 disk 메트릭이 없어
-    # 빈 배열이 된다. 인벤토리에서 리소스 리전을 찾아 해당 리전 CW를 사용한다.
-    region = _resource_region(resource_id)
-    cw = _get_cw_client_for_region(region) if region else _get_cw_client()
+    # 리소스의 **계정과 리전**의 CW로 찾는다 — 인벤토리 행으로 세션을 만든다(토글·중복 점검과 같은 경로).
+    # 2026-10까지는 리전만 맞추고 계정은 중앙 계정이라 고객 EC2의 디스크 경로가 늘 빈 목록이었다(교차계정 누락, 세 번째).
+    try:
+        items = query_by_pk(resource_inventory_table(), "resource_id", resource_id) \
+            if os.environ.get("RESOURCE_INVENTORY_TABLE") else []
+    except ClientError as exc:
+        logger.warning("Inventory lookup failed for %s: %s", resource_id, exc)
+        items = []
+    resource = next((item for item in items if _is_resource_snapshot(item)), None)
+    if resource:
+        session, region, _ = _resource_aws_session(resource)
+        cw = (session.client("cloudwatch", region_name=region)
+              if session is not None else _get_cw_client_for_region(region))
+    else:
+        cw = _get_cw_client()
 
     try:
         resp = cw.list_metrics(
@@ -622,23 +633,6 @@ def _find_inventory_resource(resource_id: str) -> dict | None:
         if (resource.get("resource_id") or resource.get("id")) == resource_id:
             return resource
     return None
-
-
-def _resource_region(resource_id: str) -> str | None:
-    """인벤토리에서 리소스의 리전을 조회한다.
-
-    resource_id가 파티션 키이므로 풀스캔 대신 Query 단건으로 찾는다. 조회 실패 시
-    None을 반환해 호출부가 기본 리전 CW로 폴백하도록 한다(disk-paths가 깨지지 않게).
-    """
-    if not os.environ.get("RESOURCE_INVENTORY_TABLE"):
-        return None
-    try:
-        items = query_by_pk(resource_inventory_table(), "resource_id", resource_id)
-    except ClientError as exc:
-        logger.warning("Region lookup failed for %s: %s", resource_id, exc)
-        return None
-    snapshot = next((item for item in items if _is_resource_snapshot(item)), None)
-    return snapshot.get("region") if snapshot else None
 
 
 def _resource_dim_hints(resource_id: str) -> dict:
