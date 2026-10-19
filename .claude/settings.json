@@ -179,15 +179,6 @@
             "command": "FILE=\"$CLAUDE_FILE_PATH\"; case \"$FILE\" in *.test.ts|*.test.tsx|*.spec.ts|*.spec.tsx) case \"$FILE\" in */frontend/*) cd frontend && npx vitest run --reporter=verbose 2>&1 | head -60 >&2 ;; esac ;; esac; exit 0"
           }
         ]
-      },
-      {
-        "matcher": "Write|Edit|MultiEdit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "FILE=\"$CLAUDE_FILE_PATH\"; git add \"$FILE\" 2>/dev/null || true; exit 0"
-          }
-        ]
       }
     ],
     "Stop": [
