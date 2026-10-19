@@ -2749,7 +2749,7 @@ Resources:
       FunctionName: !Sub
         - aws-monitoring-engine-initial-sync-${EnvShort}
         - EnvShort: !FindInMap [EnvShortName, !Ref Environment, short]
-      Description: CFN Custom Resource - triggers daily-monitor once on stack create/update
+      Description: CFN Custom Resource - runs one tag reconcile of the central account on stack create/update
       Runtime: python3.12
       Timeout: 360
       MemorySize: 128
@@ -2770,10 +2770,15 @@ Resources:
               try:
                   if request_type in ("Create", "Update"):
                       fn = event["ResourceProperties"]["DailyMonitorArn"]
-                      logger.info("Invoking daily-monitor: %s", fn)
+                      # tag_reconcile, not a full daily run: an empty event ran the whole daily flow for the
+                      # central account on every deploy - threshold alerts and run history included - so the
+                      # same day's alerts could repeat per deploy (found 2026-10-19). The reconcile still
+                      # syncs alarms to the new definitions right away; customer accounts follow at :30.
+                      logger.info("Invoking daily-monitor (tag_reconcile): %s", fn)
                       boto3.client("lambda").invoke(
                           FunctionName=fn,
                           InvocationType="Event",
+                          Payload=json.dumps({"mode": "tag_reconcile"}).encode(),
                       )
                       logger.info("daily-monitor invoked successfully")
                   else:
