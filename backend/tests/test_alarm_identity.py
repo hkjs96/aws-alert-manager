@@ -63,16 +63,41 @@ class TestIdentifyAlarm:
         assert ident.matches(ALB_ARN) and ident.matches(ALB_SHORT)
         assert not ident.matches("other")
 
-    def test_name_fallback_without_metadata(self):
-        ident = identify_alarm(_alarm("[EC2] srv CPUUtilization > 80% (TagName: i-001)"))
+    def test_name_only_alarm_is_not_ours_unless_fallback_allowed(self):
+        alarm = _alarm("[EC2] srv CPUUtilization > 80% (TagName: i-001)")
+        assert identify_alarm(alarm) is None
+        ident = identify_alarm(alarm, allow_name_fallback=True)
         assert ident.source == "name"
         assert ident.resource_id == "i-001" == ident.tag_name
         assert ident.metric_key is None
 
-    def test_legacy_description_without_json_falls_back_to_name(self):
-        ident = identify_alarm(_alarm("[RDS] db CPUUtilization > 80% (TagName: db-1)",
-                                      desc="Legacy alarm without metadata"))
+    def test_description_without_json_is_not_ours_unless_fallback_allowed(self):
+        alarm = _alarm("[RDS] db CPUUtilization > 80% (TagName: db-1)", desc="Legacy alarm without metadata")
+        assert identify_alarm(alarm) is None
+        ident = identify_alarm(alarm, allow_name_fallback=True)
         assert ident.source == "name" and ident.resource_id == "db-1"
+
+    def test_customer_alarm_in_our_name_format_is_not_ours_and_never_deleted(self):
+        """Regression: a customer alarm named exactly like ours, without metadata, must not be claimed."""
+        from unittest.mock import MagicMock, patch
+        from daily_monitor.lambda_handler import _cleanup_orphan_alarms
+
+        name = "[EC2] srv CPUUtilization > 80% (TagName: i-abc)"
+        customer = {"AlarmName": name, "AlarmDescription": "customer-owned alarm"}
+        assert identify_alarm(customer) is None
+
+        ours = _alarm("[EC2] srv CPUUtilization > 80% (TagName: i-gone)", rtype="EC2", rid="i-gone")
+        cw = MagicMock()
+        cw.get_paginator.return_value.paginate.return_value = [{"MetricAlarms": [customer, ours]}]
+        collector = MagicMock()
+        collector.resolve_alive_ids.return_value = set()
+        with patch("daily_monitor.lambda_handler._get_cw_client", return_value=cw), \
+                patch.dict("daily_monitor.lambda_handler._RESOURCE_TYPE_TO_COLLECTOR", {"EC2": collector}):
+            deleted = _cleanup_orphan_alarms()
+        # our own orphan is still cleaned up; the customer's look-alike is untouched
+        assert deleted == [ours["AlarmName"]]
+        cw.delete_alarms.assert_called_once_with(AlarmNames=[ours["AlarmName"]])
+        collector.resolve_alive_ids.assert_called_once_with({"i-gone"})
 
     def test_incomplete_metadata_keeps_name_identity_but_lifts_metric_key(self):
         ident = identify_alarm(_alarm("[EC2] srv CPUUtilization > 80% (TagName: i-001)",
@@ -96,7 +121,7 @@ class TestIdentifyAlarm:
 class TestGrouping:
     def test_groups_under_both_full_and_short_keys(self):
         alb = _alarm(f"[ALB] web x > 1 (TagName: {ALB_SHORT})", rtype="ALB", rid=ALB_ARN)
-        ec2 = _alarm("[EC2] srv CPUUtilization > 80% (TagName: i-001)")
+        ec2 = _alarm("[EC2] srv CPUUtilization > 80% (TagName: i-001)", rtype="EC2", rid="i-001")
         grouped = group_alarms_by_resource([alb, ec2, {"AlarmName": "[RemediationDLQ] x"}])
         assert grouped[ALB_ARN] == [alb]
         assert grouped[ALB_SHORT] == [alb]
@@ -133,7 +158,8 @@ class TestDailyMonitorCallers:
 
         result: dict = {}
         _classify_alarm(_alarm(f"[ALB] web x > 1 (TagName: {ALB_SHORT})", rtype="ALB", rid=ALB_ARN), result)
-        _classify_alarm(_alarm("i-0abc-CPU-prod"), result)
+        _classify_alarm(_alarm("i-0abc-CPU-prod", rtype="EC2", rid="i-0abc"), result)
+        _classify_alarm(_alarm("i-0def-CPU-prod"), result)   # legacy name, no metadata: not ours
         _classify_alarm({"AlarmName": "[RemediationDLQ] x"}, result)
         assert result == {
             "ALB": {ALB_SHORT: [f"[ALB] web x > 1 (TagName: {ALB_SHORT})"]},
@@ -146,7 +172,7 @@ class TestResourcesRouteCallers:
         from api_handler.routes.resources import _alarms_for_resource, _get_resource_type, _get_tag_name
 
         alb = _alarm(f"[ALB] web x > 1 (TagName: {ALB_SHORT})", rtype="ALB", rid=ALB_ARN)
-        ec2 = _alarm("[EC2] srv CPUUtilization > 80% (TagName: i-001)")
+        ec2 = _alarm("[EC2] srv CPUUtilization > 80% (TagName: i-001)", rtype="EC2", rid="i-001")
         assert _alarms_for_resource([alb, ec2], ALB_ARN) == [alb]
         assert _alarms_for_resource([alb, ec2], ALB_SHORT) == [alb]
         assert _alarms_for_resource([alb, ec2], "i-001") == [ec2]
@@ -209,4 +235,6 @@ class TestSeverityInMetadata:
         assert identity.resource_id == "i-1" and identity.severity == ""
 
     def test_name_only_identity_has_empty_severity(self):
-        assert identify_alarm({"AlarmName": "[EC2] web CPUUtilization > 80% (TagName: i-1)"}).severity == ""
+        alarm = {"AlarmName": "[EC2] web CPUUtilization > 80% (TagName: i-1)"}
+        assert identify_alarm(alarm) is None
+        assert identify_alarm(alarm, allow_name_fallback=True).severity == ""

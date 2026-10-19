@@ -13,6 +13,7 @@ AWS API 호출은 moto로, collector/alarm_manager는 mock으로 격리한다.
 - 고아 알람 정리: terminated 인스턴스 알람 삭제
 """
 
+from alarm_fixtures import managed_alarm, managed_description
 import os
 from unittest.mock import MagicMock, patch, call
 
@@ -417,6 +418,7 @@ class TestCleanupOrphanAlarms:
             cw = boto3.client("cloudwatch", region_name="us-east-1")
             cw.put_metric_alarm(
                 AlarmName=alarm_name,
+                AlarmDescription=managed_description("EC2", resource_id, "CPUUtilization"),
                 MetricName="CPUUtilization",
                 Namespace="AWS/EC2",
                 Statistic="Average",
@@ -454,6 +456,7 @@ class TestCleanupOrphanAlarms:
             cw = boto3.client("cloudwatch", region_name="us-east-1")
             cw.put_metric_alarm(
                 AlarmName=alarm_name,
+                AlarmDescription=managed_description("EC2", resource_id, "CPUUtilization"),
                 MetricName="CPUUtilization",
                 Namespace="AWS/EC2",
                 Statistic="Average",
@@ -494,6 +497,7 @@ class TestCleanupOrphanAlarms:
             cw = boto3.client("cloudwatch", region_name="us-east-1")
             cw.put_metric_alarm(
                 AlarmName=alarm_name,
+                AlarmDescription=managed_description("EC2", resource_id, "CPUUtilization"),
                 MetricName="CPUUtilization",
                 Namespace="AWS/EC2",
                 Statistic="Average",
@@ -535,6 +539,7 @@ class TestCleanupOrphanAlarms:
             cw = boto3.client("cloudwatch", region_name="us-east-1")
             cw.put_metric_alarm(
                 AlarmName=alarm_name,
+                AlarmDescription=managed_description("EC2", resource_id, "CPUUtilization"),
                 MetricName="CPUUtilization",
                 Namespace="AWS/EC2",
                 Statistic="Average",
@@ -606,6 +611,7 @@ class TestCleanupOrphanAlarms:
             cw = boto3.client("cloudwatch", region_name="us-east-1")
             cw.put_metric_alarm(
                 AlarmName=alarm_name,
+                AlarmDescription=managed_description("UNKNOWN", "unknown-id", "SomeMetric"),
                 MetricName="SomeMetric",
                 Namespace="AWS/Unknown",
                 Statistic="Average",
@@ -631,7 +637,7 @@ class TestClassifyAlarm:
         from daily_monitor.lambda_handler import _classify_alarm
 
         result = {}
-        _classify_alarm("[EC2] myserver CPUUtilization > 80% (TagName: i-0abc1234)", result)
+        _classify_alarm(managed_alarm("[EC2] myserver CPUUtilization > 80% (TagName: i-0abc1234)", "EC2", "i-0abc1234"), result)
 
         assert "EC2" in result
         assert "i-0abc1234" in result["EC2"]
@@ -640,18 +646,19 @@ class TestClassifyAlarm:
         from daily_monitor.lambda_handler import _classify_alarm
 
         result = {}
-        _classify_alarm("[RDS] mydb FreeStorageSpace < 10GB (TagName: db-prod)", result)
+        _classify_alarm(managed_alarm("[RDS] mydb FreeStorageSpace < 10GB (TagName: db-prod)", "RDS", "db-prod"), result)
 
         assert "RDS" in result
         assert "db-prod" in result["RDS"]
 
-    def test_legacy_format_ec2_alarm(self):
+    def test_legacy_format_ec2_alarm_without_metadata_not_classified(self):
         from daily_monitor.lambda_handler import _classify_alarm
 
         result = {}
         _classify_alarm("i-0abc1234-CPUUtilization-prod", result)
+        assert result == {}
 
-        assert "EC2" in result
+        _classify_alarm(managed_alarm("i-0abc1234-CPUUtilization-prod", "EC2", "i-0abc1234"), result)
         assert "i-0abc1234" in result["EC2"]
 
     def test_unknown_format_ignored(self):
@@ -666,8 +673,8 @@ class TestClassifyAlarm:
         from daily_monitor.lambda_handler import _classify_alarm
 
         result = {}
-        _classify_alarm("[EC2] srv CPU > 80% (TagName: i-001)", result)
-        _classify_alarm("[EC2] srv Memory > 80% (TagName: i-001)", result)
+        _classify_alarm(managed_alarm("[EC2] srv CPU > 80% (TagName: i-001)", "EC2", "i-001"), result)
+        _classify_alarm(managed_alarm("[EC2] srv Memory > 80% (TagName: i-001)", "EC2", "i-001"), result)
 
         assert len(result["EC2"]["i-001"]) == 2
 

@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 
 from botocore.exceptions import ClientError
 
+from alarm_fixtures import managed_description
 from common.alarm_overlap import find_overlaps
 
 IID = "i-08e54786d6a2dae9d"
@@ -25,7 +26,8 @@ def _alarm(name, metric, dims, namespace="AWS/EC2", description=""):
 CUSTOMER_STATUS = _alarm("[EC2]EC2-AN2-HOME-PRD-BASTION-01A STATUS_CHECK_FAILED", "StatusCheckFailed",
                          [{"Name": "InstanceId", "Value": IID}])
 OURS_STATUS = _alarm(f"[EC2] EC2-AN2-HOME-PRD-BASTION-01A StatusCheckFailed > 0 (TagName: {IID})", "StatusCheckFailed",
-                     [{"Name": "InstanceId", "Value": IID}])
+                     [{"Name": "InstanceId", "Value": IID}],
+                     description=managed_description("EC2", IID, "StatusCheckFailed"))
 
 
 class TestFindOverlaps:

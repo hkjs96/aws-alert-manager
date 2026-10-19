@@ -77,11 +77,16 @@ def identify_alarm_name(name: str) -> AlarmIdentity | None:
     return None
 
 
-def identify_alarm(alarm: dict) -> AlarmIdentity | None:
-    """describe_alarms 항목(AlarmName/AlarmDescription)에서 정체성 해석.
+def identify_alarm(alarm: dict, *, allow_name_fallback: bool = False) -> AlarmIdentity | None:
+    """describe_alarms 항목(AlarmName/AlarmDescription)에서 정체성 해석 — **우리 알람인가**의 판정이기도 하다.
 
     메타데이터가 있으면 resource_type/resource_id는 메타데이터, tag_name은 이름에서 취한다.
-    메타데이터도 없고 이름도 관리 포맷이 아니면 None (인프라 알람 등 — 관리 대상 아님).
+    **메타데이터가 없으면 None** — 이름이 우리 형식이어도 우리 알람으로 보지 않는다(2026-10-19). 첫 실고객 HOME의
+    알람 32개가 `[EC2]EC2-AN2-… (TagName:…)`처럼 공백 하나 차이로 우리 형식을 비켜 갔다 — 고객이 공백 하나만 넣으면
+    엔진이 그 알람을 자기 것으로 보고 동기화·고아 정리로 고치거나 지울 수 있었다(고객 계정은 삭제가 ManagedBy 태그
+    조건으로 막히지만 중앙 계정에는 그 가드가 없다). 그날 두 계정의 우리 알람 12개는 전부 메타데이터로 인식됐고 이름만으로
+    인식된 것은 0개였다.
+    `allow_name_fallback=True`는 알람을 **바꾸지 않는** 해석(알림 라우팅의 리소스 추정)에만 쓴다.
     """
     name = alarm.get("AlarmName", "") or ""
     by_name = identify_alarm_name(name)
@@ -106,7 +111,7 @@ def identify_alarm(alarm: dict) -> AlarmIdentity | None:
                 by_name.resource_type, by_name.resource_id, by_name.tag_name,
                 metadata.get("metric_key"), by_name.source, severity,
             )
-    return by_name
+    return by_name if allow_name_fallback else None
 
 
 def group_alarms_by_resource(alarms: list[dict]) -> dict[str, list[dict]]:

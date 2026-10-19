@@ -160,9 +160,10 @@ def from_eventbridge(event: dict, *, customer_id: str = "") -> AlertEvent:
         # 리소스 해석은 기존 모듈에 위임 — AlarmDescription 메타데이터 우선, 이름 폴백.
         # description은 configuration에 실려 오며, 없으면 이름만으로 해석된다.
         description = str((detail.get("configuration") or {}).get("description", ""))
+        # 알람을 바꾸지 않는 해석(라우팅·억제 대상 추정)이라 이름 폴백을 허용한다 — 상태 변경 이벤트에는 설명이 빠질 수 있다.
         identity = identify_alarm({
             "AlarmName": ev.alarm_name, "AlarmDescription": description,
-        })
+        }, allow_name_fallback=True)
         if identity is not None:
             ev.resource_id = identity.resource_id
             ev.resource_type = identity.resource_type

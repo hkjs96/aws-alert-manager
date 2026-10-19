@@ -31,6 +31,9 @@ def _event(method: str, path: str, body=None, qs=None, path_params=None) -> dict
 
 
 import re
+
+from alarm_fixtures import managed_description
+from common.alarm_identity import identify_alarm_name
 _ALARM_NAME_RE = re.compile(r"^\[(\w+)\]\s+.+\(TagName:\s*(.+)\)$")
 
 def _alarm(name: str, state: str = "OK", metric: str = "CPUUtilization",
@@ -44,7 +47,16 @@ def _alarm(name: str, state: str = "OK", metric: str = "CPUUtilization",
         "ComparisonOperator": "GreaterThanThreshold",
         "StateUpdatedTimestamp": datetime(2026, 1, 1, 0, 0, 0, tzinfo=timezone.utc),
         "Tags": [{"Key": "Severity", "Value": severity}],
+        # every fixture here stands for one of OUR alarms -> carries metadata (identify_alarm is metadata-only)
+        **_metadata_for(name, metric, severity),
     }
+
+
+def _metadata_for(name: str, metric: str, severity: str) -> dict:
+    ident = identify_alarm_name(name)
+    if ident is None:
+        return {}
+    return {"AlarmDescription": managed_description(ident.resource_type, ident.resource_id, metric, severity)}
 
 def _alarm_to_ddb(alarm_dict):
     arn = alarm_dict.get("AlarmArn", f"arn:aws:cloudwatch:ap-northeast-2:123456789012:alarm:{alarm_dict['AlarmName']}")

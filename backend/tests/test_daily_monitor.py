@@ -4,6 +4,7 @@ Daily_Monitor 테스트 - Property 6, 8 속성 테스트 + 단위 테스트
 Requirements: 1.1, 1.3, 1.4, 3.1, 3.3, 3.4, 3.5, 6.3, 6.4
 """
 
+from alarm_fixtures import managed_alarm, managed_description
 import json
 from contextlib import ExitStack
 from unittest.mock import MagicMock, call, patch
@@ -311,35 +312,37 @@ class TestClassifyAlarm:
 
     def test_new_format_ec2(self):
         result = {}
-        _classify_alarm("[EC2] my-server CPUUtilization > 80% (TagName: i-001)", result)
+        _classify_alarm(managed_alarm("[EC2] my-server CPUUtilization > 80% (TagName: i-001)", "EC2", "i-001"), result)
         assert "EC2" in result
         assert "i-001" in result["EC2"]
 
     def test_new_format_rds(self):
         result = {}
-        _classify_alarm("[RDS] my-db CPUUtilization > 80% (TagName: db-001)", result)
+        _classify_alarm(managed_alarm("[RDS] my-db CPUUtilization > 80% (TagName: db-001)", "RDS", "db-001"), result)
         assert "RDS" in result
         assert "db-001" in result["RDS"]
 
     def test_new_format_elb(self):
         arn = "arn:aws:elasticloadbalancing:us-east-1:123:loadbalancer/app/my-alb/abc"
         result = {}
-        _classify_alarm(f"[ELB] my-alb RequestCount > 1000 (TagName: {arn})", result)
+        _classify_alarm(managed_alarm(f"[ELB] my-alb RequestCount > 1000 (TagName: {arn})", "ELB", arn), result)
         assert "ELB" in result
         assert arn in result["ELB"]
 
     def test_new_format_tg(self):
         arn = "arn:aws:elasticloadbalancing:us-east-1:123:targetgroup/my-tg/abc"
         result = {}
-        _classify_alarm(f"[TG] my-tg HealthyHostCount < 1 (TagName: {arn})", result)
+        _classify_alarm(managed_alarm(f"[TG] my-tg HealthyHostCount < 1 (TagName: {arn})", "TG", arn), result)
         assert "TG" in result
         assert arn in result["TG"]
 
-    def test_legacy_format_ec2(self):
+    def test_legacy_format_ec2_without_metadata_not_classified(self):
+        """Legacy name alone is not proof of ownership; with metadata it is classified."""
         result = {}
         _classify_alarm("i-0abcdef1234567890-CPU-prod", result)
-        assert "EC2" in result
-        assert "i-0abcdef1234567890" in result["EC2"]
+        assert result == {}
+        _classify_alarm(managed_alarm("i-0abcdef1234567890-CPU-prod", "EC2", "i-0abcdef1234567890"), result)
+        assert result == {"EC2": {"i-0abcdef1234567890": ["i-0abcdef1234567890-CPU-prod"]}}
 
     def test_unrecognized_format_ignored(self):
         result = {}
@@ -349,9 +352,9 @@ class TestClassifyAlarm:
     def test_mixed_formats_accumulated(self):
         """새 포맷과 레거시 포맷이 같은 result에 누적."""
         result = {}
-        _classify_alarm("[EC2] srv CPU > 80% (TagName: i-001)", result)
-        _classify_alarm("i-001-CPU-prod", result)
-        _classify_alarm("[RDS] db CPU > 80% (TagName: db-001)", result)
+        _classify_alarm(managed_alarm("[EC2] srv CPU > 80% (TagName: i-001)", "EC2", "i-001"), result)
+        _classify_alarm(managed_alarm("i-001-CPU-prod", "EC2", "i-001"), result)
+        _classify_alarm(managed_alarm("[RDS] db CPU > 80% (TagName: db-001)", "RDS", "db-001"), result)
         assert "EC2" in result
         assert "RDS" in result
         assert len(result["EC2"]["i-001"]) == 2
@@ -360,14 +363,14 @@ class TestClassifyAlarm:
     def test_new_format_alb(self):
         arn = "arn:aws:elasticloadbalancing:us-east-1:123:loadbalancer/app/my-alb/abc"
         result = {}
-        _classify_alarm(f"[ALB] my-alb RequestCount > 5000 (TagName: {arn})", result)
+        _classify_alarm(managed_alarm(f"[ALB] my-alb RequestCount > 5000 (TagName: {arn})", "ALB", arn), result)
         assert "ALB" in result
         assert arn in result["ALB"]
 
     def test_new_format_nlb(self):
         arn = "arn:aws:elasticloadbalancing:us-east-1:123:loadbalancer/net/my-nlb/def"
         result = {}
-        _classify_alarm(f"[NLB] my-nlb ProcessedBytes > 1000 (TagName: {arn})", result)
+        _classify_alarm(managed_alarm(f"[NLB] my-nlb ProcessedBytes > 1000 (TagName: {arn})", "NLB", arn), result)
         assert "NLB" in result
         assert arn in result["NLB"]
 
@@ -380,7 +383,7 @@ class TestCleanupOrphanAlarms:
         mock_cw = MagicMock()
         mock_paginator = MagicMock()
         mock_paginator.paginate.return_value = [{"MetricAlarms": [
-            {"AlarmName": "[EC2] srv CPU > 80% (TagName: i-dead)"},
+            managed_alarm("[EC2] srv CPU > 80% (TagName: i-dead)", "EC2", "i-dead"),
         ]}]
         mock_cw.get_paginator.return_value = mock_paginator
 
@@ -397,7 +400,7 @@ class TestCleanupOrphanAlarms:
         mock_cw = MagicMock()
         mock_paginator = MagicMock()
         mock_paginator.paginate.return_value = [{"MetricAlarms": [
-            {"AlarmName": "[RDS] my-db CPUUtilization > 80% (TagName: db-gone)"},
+            managed_alarm("[RDS] my-db CPUUtilization > 80% (TagName: db-gone)", "RDS", "db-gone"),
         ]}]
         mock_cw.get_paginator.return_value = mock_paginator
 
@@ -414,7 +417,7 @@ class TestCleanupOrphanAlarms:
         mock_cw = MagicMock()
         mock_paginator = MagicMock()
         mock_paginator.paginate.return_value = [{"MetricAlarms": [
-            {"AlarmName": f"[ELB] my-alb RequestCount > 1000 (TagName: {arn})"},
+            managed_alarm(f"[ELB] my-alb RequestCount > 1000 (TagName: {arn})", "ELB", arn),
         ]}]
         mock_cw.get_paginator.return_value = mock_paginator
 
@@ -431,7 +434,7 @@ class TestCleanupOrphanAlarms:
         mock_cw = MagicMock()
         mock_paginator = MagicMock()
         mock_paginator.paginate.return_value = [{"MetricAlarms": [
-            {"AlarmName": "[EC2] srv CPU > 80% (TagName: i-alive)"},
+            managed_alarm("[EC2] srv CPU > 80% (TagName: i-alive)", "EC2", "i-alive"),
         ]}]
         mock_cw.get_paginator.return_value = mock_paginator
 
@@ -443,8 +446,8 @@ class TestCleanupOrphanAlarms:
         assert deleted == []
         mock_cw.delete_alarms.assert_not_called()
 
-    def test_legacy_ec2_orphan_still_handled(self):
-        """레거시 포맷 EC2 알람도 고아 정리 대상."""
+    def test_legacy_ec2_name_without_metadata_not_deleted(self):
+        """Legacy-format name with no metadata is not ours: never deleted, even if the resource is gone."""
         mock_cw = MagicMock()
         mock_paginator = MagicMock()
         mock_paginator.paginate.return_value = [{"MetricAlarms": [
@@ -457,7 +460,8 @@ class TestCleanupOrphanAlarms:
                    return_value=set()):
             deleted = _cleanup_orphan_alarms()
 
-        assert "i-0dead1234567890ab-CPU-prod" in deleted
+        assert deleted == []
+        mock_cw.delete_alarms.assert_not_called()
 
     def test_no_alarms_returns_empty(self):
         """알람이 없으면 빈 리스트 반환."""
@@ -477,7 +481,7 @@ class TestCleanupOrphanAlarms:
         mock_cw = MagicMock()
         mock_paginator = MagicMock()
         mock_paginator.paginate.return_value = [{"MetricAlarms": [
-            {"AlarmName": f"[ALB] my-alb RequestCount > 5000 (TagName: {arn})"},
+            managed_alarm(f"[ALB] my-alb RequestCount > 5000 (TagName: {arn})", "ALB", arn),
         ]}]
         mock_cw.get_paginator.return_value = mock_paginator
 
@@ -495,7 +499,7 @@ class TestCleanupOrphanAlarms:
         mock_cw = MagicMock()
         mock_paginator = MagicMock()
         mock_paginator.paginate.return_value = [{"MetricAlarms": [
-            {"AlarmName": f"[NLB] my-nlb ProcessedBytes > 1000 (TagName: {arn})"},
+            managed_alarm(f"[NLB] my-nlb ProcessedBytes > 1000 (TagName: {arn})", "NLB", arn),
         ]}]
         mock_cw.get_paginator.return_value = mock_paginator
 
@@ -596,7 +600,7 @@ class TestCleanupOrphanAlarmsAuroraRDS:
         mock_cw = MagicMock()
         mock_paginator = MagicMock()
         mock_paginator.paginate.return_value = [{"MetricAlarms": [
-            {"AlarmName": "[AuroraRDS] my-aurora FreeLocalStorage < 10GB (TagName: aurora-db-gone)"},
+            managed_alarm("[AuroraRDS] my-aurora FreeLocalStorage < 10GB (TagName: aurora-db-gone)", "AuroraRDS", "aurora-db-gone"),
         ]}]
         mock_cw.get_paginator.return_value = mock_paginator
 
@@ -613,7 +617,7 @@ class TestCleanupOrphanAlarmsAuroraRDS:
         mock_cw = MagicMock()
         mock_paginator = MagicMock()
         mock_paginator.paginate.return_value = [{"MetricAlarms": [
-            {"AlarmName": "[AuroraRDS] my-aurora CPU > 80% (TagName: aurora-db-alive)"},
+            managed_alarm("[AuroraRDS] my-aurora CPU > 80% (TagName: aurora-db-alive)", "AuroraRDS", "aurora-db-alive"),
         ]}]
         mock_cw.get_paginator.return_value = mock_paginator
 
@@ -636,7 +640,7 @@ class TestCleanupOrphanAlarmsAuroraRDS:
         mock_cw = MagicMock()
         mock_paginator = MagicMock()
         mock_paginator.paginate.return_value = [{"MetricAlarms": [
-            {"AlarmName": "[AuroraRDS] aurora-inst CPU > 80% (TagName: aurora-db-001)"},
+            managed_alarm("[AuroraRDS] aurora-inst CPU > 80% (TagName: aurora-db-001)", "AuroraRDS", "aurora-db-001"),
         ]}]
         mock_cw.get_paginator.return_value = mock_paginator
 
@@ -786,7 +790,7 @@ class TestDailyMonitorDocDBIntegration:
         mock_cw = MagicMock()
         mock_paginator = MagicMock()
         mock_paginator.paginate.return_value = [{"MetricAlarms": [
-            {"AlarmName": "[DocDB] my-docdb CPU > 80% (TagName: docdb-gone)"},
+            managed_alarm("[DocDB] my-docdb CPU > 80% (TagName: docdb-gone)", "DocDB", "docdb-gone"),
         ]}]
         mock_cw.get_paginator.return_value = mock_paginator
 
@@ -802,7 +806,7 @@ class TestDailyMonitorDocDBIntegration:
         mock_cw = MagicMock()
         mock_paginator = MagicMock()
         mock_paginator.paginate.return_value = [{"MetricAlarms": [
-            {"AlarmName": "[DocDB] my-docdb CPU > 80% (TagName: docdb-alive)"},
+            managed_alarm("[DocDB] my-docdb CPU > 80% (TagName: docdb-alive)", "DocDB", "docdb-alive"),
         ]}]
         mock_cw.get_paginator.return_value = mock_paginator
 
@@ -816,7 +820,7 @@ class TestDailyMonitorDocDBIntegration:
     def test_classify_alarm_docdb_format(self):
         """_classify_alarm()이 [DocDB] 접두사 알람을 올바르게 분류 — Req 8.2"""
         result = {}
-        _classify_alarm("[DocDB] my-docdb CPU > 80% (TagName: docdb-inst-1)", result)
+        _classify_alarm(managed_alarm("[DocDB] my-docdb CPU > 80% (TagName: docdb-inst-1)", "DocDB", "docdb-inst-1"), result)
         assert "DocDB" in result
         assert "docdb-inst-1" in result["DocDB"]
 

@@ -8,6 +8,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from alarm_fixtures import managed_description
+from common.alarm_identity import identify_alarm_name
+
 
 # ── 공통 픽스처 ─────────────────────────────────────────────────────
 
@@ -31,7 +34,16 @@ def _alarm(name: str, metric: str = "CPUUtilization") -> dict:
         "ComparisonOperator": "GreaterThanThreshold",
         "StateUpdatedTimestamp": datetime(2026, 1, 1, 0, 0, 0, tzinfo=timezone.utc),
         "Tags": [{"Key": "Severity", "Value": "SEV-3"}],
+        # stands for one of OUR alarms -> carries metadata (identify_alarm is metadata-only)
+        **_metadata_for(name, metric),
     }
+
+
+def _metadata_for(name: str, metric: str) -> dict:
+    ident = identify_alarm_name(name)
+    if ident is None:
+        return {}
+    return {"AlarmDescription": managed_description(ident.resource_type, ident.resource_id, metric, "SEV-3")}
 
 
 @pytest.fixture(autouse=True)
