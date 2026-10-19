@@ -2359,6 +2359,11 @@ Resources:
                 Resource:
                   - !GetAtt AccountsTable.Arn
                   - !Sub "${AccountsTable.Arn}/index/*"
+              # -- DynamoDB: AccountsTable 리전 탐지 결과 기록 (daily — 알린 미등록 리전 목록이 바뀔 때만 다시 알린다) --
+              - Effect: Allow
+                Action:
+                  - dynamodb:UpdateItem
+                Resource: !GetAtt AccountsTable.Arn
               # -- DynamoDB: ResourceInventoryTable upsert (Daily Monitor inventory sync) --
               - Effect: Allow
                 Action:

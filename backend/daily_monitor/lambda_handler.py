@@ -316,26 +316,65 @@ def lambda_handler(event, context):
 
 
 def _notify_unregistered_regions(account_id: str, creds: dict | None, regions: list[str]) -> list[str]:
-    """리소스가 있는데 감시 밖인 리전을 찾아 알린다(daily만 — 하루 한 번, 해결될 때까지 매일). 자동으로 추가하지 않는다.
+    """리소스가 있는데 감시 밖인 리전을 찾아, **목록이 바뀌었을 때만** 알린다(daily만). 자동으로 추가하지 않는다.
 
     고객사는 대개 서울+버지니아지만 간혹 다른 리전을 쓴다 — 등록에서 빠지면 그 리전 리소스는 조용히 감시 밖이다.
+    마지막으로 알린 목록은 계정 행의 `notified_unregistered_regions`에 둔다 — 2026-10-12~19 중앙 계정이 같은 5개 리전
+    (다른 프로젝트 리소스)을 매일 알렸다. 탐지 결과(`detected_regions`)도 같이 갱신해 화면이 연결 테스트 없이도 최신을 본다.
     탐지 실패는 실행을 막지 않는다. 세션 전환 전에(기본 세션 = 람다) 자격증명을 명시해 부른다.
     """
     kwargs = ({"aws_access_key_id": creds["AccessKeyId"], "aws_secret_access_key": creds["SecretAccessKey"],
                "aws_session_token": creds["SessionToken"]} if creds else {})
     try:
-        missing = unregistered_regions(detect_regions(kwargs).regions, regions)
+        detected = detect_regions(kwargs).regions
     except (ClientError, BotoCoreError, RuntimeError) as e:
         logger.warning("Region detection failed for %s: %s", account_id, e)
         return []
+    missing = unregistered_regions(detected, regions)
+    rows = _account_rows(account_id)
+    previous = set(rows[0].get("notified_unregistered_regions") or []) if rows else None
     if missing:
         logger.warning("Account %s has resources in unregistered regions: %s", account_id, missing)
+    # 계정 행이 없으면(표 없음·미등록) 비교할 기준이 없다 — 예전처럼 매번 알린다.
+    if missing and (previous is None or set(missing) != previous):
+        new = [r for r in missing if previous is None or r not in previous]
         send_error_alert(
             context=f"region discovery account={account_id}",
             error=RuntimeError(
-                f"리소스가 있지만 감시 리전에 없는 리전: {', '.join(missing)} — 설정 > 계정에서 연결 테스트 후 추가하세요"),
+                f"리소스가 있지만 감시 리전에 없는 리전: {', '.join(missing)}"
+                + (f" (새로 생김: {', '.join(new)})" if new and previous else "")
+                + " — 설정 > 계정에서 연결 테스트 후 추가하세요"),
         )
+    for row in rows:
+        _save_region_detection(row, detected, missing)
     return missing
+
+
+def _account_rows(account_id: str) -> list[dict]:
+    """계정 표에서 이 계정의 행들(고객사마다 한 행일 수 있다). 표가 없거나 못 읽으면 []."""
+    table_name = os.environ.get("ACCOUNTS_TABLE")
+    if not table_name:
+        return []
+    try:
+        if not account_id or account_id == "self":
+            account_id = boto3.client("sts").get_caller_identity()["Account"]
+        resp = boto3.resource("dynamodb").Table(table_name).query(
+            IndexName="account_id-index", KeyConditionExpression=Key("account_id").eq(account_id))
+    except (ClientError, BotoCoreError) as e:
+        logger.warning("Account row lookup failed for %s: %s", account_id, e)
+        return []
+    return resp.get("Items", [])
+
+
+def _save_region_detection(row: dict, detected: list[str], notified: list[str]) -> None:
+    try:
+        boto3.resource("dynamodb").Table(os.environ["ACCOUNTS_TABLE"]).update_item(
+            Key={"customer_id": row["customer_id"], "account_id": row["account_id"]},
+            UpdateExpression="SET detected_regions = :d, notified_unregistered_regions = :n",
+            ExpressionAttributeValues={":d": detected, ":n": notified},
+        )
+    except (ClientError, BotoCoreError, KeyError) as e:
+        logger.warning("Saving region detection failed for %s: %s", row.get("account_id"), e)
 
 
 def _daily_region_pass(account_id: str, region: str, alarm_index) -> tuple[int, int, dict]:

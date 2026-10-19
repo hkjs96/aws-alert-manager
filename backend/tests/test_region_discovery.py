@@ -137,3 +137,42 @@ class TestDailyNotice:
              patch.object(lh, "send_error_alert") as alert:
             assert lh._notify_unregistered_regions("1", None, ["ap-northeast-2"]) == []
         alert.assert_not_called()
+
+
+class TestDailyNoticeOnlyWhenTheListChanges:
+    """2026-10-12~19: 중앙 계정이 같은 미등록 리전 5개(다른 프로젝트 리소스)를 매일 알렸다 — 이제 목록이 바뀔 때만."""
+
+    ROW = {"customer_id": "c", "account_id": "949501913924"}
+    FIVE = ["us-east-2", "us-west-2", "eu-west-1", "ap-northeast-2", "ap-southeast-1"]
+
+    def _run(self, previous, detected):
+        from daily_monitor import lambda_handler as lh
+        row = {**self.ROW, "notified_unregistered_regions": previous} if previous is not None else dict(self.ROW)
+        with patch.object(lh, "detect_regions", return_value=Detection(detected)), \
+             patch.object(lh, "_account_rows", return_value=[row]), \
+             patch.object(lh, "_save_region_detection") as save, \
+             patch.object(lh, "send_error_alert") as alert:
+            missing = lh._notify_unregistered_regions("949501913924", None, ["us-east-1"])
+        return missing, alert, save
+
+    def test_same_list_as_last_time_is_not_alerted_again(self):
+        missing, alert, save = self._run(self.FIVE, ["us-east-1", *self.FIVE])
+        assert missing == self.FIVE
+        alert.assert_not_called()
+        save.assert_called_once_with({**self.ROW, "notified_unregistered_regions": self.FIVE},
+                                     ["us-east-1", *self.FIVE], self.FIVE)
+
+    def test_first_time_alerts_and_remembers(self):
+        _missing, alert, save = self._run(None, ["us-east-1", *self.FIVE])
+        alert.assert_called_once()
+        assert save.call_args.args[2] == self.FIVE
+
+    def test_a_new_region_is_alerted_and_named(self):
+        _missing, alert, _save = self._run(self.FIVE, ["us-east-1", *self.FIVE, "ap-northeast-1"])
+        text = str(alert.call_args.kwargs["error"])
+        assert "새로 생김: ap-northeast-1" in text
+
+    def test_resolved_list_clears_without_alert_so_a_relapse_alerts(self):
+        _missing, alert, save = self._run(self.FIVE, ["us-east-1"])
+        alert.assert_not_called()
+        assert save.call_args.args[2] == []
