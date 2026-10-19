@@ -123,12 +123,17 @@ git push origin main
 ```
 
 **배포:** 백엔드/인프라 코드가 배포 대상이면 검증/커밋/푸시 완료 후 배포까지 이어서 진행하십시오.
+- **스택 둘(같은 계정 949501913924, docs/specs/stack-split/plan.md):** `aws-monitoring-engine-dev`는 이름과 달리
+  **고객 운영 스택**이다(고객 계정 감시, 프론트 연결). `aws-monitoring-engine-stg`는 `Automation=disabled` 실험 스택 —
+  스케줄·CloudTrail 반응·기본 버스 알람 수신·배포 직후 동기화가 없어 스스로 아무것도 바꾸지 않는다.
 - 자동: **검증을 통과한 커밋만** 배포된다. `main`으로 push하면 pre-push 훅(`.githooks/pre-push`)이 푸시되는
   커밋을 깨끗한 checkout(git worktree)에서 테스트하고, 통과했고 `backend/`·`infrastructure/backend/`가 바뀌었으면
-  그 커밋을 dev에 배포한다(`scripts/deploy_verified.py`). 작업 폴더의 미커밋 변경은 테스트에도 배포에도 섞이지 않는다.
+  그 커밋을 **실험 스택(stg)**에 배포한다(`scripts/deploy_verified.py deploy`). 작업 폴더의 미커밋 변경은 섞이지 않는다.
+- **고객 운영 스택으로 승격:** 실험 스택에서 확인한 뒤 `python scripts/deploy_verified.py promote <sha>`. 실험 스택이
+  돌리는 바로 그 커밋이 아니면 거부한다. 백엔드 변경 작업은 승격까지가 "배포 완료"다.
 - **편집 중 배포 금지:** 파일을 고칠 때마다 배포하던 Claude PostToolUse 훅은 2026-10-14 제거했다 — 고치던 중간
   상태가 dev(실고객 계정을 감시한다)에 올라가 워커가 시작부터 죽었다(2026-10-12, `NameError: dataclass`).
-- 수동/CLI: 배포가 실패했거나 SSO가 만료돼 건너뛰었으면 `python scripts/deploy_verified.py deploy <sha>`.
+- 수동/CLI: 실험 배포가 실패했거나 SSO가 만료돼 건너뛰었으면 `python scripts/deploy_verified.py deploy <sha>`.
   `scripts/deploy-backend-stack.py`를 작업 폴더에서 직접 돌리는 것은 미커밋 변경까지 배포하므로 비상시에만
   (옵션·오버라이드는 `guides/OPERATIONS.md`).
 - 배포 권한 또는 AWS 인증이 없으면 배포는 건너뛰고(푸시는 진행) 사용자에게 필요한 권한/프로필 정보를 요청하십시오.

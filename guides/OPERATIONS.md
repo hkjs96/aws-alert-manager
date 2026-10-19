@@ -78,9 +78,19 @@ commit:
 
 1. checks it out into a temporary `git worktree` and runs the fast test tier there
    (`python scripts/deploy_verified.py gate <sha>`) — failure blocks the push;
-2. if the push touches `backend/` or `infrastructure/backend/`, deploys **that checkout**
-   with all artifacts (`python scripts/deploy_verified.py deploy <sha>`). A deploy failure
-   or missing AWS credentials does not block the push; it prints the command to retry.
+2. if the push touches `backend/` or `infrastructure/backend/` (tests alone don't count), deploys
+   **that checkout** with all artifacts to the **staging stack** `aws-monitoring-engine-stg`
+   (`python scripts/deploy_verified.py deploy <sha>`). A deploy failure or missing AWS credentials does not
+   block the push; it prints the command to retry.
+3. after checking staging, promote the same commit to the customer-serving stack
+   `aws-monitoring-engine-dev`: `python scripts/deploy_verified.py promote <sha>`. Promote refuses any commit
+   other than the one staging runs (recorded at `s3://bjs-deploy-bucket/deploy-verified/aws-monitoring-engine-stg/sha`).
+
+Two stacks share the account (docs/specs/stack-split/plan.md). Only one may act by itself — both would
+manage alarms with the same names and `ManagedBy` tag — so staging runs with `Automation=disabled`:
+no scheduled runs, no CloudTrail lifecycle rule, no default-bus alarm ingestion, no `InitialAlarmSync`, and an
+empty accounts table. Staging copies `GoogleClientId`/`AllowedEmails`/`AllowedEmailDomains`/`AdminEmails` from the
+live stack on every deploy, so its API is never public. Despite its name, `-dev` is production in role.
 
 Uncommitted changes in the working tree never reach tests or artifacts. The Claude
 PostToolUse hook that deployed on every file edit was removed on 2026-10-14: it shipped a

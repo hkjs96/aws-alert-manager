@@ -53,6 +53,15 @@ Parameters:
     AllowedValues: [development, staging, production]
     Description: Deployment environment (development / staging / production)
 
+  Automation:
+    Type: String
+    Default: enabled
+    AllowedValues: [enabled, disabled]
+    Description: >-
+      disabled = a standby/staging stack that acts on nothing by itself (docs/specs/stack-split): no scheduled runs, no
+      CloudTrail lifecycle reactions, no default-bus alarm ingestion, no post-deploy sync. Two stacks in one account
+      manage alarms with the same names and ManagedBy tag, so only one of them may be active.
+
   GoogleClientId:
     Type: String
     Default: ""
@@ -132,6 +141,9 @@ Conditions:
   # 크로스 어카운트 전달을 허용할 계정이 지정된 경우에만 버스 정책을 만든다.
   # 비어 있으면 우리 계정 자신의 이벤트만 받는다(단일 계정 모드).
   HasAlertSourceAccounts: !Not [!Equals [!Ref AlertBusSourceAccounts, ""]]
+
+  # 같은 계정에 스택이 둘이면 하나만 스스로 움직여야 한다(docs/specs/stack-split).
+  AutomationEnabled: !Equals [!Ref Automation, enabled]
 
 Resources:
 
@@ -674,6 +686,7 @@ Resources:
   # 단일 계정 모드: 우리 계정 자신의 알람은 기본 버스로 온다
   AlertIngestDefaultBusRule:
     Type: AWS::Events::Rule
+    Condition: AutomationEnabled
     Properties:
       Name: !Sub
         - aws-monitoring-alert-ingest-self-${EnvShort}
@@ -709,7 +722,7 @@ Resources:
               ArnEquals:
                 aws:SourceArn:
                   - !GetAtt AlertIngestCustomBusRule.Arn
-                  - !GetAtt AlertIngestDefaultBusRule.Arn
+                  - !If [AutomationEnabled, !GetAtt AlertIngestDefaultBusRule.Arn, !Ref AWS::NoValue]
                   - !GetAtt AlertGroupFailureRule.Arn
 
   # 자기 감시 — 알림 파이프라인 자신의 고장은 파이프라인 **밖**(SNS 직결)으로 알린다.
@@ -1219,6 +1232,7 @@ Resources:
 
   AlertIngestorDefaultBusPermission:
     Type: AWS::Lambda::Permission
+    Condition: AutomationEnabled
     Properties:
       FunctionName: !GetAtt AlertIngestorFunction.Arn
       Action: lambda:InvokeFunction
@@ -1872,6 +1886,7 @@ Resources:
   # -- EventBridge Scheduler: Daily Monitor (Orchestrator 경유) --
   DailyMonitorSchedule:
     Type: AWS::Scheduler::Schedule
+    Condition: AutomationEnabled
     Properties:
       Name: !Sub
         - daily-monitor-schedule-${EnvShort}
@@ -1889,6 +1904,7 @@ Resources:
   # -- Lambda Permission: Scheduler -> Orchestrator --
   DailyMonitorSchedulerPermission:
     Type: AWS::Lambda::Permission
+    Condition: AutomationEnabled
     Properties:
       FunctionName: !GetAtt OrchestratorFunction.Arn
       Action: lambda:InvokeFunction
@@ -1900,6 +1916,7 @@ Resources:
   # MetricHistoryTable에 적재한다. mode=metric_snapshot이 Worker까지 전달된다.
   MetricSnapshotSchedule:
     Type: AWS::Scheduler::Schedule
+    Condition: AutomationEnabled
     Properties:
       Name: !Sub
         - metric-snapshot-schedule-${EnvShort}
@@ -1917,6 +1934,7 @@ Resources:
 
   MetricSnapshotSchedulerPermission:
     Type: AWS::Lambda::Permission
+    Condition: AutomationEnabled
     Properties:
       FunctionName: !GetAtt OrchestratorFunction.Arn
       Action: lambda:InvokeFunction
@@ -1929,6 +1947,7 @@ Resources:
   # 매시 30분 — 00:00 UTC의 daily run과 겹치지 않게.
   TagReconcileSchedule:
     Type: AWS::Scheduler::Schedule
+    Condition: AutomationEnabled
     Properties:
       Name: !Sub
         - tag-reconcile-schedule-${EnvShort}
@@ -1946,6 +1965,7 @@ Resources:
 
   TagReconcileSchedulerPermission:
     Type: AWS::Lambda::Permission
+    Condition: AutomationEnabled
     Properties:
       FunctionName: !GetAtt OrchestratorFunction.Arn
       Action: lambda:InvokeFunction
@@ -1955,6 +1975,7 @@ Resources:
   # -- 임계치 재보정 Shadow 잡: 주간 스냅샷 1시간 뒤(01:00 KST 월요일). 제안만 기록, 알람 미변경 --
   ThresholdRecalibrationSchedule:
     Type: AWS::Scheduler::Schedule
+    Condition: AutomationEnabled
     Properties:
       Name: !Sub
         - threshold-recalibration-schedule-${EnvShort}
@@ -1972,6 +1993,7 @@ Resources:
 
   ThresholdRecalibrationSchedulerPermission:
     Type: AWS::Lambda::Permission
+    Condition: AutomationEnabled
     Properties:
       FunctionName: !GetAtt OrchestratorFunction.Arn
       Action: lambda:InvokeFunction
@@ -1981,6 +2003,7 @@ Resources:
   # -- EventBridge Rule: CloudTrail events ---
   CloudTrailModifyRule:
     Type: AWS::Events::Rule
+    Condition: AutomationEnabled
     Properties:
       Name: !Sub
         - cloudtrail-modify-events-${EnvShort}
@@ -2091,6 +2114,7 @@ Resources:
   # -- Lambda Permission: EventBridge -> RemediationHandler --
   RemediationHandlerEventPermission:
     Type: AWS::Lambda::Permission
+    Condition: AutomationEnabled
     Properties:
       FunctionName: !GetAtt RemediationHandlerFunction.Arn
       Action: lambda:InvokeFunction
@@ -2806,6 +2830,7 @@ Resources:
 
   InitialAlarmSync:
     Type: AWS::CloudFormation::CustomResource
+    Condition: AutomationEnabled
     DependsOn:
       - DailyMonitorFunction
       - CommonLayer
