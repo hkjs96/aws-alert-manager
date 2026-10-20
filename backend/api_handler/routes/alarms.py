@@ -11,7 +11,41 @@ from datetime import datetime, UTC
 from botocore.exceptions import ClientError
 
 from api_handler.authz import scope_for
+from api_handler.cw_helper import live_alarms
 from api_handler.db import scan_all, resource_inventory_table
+from common.alarm_builder import resolve_alarm_severity
+from common.alarm_identity import identify_alarm
+from common.alarm_registry import resource_of_metric
+
+
+def _customer_alarm_rows(event: dict, qs: dict) -> list[dict]:
+    """고객이 직접 만든 알람(우리 메타데이터 없음) — CloudWatch에서 바로 읽는다. 읽기 전용(`source=customer`).
+
+    조회 실패면 빈 목록 — 우리 알람 목록까지 깨지 않게 한다.
+    """
+    alarms = live_alarms(qs.get("customer_id"), qs.get("account_id"), scope_for(event)) or []
+    rows = []
+    for a in alarms:
+        if identify_alarm(a) is not None:
+            continue   # 우리 알람은 인벤토리 행으로 이미 나온다
+        rtype, rid = resource_of_metric(a.get("Namespace", ""), a.get("Dimensions") or [])
+        updated = a.get("StateUpdatedTimestamp")
+        rows.append({
+            "entity_type": "alarm",
+            "source": "customer",
+            "alarm_name": a.get("AlarmName"),
+            "arn": a.get("AlarmArn"),
+            "account_id": a.get("_account_id"),
+            "region": a.get("_region"),
+            "resource": rid,
+            "type": rtype,
+            "metric": a.get("MetricName"),
+            "state": a.get("StateValue"),
+            "threshold": a.get("Threshold"),
+            "severity": resolve_alarm_severity(a),
+            "time": updated.isoformat() if hasattr(updated, "isoformat") else updated,
+        })
+    return rows
 
 
 def list_alarms_handler(event: dict) -> dict:
@@ -26,6 +60,7 @@ def list_alarms_handler(event: dict) -> dict:
         return _err(500, "AWS_ERROR", str(e))
 
     alarms = [item for item in scope_for(event).filter(db_items) if item.get("entity_type") == "alarm"]
+    alarms += _customer_alarm_rows(event, qs)
     if state_filter:
         alarms = [alarm for alarm in alarms if alarm.get("state") == state_filter]
 
@@ -51,6 +86,8 @@ def list_alarms_handler(event: dict) -> dict:
             "severity": alarm.get("severity", "SEV-5"),
             "time": alarm.get("time"),
             "value": None,
+            # 고객 알람은 보기만 한다 — 우리가 만들지 않은 알람은 바꾸거나 지우지 않는다
+            "source": alarm.get("source", "ours"),
         })
 
     total = len(items)
@@ -70,6 +107,7 @@ def get_alarm_summary(event: dict) -> dict:
         return _err(500, "AWS_ERROR", str(e))
 
     alarms = [item for item in scope_for(event).filter(db_items) if item.get("entity_type") == "alarm"]
+    alarms += _customer_alarm_rows(event, event.get("queryStringParameters") or {})
 
     summary = {"ALARM": 0, "OK": 0, "INSUFFICIENT_DATA": 0}
     for alarm in alarms:

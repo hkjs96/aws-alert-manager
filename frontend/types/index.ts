@@ -13,6 +13,9 @@ export interface Alarm {
   mount_path?: string | null;
   state: AlarmState;
   value?: string | null;
+  alarm_name?: string;
+  /** customer = 고객이 직접 만든 알람(우리 메타데이터 없음). 보기만 한다. */
+  source?: "ours" | "customer";
 }
 
 export interface Resource {

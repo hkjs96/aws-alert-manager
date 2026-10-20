@@ -237,56 +237,69 @@ def _scoped_accounts(customer_id, account_id, scope) -> list[dict]:
     return accounts
 
 
-def count_firing_alarms(customer_id=None, account_id=None, scope=None) -> dict | None:
-    """지금 ALARM 상태인 알람 수 — 우리 알람과 고객이 만든 알람을 나눈다. CloudWatch를 직접 본다.
+def live_alarms(customer_id=None, account_id=None, scope=None) -> list[dict] | None:
+    """범위 안 계정의 CloudWatch 알람 전부(상태 무관, 고객이 만든 알람 포함). 항목에 `_account_id`·`_region`을 붙인다.
 
-    인벤토리에는 우리 알람만 있어서, 그것만 세면 고객 알람이 울리고 있어도 "All clear"가 된다(HOME 실측
-    2026-10-20: 고객 알람 2개 ALARM, 카드 0). 조회가 전부 실패하면 None — 호출부가 인벤토리 기준으로 대신한다.
+    인벤토리에는 우리 알람만 있다 — 고객 알람을 보려면 CloudWatch를 직접 봐야 한다. 인벤토리에 고객 알람을 넣지 않는 건
+    고아 정리가 인벤토리 알람 행을 보기 때문이다(고객 알람을 지울 길을 만들지 않는다). 조회가 전부 실패하면 None.
     """
     accounts = _scoped_accounts(customer_id, account_id, scope)
     if not accounts and scope is not None and not scope.unrestricted:
-        return {"ours": 0, "customer": 0}
+        return []
     targets = tuple(sorted({(a.get("account_id") or "", region)
                             for a in accounts for region in (a.get("regions") or ["ap-northeast-2"])}))
-    cached = _FIRING_CACHE.get(targets)
-    if cached and time.monotonic() - cached[0] < _FIRING_TTL_SEC:
+    cached = _LIVE_CACHE.get(targets)
+    if cached and time.monotonic() - cached[0] < _LIVE_TTL_SEC:
         return cached[1]
     by_id = {a.get("account_id") or "": a for a in accounts}
     try:
         if targets:
             # 계정×리전마다 AssumeRole+DescribeAlarms — 차례로 하면 대시보드가 5초 걸린다(HOME 실측). 동시에 돈다.
             with ThreadPoolExecutor(max_workers=min(8, len(targets))) as pool:
-                pages = list(pool.map(lambda t: _firing_in(by_id[t[0]], t[1]), targets))
+                pages = list(pool.map(lambda t: _alarms_in(by_id[t[0]], t[1]), targets))
             alarms = [a for page in pages for a in page]
-        else:
-            alarms = _describe_alarms(_get_cw(), "", "ALARM")
-    except (ClientError, BotoCoreError) as e:   # 자격 증명·네트워크 실패도 카드 전체를 깨지 않게
-        logger.error("Firing alarm count failed: %s", e)
+        else:   # 등록 계정 없음(단일 계정 모드) — 이 계정, 이 리전
+            alarms = _alarms_in({}, boto3.session.Session().region_name or "us-east-1")
+    except (ClientError, BotoCoreError) as e:   # 자격 증명·네트워크 실패도 화면 전체를 깨지 않게
+        logger.error("Live alarm lookup failed: %s", e)
         return None
-    ours = sum(1 for a in alarms if identify_alarm(a) is not None)
-    result = {"ours": ours, "customer": len(alarms) - ours}
-    _FIRING_CACHE[targets] = (time.monotonic(), result)
-    return result
+    _LIVE_CACHE[targets] = (time.monotonic(), alarms)
+    return alarms
 
 
-# 알람 상태는 분 단위로 바뀐다 — 대시보드를 열 때마다 계정 전부를 다시 묻지 않는다(웜 컨테이너 안에서만).
-_FIRING_TTL_SEC = 60
-_FIRING_CACHE: dict[tuple, tuple[float, dict]] = {}
+def count_firing_alarms(customer_id=None, account_id=None, scope=None) -> dict | None:
+    """지금 ALARM 상태인 알람 수 — 우리 알람과 고객이 만든 알람을 나눈다.
+
+    인벤토리만 세면 고객 알람이 울리고 있어도 "All clear"가 된다(HOME 실측 2026-10-20: 고객 알람 2개 ALARM, 카드 0).
+    조회 실패면 None — 호출부가 인벤토리 기준으로 대신한다.
+    """
+    alarms = live_alarms(customer_id, account_id, scope)
+    if alarms is None:
+        return None
+    firing = [a for a in alarms if a.get("StateValue") == "ALARM"]
+    ours = sum(1 for a in firing if identify_alarm(a) is not None)
+    return {"ours": ours, "customer": len(firing) - ours}
 
 
-def _firing_in(account: dict, region: str) -> list[dict]:
-    """한 계정·리전의 ALARM 상태 알람. 스레드마다 전용 세션(boto3 기본 세션은 스레드 안전하지 않다)."""
+# 알람 상태는 분 단위로 바뀐다 — 화면을 열 때마다 계정 전부를 다시 묻지 않는다(웜 컨테이너 안에서만).
+_LIVE_TTL_SEC = 60
+_LIVE_CACHE: dict[tuple, tuple[float, list[dict]]] = {}
+
+
+def _alarms_in(account: dict, region: str) -> list[dict]:
+    """한 계정·리전의 알람 전부. 스레드마다 전용 세션(boto3 기본 세션은 스레드 안전하지 않다)."""
     session = boto3.session.Session()
     role_arn = account.get("role_arn") or ""
     if role_arn and account.get("account_id") != _get_current_account_id():
         creds = session.client("sts").assume_role(
-            RoleArn=role_arn, RoleSessionName=f"ApiHandlerFiring-{account.get('account_id', 'unknown')}",
+            RoleArn=role_arn, RoleSessionName=f"ApiHandlerLive-{account.get('account_id', 'unknown')}",
         )["Credentials"]
         session = boto3.session.Session(
             aws_access_key_id=creds["AccessKeyId"], aws_secret_access_key=creds["SecretAccessKey"],
             aws_session_token=creds["SessionToken"],
         )
-    return _describe_alarms(session.client("cloudwatch", region_name=region), "", "ALARM")
+    alarms = _describe_alarms(session.client("cloudwatch", region_name=region), "", None)
+    return [{**a, "_account_id": account.get("account_id") or "", "_region": region} for a in alarms]
 
 
 def count_account_connections(customer_id=None, account_id=None, scope=None) -> dict:

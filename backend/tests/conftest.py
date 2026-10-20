@@ -75,6 +75,17 @@ def _region_probes_offline(request):
 
 
 @pytest.fixture(autouse=True)
+def _live_alarms_offline():
+    """대시보드·알람 목록의 CloudWatch 실시간 조회를 막는다(계정×리전마다 AssumeRole) — 기본은 알람 없음.
+    조회 자체를 검증하는 테스트는 `_alarms_in`을 직접 패치한다. 캐시는 테스트마다 비운다."""
+    from api_handler import cw_helper
+    cw_helper._LIVE_CACHE.clear()
+    with patch("api_handler.cw_helper._alarms_in", return_value=[]):
+        yield
+    cw_helper._LIVE_CACHE.clear()
+
+
+@pytest.fixture(autouse=True)
 def _tag_cache_off():
     """단위 테스트에서 RGT 프라임(실제 boto3 호출)을 막고 활성 태그 캐시를 격리한다.
 

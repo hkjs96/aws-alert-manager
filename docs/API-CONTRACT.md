@@ -388,6 +388,11 @@ Response `200`:
 }
 ```
 
+고객 알람: 우리 메타데이터가 없는 알람(고객이 직접 만든 알람)도 CloudWatch에서 실시간으로 읽어 함께 낸다
+(`source: "customer"`, 우리 알람은 `"ours"`). 인벤토리에는 넣지 않는다. 고아 알람 정리가 인벤토리 알람 행을 보기 때문이다.
+읽기 전용이다. `resource`/`type`은 네임스페이스·디멘션에서 추정하며 모르면 빈 문자열이다. 실시간 조회가 실패하면 우리 알람만 낸다.
+같은 규칙이 `/api/alarms/summary`에도 적용된다.
+
 ## GET /api/alarms/summary
 
 Response `200`:

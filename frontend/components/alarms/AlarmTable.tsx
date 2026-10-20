@@ -106,16 +106,28 @@ export function AlarmTable({ alarms, sortKey, sortDir, onSort }: AlarmTableProps
           <tbody className="divide-y divide-slate-100">
             {alarms.map((alarm) => (
               <tr
-                key={alarm.id}
-                onClick={() => router.push(`/resources/${encodeResourceId(alarm.resource)}`)}
-                className={`cursor-pointer transition-colors ${alarm.state === "ALARM" ? "bg-red-50 border-l-2 border-l-red-500 hover:bg-red-100/60" : "hover:bg-slate-50"}`}
+                key={alarm.arn || alarm.id}
+                // 고객 알람은 리소스를 못 알아낼 수 있다(사용자 지정 메트릭 등) — 그땐 갈 곳이 없다
+                onClick={alarm.resource ? () => router.push(`/resources/${encodeResourceId(alarm.resource)}`) : undefined}
+                className={`${alarm.resource ? "cursor-pointer" : ""} transition-colors ${alarm.state === "ALARM" ? "bg-red-50 border-l-2 border-l-red-500 hover:bg-red-100/60" : "hover:bg-slate-50"}`}
               >
                 <td className="px-4 py-3 font-mono text-xs text-slate-500">
                   <span title={alarm.time}>{formatRelativeTime(alarm.time)}</span>
                 </td>
                 <td className="px-4 py-3" title={alarm.arn}>
-                  <span className="font-bold text-slate-900">{alarm.resource}</span>
-                  <ResourceTypeIcon type={alarm.type} className="ml-2 align-middle" />
+                  <span className="font-bold text-slate-900">{alarm.resource || "—"}</span>
+                  {alarm.type && <ResourceTypeIcon type={alarm.type} className="ml-2 align-middle" />}
+                  {alarm.source === "customer" && (
+                    <div className="mt-1 flex items-center gap-1.5">
+                      <span
+                        className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600"
+                        title="고객이 직접 만든 알람입니다. 이 화면에서는 보기만 하고 바꾸지 않습니다."
+                      >
+                        고객 알람
+                      </span>
+                      <span className="truncate text-[11px] text-slate-500">{alarm.alarm_name}</span>
+                    </div>
+                  )}
                 </td>
                 <td className="px-4 py-3">
                   <div className="font-medium text-slate-700">{alarm.metric}</div>

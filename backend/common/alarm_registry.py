@@ -170,6 +170,20 @@ _HARDCODED_METRIC_KEYS: dict[str, set[str]] = _derive_metric_keys()
 _NAMESPACE_MAP: dict[str, list[str]] = _derive_namespaces()
 _DIMENSION_KEY_MAP: dict[str, str] = _derive_dimension_keys()
 
+
+def resource_of_metric(namespace: str, dimensions: list[dict]) -> tuple[str, str]:
+    """알람의 (네임스페이스, 디멘션) → (리소스 타입, 리소스 ID). 모르면 ("", "").
+
+    메타데이터가 없는 알람(고객이 직접 만든 알람)을 목록에 보여 줄 때 쓴다 — 표시용 추정이지 알람의 정체 판정이 아니다.
+    """
+    dims = {d.get("Name"): d.get("Value") for d in dimensions or []}
+    for rtype, namespaces in _NAMESPACE_MAP.items():
+        if namespace in namespaces:
+            value = dims.get(_DIMENSION_KEY_MAP.get(rtype, ""))
+            if value:
+                return rtype, value
+    return "", ""
+
 # 글로벌 서비스 리전 매핑: 메트릭이 us-east-1에서만 발행되는 리소스 타입
 # 알람 생성/검색/삭제 시 해당 리전의 CloudWatch 클라이언트를 사용해야 한다.
 _GLOBAL_SERVICE_REGION: dict[str, str] = _global_service_regions()
