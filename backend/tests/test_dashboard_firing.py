@@ -2,6 +2,7 @@
 
 from unittest.mock import patch
 
+import pytest
 from botocore.exceptions import ClientError
 
 from api_handler import cw_helper
@@ -13,21 +14,32 @@ ACCOUNTS = [{"customer_id": "HOME", "account_id": "771283576189", "connection_st
             {"customer_id": "HOME", "account_id": "222222222222", "connection_status": "failed"}]
 
 
-def test_splits_ours_and_customer():
-    with patch.object(cw_helper, "_load_registered_accounts", return_value=ACCOUNTS[:1]), \
+@pytest.fixture(autouse=True)
+def _no_cache():
+    cw_helper._FIRING_CACHE.clear()
+    yield
+    cw_helper._FIRING_CACHE.clear()
+
+
+def test_splits_ours_and_customer_across_regions():
+    acct = {**ACCOUNTS[0], "regions": ["ap-northeast-2", "us-east-1"]}
+    by_region = {"ap-northeast-2": [OURS, CUSTOMER], "us-east-1": [dict(CUSTOMER)]}
+    with patch.object(cw_helper, "_load_registered_accounts", return_value=[acct]), \
             patch.object(cw_helper, "identify_alarm", side_effect=lambda a: object() if a is OURS else None), \
-            patch.object(cw_helper, "list_alarms", return_value=[OURS, CUSTOMER, dict(CUSTOMER)]) as la:
+            patch.object(cw_helper, "_firing_in", side_effect=lambda a, r: by_region[r]) as fi:
         assert cw_helper.count_firing_alarms("HOME") == {"ours": 1, "customer": 2}
-    # 이름 접두어 없이(고객 알람 포함) ALARM 상태만 조회한다
-    assert la.call_args.kwargs["alarm_name_prefix"] == ""
-    assert la.call_args.kwargs["state_value"] == "ALARM"
+        assert fi.call_count == 2
+        # 60초 안의 재호출은 캐시 — 계정을 다시 묻지 않는다
+        assert cw_helper.count_firing_alarms("HOME") == {"ours": 1, "customer": 2}
+        assert fi.call_count == 2
 
 
-def test_lookup_failure_returns_none():
-    err = ClientError({"Error": {"Code": "AccessDenied", "Message": "x"}}, "DescribeAlarms")
+def test_lookup_failure_returns_none_and_is_not_cached():
+    err = ClientError({"Error": {"Code": "AccessDenied", "Message": "x"}}, "AssumeRole")
     with patch.object(cw_helper, "_load_registered_accounts", return_value=ACCOUNTS[:1]), \
-            patch.object(cw_helper, "list_alarms", side_effect=err):
+            patch.object(cw_helper, "_firing_in", side_effect=err):
         assert cw_helper.count_firing_alarms("HOME") is None
+    assert cw_helper._FIRING_CACHE == {}
 
 
 def test_connection_counts():

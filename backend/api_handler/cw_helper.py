@@ -2,6 +2,8 @@
 
 import functools
 import logging
+import time
+from concurrent.futures import ThreadPoolExecutor
 
 import boto3
 from botocore.exceptions import BotoCoreError, ClientError
@@ -244,20 +246,47 @@ def count_firing_alarms(customer_id=None, account_id=None, scope=None) -> dict |
     accounts = _scoped_accounts(customer_id, account_id, scope)
     if not accounts and scope is not None and not scope.unrestricted:
         return {"ours": 0, "customer": 0}
+    targets = tuple(sorted({(a.get("account_id") or "", region)
+                            for a in accounts for region in (a.get("regions") or ["ap-northeast-2"])}))
+    cached = _FIRING_CACHE.get(targets)
+    if cached and time.monotonic() - cached[0] < _FIRING_TTL_SEC:
+        return cached[1]
+    by_id = {a.get("account_id") or "": a for a in accounts}
     try:
-        if accounts:
-            alarms = []
-            for account in accounts:
-                alarms.extend(list_alarms(alarm_name_prefix="", state_value="ALARM",
-                                          customer_id=account.get("customer_id"),
-                                          account_id=account.get("account_id")))
+        if targets:
+            # 계정×리전마다 AssumeRole+DescribeAlarms — 차례로 하면 대시보드가 5초 걸린다(HOME 실측). 동시에 돈다.
+            with ThreadPoolExecutor(max_workers=min(8, len(targets))) as pool:
+                pages = list(pool.map(lambda t: _firing_in(by_id[t[0]], t[1]), targets))
+            alarms = [a for page in pages for a in page]
         else:
-            alarms = list_alarms(alarm_name_prefix="", state_value="ALARM")
+            alarms = _describe_alarms(_get_cw(), "", "ALARM")
     except (ClientError, BotoCoreError) as e:   # 자격 증명·네트워크 실패도 카드 전체를 깨지 않게
         logger.error("Firing alarm count failed: %s", e)
         return None
     ours = sum(1 for a in alarms if identify_alarm(a) is not None)
-    return {"ours": ours, "customer": len(alarms) - ours}
+    result = {"ours": ours, "customer": len(alarms) - ours}
+    _FIRING_CACHE[targets] = (time.monotonic(), result)
+    return result
+
+
+# 알람 상태는 분 단위로 바뀐다 — 대시보드를 열 때마다 계정 전부를 다시 묻지 않는다(웜 컨테이너 안에서만).
+_FIRING_TTL_SEC = 60
+_FIRING_CACHE: dict[tuple, tuple[float, dict]] = {}
+
+
+def _firing_in(account: dict, region: str) -> list[dict]:
+    """한 계정·리전의 ALARM 상태 알람. 스레드마다 전용 세션(boto3 기본 세션은 스레드 안전하지 않다)."""
+    session = boto3.session.Session()
+    role_arn = account.get("role_arn") or ""
+    if role_arn and account.get("account_id") != _get_current_account_id():
+        creds = session.client("sts").assume_role(
+            RoleArn=role_arn, RoleSessionName=f"ApiHandlerFiring-{account.get('account_id', 'unknown')}",
+        )["Credentials"]
+        session = boto3.session.Session(
+            aws_access_key_id=creds["AccessKeyId"], aws_secret_access_key=creds["SecretAccessKey"],
+            aws_session_token=creds["SessionToken"],
+        )
+    return _describe_alarms(session.client("cloudwatch", region_name=region), "", "ALARM")
 
 
 def count_account_connections(customer_id=None, account_id=None, scope=None) -> dict:
