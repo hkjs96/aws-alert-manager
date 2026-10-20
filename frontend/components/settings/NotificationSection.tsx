@@ -9,6 +9,7 @@ import { useToast } from "@/components/shared/Toast";
 import {
   createChannel,
   deleteChannel,
+  fetchAccounts,
   fetchChannels,
   fetchChannelTypes,
   fetchCustomers,
@@ -19,6 +20,13 @@ import type {
   ChannelTypeCatalogue,
   NotificationChannel,
 } from "@/types/api";
+
+import {
+  type AccountOption,
+  type ChannelMatch,
+  ChannelMatchPicker,
+  DEFAULT_SEVERITIES,
+} from "./ChannelMatchPicker";
 
 const MATCH_LABELS: Record<string, string> = {
   severity: "등급",
@@ -35,7 +43,7 @@ type Draft = {
   type: string;
   customer_id: string;
   config: Record<string, string>;
-  match: Record<string, string>;
+  match: ChannelMatch;
   enabled: boolean;
 };
 
@@ -49,15 +57,15 @@ function emptyDraft(types: ChannelType[], customerId: string): Draft {
     type: (types.find(isAvailable) ?? types[0])?.type ?? "",
     customer_id: customerId,
     config: {},
-    match: {},
+    match: { severity: [...DEFAULT_SEVERITIES] },
     enabled: true,
   };
 }
 
 function toDraft(channel: NotificationChannel): Draft {
-  const match: Record<string, string> = {};
+  const match: ChannelMatch = {};
   for (const [key, values] of Object.entries(channel.match ?? {})) {
-    match[key] = (values ?? []).join(", ");
+    match[key] = [...(values ?? [])];
   }
   return {
     channel_id: channel.channel_id,
@@ -70,10 +78,9 @@ function toDraft(channel: NotificationChannel): Draft {
   };
 }
 
-function matchToApi(match: Record<string, string>): Record<string, string[]> {
+function matchToApi(match: ChannelMatch): Record<string, string[]> {
   const out: Record<string, string[]> = {};
-  for (const [key, raw] of Object.entries(match)) {
-    const values = raw.split(",").map((v) => v.trim()).filter(Boolean);
+  for (const [key, values] of Object.entries(match)) {
     if (values.length) out[key] = values;
   }
   return out;
@@ -93,6 +100,7 @@ function ChannelForm({
   draft,
   catalogue,
   customers,
+  accounts,
   saving,
   onChange,
   onSubmit,
@@ -101,6 +109,7 @@ function ChannelForm({
   draft: Draft;
   catalogue: ChannelTypeCatalogue;
   customers: { id: string; name: string }[];
+  accounts: AccountOption[];
   saving: boolean;
   onChange: (next: Draft) => void;
   onSubmit: () => void;
@@ -144,7 +153,12 @@ function ChannelForm({
             className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
             value={draft.customer_id}
             disabled={editing}
-            onChange={(e) => onChange({ ...draft, customer_id: e.target.value })}
+            onChange={(e) => onChange({
+                ...draft,
+                customer_id: e.target.value,
+                // 계정 조건은 고객사에 묶여 있다 — 고객사를 바꾸면 비운다
+                match: { ...draft.match, account_id: [] },
+              })}
           >
             <option value="">전체 (전역 채널 · 관리자 전용)</option>
             {customers.map((c) => (
@@ -198,7 +212,10 @@ function ChannelForm({
               </span>
               <input
                 className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 font-mono text-sm"
-                type={field.secret ? "password" : "text"}
+                // 붙여 넣은 값이 맞는지 볼 수 있어야 한다. 저장 뒤에는 서버가 가려서 돌려준다.
+                type="text"
+                autoComplete="off"
+                spellCheck={false}
                 maxLength={field.max_len}
                 value={draft.config[field.name] ?? ""}
                 placeholder={field.secret && draft.channel_id ? REDACTED : ""}
@@ -214,28 +231,12 @@ function ChannelForm({
         </div>
       )}
 
-      <div className="space-y-3 rounded-lg bg-slate-50 p-4">
-        <p className="text-xs font-semibold text-slate-600">
-          조건 — 비워 두면 이 고객사의 모든 알림을 받습니다
-        </p>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          {catalogue.match_fields.map((name) => (
-            <label key={name} className="block">
-              <span className="text-xs text-slate-500">{MATCH_LABELS[name] ?? name}</span>
-              <input
-                className="mt-1 w-full rounded-lg border border-slate-300 px-2 py-1.5 text-xs"
-                value={draft.match[name] ?? ""}
-                onChange={(e) =>
-                  onChange({ ...draft, match: { ...draft.match, [name]: e.target.value } })
-                }
-                placeholder={
-                  name === "severity" ? catalogue.severities.slice(0, 2).join(", ") : "쉼표로 구분"
-                }
-              />
-            </label>
-          ))}
-        </div>
-      </div>
+      <ChannelMatchPicker
+        match={draft.match}
+        severities={catalogue.severities}
+        accounts={accounts.filter((a) => !draft.customer_id || a.customerId === draft.customer_id)}
+        onChange={(match) => onChange({ ...draft, match })}
+      />
 
       <div className="flex justify-end gap-2">
         <Button type="button" variant="secondary" size="sm" onClick={onCancel}>
@@ -258,6 +259,7 @@ export function NotificationSection() {
   const [catalogue, setCatalogue] = useState<ChannelTypeCatalogue | null>(null);
   const [channels, setChannels] = useState<NotificationChannel[]>([]);
   const [customers, setCustomers] = useState<{ id: string; name: string }[]>([]);
+  const [accounts, setAccounts] = useState<AccountOption[]>([]);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -283,6 +285,11 @@ export function NotificationSection() {
     fetchCustomers()
       .then((list) => setCustomers(list.map((c) => ({ id: c.customer_id, name: c.name }))))
       .catch(() => setCustomers([]));
+    fetchAccounts()
+      .then((list) =>
+        setAccounts(list.map((a) => ({ id: a.account_id, name: a.name, customerId: a.customer_id }))),
+      )
+      .catch(() => setAccounts([]));
   }, []);
 
   const handleSubmit = async () => {
@@ -363,6 +370,7 @@ export function NotificationSection() {
           draft={draft}
           catalogue={catalogue}
           customers={customers}
+          accounts={accounts}
           saving={saving}
           onChange={setDraft}
           onSubmit={handleSubmit}
