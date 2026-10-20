@@ -18,6 +18,7 @@ from datetime import datetime, timedelta, timezone
 from boto3.dynamodb.conditions import Key
 from botocore.exceptions import ClientError
 
+from api_handler.authz import scope_for
 from api_handler.db import alert_state_table, customers_table, event_history_table, scan_all
 from common.alert_verdict import NOTIFY, PENDING, SUPPRESS, kind, verdict
 
@@ -136,10 +137,14 @@ def list_events(event: dict) -> dict:
     today = datetime.now(timezone.utc).date()
     day_list = [(today - timedelta(days=d)).isoformat() for d in range(days)]
 
+    scope = scope_for(event)
     try:
         customers = _customer_ids(customer_id)
     except ClientError:
         return _err(503, "STORAGE_ERROR", "고객사 목록을 읽지 못했습니다")
+    if not scope.unrestricted:
+        # 범위 밖 고객사 파티션은 읽지도 않는다. 미매핑("") 파티션의 계정은 어떤 고객사에도 걸려 있지 않아 범위 밖이다.
+        customers = [c for c in customers if scope.allows_customer(c)]
 
     table = event_history_table()
     items: list[dict] = []
@@ -151,7 +156,7 @@ def list_events(event: dict) -> dict:
         logger.error("event history query failed: %s", e)
         return _err(503, "STORAGE_ERROR", "이벤트 이력을 읽지 못했습니다")
 
-    rows = [_row(i) for i in items]
+    rows = [_row(i) for i in scope.filter(items)]
     if resource_id:
         rows = [r for r in rows if r["resource_id"] == resource_id]
 

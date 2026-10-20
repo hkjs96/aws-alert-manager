@@ -218,7 +218,12 @@ class TestGlobalChannelsAreAdminOnly:
         assert resp["statusCode"] == 400 and b["code"] == "VALIDATION_ERROR"
 
     def test_member_can_create_a_customer_channel(self):
-        resp, _, _ = call("POST", "/alert/channels", body=new_body(), email=MEMBER)
+        # 담당 고객사(cust-1)의 채널이면 일반 사용자도 만든다 (docs/specs/authz-scoping)
+        from api_handler.authz import Scope
+        from api_handler.routes import notification_channels as nc
+        managed = Scope(email=MEMBER, unrestricted=False, customer_ids=frozenset({"cust-1"}))
+        with patch.object(nc, "scope_for", return_value=managed):
+            resp, _, _ = call("POST", "/alert/channels", body=new_body(), email=MEMBER)
         assert resp["statusCode"] == 201
 
     def test_member_cannot_delete_a_global_channel(self):

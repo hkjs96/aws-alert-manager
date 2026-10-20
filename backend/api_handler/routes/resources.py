@@ -15,6 +15,7 @@ from api_handler.cw_helper import (
     _parse_alarm_arn,
     list_alarms,
 )
+from api_handler.authz import Scope, scope_for
 from api_handler.db import accounts_table, resource_inventory_table, scan_all, query_by_pk
 from common import SUPPORTED_RESOURCE_TYPES, dimension_builder
 from common.alarm_identity import identify_alarm
@@ -94,6 +95,25 @@ def list_resources(event: dict) -> dict:
     return _list_inventory_resources(event)
 
 
+def _not_found(resource_id: str) -> dict:
+    return _err(404, "NOT_FOUND", f"Resource '{resource_id}' was not found")
+
+
+def _out_of_scope(scope: Scope, resource_id: str) -> bool:
+    """범위 밖이면 True (docs/specs/authz-scoping). 제한 없는 범위는 DB를 읽지 않는다.
+
+    인벤토리의 그 리소스 행(없으면 그 리소스의 알람 행)이 범위 안이어야 한다 — 행이 없으면 고객사를 알 수 없어 관리자만.
+    """
+    if scope.unrestricted:
+        return False
+    try:
+        rows = query_by_pk(resource_inventory_table(), "resource_id", resource_id)
+    except ClientError as exc:
+        logger.warning("Scope lookup for %s failed: %s", resource_id, exc)
+        return True
+    return not any(scope.allows_item(r) for r in rows)
+
+
 # NOTE: 동기 sync_resources는 제거됨 — POST /resources/sync는 sync.import_resources
 # (비동기 job, daily_monitor의 _handle_resources_sync_job)가 처리한다.
 
@@ -104,7 +124,7 @@ def get_resource(event: dict) -> dict:
         return _err(400, "MISSING_PARAM", "resource_id is required")
 
     try:
-        resource = _find_resource_detail(resource_id_or_name)
+        resource = _find_resource_detail(resource_id_or_name, scope_for(event))
     except ClientError as exc:
         return _err(500, "AWS_ERROR", str(exc))
     if not resource:
@@ -127,7 +147,7 @@ def update_resource_monitoring(event: dict) -> dict:
 
     try:
         resource = _find_inventory_resource(resource_id)
-        if not resource:
+        if not resource or not scope_for(event).allows_item(resource):
             return _err(404, "NOT_FOUND", f"Resource '{resource_id}' was not found")
 
         res_type = resource.get("type")
@@ -171,7 +191,7 @@ def get_resource_alarms(event: dict) -> dict:
         return _err(500, "AWS_ERROR", str(exc))
 
     resource_alarms = [
-        item for item in db_items
+        item for item in scope_for(event).filter(db_items)
         if item.get("entity_type") == "alarm" and item.get("resource") == resource_id
     ]
 
@@ -212,6 +232,7 @@ def get_resource_metrics(event: dict) -> dict:
         db_items = scan_all(resource_inventory_table())
     except ClientError as exc:
         return _err(500, "AWS_ERROR", str(exc))
+    db_items = scope_for(event).filter(db_items)
 
     resource = next(
         (item for item in db_items if _is_resource_snapshot(item) and _resource_id(item) == resource_id),
@@ -281,6 +302,9 @@ def get_disk_paths(event: dict) -> dict:
     except ClientError as exc:
         logger.warning("Inventory lookup failed for %s: %s", resource_id, exc)
         items = []
+    scope = scope_for(event)
+    if not scope.unrestricted and not any(scope.allows_item(i) for i in items):
+        return _not_found(resource_id)
     resource = next((item for item in items if _is_resource_snapshot(item)), None)
     if resource:
         session, region, _ = _resource_aws_session(resource)
@@ -321,7 +345,7 @@ def get_alarm_overlaps(event: dict) -> dict:
     except ClientError as exc:
         return _err(500, "DB_ERROR", str(exc))
     resource = next((item for item in items if _is_resource_snapshot(item)), None)
-    if not resource:
+    if not resource or not scope_for(event).allows_item(resource):
         return _err(404, "NOT_FOUND", f"Resource '{resource_id}' was not found")
     resource_type = resource.get("type")
     if resource_type not in SUPPORTED_RESOURCE_TYPES:
@@ -357,6 +381,8 @@ def create_resource_alarm(event: dict) -> dict:
         return _err(400, "INVALID_BODY", "severity must be one of SEV-1..SEV-5")
     if metric_name == "disk_used_percent" and not mount_path:
         return _err(400, "MISSING_PARAM", "mount_path is required for disk_used_percent")
+    if _out_of_scope(scope_for(event), resource_id):
+        return _not_found(resource_id)
 
     try:
         existing_alarms = list_alarms()
@@ -430,6 +456,8 @@ def update_resource_alarms(event: dict) -> dict:
     configs = body.get("configs")
     if not isinstance(configs, list):
         return _err(400, "INVALID_BODY", "configs must be a list")
+    if _out_of_scope(scope_for(event), resource_id):
+        return _not_found(resource_id)
 
     try:
         resource_alarms = _alarms_for_resource(list_alarms(), resource_id)
@@ -483,7 +511,7 @@ def _list_inventory_resources(event: dict) -> dict:
         return _err(500, "AWS_ERROR", str(exc))
 
     items_by_id = {}
-    for resource in _resource_snapshots(persisted):
+    for resource in scope_for(event).filter(_resource_snapshots(persisted)):
         resource_id = resource.get("resource_id") or resource.get("id")
         if not resource_id:
             continue
@@ -607,8 +635,10 @@ def _path_id(event: dict) -> str:
     return _decode_resource_token(raw)
 
 
-def _find_resource_detail(resource_id_or_name: str) -> dict | None:
+def _find_resource_detail(resource_id_or_name: str, scope: Scope | None = None) -> dict | None:
     persisted = scan_all(resource_inventory_table())
+    if scope is not None:
+        persisted = scope.filter(persisted)
 
     for resource in _resource_snapshots(persisted):
         resource_id = resource.get("resource_id") or resource.get("id")

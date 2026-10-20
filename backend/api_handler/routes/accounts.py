@@ -21,7 +21,9 @@ from datetime import datetime, UTC
 import boto3
 from botocore.exceptions import ClientError
 
+from api_handler.authz import scope_for
 from api_handler.db import accounts_table, scan_all, query_by_pk
+from api_handler.identity import admin_enforced, current_email, is_admin
 from common.region_discovery import CANDIDATE_REGIONS, Detection, detect_regions, unregistered_regions
 from common.sns_notifier import send_error_alert
 
@@ -282,7 +284,7 @@ def list_accounts(event: dict) -> dict:
     except ClientError as e:
         return _err(500, "DB_ERROR", str(e))
 
-    return _ok(items)
+    return _ok(scope_for(event).filter(items))
 
 
 def create_account(event: dict) -> dict:
@@ -298,6 +300,8 @@ def create_account(event: dict) -> dict:
 
     account_id = body["account_id"].strip()
     customer_id = body["customer_id"].strip()
+    if not scope_for(event).allows_customer(customer_id):
+        return _err(404, "NOT_FOUND", "고객사를 찾을 수 없습니다")
 
     table = accounts_table()
     try:
@@ -342,6 +346,8 @@ def delete_account(event: dict) -> dict:
     qs = event.get("queryStringParameters") or {}
     customer_id = qs.get("customer_id", "").strip()
 
+    if admin_enforced() and not is_admin(current_email(event)):
+        return _err(403, "FORBIDDEN", "어카운트 삭제 권한이 없습니다 (관리자 전용)")
     if not account_id or not customer_id:
         return _err(400, "MISSING_PARAM", "account_id와 customer_id가 필요합니다")
 
@@ -388,6 +394,8 @@ def test_connection(event: dict) -> dict:
 
     if not account_id or not customer_id:
         return _err(400, "MISSING_PARAM", "account_id와 customer_id가 필요합니다")
+    if not scope_for(event).allows_customer(customer_id):
+        return _err(404, "NOT_FOUND", "어카운트를 찾을 수 없습니다")
 
     table = accounts_table()
     try:
@@ -468,6 +476,8 @@ def update_account_regions(event: dict) -> dict:
     customer_id = (event.get("queryStringParameters") or {}).get("customer_id", "").strip()
     if not account_id or not customer_id:
         return _err(400, "MISSING_PARAM", "account_id와 customer_id가 필요합니다")
+    if not scope_for(event).allows_customer(customer_id):
+        return _err(404, "NOT_FOUND", "어카운트를 찾을 수 없습니다")
     try:
         body = json.loads(event.get("body") or "{}")
     except json.JSONDecodeError:

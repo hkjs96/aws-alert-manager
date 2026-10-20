@@ -2,30 +2,74 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Users, Plus, Trash2 } from "lucide-react";
+import { Users, Plus, Trash2, Pencil } from "lucide-react";
 import type { Customer } from "@/types";
 import { Button } from "@/components/shared/Button";
 import { useToast } from "@/components/shared/Toast";
 import { LoadingButton } from "@/components/shared/LoadingButton";
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
-import { useOwnedCustomers } from "@/hooks/useOwnedCustomers";
 import { useMe } from "@/hooks/useMe";
-import { createCustomer as apiCreateCustomer, deleteCustomer as apiDeleteCustomer } from "@/lib/api-functions";
+import {
+  createCustomer as apiCreateCustomer,
+  deleteCustomer as apiDeleteCustomer,
+  updateCustomer as apiUpdateCustomer,
+} from "@/lib/api-functions";
 
 interface CustomerSectionProps {
   customers: Customer[];
 }
 
+/** 쉼표·공백·줄바꿈으로 나뉜 이메일 → 소문자·중복 제거 목록. */
+export function parseManagers(text: string): string[] {
+  return Array.from(new Set(text.split(/[\s,;]+/).map((e) => e.trim().toLowerCase()).filter(Boolean)));
+}
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 export function CustomerSection({ customers }: CustomerSectionProps) {
   const router = useRouter();
   const { showToast } = useToast();
-  const { ownedCustomerIds, toggleOwned, isOwned } = useOwnedCustomers();
-  const { isAdmin } = useMe();
+  const { email, isAdmin } = useMe();
   const [name, setName] = useState("");
   const [code, setCode] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<Customer | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [managersDraft, setManagersDraft] = useState("");
+  const [savingManagers, setSavingManagers] = useState(false);
+
+  // 담당자 편집은 관리자 또는 그 고객사의 담당자만 — 백엔드가 같은 규칙으로 다시 검사한다.
+  const canEdit = (c: Customer) => isAdmin || (!!email && (c.managers ?? []).includes(email));
+
+  const startEdit = (c: Customer) => {
+    setEditingId(c.customer_id);
+    setManagersDraft((c.managers ?? []).join(", "));
+  };
+
+  const saveManagers = async (c: Customer) => {
+    const managers = parseManagers(managersDraft);
+    const invalid = managers.filter((m) => !EMAIL_RE.test(m));
+    if (managers.length === 0 || invalid.length > 0) {
+      showToast("error", managers.length === 0 ? "담당자는 한 명 이상이어야 합니다." : `이메일 형식이 아닙니다: ${invalid.join(", ")}`);
+      return;
+    }
+    if (!isAdmin && email && !managers.includes(email)) {
+      // 자기 자신을 빼면 저장 직후 이 고객사가 안 보이게 된다 — 의도인지 확인한다.
+      if (!window.confirm("담당자에서 본인을 빼면 이 고객사를 더 이상 볼 수 없습니다. 계속할까요?")) return;
+    }
+    setSavingManagers(true);
+    try {
+      await apiUpdateCustomer(c.customer_id, { managers });
+      showToast("success", `"${c.name}" 담당자를 저장했습니다.`);
+      setEditingId(null);
+      router.refresh();
+    } catch (e) {
+      showToast("error", e instanceof Error ? e.message : "담당자 저장에 실패했습니다.");
+    } finally {
+      setSavingManagers(false);
+    }
+  };
 
   const handleRegister = async () => {
     if (!name.trim() || !code.trim()) {
@@ -78,10 +122,9 @@ export function CustomerSection({ customers }: CustomerSectionProps) {
         )}
       </div>
 
-      {/* 담당 고객사 없을 때 안내 배너 */}
-      {customers.length > 0 && ownedCustomerIds.length === 0 && (
-        <div className="mx-6 mt-4 rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-800">
-          담당 고객사를 선택하면 다른 화면에서 해당 고객사만 표시됩니다
+      {!isAdmin && (
+        <div className="mx-6 mt-4 rounded-lg bg-slate-50 border border-slate-200 px-4 py-3 text-xs text-slate-600">
+          담당자로 지정된 고객사만 보입니다. 다른 고객사가 필요하면 그 고객사의 담당자나 관리자에게 요청하세요.
         </div>
       )}
 
@@ -97,28 +140,58 @@ export function CustomerSection({ customers }: CustomerSectionProps) {
           <table className="w-full text-sm">
             <thead className="bg-slate-50 border-b border-slate-200">
               <tr>
-                <th className="px-4 py-3 text-center text-[11px] font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">담당</th>
                 <th className="px-4 py-3 text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Name</th>
                 <th className="px-4 py-3 text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">ID</th>
                 <th className="px-4 py-3 text-right text-[11px] font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Accounts</th>
+                <th className="px-4 py-3 text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">담당자</th>
                 <th className="px-4 py-3 text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {customers.map((c) => (
                 <tr key={c.customer_id} className="hover:bg-slate-50 transition-colors">
-                  <td className="px-4 py-3 text-center">
-                    <input
-                      type="checkbox"
-                      aria-label="담당"
-                      checked={isOwned(c.customer_id)}
-                      onChange={() => toggleOwned(c.customer_id)}
-                      className="w-4 h-4 accent-primary cursor-pointer"
-                    />
-                  </td>
                   <td className="px-4 py-3 font-semibold text-slate-900">{c.name}</td>
                   <td className="px-4 py-3 font-mono text-[11px] text-slate-600">{c.customer_id}</td>
                   <td className="px-4 py-3 text-right text-slate-600">{c.account_count}</td>
+                  <td className="px-4 py-3">
+                    {editingId === c.customer_id ? (
+                      <div className="flex items-center gap-2">
+                        <input
+                          aria-label={`${c.name} 담당자`}
+                          value={managersDraft}
+                          onChange={(e) => setManagersDraft(e.target.value)}
+                          placeholder="a@mz.co.kr, b@mz.co.kr"
+                          className="min-w-[16rem] bg-white ring-1 ring-slate-200 rounded px-2 py-1 text-xs font-mono"
+                        />
+                        <LoadingButton
+                          isLoading={savingManagers}
+                          onClick={() => saveManagers(c)}
+                          className="text-xs font-semibold text-primary hover:underline"
+                        >
+                          저장
+                        </LoadingButton>
+                        <button type="button" onClick={() => setEditingId(null)} className="text-xs text-slate-400 hover:underline">
+                          취소
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-slate-600">
+                          {(c.managers ?? []).length > 0 ? (c.managers ?? []).join(", ") : <span className="text-amber-600">없음 — 관리자만 볼 수 있음</span>}
+                        </span>
+                        {canEdit(c) && (
+                          <button
+                            type="button"
+                            aria-label={`${c.name} 담당자 편집`}
+                            onClick={() => startEdit(c)}
+                            className="text-slate-400 hover:text-primary"
+                          >
+                            <Pencil size={12} />
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </td>
                   <td className="px-4 py-3">
                     {isAdmin && (
                       <Button

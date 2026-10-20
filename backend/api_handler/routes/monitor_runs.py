@@ -11,6 +11,7 @@ from decimal import Decimal
 from boto3.dynamodb.conditions import Key
 from botocore.exceptions import ClientError
 
+from api_handler.authz import scope_for
 from api_handler.db import monitor_run_history_table
 
 
@@ -30,7 +31,9 @@ def list_monitor_runs(event: dict) -> dict:
             "body": json.dumps({"code": "DDB_ERROR", "message": str(e)}),
         }
 
-    items = _with_derived_status([_json_safe(item) for item in resp.get("Items", [])])
+    # 실행 기록은 account_id만 가진다 — 범위 계정 것만 (account_id 없는 기록은 관리자만).
+    rows = scope_for(event).filter(resp.get("Items", []))
+    items = _with_derived_status([_json_safe(item) for item in rows])
     return {
         "statusCode": 200,
         "body": json.dumps({

@@ -35,8 +35,23 @@ def add_owned_customer(email: str, customer_id: str) -> None:
 
 
 def get_me(event: dict) -> dict:
+    """`owned_customer_ids` = 이 사용자가 **볼 수 있는** 고객사(2026-10-20, docs/specs/authz-scoping).
+
+    예전에는 사용자가 체크한 개인 화면 필터였다. 이제 접근 권한이 고객사 `managers`로 정해지므로 화면 필터를 같은 범위로
+    맞춘다 — 일반 사용자는 담당 고객사, 관리자(제한 없음)는 전체. 화면은 이 목록으로 필터하므로 백엔드 범위와 어긋나지 않는다.
+    """
+    from api_handler.authz import scope_for
+    from api_handler.db import customers_table, scan_all
+
     email = current_email(event)
-    owned = _load_owned(email) if email else []
+    scope = scope_for(event)
+    if scope.unrestricted:
+        try:
+            owned = sorted(c["customer_id"] for c in scan_all(customers_table()))
+        except (ClientError, KeyError):   # 표가 없는 환경(로컬·테스트) — 예전 개인 목록으로
+            owned = _load_owned(email) if email else []
+    else:
+        owned = sorted(scope.customer_ids)
     return _ok({
         "email": email,
         "is_admin": is_admin(email),

@@ -156,8 +156,12 @@ def get_alarm_overlay(customer_id: str | None = None, account_id: str | None = N
     return overlay
 
 
-def count_registered_accounts(customer_id: str | None = None, account_id: str | None = None) -> int:
+def count_registered_accounts(customer_id: str | None = None, account_id: str | None = None,
+                              scope=None) -> int:
     accounts = _load_registered_accounts(customer_id=customer_id, account_id=account_id)
+    if scope is not None and not scope.unrestricted:
+        # 범위가 제한되면 "현재 계정" 폴백(1)을 쓰지 않는다 — 중앙 계정은 고객사 없는 데이터다.
+        return len(scope.filter(accounts))
     return len(accounts) if accounts else 1
 
 
@@ -178,13 +182,17 @@ def extract_resource_from_alarm(alarm_name: str) -> tuple[str, str] | None:
     return parse_alarm_name(alarm_name)
 
 
-def get_dashboard_stats(customer_id: str | None = None, account_id: str | None = None) -> dict:
+def get_dashboard_stats(customer_id: str | None = None, account_id: str | None = None,
+                        scope=None) -> dict:
     """Aggregate dashboard stats from DynamoDB resource and alarm snapshots."""
     try:
         from api_handler.db import scan_all, resource_inventory_table
         db_items = scan_all(resource_inventory_table())
     except ClientError:
         return {"monitored_count": 0, "active_alarms": 0, "unmonitored_count": 0, "account_count": 0}
+
+    if scope is not None:
+        db_items = scope.filter(db_items)
 
     db_resources = [item for item in db_items if _is_resource_snapshot(item)]
     db_alarms = [item for item in db_items if _is_alarm_snapshot(item)]
@@ -205,7 +213,7 @@ def get_dashboard_stats(customer_id: str | None = None, account_id: str | None =
         "monitored_count": monitored_count,
         "active_alarms": active_alarms,
         "unmonitored_count": max(len(db_resources) - monitored_count, 0),
-        "account_count": count_registered_accounts(customer_id=customer_id, account_id=account_id),
+        "account_count": count_registered_accounts(customer_id=customer_id, account_id=account_id, scope=scope),
     }
 
 

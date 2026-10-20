@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 from boto3.dynamodb.conditions import Key
 from botocore.exceptions import ClientError
 
+from api_handler.authz import scope_for
 from api_handler.db import incident_table, scan_all
 from api_handler.identity import current_email
 from common.incident import (
@@ -78,7 +79,7 @@ def list_incidents(event: dict) -> dict:
         logger.error("incident list failed: %s", e)
         return _err(503, "STORAGE_ERROR", "인시던트를 읽지 못했습니다")
 
-    incidents = [to_dict(from_item(i)) for i in items]
+    incidents = [to_dict(from_item(i)) for i in scope_for(event).filter(items)]
     if status:
         incidents = [i for i in incidents if i.get("status") == status]
     # 집계는 필터 적용 후·건수 제한 전 값이다 — 화면 요약이 보이는 것만 세면 거짓이 된다.
@@ -98,7 +99,7 @@ def get_incident(event: dict) -> dict:
     except ClientError as e:
         logger.error("incident read failed: %s", e)
         return _err(503, "STORAGE_ERROR", "인시던트를 읽지 못했습니다")
-    if incident is None:
+    if incident is None or not scope_for(event).allows_item(incident):
         return _err(404, "NOT_FOUND", "인시던트를 찾을 수 없습니다")
     return _ok(to_dict(incident))
 
@@ -118,6 +119,7 @@ def ack_incident(event: dict) -> dict:
     if not who:
         return _err(403, "FORBIDDEN", "확인자를 알 수 없습니다")
 
+    scope = scope_for(event)
     table = incident_table()
     for _ in range(MAX_ATTEMPTS):
         try:
@@ -125,7 +127,7 @@ def ack_incident(event: dict) -> dict:
         except ClientError as e:
             logger.error("incident read failed: %s", e)
             return _err(503, "STORAGE_ERROR", "인시던트를 읽지 못했습니다")
-        if incident is None:
+        if incident is None or not scope.allows_item(incident):
             return _err(404, "NOT_FOUND", "인시던트를 찾을 수 없습니다")
         if incident.get("status") == STATUS_RESOLVED:
             return _err(409, "ALREADY_RESOLVED", "이미 해소된 인시던트입니다")

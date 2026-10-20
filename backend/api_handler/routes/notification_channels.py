@@ -22,6 +22,7 @@ import os
 from boto3.dynamodb.conditions import Attr, Key
 from botocore.exceptions import ClientError
 
+from api_handler.authz import scope_for
 from api_handler.db import notification_channel_table, scan_all
 from api_handler.identity import admin_enforced, current_email, is_admin
 from common import notification_adapters as adapters
@@ -70,6 +71,10 @@ def _forbidden(event: dict, what: str) -> dict | None:
     if admin_enforced() and not is_admin(current_email(event)):
         return _err(403, "FORBIDDEN", f"{what} 권한이 없습니다 (관리자 전용)")
     return None
+
+
+def _not_found() -> dict:
+    return _err(404, "NOT_FOUND", "채널을 찾을 수 없습니다")
 
 
 def _load(customer_id: str, channel_id: str):
@@ -152,6 +157,9 @@ def list_channels(event: dict) -> dict:
         except Exception as e:                                    # noqa: BLE001
             # 유형이 사라진(코드에서 제거된) 옛 행 — 목록 전체를 죽이지 않는다
             logger.warning("skipping unreadable channel %s: %s", item.get("channel_id"), e)
+    # 전역 채널은 모두에게 보인다(설정 변경은 관리자 전용). 고객사 채널은 범위 안 것만.
+    scope = scope_for(event)
+    channels = [c for c in channels if c["is_global"] or scope.allows_customer(c["customer_id"])]
     channels.sort(key=lambda c: (c["is_global"], c["customer_id"], c["name"]))
     return _ok({"channels": channels, "total": len(channels)})
 
@@ -167,6 +175,8 @@ def create_channel(event: dict) -> dict:
         denied = _forbidden(event, "전역 알림 채널 등록")
         if denied:
             return denied
+    elif not scope_for(event).allows_customer(customer_id):
+        return _err(404, "NOT_FOUND", "고객사를 찾을 수 없습니다")
 
     try:
         channel = validate_channel(body, customer_id=customer_id)
@@ -203,6 +213,8 @@ def update_channel(event: dict) -> dict:
     except ChannelError as e:
         return _err(400, "VALIDATION_ERROR", str(e))
     customer_id = _customer_id(event, body)
+    if customer_id and not scope_for(event).allows_customer(customer_id):
+        return _not_found()
 
     try:
         current = _load(customer_id, channel_id)
@@ -238,6 +250,8 @@ def delete_channel(event: dict) -> dict:
     if not channel_id:
         return _err(400, "MISSING_PARAM", "채널 ID가 필요합니다")
     customer_id = _customer_id(event)
+    if customer_id and not scope_for(event).allows_customer(customer_id):
+        return _not_found()
 
     try:
         current = _load(customer_id, channel_id)

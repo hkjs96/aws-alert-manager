@@ -171,6 +171,14 @@ export function deleteCustomer(id: string): Promise<void> {
   return apiFetch(`/api/customers/${id}`, { method: "DELETE" });
 }
 
+/** 고객사 이름·담당자 변경 — 관리자 또는 그 고객사의 담당자만. 담당자는 한 명 이상. */
+export function updateCustomer(id: string, data: { name?: string; managers?: string[] }): Promise<Customer> {
+  return apiFetch(`/api/customers/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
+}
+
 // --- Accounts ---
 
 export function fetchAccounts(): Promise<Account[]> {

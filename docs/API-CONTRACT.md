@@ -6,6 +6,11 @@ DTO.
 
 ## Common Conventions
 
+**접근 범위(2026-10-20, docs/specs/authz-scoping/design.md):** 관리자(`ADMIN_EMAILS`)는 전부, 일반 사용자는 고객사
+`managers`에 자기 이메일이 든 고객사와 그 계정·리소스·알람·알림만 본다. 목록 응답은 범위로 걸러지고, 범위 밖 대상의 단건
+조회·변경은 **404**(존재를 흘리지 않는다), 고객사·계정 삭제는 관리자가 아니면 **403**이다. `ADMIN_EMAILS`가 비어 있으면
+제한이 없다. `GET /api/me`의 `owned_customer_ids`는 이제 이 사용자가 볼 수 있는 고객사 목록이다(관리자는 전체).
+
 Base URL examples:
 
 - Amplify frontend routes call `/api/*` route handlers or API Gateway.
@@ -431,6 +436,17 @@ Errors:
 - `400 VALIDATION_ERROR`
 - `409 DUPLICATE`
 - `500 DB_ERROR`
+
+## PUT /api/customers/{id}
+
+이름·담당자 편집. 관리자 또는 그 고객사의 현재 담당자만(그 밖은 `404`). 본문은 `name`, `managers` 중 하나 이상.
+
+```json
+{ "managers": ["koo@mz.co.kr", "sxt@mz.co.kr"] }
+```
+
+`managers`는 소문자·중복 제거되어 저장되고, 비울 수 없다(`400` — 담당자 없는 고객사는 관리자만 볼 수 있게 된다).
+`POST /api/customers`는 만든 사람을 `managers`에 넣는다. `GET /api/customers` 항목에 `managers`가 포함된다.
 
 ## DELETE /api/customers/{id}
 

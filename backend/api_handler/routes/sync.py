@@ -11,6 +11,7 @@ from datetime import datetime, UTC
 import boto3
 from botocore.exceptions import ClientError
 
+from api_handler.authz import scope_for
 from api_handler.db import accounts_table, job_status_table, scan_all
 
 DEFAULT_REGION = "ap-northeast-2"
@@ -42,6 +43,13 @@ def _start_sync_job(event: dict, target: str) -> dict:
         return _err(400, "BAD_REQUEST", "JSON parse error")
 
     scope = _normalize_scope(body.get("scope") or {})
+    access = scope_for(event)
+    if not access.unrestricted:
+        # 빈 범위 = 전 계정이라 관리자만. 일반 사용자는 담당 고객사를 지정해야 한다.
+        if not scope["customer_id"]:
+            return _err(403, "FORBIDDEN", "전체 동기화 권한이 없습니다 (관리자 전용) — customer_id를 지정하세요")
+        if not access.allows_customer(scope["customer_id"]):
+            return _err(404, "NOT_FOUND", "고객사를 찾을 수 없습니다")
     try:
         target_count = _target_account_count(scope)
     except ClientError as exc:

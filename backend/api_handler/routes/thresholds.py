@@ -15,6 +15,7 @@ from decimal import Decimal
 from botocore.exceptions import ClientError
 from boto3.dynamodb.conditions import Key
 
+from api_handler.authz import scope_for
 from api_handler.db import threshold_overrides_table
 
 # alarm_registry에서 리소스 타입별 기본 임계치 가져오기
@@ -79,6 +80,8 @@ def get_thresholds(event: dict) -> dict:
     resource_type = (event.get("pathParameters") or {}).get("type", "")
     qs = event.get("queryStringParameters") or {}
     customer_id = qs.get("customer_id", "")
+    if customer_id and not scope_for(event).allows_customer(customer_id):
+        return _err(404, "NOT_FOUND", "고객사를 찾을 수 없습니다")
 
     defaults = get_system_defaults(resource_type)
     if not defaults:
@@ -115,6 +118,8 @@ def put_thresholds(event: dict) -> dict:
     customer_id = (body.get("customer_id") or "").strip()
     if not customer_id:
         return _err(400, "MISSING_PARAM", "customer_id가 필요합니다")
+    if not scope_for(event).allows_customer(customer_id):
+        return _err(404, "NOT_FOUND", "고객사를 찾을 수 없습니다")
 
     overrides: list[dict] = body.get("overrides", [])
     scope_id = f"customer_id:{customer_id}"

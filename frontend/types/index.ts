@@ -63,6 +63,8 @@ export interface Customer {
   name: string;
   provider: CloudProvider;
   account_count: number;
+  /** 담당자 이메일 — 접근 권한. 일반 사용자는 여기에 든 고객사만 본다(docs/specs/authz-scoping). */
+  managers?: string[];
 }
 
 export interface Account {

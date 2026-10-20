@@ -10,6 +10,7 @@ from datetime import datetime, UTC
 
 from botocore.exceptions import ClientError
 
+from api_handler.authz import scope_for
 from api_handler.cw_helper import get_dashboard_stats
 
 
@@ -19,7 +20,7 @@ def get_stats(event: dict) -> dict:
     account_id = qs.get("account_id")
 
     try:
-        stats = get_dashboard_stats(customer_id, account_id)
+        stats = get_dashboard_stats(customer_id, account_id, scope_for(event))
     except ClientError as e:
         return _err(500, "CW_ERROR", str(e))
 
@@ -38,7 +39,7 @@ def get_recent_alarms(event: dict) -> dict:
         return _err(500, "AWS_ERROR", str(e))
 
     alarms = [
-        item for item in db_items
+        item for item in scope_for(event).filter(db_items)
         if item.get("entity_type") == "alarm" and item.get("state") == "ALARM"
     ]
 

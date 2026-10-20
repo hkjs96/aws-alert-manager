@@ -130,6 +130,7 @@ _ROUTES: list[tuple[str, re.Pattern, object]] = [
     # Customers
     ("GET",    re.compile(r"^/customers$"),                           customers.list_customers),
     ("POST",   re.compile(r"^/customers$"),                           customers.create_customer),
+    ("PUT",    re.compile(r"^/customers/(?P<id>[^/]+)$"),             customers.update_customer),
     ("DELETE", re.compile(r"^/customers/(?P<id>[^/]+)$"),             customers.delete_customer),
     # Accounts
     ("GET",    re.compile(r"^/accounts$"),                            accounts.list_accounts),

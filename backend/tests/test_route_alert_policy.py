@@ -135,8 +135,12 @@ class TestSilences:
         denied = ap.create_silence(event("POST", body=body, email=USER))
         assert denied["statusCode"] == 403 and not table.items
 
-        scoped = ap.create_silence(event("POST", body=self._create(), email=USER))
-        assert scoped["statusCode"] == 201          # 고객사 지정은 일반 사용자도 가능
+        # 고객사 지정은 일반 사용자도 가능 — 담당 고객사라면 (docs/specs/authz-scoping)
+        from api_handler.authz import Scope
+        managed = Scope(email=USER, unrestricted=False, customer_ids=frozenset({"cust-1"}))
+        with patch.object(ap, "scope_for", return_value=managed):
+            scoped = ap.create_silence(event("POST", body=self._create(), email=USER))
+        assert scoped["statusCode"] == 201
 
         allowed = ap.create_silence(event("POST", body=body, email=ADMIN))
         assert allowed["statusCode"] == 201

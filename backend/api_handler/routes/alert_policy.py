@@ -22,6 +22,7 @@ from datetime import datetime, timezone
 from botocore.exceptions import ClientError
 from boto3.dynamodb.conditions import Key
 
+from api_handler.authz import scope_for
 from api_handler.db import alert_policy_table
 from api_handler.identity import admin_enforced, current_email, is_admin
 from common.alert_config import (
@@ -126,7 +127,10 @@ def list_silences(event: dict) -> dict:
         logger.error("silence list failed: %s", e)
         return _err(503, "STORAGE_ERROR", "정비창을 읽지 못했습니다")
 
+    # 전역 정비창은 모두에게 보인다. 고객사 정비창은 범위 안 것만.
+    scope = scope_for(event)
     silences = [silence_to_dict(i, now=now) for i in items]
+    silences = [s for s in silences if not s["customer_id"] or scope.allows_customer(s["customer_id"])]
     if not include_expired:
         silences = [s for s in silences if not s["expired"]]
     silences.sort(key=lambda s: s["starts_at"], reverse=True)
@@ -145,6 +149,8 @@ def create_silence(event: dict) -> dict:
         denied = _forbidden(event, "전역 정비창 등록")
         if denied:
             return denied
+    elif not scope_for(event).allows_customer(silence.customer_id):
+        return _err(404, "NOT_FOUND", "고객사를 찾을 수 없습니다")
 
     item = silence_to_item(silence, config_id=new_silence_id(now),
                            created_by=current_email(event), created_at=now)
@@ -167,9 +173,10 @@ def delete_silence(event: dict) -> dict:
     except ClientError as e:
         logger.error("silence read failed: %s", e)
         return _err(503, "STORAGE_ERROR", "정비창을 읽지 못했습니다")
-    if not item:
+    item_customer = str((item or {}).get("customer_id", "") or "")
+    if not item or (item_customer and not scope_for(event).allows_customer(item_customer)):
         return _err(404, "NOT_FOUND", "정비창을 찾을 수 없습니다")
-    if not str(item.get("customer_id", "") or ""):
+    if not item_customer:
         denied = _forbidden(event, "전역 정비창 취소")
         if denied:
             return denied

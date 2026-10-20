@@ -10,6 +10,7 @@ from datetime import datetime, UTC
 
 from botocore.exceptions import ClientError
 
+from api_handler.authz import scope_for
 from api_handler.db import scan_all, resource_inventory_table
 
 
@@ -24,7 +25,7 @@ def list_alarms_handler(event: dict) -> dict:
     except ClientError as e:
         return _err(500, "AWS_ERROR", str(e))
 
-    alarms = [item for item in db_items if item.get("entity_type") == "alarm"]
+    alarms = [item for item in scope_for(event).filter(db_items) if item.get("entity_type") == "alarm"]
     if state_filter:
         alarms = [alarm for alarm in alarms if alarm.get("state") == state_filter]
 
@@ -68,7 +69,7 @@ def get_alarm_summary(event: dict) -> dict:
     except ClientError as e:
         return _err(500, "AWS_ERROR", str(e))
 
-    alarms = [item for item in db_items if item.get("entity_type") == "alarm"]
+    alarms = [item for item in scope_for(event).filter(db_items) if item.get("entity_type") == "alarm"]
 
     summary = {"ALARM": 0, "OK": 0, "INSUFFICIENT_DATA": 0}
     for alarm in alarms:

@@ -3,7 +3,10 @@
 
 GET    /customers          → 전체 고객사 목록
 POST   /customers          → 고객사 생성
-DELETE /customers/{id}     → 고객사 삭제
+PUT    /customers/{id}     → 이름·담당자(managers) 편집 — 관리자 또는 그 고객사 담당자
+DELETE /customers/{id}     → 고객사 삭제 (관리자 전용)
+
+범위: docs/specs/authz-scoping/design.md — 목록은 범위로 거르고, 범위 밖 편집은 404.
 """
 
 import json
@@ -12,6 +15,7 @@ from datetime import datetime, UTC
 
 from botocore.exceptions import ClientError
 
+from api_handler.authz import normalize_managers, scope_for
 from api_handler.db import customers_table, query_by_pk, accounts_table
 
 
@@ -21,6 +25,9 @@ def list_customers(event: dict) -> dict:
         items = scan_all(customers_table())
     except ClientError as e:
         return _err(500, "DB_ERROR", str(e))
+    items = scope_for(event).filter(items)
+    for item in items:
+        item["managers"] = normalize_managers(item.get("managers"))
 
     # account_count 보정 (AccountsTable에서 집계)
     try:
@@ -57,6 +64,8 @@ def create_customer(event: dict) -> dict:
     except ClientError as e:
         return _err(500, "DB_ERROR", str(e))
 
+    from api_handler.identity import current_email
+    email = current_email(event)
     item = {
         "customer_id": code,
         "name": name,
@@ -64,15 +73,16 @@ def create_customer(event: dict) -> dict:
         "account_count": 0,
         "created_at": datetime.now(UTC).isoformat(),
     }
+    if email:
+        # 만든 사람이 자동 담당자 — 일반 사용자는 이것 없이는 방금 만든 고객사를 볼 수 없다.
+        item["managers"] = [email]
     try:
         table.put_item(Item=item)
     except ClientError as e:
         return _err(500, "DB_ERROR", str(e))
 
     # 생성자가 만든 고객사를 자기 뷰에 자동 포함 (best-effort)
-    from api_handler.identity import current_email
     from api_handler.routes.preferences import add_owned_customer
-    email = current_email(event)
     if email:
         try:
             add_owned_customer(email, code)
@@ -80,6 +90,59 @@ def create_customer(event: dict) -> dict:
             pass  # 선택 추가 실패해도 생성 자체는 성공
 
     return _ok(item, status=201)
+
+
+def update_customer(event: dict) -> dict:
+    """이름·담당자 편집. 관리자 또는 현재 담당자만 — 그 밖에는 404(존재를 흘리지 않는다).
+
+    담당자 목록은 비울 수 없다 — 비우면 관리자 말고는 아무도 못 보는 고아 고객사가 된다.
+    """
+    customer_id = (event.get("pathParameters") or {}).get("id", "")
+    if not customer_id:
+        return _err(400, "MISSING_PARAM", "customer_id가 필요합니다")
+    try:
+        body = json.loads(event.get("body") or "{}")
+    except json.JSONDecodeError:
+        return _err(400, "INVALID_JSON", "요청 본문이 JSON 형식이 아닙니다")
+    if not isinstance(body, dict):
+        return _err(400, "INVALID_JSON", "요청 본문이 객체가 아닙니다")
+
+    scope = scope_for(event)
+    table = customers_table()
+    try:
+        item = table.get_item(Key={"customer_id": customer_id}).get("Item")
+    except ClientError as e:
+        return _err(500, "DB_ERROR", str(e))
+    if not item:
+        return _err(404, "NOT_FOUND", "고객사를 찾을 수 없습니다")
+    # scope.customer_ids는 요청 시점의 managers로 계산되지만, 방금 읽은 행으로 한 번 더 본다.
+    if not scope.unrestricted and scope.email not in normalize_managers(item.get("managers")):
+        return _err(404, "NOT_FOUND", "고객사를 찾을 수 없습니다")
+
+    updated = dict(item)
+    if "name" in body:
+        name = str(body.get("name") or "").strip()
+        if not name:
+            return _err(400, "VALIDATION_ERROR", "name은 비울 수 없습니다")
+        updated["name"] = name
+    if "managers" in body:
+        if not isinstance(body["managers"], list):
+            return _err(400, "VALIDATION_ERROR", "managers는 이메일 목록이어야 합니다")
+        managers = normalize_managers(body["managers"])
+        if not managers:
+            return _err(400, "VALIDATION_ERROR", "담당자는 한 명 이상이어야 합니다")
+        updated["managers"] = managers
+    if "name" not in body and "managers" not in body:
+        return _err(400, "VALIDATION_ERROR", "name 또는 managers가 필요합니다")
+    if not normalize_managers(updated.get("managers")):
+        return _err(400, "VALIDATION_ERROR", "담당자는 한 명 이상이어야 합니다")
+    updated["updated_at"] = datetime.now(UTC).isoformat()
+
+    try:
+        table.put_item(Item=updated)
+    except ClientError as e:
+        return _err(500, "DB_ERROR", str(e))
+    return _ok(updated)
 
 
 def delete_customer(event: dict) -> dict:
