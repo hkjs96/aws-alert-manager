@@ -23,7 +23,7 @@ from datetime import datetime, timezone
 import boto3
 from botocore.exceptions import ClientError
 
-from api_handler.authz import scope_for
+from api_handler.authz import job_owners, scope_for
 from api_handler.db import job_status_table, resource_inventory_table, scan_all
 from api_handler.routes.resources import (
     _collector_tags,
@@ -99,9 +99,8 @@ def bulk_monitoring(event: dict) -> dict:
 
     # 범위 확인은 job을 만들기 전에 — 하나라도 범위 밖이면 요청 전체를 404로(존재 여부를 흘리지 않는다).
     scope = scope_for(event)
-    inventory = None
+    inventory = _inventory_by_id(set(resource_ids))
     if not scope.unrestricted:
-        inventory = _inventory_by_id(set(resource_ids))
         if any(rid not in inventory or not scope.allows_item(inventory[rid]) for rid in resource_ids):
             return _err(404, "NOT_FOUND", "리소스를 찾을 수 없습니다")
 
@@ -117,12 +116,12 @@ def bulk_monitoring(event: dict) -> dict:
             "completed_count": 0,
             "failed_count": 0,
             "created_at": now,
+            # 작업 조회(GET /jobs/{id})가 담당 범위를 확인하는 근거 — 대상 리소스의 (고객사, 계정).
+            "owners": job_owners(inventory.values()),
         })
     except ClientError as e:
         return _err(500, "INTERNAL_ERROR", str(e))
 
-    if inventory is None:
-        inventory = _inventory_by_id(set(resource_ids))
     sqs = _get_sqs()
     queue_url = _queue_url()
     failed_ids: list[str] = []

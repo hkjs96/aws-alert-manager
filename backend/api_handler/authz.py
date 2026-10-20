@@ -78,3 +78,21 @@ def scope_for(event: dict) -> Scope:
     cids = frozenset(c["customer_id"] for c in customers if email in normalize_managers(c.get("managers")))
     aids = frozenset(a["account_id"] for a in accounts if a.get("customer_id") in cids and a.get("account_id"))
     return Scope(email=email, unrestricted=False, customer_ids=cids, account_ids=aids)
+
+
+def job_owners(items) -> list[dict]:
+    """작업이 건드리는 대상의 (고객사, 계정) — 중복 제거. 작업 조회가 이것으로 범위를 확인한다."""
+    seen: list[dict] = []
+    for item in items:
+        owner = {"customer_id": item.get("customer_id") or "", "account_id": item.get("account_id") or ""}
+        if (owner["customer_id"] or owner["account_id"]) and owner not in seen:
+            seen.append(owner)
+    return seen
+
+
+def allows_job(scope: Scope, job: dict) -> bool:
+    """작업의 대상이 **모두** 범위 안이어야 한다. 대상 정보가 없는 작업(예전 작업, 전체 동기화)은 관리자만."""
+    if scope.unrestricted:
+        return True
+    owners = job.get("owners") or []
+    return bool(owners) and all(scope.allows_item(o) for o in owners)

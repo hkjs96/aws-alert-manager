@@ -11,7 +11,7 @@ from datetime import datetime, UTC
 import boto3
 from botocore.exceptions import ClientError
 
-from api_handler.authz import scope_for
+from api_handler.authz import job_owners, scope_for
 from api_handler.db import accounts_table, job_status_table, scan_all
 
 DEFAULT_REGION = "ap-northeast-2"
@@ -63,6 +63,8 @@ def _start_sync_job(event: dict, target: str) -> dict:
             "status": "pending",
             "target": target,
             "scope": scope,
+            # 작업 조회의 담당 범위 근거. 빈 범위(전체 계정)는 관리자 전용이라 비워 둔다 → 관리자만 조회.
+            "owners": job_owners([scope]) if (scope.get("customer_id") or scope.get("account_id")) else [],
             "total_count": target_count,
             "completed_count": 0,
             "failed_count": 0,

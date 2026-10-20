@@ -7,6 +7,7 @@ GET /jobs/{id}  → 작업 상태 조회
 import json
 from botocore.exceptions import ClientError
 
+from api_handler.authz import allows_job, scope_for
 from api_handler.db import job_status_table
 
 
@@ -20,7 +21,8 @@ def get_job(event: dict) -> dict:
     except ClientError as e:
         return {"statusCode": 500, "body": json.dumps({"code": "INTERNAL_ERROR", "message": str(e)})}
 
-    if not item:
+    # 담당 범위 밖 작업은 없는 것처럼 404 — 작업 ID는 추측 불가지만 다른 API와 같은 규칙을 따른다(2026-10-20).
+    if not item or not allows_job(scope_for(event), item):
         return {"statusCode": 404, "body": json.dumps({"code": "NOT_FOUND", "message": "Job not found"})}
 
     # DynamoDB returns Decimal for numeric attrs (counts, results); default=str

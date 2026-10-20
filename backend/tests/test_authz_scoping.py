@@ -640,3 +640,48 @@ class TestMeReturnsVisibleCustomers:
         from api_handler.authz import Scope
         body = self._me(Scope(email="a@x", unrestricted=True), [{"customer_id": "HOME"}, {"customer_id": "EMU-EM2"}])
         assert body["owned_customer_ids"] == ["EMU-EM2", "HOME"]
+
+
+class TestJobLookupFollowsScope:
+    """GET /jobs/{id} — 작업의 대상이 모두 담당 범위 안이어야 보인다(2026-10-20). 대상 정보가 없는 작업은 관리자만."""
+
+    def _get(self, scope, item):
+        import json
+        from unittest.mock import MagicMock, patch
+        from api_handler.routes import jobs
+        table = MagicMock()
+        table.get_item.return_value = {"Item": item} if item else {}
+        with patch.object(jobs, "job_status_table", return_value=table), patch.object(jobs, "scope_for", return_value=scope):
+            resp = jobs.get_job({"pathParameters": {"id": "job-1"}})
+        return resp["statusCode"], json.loads(resp["body"])
+
+    @staticmethod
+    def _scope(**kw):
+        from api_handler.authz import Scope
+        return Scope(email="koo@mz.co.kr", unrestricted=False, customer_ids=frozenset(kw.get("c", ())),
+                     account_ids=frozenset(kw.get("a", ())))
+
+    def test_own_customers_job_is_visible(self):
+        job = {"job_id": "job-1", "owners": [{"customer_id": "A", "account_id": "111"}]}
+        assert self._get(self._scope(c={"A"}), job)[0] == 200
+
+    def test_job_touching_another_customer_is_404(self):
+        job = {"job_id": "job-1", "owners": [{"customer_id": "A", "account_id": "111"}, {"customer_id": "B", "account_id": "222"}]}
+        assert self._get(self._scope(c={"A"}), job)[0] == 404
+
+    def test_job_without_owners_is_admin_only(self):
+        from api_handler.authz import Scope
+        job = {"job_id": "job-1"}
+        assert self._get(self._scope(c={"A"}), job)[0] == 404
+        assert self._get(Scope(email="admin@x", unrestricted=True), job)[0] == 200
+
+    def test_job_owners_dedupes_and_skips_empty(self):
+        from api_handler.authz import job_owners
+        rows = [{"customer_id": "A", "account_id": "1"}, {"customer_id": "A", "account_id": "1"}, {}]
+        assert job_owners(rows) == [{"customer_id": "A", "account_id": "1"}]
+
+    def test_bulk_and_sync_record_owners(self):
+        import inspect
+        from api_handler.routes import bulk, sync
+        assert '"owners": job_owners(inventory.values())' in inspect.getsource(bulk)
+        assert '"owners": job_owners([scope])' in inspect.getsource(sync)
