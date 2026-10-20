@@ -203,7 +203,7 @@ def test_dashboard_stats_returns_expected_shape():
             "state": "OK",
         },
     ]
-    with patch("api_handler.db.scan_all", return_value=snapshot_items):
+    with patch("api_handler.db.scan_all", return_value=snapshot_items),             patch("api_handler.cw_helper.count_firing_alarms", return_value=None):
         from api_handler.lambda_handler import lambda_handler
         resp = lambda_handler(_event("GET", "/dashboard/stats"), None)
 

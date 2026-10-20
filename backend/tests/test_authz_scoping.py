@@ -215,6 +215,8 @@ class TestAlarmsAndDashboard:
         monkeypatch.setattr(db, "resource_inventory_table", lambda: "inventory")
         monkeypatch.setattr(db, "accounts_table", lambda: "accounts")
         monkeypatch.setattr(db, "scan_all", _scan)
+        from api_handler import cw_helper
+        monkeypatch.setattr(cw_helper, "count_firing_alarms", lambda *a, **k: None)
         stats = _body(dashboard.get_stats(as_user(mode)))
         assert (stats["monitored_count"], stats["active_alarms"], stats["account_count"]) == \
             (monitored, active, accounts)

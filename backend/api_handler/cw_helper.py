@@ -4,7 +4,7 @@ import functools
 import logging
 
 import boto3
-from botocore.exceptions import ClientError
+from botocore.exceptions import BotoCoreError, ClientError
 
 from common.alarm_builder import resolve_alarm_severity
 from common.alarm_identity import identify_alarm, parse_alarm_name
@@ -64,10 +64,9 @@ def _get_cw_for_account(account: dict, region: str):
 
 
 def _describe_alarms(cw, alarm_name_prefix: str, state_value: str | None) -> list[dict]:
-    kwargs: dict = {
-        "AlarmTypes": ["MetricAlarm"],
-        "AlarmNamePrefix": alarm_name_prefix,
-    }
+    kwargs: dict = {"AlarmTypes": ["MetricAlarm"]}
+    if alarm_name_prefix:   # 빈 접두어 = 이름 무관 전부(고객이 만든 알람 포함)
+        kwargs["AlarmNamePrefix"] = alarm_name_prefix
     if state_value:
         kwargs["StateValue"] = state_value
 
@@ -207,11 +206,19 @@ def get_dashboard_stats(customer_id: str | None = None, account_id: str | None =
         db_alarms = [a for a in db_alarms if a.get("account_id") == account_id]
 
     monitored_count = sum(1 for r in db_resources if r.get("monitoring", False))
-    active_alarms = sum(1 for alarm in db_alarms if alarm.get("state") == "ALARM")
+    firing = count_firing_alarms(customer_id, account_id, scope)
+    if firing is None:   # 실시간 조회 실패 — 인벤토리(우리 알람만) 기준으로라도 보여 준다
+        ours = sum(1 for alarm in db_alarms if alarm.get("state") == "ALARM")
+        firing = {"ours": ours, "customer": None}
+    connection = count_account_connections(customer_id, account_id, scope)
 
     return {
         "monitored_count": monitored_count,
-        "active_alarms": active_alarms,
+        "active_alarms": firing["ours"] + (firing["customer"] or 0),
+        "active_alarms_ours": firing["ours"],
+        "active_alarms_customer": firing["customer"],
+        "accounts_connected": connection["connected"],
+        "accounts_failed": connection["failed"],
         "unmonitored_count": max(len(db_resources) - monitored_count, 0),
         "account_count": count_registered_accounts(customer_id=customer_id, account_id=account_id, scope=scope),
     }
@@ -219,6 +226,47 @@ def get_dashboard_stats(customer_id: str | None = None, account_id: str | None =
 
 def _snapshot_resource_id(item: dict) -> str:
     return item.get("resource_id") or item.get("id", "")
+
+
+def _scoped_accounts(customer_id, account_id, scope) -> list[dict]:
+    accounts = _load_registered_accounts(customer_id=customer_id, account_id=account_id)
+    if scope is not None and not scope.unrestricted:
+        accounts = scope.filter(accounts)
+    return accounts
+
+
+def count_firing_alarms(customer_id=None, account_id=None, scope=None) -> dict | None:
+    """지금 ALARM 상태인 알람 수 — 우리 알람과 고객이 만든 알람을 나눈다. CloudWatch를 직접 본다.
+
+    인벤토리에는 우리 알람만 있어서, 그것만 세면 고객 알람이 울리고 있어도 "All clear"가 된다(HOME 실측
+    2026-10-20: 고객 알람 2개 ALARM, 카드 0). 조회가 전부 실패하면 None — 호출부가 인벤토리 기준으로 대신한다.
+    """
+    accounts = _scoped_accounts(customer_id, account_id, scope)
+    if not accounts and scope is not None and not scope.unrestricted:
+        return {"ours": 0, "customer": 0}
+    try:
+        if accounts:
+            alarms = []
+            for account in accounts:
+                alarms.extend(list_alarms(alarm_name_prefix="", state_value="ALARM",
+                                          customer_id=account.get("customer_id"),
+                                          account_id=account.get("account_id")))
+        else:
+            alarms = list_alarms(alarm_name_prefix="", state_value="ALARM")
+    except (ClientError, BotoCoreError) as e:   # 자격 증명·네트워크 실패도 카드 전체를 깨지 않게
+        logger.error("Firing alarm count failed: %s", e)
+        return None
+    ours = sum(1 for a in alarms if identify_alarm(a) is not None)
+    return {"ours": ours, "customer": len(alarms) - ours}
+
+
+def count_account_connections(customer_id=None, account_id=None, scope=None) -> dict:
+    """마지막 연결 테스트 결과 기준. 테스트 전(untested)은 실패로 세지 않는다."""
+    accounts = _scoped_accounts(customer_id, account_id, scope)
+    return {
+        "connected": sum(1 for a in accounts if a.get("connection_status") == "connected"),
+        "failed": sum(1 for a in accounts if a.get("connection_status") == "failed"),
+    }
 
 
 def _is_resource_snapshot(item: dict) -> bool:

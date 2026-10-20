@@ -93,9 +93,18 @@ Response `200`:
   "monitored_count": 0,
   "active_alarms": 0,
   "unmonitored_count": 0,
-  "account_count": 0
+  "account_count": 0,
+  "active_alarms_ours": 0,
+  "active_alarms_customer": 0,
+  "accounts_connected": 0,
+  "accounts_failed": 0
 }
 ```
+
+- `active_alarms` = `active_alarms_ours` + `active_alarms_customer`: CloudWatch를 직접 조회해 지금 ALARM 상태인
+  알람을 센다. 고객이 만든 알람(우리 메타데이터 없음)도 포함한다.
+- `active_alarms_customer`가 `null`이면 실시간 조회가 실패한 것이다. 이때 `active_alarms`는 인벤토리 기준(우리 알람만)이다.
+- `accounts_connected`/`accounts_failed`는 마지막 연결 테스트 결과다. 테스트 전 계정은 어느 쪽에도 세지 않는다.
 
 Forbidden legacy fields:
 
