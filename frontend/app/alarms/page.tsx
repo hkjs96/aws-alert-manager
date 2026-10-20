@@ -9,7 +9,12 @@ export const metadata: Metadata = {
   description: "Comprehensive list of all triggered and monitored alarm states.",
 };
 
-export default async function AlarmsPage() {
+export default async function AlarmsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ state?: string; customer?: string; account?: string }>;
+}) {
+  const { state, customer, account } = await searchParams;
   let alarms: Alarm[] = [];
   let summary: AlarmSummary = { total: 0, alarm_count: 0, ok_count: 0, insufficient_count: 0 };
   let customers: { id: string; name: string }[] = [];
@@ -31,6 +36,9 @@ export default async function AlarmsPage() {
       summary={summary}
       customers={customers}
       accounts={accounts}
+      initialState={state === "ALARM" || state === "OK" || state === "INSUFFICIENT_DATA" ? state : "ALL"}
+      initialCustomer={customer ?? ""}
+      initialAccount={account ?? ""}
     />
   );
 }

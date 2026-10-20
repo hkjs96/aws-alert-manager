@@ -9,10 +9,15 @@ export function ResourceSummary({
   resources,
   typeFilter,
   onTypeChange,
+  monitoringFilter,
+  onMonitoringChange,
 }: {
   resources: Resource[];
   typeFilter: string;
   onTypeChange: (type: string) => void;
+  /** 모니터링 켬/끔 숫자를 누르면 그쪽만 본다(대시보드 카드에서도 이 조건으로 들어온다). */
+  monitoringFilter: "on" | "off" | "";
+  onMonitoringChange: (value: "on" | "off" | "") => void;
 }) {
   const { monitored, alarming, byType } = useMemo(() => {
     const counts = new Map<string, number>();
@@ -30,12 +35,26 @@ export function ResourceSummary({
     };
   }, [resources]);
 
-  const stat = (label: string, value: number, tone = "text-slate-900") => (
-    <div>
-      <div className="text-[11px] font-semibold text-slate-500">{label}</div>
-      <div className={`text-2xl font-extrabold ${tone}`}>{value.toLocaleString()}</div>
-    </div>
-  );
+  const stat = (label: string, value: number, tone = "text-slate-900", filter?: "on" | "off") => {
+    const body = (
+      <>
+        <div className="text-[11px] font-semibold text-slate-500">{label}</div>
+        <div className={`text-2xl font-extrabold ${tone}`}>{value.toLocaleString()}</div>
+      </>
+    );
+    if (!filter) return <div>{body}</div>;
+    const on = monitoringFilter === filter;
+    return (
+      <button
+        type="button"
+        aria-pressed={on}
+        onClick={() => onMonitoringChange(on ? "" : filter)}
+        className={`rounded-lg px-2 py-1 text-left ${on ? "bg-primary/10 ring-1 ring-primary" : "hover:bg-slate-50"}`}
+      >
+        {body}
+      </button>
+    );
+  };
 
   return (
     <section
@@ -44,8 +63,8 @@ export function ResourceSummary({
     >
       <div className="flex flex-wrap gap-8">
         {stat("리소스", resources.length)}
-        {stat("모니터링 켬", monitored, "text-green-700")}
-        {stat("모니터링 끔", resources.length - monitored, "text-slate-500")}
+        {stat("모니터링 켬", monitored, "text-slate-700", "on")}
+        {stat("모니터링 끔", resources.length - monitored, "text-slate-500", "off")}
         {stat("알람 발생 중", alarming, alarming ? "text-red-600" : "text-slate-500")}
       </div>
       {byType.length > 0 && (

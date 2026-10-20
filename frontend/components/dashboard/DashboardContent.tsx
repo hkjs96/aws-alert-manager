@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { RefreshCw, Plus } from "lucide-react";
 import type { DashboardStats, Alarm } from "@/types";
 import { Button } from "@/components/shared/Button";
+import { fetchDashboardStats } from "@/lib/api-functions";
 import { StatCardGrid } from "./StatCardGrid";
 import { RecentAlarmsTable } from "./RecentAlarmsTable";
 import { CreateAlarmModal } from "./create-alarm/CreateAlarmModal";
@@ -87,15 +88,20 @@ export function DashboardContent({ stats, alarms, customers, accounts }: Dashboa
     });
   }, [alarms, customerFilter, accountFilter, typeFilter, customerAccountIds, ownedAccountIdSet, ownedAccountIds]);
 
-  const filteredStats: DashboardStats = useMemo(() => {
-    if (!customerFilter && !accountFilter && !typeFilter) return stats;
-    return {
-      monitored_count: stats.monitored_count,
-      active_alarms: filteredAlarms.filter((a) => a.state === "ALARM").length,
-      unmonitored_count: stats.unmonitored_count,
-      account_count: customerFilter ? filteredAccounts.length : stats.account_count,
-    };
-  }, [stats, filteredAlarms, customerFilter, accountFilter, typeFilter, filteredAccounts]);
+  // 고객사·계정 필터는 서버에서 그 범위로 다시 센다 — 화면에서 일부만 다시 세면 감시 중/안 함 수가 전체 그대로 남는다.
+  const [scopedStats, setScopedStats] = useState<DashboardStats | null>(null);
+  useEffect(() => {
+    if (!customerFilter && !accountFilter) {
+      setScopedStats(null);
+      return;
+    }
+    let cancelled = false;
+    fetchDashboardStats({ customer_id: customerFilter, account_id: accountFilter })
+      .then((s) => { if (!cancelled) setScopedStats(s); })
+      .catch(() => { if (!cancelled) setScopedStats(null); });
+    return () => { cancelled = true; };
+  }, [customerFilter, accountFilter]);
+  const filteredStats = scopedStats ?? stats;
 
   if (!isOwnedLoading && ownedCustomerIds.length === 0) {
     return <OwnedEmptyState />;
@@ -123,7 +129,11 @@ export function DashboardContent({ stats, alarms, customers, accounts }: Dashboa
         </div>
       </header>
 
-      <StatCardGrid stats={filteredStats} prevStats={prevStats} />
+      <StatCardGrid
+        stats={filteredStats}
+        prevStats={prevStats}
+        filters={{ customer_id: customerFilter, account_id: accountFilter }}
+      />
 
       {/* Filter bar */}
       <FilterBar

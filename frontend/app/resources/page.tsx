@@ -11,9 +11,9 @@ export const metadata: Metadata = {
 export default async function ResourcesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ search?: string }>;
+  searchParams: Promise<{ search?: string; customer?: string; account?: string; monitoring?: string }>;
 }) {
-  const { search } = await searchParams;
+  const { search, customer, account, monitoring } = await searchParams;
   let resources: Resource[] = [];
   let customers: { id: string; name: string }[] = [];
   let accounts: { id: string; name: string; customerId: string }[] = [];
@@ -33,6 +33,9 @@ export default async function ResourcesPage({
       customers={customers}
       accounts={accounts}
       initialSearch={search ?? ""}
+      initialCustomer={customer ?? ""}
+      initialAccount={account ?? ""}
+      initialMonitoring={monitoring === "on" || monitoring === "off" ? monitoring : ""}
     />
   );
 }

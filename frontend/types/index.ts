@@ -84,6 +84,11 @@ export interface DashboardStats {
   active_alarms: number;
   unmonitored_count: number;
   account_count: number;
+  /** 지금 ALARM 상태 — 우리가 만든 알람 / 고객이 만든 알람. 고객 쪽 null = 실시간 조회 실패. */
+  active_alarms_ours?: number;
+  active_alarms_customer?: number | null;
+  accounts_connected?: number;
+  accounts_failed?: number;
 }
 
 export interface RecentAlarm {

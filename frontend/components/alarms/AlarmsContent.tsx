@@ -39,16 +39,23 @@ interface AlarmsContentProps {
   summary: AlarmSummary;
   customers: CustomerDto[];
   accounts: AccountDto[];
+  /** 대시보드 카드에서 넘어온 조건(?state=ALARM&customer=&account=). */
+  initialState?: AlarmStateFilter;
+  initialCustomer?: string;
+  initialAccount?: string;
 }
 
-export function AlarmsContent({ alarms, summary, customers, accounts }: AlarmsContentProps) {
+export function AlarmsContent({
+  alarms, summary, customers, accounts,
+  initialState = "ALL", initialCustomer = "", initialAccount = "",
+}: AlarmsContentProps) {
   const router = useRouter();
   const { showToast } = useToast();
   const { ownedCustomerIds, isLoading: isOwnedLoading } = useOwnedCustomers();
   const [search, setSearch] = useState("");
-  const [stateFilter, setStateFilter] = useState<AlarmStateFilter>("ALL");
-  const [customerFilter, setCustomerFilter] = useState("");
-  const [accountFilter, setAccountFilter] = useState("");
+  const [stateFilter, setStateFilter] = useState<AlarmStateFilter>(initialState);
+  const [customerFilter, setCustomerFilter] = useState(initialCustomer);
+  const [accountFilter, setAccountFilter] = useState(initialAccount);
   const [typeFilter, setTypeFilter] = useState("");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);

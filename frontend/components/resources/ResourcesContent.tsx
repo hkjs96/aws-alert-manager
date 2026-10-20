@@ -46,6 +46,10 @@ interface ResourcesContentProps {
   customers: CustomerDto[];
   accounts: AccountDto[];
   initialSearch?: string;
+  /** 대시보드 카드에서 넘어온 조건(?customer=&account=&monitoring=on|off). */
+  initialCustomer?: string;
+  initialAccount?: string;
+  initialMonitoring?: "on" | "off" | "";
 }
 
 const DEFAULT_PAGE_SIZE = 25;
@@ -61,6 +65,9 @@ export function ResourcesContent({
   customers,
   accounts,
   initialSearch = "",
+  initialCustomer = "",
+  initialAccount = "",
+  initialMonitoring = "",
 }: ResourcesContentProps) {
   const router = useRouter();
   const { showToast } = useToast();
@@ -82,8 +89,9 @@ export function ResourcesContent({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [modal, setModal] = useState<"enable" | "disable" | null>(null);
   const [search, setSearch] = useState("");
-  const [customerFilter, setCustomerFilter] = useState("");
-  const [accountFilter, setAccountFilter] = useState("");
+  const [customerFilter, setCustomerFilter] = useState(initialCustomer);
+  const [accountFilter, setAccountFilter] = useState(initialAccount);
+  const [monitoringFilter, setMonitoringFilter] = useState<"on" | "off" | "">(initialMonitoring);
   const [typeFilter, setTypeFilter] = useState("");
   const [sortKey, setSortKey] = useState("name");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
@@ -163,8 +171,10 @@ export function ResourcesContent({
   }, [localResources, customerFilter, accountFilter, deferredSearch, customerAccountIds, ownedAccountIdSet, ownedCustomerIds]);
 
   const filtered = useMemo(
-    () => (typeFilter ? scoped.filter((r) => r.type === typeFilter) : scoped),
-    [scoped, typeFilter],
+    () => scoped.filter((r) =>
+      (!typeFilter || r.type === typeFilter)
+      && (!monitoringFilter || r.monitoring === (monitoringFilter === "on"))),
+    [scoped, typeFilter, monitoringFilter],
   );
 
   // 정렬
@@ -268,6 +278,7 @@ export function ResourcesContent({
     setCustomerFilter("");
     setAccountFilter("");
     setTypeFilter("");
+    setMonitoringFilter("");
     setPage(1);
   };
 
@@ -344,6 +355,8 @@ export function ResourcesContent({
         resources={scoped}
         typeFilter={typeFilter}
         onTypeChange={(v) => { setTypeFilter(v); setPage(1); }}
+        monitoringFilter={monitoringFilter}
+        onMonitoringChange={(v) => { setMonitoringFilter(v); setPage(1); }}
       />
 
       {/* Bulk action bar */}
