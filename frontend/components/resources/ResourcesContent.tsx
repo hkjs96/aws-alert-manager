@@ -19,6 +19,7 @@ import { downloadCsv } from "@/lib/exportCsv";
 import { ResourceTable } from "./ResourceTable";
 import { BulkActionBar } from "./BulkActionBar";
 import { FilterBar } from "./FilterBar";
+import { ResourceSummary } from "./ResourceSummary";
 import { EnableModal } from "./EnableModal";
 import { DisableModal } from "./DisableModal";
 
@@ -142,8 +143,8 @@ export function ResourcesContent({
   // 검색어는 지연 값으로 필터링 — 입력은 즉시 반영되고 목록 재계산은 뒤따른다.
   const deferredSearch = useDeferredValue(search);
 
-  // 필터링
-  const filtered = useMemo(() => {
+  // 필터링 — 타입을 뺀 범위(요약의 타입별 개수용)와 최종 목록을 나눈다
+  const scoped = useMemo(() => {
     const q = deferredSearch.toLowerCase();
     const customerAccounts = customerFilter ? customerAccountIds.get(customerFilter) : null;
     return localResources.filter((r) => {
@@ -153,14 +154,18 @@ export function ResourcesContent({
       }
       if (customerFilter && !customerAccounts?.has(r.account)) return false;
       if (accountFilter && r.account !== accountFilter) return false;
-      if (typeFilter && r.type !== typeFilter) return false;
       if (q) {
         if (!r.name.toLowerCase().includes(q) && !r.id.toLowerCase().includes(q))
           return false;
       }
       return true;
     });
-  }, [localResources, customerFilter, accountFilter, typeFilter, deferredSearch, customerAccountIds, ownedAccountIdSet, ownedCustomerIds]);
+  }, [localResources, customerFilter, accountFilter, deferredSearch, customerAccountIds, ownedAccountIdSet, ownedCustomerIds]);
+
+  const filtered = useMemo(
+    () => (typeFilter ? scoped.filter((r) => r.type === typeFilter) : scoped),
+    [scoped, typeFilter],
+  );
 
   // 정렬
   const sorted = useMemo(() => {
@@ -333,6 +338,12 @@ export function ResourcesContent({
         customers={customers}
         accounts={filteredAccounts}
         onClearAll={handleClearFilters}
+      />
+
+      <ResourceSummary
+        resources={scoped}
+        typeFilter={typeFilter}
+        onTypeChange={(v) => { setTypeFilter(v); setPage(1); }}
       />
 
       {/* Bulk action bar */}
