@@ -8,6 +8,15 @@ export type ChannelMatch = Record<string, string[]>;
 /** 새 채널 기본값: 바로 대응할 등급만. SEV-4·5까지 받으면 금방 무시하게 된다. */
 export const DEFAULT_SEVERITIES = ["SEV-1", "SEV-2", "SEV-3"];
 
+/** 등급 뜻 — docs/ALARM-RULES.md 심각도 표의 요약. 고르는 사람이 무엇을 놓치는지 알 수 있게 한다. */
+export const SEVERITY_INFO: Record<string, { name: string; example: string }> = {
+  "SEV-1": { name: "서비스 장애 · 즉시", example: "상태 검사 실패, 정상 대상 0, VPN 터널 끊김" },
+  "SEV-2": { name: "주요 기능 장애 · 15분 내", example: "5XX 급증, Lambda 오류, 비정상 대상 증가" },
+  "SEV-3": { name: "자원 포화 · 30분 내", example: "CPU·메모리·디스크 80% 초과, 인증서 만료 임박" },
+  "SEV-4": { name: "성능 저하 · 4시간 내", example: "응답 지연, DB 읽기/쓰기 지연" },
+  "SEV-5": { name: "참고 · 다음 업무 시간", example: "요청 수·트래픽 추세, 4XX" },
+};
+
 export type AccountOption = { id: string; name: string; customerId: string };
 
 function toggle(values: string[], value: string): string[] {
@@ -23,7 +32,7 @@ function Chips({
 }: {
   label: string;
   hint: string;
-  options: { value: string; label: string }[];
+  options: { value: string; label: string; title?: string }[];
   selected: string[];
   onChange: (next: string[]) => void;
 }) {
@@ -41,6 +50,7 @@ function Chips({
               key={o.value}
               type="button"
               aria-pressed={on}
+              title={o.title}
               onClick={() => onChange(toggle(selected, o.value))}
               className={`rounded-full border px-2.5 py-1 text-xs ${
                 on
@@ -80,10 +90,28 @@ export function ChannelMatchPicker({
       <Chips
         label="등급"
         hint="전체"
-        options={severities.map((s) => ({ value: s, label: s }))}
+        options={severities.map((s) => ({
+          value: s,
+          label: s,
+          title: SEVERITY_INFO[s] ? `${SEVERITY_INFO[s].name} — 예: ${SEVERITY_INFO[s].example}` : undefined,
+        }))}
         selected={match.severity ?? []}
         onChange={set("severity")}
       />
+      <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-[11px] leading-relaxed text-slate-500">
+        {severities.map((s) => {
+          const info = SEVERITY_INFO[s];
+          return info ? (
+            <div key={s} className="contents">
+              <dt className="font-semibold text-slate-600">{s}</dt>
+              <dd>
+                {info.name}
+                <span className="text-slate-400"> — 예: {info.example}</span>
+              </dd>
+            </div>
+          ) : null;
+        })}
+      </dl>
       <Chips
         label="리소스 타입"
         hint="전체"

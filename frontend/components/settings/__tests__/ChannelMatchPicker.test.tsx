@@ -27,4 +27,10 @@ describe("ChannelMatchPicker", () => {
     expect(onChange).toHaveBeenLastCalledWith({ account_id: ["771283576189"] });
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
   });
+
+  it("등급마다 뜻과 예시를 보여준다", () => {
+    render(<ChannelMatchPicker match={{}} severities={severities} accounts={accounts} onChange={vi.fn()} />);
+    expect(screen.getByText(/서비스 장애 · 즉시/)).toBeInTheDocument();
+    expect(screen.getByText(/CPU·메모리·디스크 80% 초과/)).toBeInTheDocument();
+  });
 });
