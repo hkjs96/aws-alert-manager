@@ -7,7 +7,12 @@ export const metadata: Metadata = {
   description: "Configure default threshold policies for monitored resources.",
 };
 
-export default async function SettingsPage() {
+export default async function SettingsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ customer?: string }>;
+}) {
+  const { customer } = await searchParams;
   return (
     <div className="space-y-8">
       <header className="flex items-start justify-between">
@@ -17,7 +22,7 @@ export default async function SettingsPage() {
         </div>
       </header>
 
-      <ThresholdSection />
+      <ThresholdSection customerId={customer ?? ""} />
 
       <NotificationSection />
     </div>

@@ -9,17 +9,9 @@ import { FRONTEND_INTEGRATION_RESOURCE_TYPES } from "@/lib/constants";
 import { fetchThresholds, saveThresholds } from "@/lib/api-functions";
 import type { ThresholdOverride } from "@/types/api";
 
-export function ThresholdSection() {
+/** `customerId`: 상단 글로벌 필터가 고른 고객사(URL ?customer=). 비면 전역 기본값을 편집한다. */
+export function ThresholdSection({ customerId = "" }: { customerId?: string }) {
   const { showToast } = useToast();
-  const [queryString, setQueryString] = useState("");
-  useEffect(() => {
-    setQueryString(window.location.search);
-  }, []);
-  const searchParams = useMemo(
-    () => new URLSearchParams(queryString),
-    [queryString],
-  );
-  const customerId = searchParams.get("customer_id") ?? "";
 
   const [activeType, setActiveType] = useState<string>(FRONTEND_INTEGRATION_RESOURCE_TYPES[0]);
   const [thresholds, setThresholds] = useState<ThresholdOverride[]>([]);
