@@ -906,6 +906,8 @@ Resources:
           NOTIFICATION_CHANNEL_TABLE: !Ref NotificationChannelTable
           INCIDENT_TABLE: !Ref IncidentTable
           ALERT_POLICY_TABLE: !Ref AlertPolicyTable
+          # 열린 사건의 원인 알람을 CloudWatch에서 확인한다(삭제된 알람은 해소 이벤트를 보내지 않는다)
+          ACCOUNTS_TABLE: !Ref AccountsTable
           ALERT_CONSOLE_URL: !Ref AlertConsoleUrl
           ALERT_EMAIL_SENDER: !Ref AlertEmailSender
 
@@ -971,6 +973,21 @@ Resources:
               - Effect: Allow
                 Action:
                   - ses:SendEmail
+                Resource: "*"
+              # 열린 사건 정합성: 원인 알람이 고객 계정에 아직 있는지·울리는지 확인(조회만)
+              - Effect: Allow
+                Action:
+                  - dynamodb:Scan
+                Resource: !GetAtt AccountsTable.Arn
+              - Effect: Allow
+                Action:
+                  - sts:AssumeRole
+                Resource:
+                  - "arn:aws:iam::*:role/AlarmManagerMonitoringRole"
+                  - "arn:aws:iam::*:role/AlarmManagerRole"
+              - Effect: Allow
+                Action:
+                  - cloudwatch:DescribeAlarms
                 Resource: "*"
 
   # 확인만 하고 방치된 사건을 다시 띄운다 (R4-6). 새벽에 ack만 누르고 잠든 경우를 잡는다.

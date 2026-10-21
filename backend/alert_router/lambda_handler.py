@@ -31,6 +31,7 @@ import boto3
 from boto3.dynamodb.conditions import Attr, Key
 from botocore.exceptions import ClientError
 
+from common.alarm_liveness import LiveAlarms, all_quiet, parse_member, UNKNOWN
 from common.alert_config import load_cached as load_policy
 from common.alert_state import fp_key, grp_key, iso_utc
 from common.incident import (
@@ -70,6 +71,12 @@ logger = logging.getLogger(__name__)
 
 GROUP_INDEX = "group_id-index"
 FINAL_NOTIFY = "notify"
+
+#: 열린 지 이만큼 지난 사건에는 새 발화를 합치지 않고 새 사건을 연다. 축(고객사#등급)이 같다는 이유만으로
+#: 관계없는 알람이 몇 주씩 한 사건에 쌓이는 걸 막는다(2026-10-21 HOME: 10-06 사건에 2주간 4개 알람).
+INCIDENT_MERGE_MAX_SEC = 6 * 3600
+#: 방금 열린 발화는 CloudWatch 확인으로 닫지 않는다 — 해소 이벤트가 아직 오는 중일 수 있다.
+LIVENESS_GRACE_SEC = 15 * 60
 
 #: 등급이 높을수록 대표로 뽑는다. 묶음의 제목은 가장 심각한 것이어야 한다.
 _SEVERITY_RANK = {"SEV-1": 1, "SEV-2": 2, "SEV-3": 3, "SEV-4": 4, "SEV-5": 5}
@@ -137,6 +144,15 @@ def _unpoint(state, pointer: str, incident_id: str) -> None:
             logger.warning("pointer %s not removed: %s", pointer, e)
 
 
+def _too_old_to_merge(incident: dict, now: datetime) -> bool:
+    """오래 열린 사건에는 합치지 않는다. 옛 사건은 그대로 열려 있다가 원인이 풀리면 점검이 닫는다."""
+    try:
+        triggered = datetime.fromisoformat(str(incident.get("triggered_at", "")).replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    return (now - triggered).total_seconds() > INCIDENT_MERGE_MAX_SEC
+
+
 def _sync_incident(state, incidents, group: dict, firing: list[dict],
                    all_members: list[dict], now: datetime) -> dict | None:
     """발화가 있으면 사건을 열거나 합치고, 원인이 모두 풀렸으면 해소한다 (R4-1·R4-4).
@@ -174,7 +190,7 @@ def _sync_incident(state, incidents, group: dict, firing: list[dict],
                 return None
 
         if firing:
-            if incident is None or incident.get("status") == STATUS_RESOLVED:
+            if incident is None or incident.get("status") == STATUS_RESOLVED or _too_old_to_merge(incident, now):
                 title = str(firing[0].get("alarm_name", "") or "")
                 fresh = new_incident(customer_id, severity, now=now, title=title,
                                      axis=axis, account_id=account_id)
@@ -426,8 +442,14 @@ def _resolve_if_stale(incidents, state, incident: dict, now: datetime) -> bool:
     members = list(incident.get("members") or [])
     if not should_resolve(incident, _open_fingerprints(state, members)):
         return False
+    return _close(incidents, state, incident, now, "정합성 점검: 원인 알람이 모두 해소됨")
+
+
+def _close(incidents, state, incident: dict, now: datetime, reason: str) -> bool:
+    """열려 있을 때만 닫는다(조건부). 타임라인에 사유를 덧붙이고 포인터를 정리한다."""
+    members = list(incident.get("members") or [])
     iid = str(incident.get("incident_id", ""))
-    resolved = resolve_incident(incident, now=now, reason="정합성 점검: 원인 알람이 모두 해소됨")
+    resolved = resolve_incident(incident, now=now, reason=reason)
     sets = ["#s = :s", "resolved_at = :at", "#tl = list_append(if_not_exists(#tl, :empty), :entry)"]
     values = {":s": STATUS_RESOLVED, ":at": resolved["resolved_at"],
               ":entry": [resolved["timeline"][-1]], ":empty": [], ":one": 1}
@@ -446,8 +468,78 @@ def _resolve_if_stale(incidents, state, incident: dict, now: datetime) -> bool:
             logger.error("reconcile: could not resolve incident %s: %s", iid, e)
         return False               # 누가 먼저 닫았다 — 그걸로 됐다
     _unpoint(state, pointer_for_axis(axis_of(incident)), iid)
-    logger.warning("reconcile: resolved incident %s (%d members, all back to OK)", iid, len(members))
+    logger.warning("reconcile: resolved incident %s (%d members): %s", iid, len(members), reason)
     return True
+
+
+def _open_episodes(state, series_ids: list[str]) -> dict[str, str]:
+    """열린 지문 → 에피소드 시작 시각. 못 읽은 건 시작 시각 없이 넣는다(= 유예 중으로 취급)."""
+    out = {}
+    for series in series_ids:
+        try:
+            item = state.get_item(Key={"state_key": fp_key(series)}, ConsistentRead=True).get("Item") or {}
+        except ClientError as e:
+            logger.warning("fp state unreadable for %s: %s", series, e)
+            out[series] = ""
+            continue
+        if item.get("episode_open"):
+            out[series] = str(item.get("episode_started_at", "") or "")
+    return out
+
+
+def _resolve_if_gone(incidents, state, incident: dict, now: datetime, live: LiveAlarms) -> bool:
+    """열린 구성원이 CloudWatch에서 **확실히** 조용하면(삭제됐거나 ALARM이 아님) 닫는다.
+
+    ALARM 상태에서 지운 알람은 OK 이벤트를 보내지 않는다 — 그대로 두면 사건이 영원히 열리고, 열린 지문은
+    같은 시리즈의 다음 발화까지 중복으로 눌러 버린다. 그래서 닫을 때 지문의 에피소드도 닫는다.
+    """
+    episodes = _open_episodes(state, list(incident.get("members") or []))
+    if not episodes:
+        return False
+    statuses = {}
+    for series, started in episodes.items():
+        since = parse_dt(started) if started else None
+        if since is None or (now - since).total_seconds() < LIVENESS_GRACE_SEC:
+            return False                       # 유예 중이거나 모른다 — 다음 점검에 다시 본다
+        member = parse_member(series)
+        statuses[series] = live.status(member) if member else UNKNOWN
+    if not all_quiet(list(statuses.values())):
+        return False
+    summary = ", ".join(f"{s}={v}" for s, v in sorted(statuses.items()))
+    if not _close(incidents, state, incident, now,
+                  f"정합성 점검: CloudWatch에서 원인 알람이 삭제됐거나 해소됨 ({summary})"):
+        return False
+    for series in statuses:
+        try:
+            state.update_item(Key={"state_key": fp_key(series)},
+                              # 버전을 올려 동시에 읽어 둔 인제스터의 조건부 쓰기가 다시 읽게 한다
+                              UpdateExpression="SET episode_open = :f ADD version :one",
+                              ConditionExpression=Attr("episode_open").eq(True),
+                              ExpressionAttributeValues={":f": False, ":one": 1})
+        except ClientError as e:
+            if e.response.get("Error", {}).get("Code") != "ConditionalCheckFailedException":
+                logger.warning("fp %s not closed: %s", series, e)
+    return True
+
+
+def _live_alarms() -> LiveAlarms | None:
+    """계정 테이블이 없는 구성(테스트·단일 계정)이면 None — CloudWatch 확인을 건너뛴다."""
+    name = os.environ.get("ACCOUNTS_TABLE", "")
+    if not name:
+        return None
+    try:
+        table, accounts, kwargs = _get_ddb().Table(name), [], {}
+        while True:
+            resp = table.scan(**kwargs)
+            accounts.extend(resp.get("Items", []))
+            if "LastEvaluatedKey" not in resp:
+                break
+            kwargs["ExclusiveStartKey"] = resp["LastEvaluatedKey"]
+        current = boto3.client("sts").get_caller_identity().get("Account", "")
+    except ClientError as e:
+        logger.error("liveness: accounts unreadable: %s", e)
+        return None
+    return LiveAlarms(accounts, current)
 
 
 def _claim_renotify(incidents, incident: dict, version: int, now: datetime) -> bool:
@@ -526,9 +618,11 @@ def tick() -> dict:
                   for i in _open_incidents(incidents)]
 
     still_open, resolved = [], 0
+    live = _live_alarms() if candidates else None
     for incident, version in candidates:
         try:
-            closed = _resolve_if_stale(incidents, state, incident, now)
+            closed = _resolve_if_stale(incidents, state, incident, now) or (
+                live is not None and _resolve_if_gone(incidents, state, incident, now, live))
         except Exception as e:                                  # noqa: BLE001 — 한 건이 틱 전체를 막지 않는다
             logger.error("reconcile failed for incident %s: %s", incident.get("incident_id"), e)
             closed = False
