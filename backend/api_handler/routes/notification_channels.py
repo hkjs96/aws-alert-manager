@@ -29,12 +29,15 @@ from common import notification_adapters as adapters
 from common.notification_channel import (
     MATCH_FIELDS,
     MAX_CHANNELS_PER_CUSTOMER,
+    Channel,
     ChannelError,
     channel_from_item,
     channel_to_dict,
     channel_to_item,
     storage_key,
+    matches,
     validate_channel,
+    validate_match,
 )
 
 logger = logging.getLogger(__name__)
@@ -273,3 +276,75 @@ def delete_channel(event: dict) -> dict:
         logger.error("channel delete failed: %s", e)
         return _err(503, "STORAGE_ERROR", "채널을 삭제하지 못했습니다")
     return {"statusCode": 204, "body": ""}
+
+
+# ────────────────────────────────── 저장 전 미리보기
+
+PREVIEW_DAYS = 30
+
+
+def _history_rows(customer_id: str, days: list[str]) -> list[dict]:
+    """고객사의 날짜별 이력(customer_day-index). 보낼 이벤트(final_action=notify)만."""
+    from api_handler.db import event_history_table
+    table, rows = event_history_table(), []
+    for day in days:
+        kwargs = {"IndexName": "customer_day-index",
+                  "KeyConditionExpression": Key("customer_day").eq(f"{customer_id}#{day}"),
+                  "FilterExpression": Attr("final_action").eq("notify")}
+        while True:
+            resp = table.query(**kwargs)
+            rows.extend(resp.get("Items", []))
+            if "LastEvaluatedKey" not in resp:
+                break
+            kwargs["ExclusiveStartKey"] = resp["LastEvaluatedKey"]
+    return rows
+
+
+def preview_channel(event: dict) -> dict:
+    """이 조건으로 저장하면 얼마나 받게 되는가 — 지난 30일 실제 이력에 조건을 대 본다.
+
+    발송은 묶음(그룹) 단위라 메시지 수 ≈ 조건에 맞는 이벤트의 서로 다른 group_id 수다. 그룹 대표만 판정하는
+    라우터와 달리 구성원 하나라도 맞으면 세므로 약간 많게 나온다(상한 추정).
+    """
+    from datetime import datetime, timedelta, timezone
+    from api_handler.db import customers_table
+
+    try:
+        body = _body(event)
+        match = validate_match(body.get("match") or {})
+    except ChannelError as e:
+        return _err(400, "VALIDATION_ERROR", str(e))
+    customer_id = _customer_id(event, body)
+    scope = scope_for(event)
+    if not customer_id:
+        denied = _forbidden(event, "전역 알림 채널 미리보기")
+        if denied:
+            return denied
+    elif not scope.allows_customer(customer_id):
+        return _err(404, "NOT_FOUND", "고객사를 찾을 수 없습니다")
+
+    today = datetime.now(timezone.utc).date()
+    days = [(today - timedelta(days=i)).isoformat() for i in range(PREVIEW_DAYS)]
+    probe = Channel(channel_id="preview", customer_id=customer_id, name="preview", type="webhook",
+                    config={}, match=match, enabled=True)
+    try:
+        customers = [customer_id] if customer_id else [c["customer_id"] for c in scan_all(customers_table())]
+        rows = [r for cid in customers for r in _history_rows(cid, days)]
+    except (ClientError, KeyError) as e:
+        logger.error("channel preview failed: %s", e)
+        return _err(503, "STORAGE_ERROR", "이력을 읽지 못했습니다")
+
+    hit = [r for r in rows if matches(probe, r)]
+    messages = len({r.get("group_id") or r.get("event_id") for r in hit})
+    by_severity: dict[str, int] = {}
+    for r in hit:
+        sev = str(r.get("severity") or "-")
+        by_severity[sev] = by_severity.get(sev, 0) + 1
+    return _ok({
+        "days": PREVIEW_DAYS,
+        "messages": messages,
+        "per_day": round(messages / PREVIEW_DAYS, 1),
+        "events": len(hit),
+        "events_total": len(rows),
+        "by_severity": dict(sorted(by_severity.items())),
+    })

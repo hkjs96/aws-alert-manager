@@ -768,6 +768,18 @@ Errors: `404 NOT_FOUND`, `409 ALREADY_RESOLVED`, `409 CONFLICT`, `503 STORAGE_ER
 Query: `customer_id` (선택). 주면 그 고객사 채널 **+ 전역 채널**을 함께 준다 — 전역 채널도
 그 고객사에 적용되기 때문이다. 없으면 전부.
 
+## POST /api/alert/channels/preview
+
+저장 전 미리보기. 본문 `{customer_id, match}`(채널과 같은 규칙, `customer_id` 비면 전역=관리자 전용).
+지난 30일 이력(`final_action=notify`)에 조건을 대 본다.
+
+```json
+{"days": 30, "messages": 30, "per_day": 1.0, "events": 40, "events_total": 253,
+ "by_severity": {"SEV-2": 30, "SEV-3": 10}}
+```
+
+`messages`는 서로 다른 묶음(group_id) 수 — 실제 메시지 수에 가까운 상한 추정이다. 범위 밖 고객사는 404.
+
 ## POST /api/alert/channels
 
 ```json

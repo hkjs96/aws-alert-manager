@@ -14,6 +14,8 @@ import {
   fetchChannelTypes,
   fetchCustomers,
   fetchResources,
+  previewChannel,
+  type ChannelPreview,
   updateChannel,
 } from "@/lib/api-functions";
 import type {
@@ -111,6 +113,37 @@ function ConditionSummary({ channel }: { channel: NotificationChannel }) {
     return <span className="text-slate-400">모든 알림</span>;
   }
   return <span>{parts.join(" · ")}</span>;
+}
+
+/** 지난 30일 이력에 조건을 대 본 예상 건수. 조건이 바뀌면 잠깐 기다렸다 다시 묻는다. */
+export function PreviewLine({ customerId, match }: { customerId: string; match: Record<string, string[]> }) {
+  const [preview, setPreview] = useState<ChannelPreview | null>(null);
+  const [failed, setFailed] = useState(false);
+  const key = JSON.stringify([customerId, match]);
+  useEffect(() => {
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      previewChannel({ customer_id: customerId, match: matchToApi(match) })
+        .then((p) => { if (!cancelled) { setPreview(p); setFailed(false); } })
+        .catch(() => { if (!cancelled) setFailed(true); });
+    }, 400);
+    return () => { cancelled = true; clearTimeout(timer); };
+    // key가 customerId·match를 대표한다
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+  if (failed) return <p className="mt-1 text-xs text-slate-400">예상 건수를 불러오지 못했습니다.</p>;
+  if (!preview) return <p className="mt-1 text-xs text-slate-400">예상 건수 계산 중…</p>;
+  return (
+    <p className="mt-1 text-xs text-slate-500">
+      지난 {preview.days}일 기준 <b className="text-slate-800">{preview.messages.toLocaleString()}건</b>
+      {" "}(하루 약 {preview.per_day}건)
+      {preview.events_total > 0 && (
+        <span className="text-slate-400">
+          {" "}· 같은 기간 전체 알림 이벤트 {preview.events_total.toLocaleString()}건 중 {preview.events.toLocaleString()}건
+        </span>
+      )}
+    </p>
+  );
 }
 
 function ChannelForm({
@@ -269,9 +302,10 @@ function ChannelForm({
         onChange={(match) => onChange({ ...draft, match })}
       />
 
-      <p className="rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-700">
-        {describeMatch(draft.match, customerName)}
-      </p>
+      <div className="rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-700">
+        <p>{describeMatch(draft.match, customerName)}</p>
+        <PreviewLine customerId={draft.customer_id} match={draft.match} />
+      </div>
 
       <div className="flex justify-end gap-2">
         <Button type="button" variant="secondary" size="sm" onClick={onCancel}>

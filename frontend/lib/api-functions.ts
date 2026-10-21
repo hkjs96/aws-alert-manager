@@ -277,6 +277,26 @@ export function fetchChannels(customerId?: string): Promise<ChannelListResponse>
   return apiFetch(`/api/alert/channels${qs}`);
 }
 
+/** 이 조건으로 저장하면 지난 30일에 몇 건이었나(묶음 단위 메시지 수). */
+export interface ChannelPreview {
+  days: number;
+  messages: number;
+  per_day: number;
+  events: number;
+  events_total: number;
+  by_severity: Record<string, number>;
+}
+
+export function previewChannel(input: {
+  customer_id: string;
+  match: Record<string, string[]>;
+}): Promise<ChannelPreview> {
+  return apiFetch("/api/alert/channels/preview", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
 export function createChannel(input: ChannelInput): Promise<NotificationChannel> {
   return apiFetch("/api/alert/channels", {
     method: "POST",

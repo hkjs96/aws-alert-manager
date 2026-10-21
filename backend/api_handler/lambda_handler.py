@@ -154,6 +154,7 @@ _ROUTES: list[tuple[str, re.Pattern, object]] = [
     ("POST",   re.compile(r"^/alert/incidents/(?P<id>[^/]+)/ack$"),    incidents.ack_incident),
     ("GET",    re.compile(r"^/alert/channel-types$"),                 notification_channels.list_types),
     ("GET",    re.compile(r"^/alert/channels$"),                      notification_channels.list_channels),
+    ("POST",   re.compile(r"^/alert/channels/preview$"),              notification_channels.preview_channel),
     ("POST",   re.compile(r"^/alert/channels$"),                      notification_channels.create_channel),
     ("PUT",    re.compile(r"^/alert/channels/(?P<id>[^/]+)$"),        notification_channels.update_channel),
     ("DELETE", re.compile(r"^/alert/channels/(?P<id>[^/]+)$"),        notification_channels.delete_channel),
