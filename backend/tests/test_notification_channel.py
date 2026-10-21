@@ -128,12 +128,40 @@ class TestSlackAdapter:
                          reason="Threshold Crossed: 1 datapoint [3.0 (09/09/26 08:00:00)] < 10",
                          url="https://app/alerts?incident=inc-1")
         p = A.SLACK.render(n)
-        body = p["attachments"][0]["text"]
-        assert "&lt; 10GB &amp; &gt; 5%" in body and "&lt; 10GB &amp; &gt; 5%" in p["text"]
-        assert "] &lt; 10" in body
-        assert body.count("<") == 1 and body.endswith("<https://app/alerts?incident=inc-1|자세히 보기>"), \
-            "링크 문법만 남아야 한다"
+        blob = json.dumps(p["attachments"][0]["blocks"], ensure_ascii=False)
+        assert "&lt; 10GB &amp; &gt; 5%" in blob and "&lt; 10GB &amp; &gt; 5%" in p["text"]
+        assert "] &lt; 10" in blob, "요약 못 한 사유는 원문을 이스케이프해 보여 준다"
+        assert "<" not in blob, "링크는 버튼으로만 — 본문에 링크 문법이 없어야 한다"
+        button = p["attachments"][0]["blocks"][-2]["elements"][0]
+        assert button["url"] == "https://app/alerts?incident=inc-1"
         assert "<" not in p["text"]
+
+    def test_render_reads_like_a_card(self):
+        n = Notification(title="TEST-ALERT", severity="SEV-3", customer_id="HOME", account_id="771283576189",
+                         resource_type="EC2", resource_id="i-01d4", metric_key="CPUUtilization", state="ALARM",
+                         occurred_at="2026-10-21T04:02:51Z", incident_id="inc-1",
+                         reason="Threshold Crossed: 1 out of the last 1 datapoints [59.21641284926992 "
+                                "(21/10/26 03:57:00)] was greater than or equal to the threshold (0.0) "
+                                "(minimum 1 datapoint for OK -> ALARM transition).")
+        blocks = A.SLACK.render(n)["attachments"][0]["blocks"]
+        blob = json.dumps(blocks, ensure_ascii=False)
+        assert "현재 59.22 ≥ 임계치 0 (최근 1개 중 1개)" in blob
+        assert "10-21 13:02:51 KST" in blob
+        fields = [f["text"] for f in blocks[1]["fields"]]
+        assert "*고객사*\nHOME" in fields and "*리소스*\nEC2 · i-01d4" in fields
+        assert "자원 포화 · 30분 내" in blob and "사건 inc-1" in blob
+
+    def test_resolved_is_green(self):
+        p = A.SLACK.render(Notification(title="x", severity="SEV-1", state="OK"))
+        assert p["attachments"][0]["color"] == "#2e7d32"
+        assert "해소" in json.dumps(p, ensure_ascii=False)
+
+    def test_reason_summary_variants(self):
+        assert A.summarize_reason("Threshold Crossed: 3 out of the last 5 datapoints [12.5 (x)] was less than "
+                                  "the threshold (20.0)") == "현재 12.5 < 임계치 20 (최근 5개 중 3개)"
+        assert A.summarize_reason("Threshold Crossed: 1 out of the last 1 datapoints [1500.0 (x)] was not "
+                                  "greater than or equal to the threshold (1000.0)") == "현재 1,500 < 임계치 1,000 (최근 1개 중 1개)"
+        assert A.summarize_reason("something else") == ""
 
     def test_rate_limit_is_one_per_second(self):
         assert A.SLACK.rate_limit_per_sec == 1.0

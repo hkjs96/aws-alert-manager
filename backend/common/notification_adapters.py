@@ -232,28 +232,87 @@ def _slack_escape(text: str) -> str:
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
+#: 받는 사람이 "얼마나 서둘러야 하나"를 바로 알게 — docs/ALARM-RULES.md 심각도 표의 요약(화면 설명과 같은 문구).
+_SEVERITY_MEANING = {
+    "SEV-1": "서비스 장애 · 즉시 대응", "SEV-2": "주요 기능 장애 · 15분 내",
+    "SEV-3": "자원 포화 · 30분 내", "SEV-4": "성능 저하 · 4시간 내", "SEV-5": "참고 · 다음 업무 시간",
+}
+_STATE_LABEL = {"ALARM": ":red_circle: 발생", "OK": ":white_check_mark: 해소",
+                "INSUFFICIENT_DATA": ":grey_question: 데이터 부족"}
+_RESOLVED_COLOR = "#2e7d32"
+
+# "Threshold Crossed: 1 out of the last 1 datapoints [59.2 (21/10/26 03:57:00)] was greater than or equal to
+#  the threshold (0.0) (minimum 1 datapoint for OK -> ALARM transition)."
+_REASON_RE = re.compile(
+    r"(?P<hit>\d+) out of the last (?P<of>\d+) datapoints? \[(?P<value>-?[\d.eE+]+)[^\]]*\]"
+    r".*? was (?P<op>(?:not )?(?:greater|less) than(?: or equal to)?) the threshold \((?P<thr>-?[\d.eE+]+)\)")
+_OP_SYMBOL = {"greater than": ">", "greater than or equal to": "≥", "less than": "<",
+              "less than or equal to": "≤", "not greater than": "≤", "not less than": "≥",
+              "not greater than or equal to": "<", "not less than or equal to": ">"}
+
+
+def _num(text: str) -> str:
+    v = float(text)
+    return f"{v:,.0f}" if abs(v) >= 1000 or v == int(v) else f"{v:,.2f}".rstrip("0").rstrip(".")
+
+
+def summarize_reason(reason: str) -> str:
+    """CloudWatch 상태 사유 → "현재 59.2 ≥ 임계치 0 (최근 1개 중 1개)". 못 읽으면 ""."""
+    m = _REASON_RE.search(reason or "")
+    if not m:
+        return ""
+    op = _OP_SYMBOL.get(m["op"], m["op"])
+    return f"현재 {_num(m['value'])} {op} 임계치 {_num(m['thr'])} (최근 {m['of']}개 중 {m['hit']}개)"
+
+
+def _kst(iso: str) -> str:
+    """ISO UTC → "10-21 13:02:51 KST". 못 읽으면 원문."""
+    from datetime import datetime, timedelta, timezone
+    try:
+        t = datetime.fromisoformat(str(iso).replace("Z", "+00:00"))
+    except ValueError:
+        return iso
+    if t.tzinfo is None:
+        t = t.replace(tzinfo=timezone.utc)
+    return t.astimezone(timezone(timedelta(hours=9))).strftime("%m-%d %H:%M:%S KST")
+
+
 def _render_slack(n: Notification) -> dict:
-    summary = _slack_escape(n.summary_line())
-    lines = [f"*{summary}*"]
-    detail = [_slack_escape(x) for x in (
-        f"사건 {n.incident_id}" if n.incident_id else "",
-        f"계정 {n.account_id}" if n.account_id else "",
-        f"지표 {n.metric_key}" if n.metric_key else "",
-        f"상태 {n.state}" if n.state else "",
-        n.occurred_at,
-    ) if x]
-    if detail:
-        lines.append(" | ".join(detail))
+    """Block Kit을 색 막대(attachment) 안에 넣는다 — 등급 색이 왼쪽에 서고, 항목은 두 칸 표로 읽힌다.
+
+    모든 사용자 문자열은 이스케이프한다(알람 이름에 `<` `>`가 들어간다, review-phase2 M5). 링크는 버튼으로만.
+    """
+    esc = _slack_escape
+    resolved = n.state == "OK"
+    icon = ":white_check_mark:" if resolved else (":red_circle:" if n.state == "ALARM" else ":large_orange_circle:")
+    # 리소스는 아래 표에 있다 — 첫 줄은 등급과 제목만(묶음이면 건수)
+    title = f"[{n.severity}] {n.title}" if n.severity else n.title
+    head = f"{icon} *{esc(title)}*" + (f"  외 {n.count - 1}건" if n.is_bundle else "")
+    resource = " · ".join(x for x in (n.resource_type, n.resource_id) if x)
+    pairs = [("고객사", n.customer_id), ("계정", n.account_id), ("리소스", resource),
+             ("지표", n.metric_key), ("상태", _STATE_LABEL.get(n.state, n.state)),
+             ("발생", _kst(n.occurred_at) if n.occurred_at else "")]
+    # 상태 라벨은 우리 이모지 문법이라 이스케이프하지 않는다
+    fields = [{"type": "mrkdwn", "text": f"*{label}*\n{value if label == '상태' else esc(value)}"}
+              for label, value in pairs if value]
+    blocks: list[dict] = [{"type": "section", "text": {"type": "mrkdwn", "text": head}}]
+    if fields:
+        blocks.append({"type": "section", "fields": fields[:10]})
     if n.reason:
-        lines.append(_slack_escape(n.reason))
+        short = summarize_reason(n.reason)
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": f":chart_with_upwards_trend: {esc(short)}"}}
+                      if short else {"type": "context", "elements": [{"type": "mrkdwn", "text": esc(n.reason)[:2000]}]})
     if n.url:
-        lines.append(f"<{n.url}|자세히 보기>")        # 링크 문법은 이스케이프 **뒤에** 붙인다
+        blocks.append({"type": "actions", "elements": [{
+            "type": "button", "text": {"type": "plain_text", "text": "콘솔에서 보기"}, "url": n.url}]})
+    footer = [x for x in (_SEVERITY_MEANING.get(n.severity, ""),
+                          f"사건 {esc(n.incident_id)}" if n.incident_id else "") if x]
+    if footer:
+        blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": "  ·  ".join(footer)}]})
+    color = _RESOLVED_COLOR if resolved else _SEVERITY_COLOR.get(n.severity, "#757575")
     return {
-        "text": summary,                    # 알림 미리보기·접근성용 폴백
-        "attachments": [{
-            "color": _SEVERITY_COLOR.get(n.severity, "#757575"),
-            "text": "\n".join(lines),
-        }],
+        "text": esc(n.summary_line()),        # 알림 미리보기·접근성용 폴백
+        "attachments": [{"color": color, "blocks": blocks}],
     }
 
 
