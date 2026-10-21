@@ -33,8 +33,8 @@ export default async function ResourcesPage({
       customers={customers}
       accounts={accounts}
       initialSearch={search ?? ""}
-      initialCustomer={customer ?? ""}
-      initialAccount={account ?? ""}
+      customerFilter={customer ?? ""}
+      accountFilter={account ?? ""}
       initialMonitoring={monitoring === "on" || monitoring === "off" ? monitoring : ""}
     />
   );

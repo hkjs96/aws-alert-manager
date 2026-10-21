@@ -10,8 +10,6 @@ import { LoadingButton } from "@/components/shared/LoadingButton";
 import { Pagination } from "@/components/shared/Pagination";
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { useMonitoringToggle } from "@/hooks/useMonitoringToggle";
-import { useOwnedCustomers } from "@/hooks/useOwnedCustomers";
-import { OwnedEmptyState } from "@/components/shared/OwnedEmptyState";
 import { SyncScopeModal } from "@/components/shared/SyncScopeModal";
 import { SyncProgressModal } from "@/components/shared/SyncProgressModal";
 import { syncResources } from "@/lib/api-functions";
@@ -46,9 +44,10 @@ interface ResourcesContentProps {
   customers: CustomerDto[];
   accounts: AccountDto[];
   initialSearch?: string;
-  /** 대시보드 카드에서 넘어온 조건(?customer=&account=&monitoring=on|off). */
-  initialCustomer?: string;
-  initialAccount?: string;
+  /** 상단 글로벌 필터가 정한 범위(URL ?customer=&account=) — URL이 바뀌면 새 값으로 다시 내려온다. */
+  customerFilter?: string;
+  accountFilter?: string;
+  /** 대시보드 카드에서 넘어온 조건(?monitoring=on|off). */
   initialMonitoring?: "on" | "off" | "";
 }
 
@@ -65,8 +64,8 @@ export function ResourcesContent({
   customers,
   accounts,
   initialSearch = "",
-  initialCustomer = "",
-  initialAccount = "",
+  customerFilter = "",
+  accountFilter = "",
   initialMonitoring = "",
 }: ResourcesContentProps) {
   const router = useRouter();
@@ -84,13 +83,10 @@ export function ResourcesContent({
   }, [initialSearch]);
 
   const { loadingIds, toggle } = useMonitoringToggle();
-  const { ownedCustomerIds, isLoading: isOwnedLoading } = useOwnedCustomers();
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [modal, setModal] = useState<"enable" | "disable" | null>(null);
   const [search, setSearch] = useState("");
-  const [customerFilter, setCustomerFilter] = useState(initialCustomer);
-  const [accountFilter, setAccountFilter] = useState(initialAccount);
   const [monitoringFilter, setMonitoringFilter] = useState<"on" | "off" | "">(initialMonitoring);
   const [typeFilter, setTypeFilter] = useState("");
   const [sortKey, setSortKey] = useState("name");
@@ -103,20 +99,10 @@ export function ResourcesContent({
   const [activeJobId, setActiveJobId] = useState("");
   const [pendingToggle, setPendingToggle] = useState<PendingToggle | null>(null);
 
-  // Customer 선택 시 해당 Customer의 Account만 표시
-  const filteredAccounts = useMemo(
-    () =>
-      customerFilter
-        ? accounts.filter((a) => a.customerId === customerFilter)
-        : accounts,
-    [accounts, customerFilter],
-  );
-
-  const handleCustomerChange = (v: string) => {
-    setCustomerFilter(v);
-    setAccountFilter("");
+  // 범위가 바뀌면 첫 페이지부터
+  useEffect(() => {
     setPage(1);
-  };
+  }, [customerFilter, accountFilter]);
 
   const handleSort = (key: string) => {
     if (sortKey === key) {
@@ -128,17 +114,7 @@ export function ResourcesContent({
     setPage(1);
   };
 
-  // 담당 고객사에 속한 account_id 목록 (owned scope)
-  const ownedAccountIds = useMemo(
-    () =>
-      accounts
-        .filter((a) => ownedCustomerIds.includes(a.customerId))
-        .map((a) => a.id),
-    [accounts, ownedCustomerIds],
-  );
-
   // 조회 인덱스: 리소스마다 accounts 배열을 다시 훑지 않도록 한 번만 만든다 (O(n×m) → O(n)).
-  const ownedAccountIdSet = useMemo(() => new Set(ownedAccountIds), [ownedAccountIds]);
   const customerAccountIds = useMemo(() => {
     const map = new Map<string, Set<string>>();
     accounts.forEach((a) => {
@@ -156,10 +132,6 @@ export function ResourcesContent({
     const q = deferredSearch.toLowerCase();
     const customerAccounts = customerFilter ? customerAccountIds.get(customerFilter) : null;
     return localResources.filter((r) => {
-      // 담당 고객사 범위 필터 (explicit customerFilter가 없을 때)
-      if (!customerFilter && ownedCustomerIds.length > 0) {
-        if (!ownedAccountIdSet.has(r.account)) return false;
-      }
       if (customerFilter && !customerAccounts?.has(r.account)) return false;
       if (accountFilter && r.account !== accountFilter) return false;
       if (q) {
@@ -168,7 +140,7 @@ export function ResourcesContent({
       }
       return true;
     });
-  }, [localResources, customerFilter, accountFilter, deferredSearch, customerAccountIds, ownedAccountIdSet, ownedCustomerIds]);
+  }, [localResources, customerFilter, accountFilter, deferredSearch, customerAccountIds]);
 
   const filtered = useMemo(
     () => scoped.filter((r) =>
@@ -275,8 +247,6 @@ export function ResourcesContent({
 
   const handleClearFilters = () => {
     setSearch("");
-    setCustomerFilter("");
-    setAccountFilter("");
     setTypeFilter("");
     setMonitoringFilter("");
     setPage(1);
@@ -298,14 +268,6 @@ export function ResourcesContent({
 
   const handleBulkEnableComplete = (succeededIds: string[]) => applyBulkResult(succeededIds, true);
   const handleBulkDisableComplete = (succeededIds: string[]) => applyBulkResult(succeededIds, false);
-
-  if (!isOwnedLoading && ownedCustomerIds.length === 0) {
-    return <OwnedEmptyState />;
-  }
-
-  if (isOwnedLoading) {
-    return <div className="py-20 text-center text-sm text-slate-400">로딩 중...</div>;
-  }
 
   return (
     <div className="space-y-8">
@@ -340,14 +302,8 @@ export function ResourcesContent({
       <FilterBar
         search={search}
         onSearchChange={(v) => { setSearch(v); setPage(1); }}
-        customerFilter={customerFilter}
-        onCustomerChange={handleCustomerChange}
-        accountFilter={accountFilter}
-        onAccountChange={(v) => { setAccountFilter(v); setPage(1); }}
         typeFilter={typeFilter}
         onTypeChange={(v) => { setTypeFilter(v); setPage(1); }}
-        customers={customers}
-        accounts={filteredAccounts}
         onClearAll={handleClearFilters}
       />
 

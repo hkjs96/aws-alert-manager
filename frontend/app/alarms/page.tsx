@@ -37,8 +37,8 @@ export default async function AlarmsPage({
       customers={customers}
       accounts={accounts}
       initialState={state === "ALARM" || state === "OK" || state === "INSUFFICIENT_DATA" ? state : "ALL"}
-      initialCustomer={customer ?? ""}
-      initialAccount={account ?? ""}
+      customerFilter={customer ?? ""}
+      accountFilter={account ?? ""}
     />
   );
 }

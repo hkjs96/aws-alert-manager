@@ -8,16 +8,6 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
 }));
 
-vi.mock("@/hooks/useOwnedCustomers", () => ({
-  useOwnedCustomers: () => ({
-    // 담당 고객사가 비면 OwnedEmptyState가 렌더된다 — 계정 111이 속한 cust-1을 소유한 상태로 둔다
-    ownedCustomerIds: ["cust-1"],
-    isLoading: false,
-    toggleOwned: vi.fn(),
-    isOwned: vi.fn(),
-  }),
-}));
-
 vi.mock("@/lib/api-functions", async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   syncAlarms: vi.fn(),

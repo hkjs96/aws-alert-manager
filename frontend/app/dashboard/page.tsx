@@ -10,7 +10,12 @@ export const metadata: Metadata = {
   description: "System overview and real-time health monitoring for AWS infrastructure.",
 };
 
-export default async function DashboardPage() {
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ customer?: string; account?: string }>;
+}) {
+  const { customer, account } = await searchParams;
   let stats: DashboardStats;
   let alarms: Alarm[];
   let customers: { id: string; name: string }[];
@@ -33,7 +38,14 @@ export default async function DashboardPage() {
 
   return (
     <Suspense fallback={<DashboardSkeleton />}>
-      <DashboardContent stats={stats} alarms={alarms} customers={customers} accounts={accounts} />
+      <DashboardContent
+        stats={stats}
+        alarms={alarms}
+        customers={customers}
+        accounts={accounts}
+        customerFilter={customer ?? ""}
+        accountFilter={account ?? ""}
+      />
     </Suspense>
   );
 }

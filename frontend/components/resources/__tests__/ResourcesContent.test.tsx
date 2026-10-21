@@ -12,15 +12,6 @@ vi.mock("@/lib/api-functions", () => ({
   toggleMonitoring: vi.fn().mockResolvedValue({ resource_id: "i-001", monitoring: false, status: "updated" }),
 }));
 
-vi.mock("@/hooks/useOwnedCustomers", () => ({
-  useOwnedCustomers: () => ({
-    ownedCustomerIds: ["cust-1"],
-    isLoading: false,
-    toggleOwned: vi.fn(),
-    isOwned: vi.fn(),
-  }),
-}));
-
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: mockRouterPush, refresh: mockRouterRefresh }),
 }));
@@ -92,5 +83,41 @@ describe("ResourcesContent monitoring toggle", () => {
 
     // resource_id는 base64url 토큰으로 인코딩되어 path에 실린다 (AGENTS.md AP-6).
     expect(mockRouterPush).toHaveBeenCalledWith(`/resources/${encodeResourceId("i-001")}`);
+  });
+});
+
+describe("ResourcesContent 글로벌 범위(customer/account props)", () => {
+  const two: Resource[] = [
+    resources[0]!,
+    { ...resources[0]!, id: "i-002", name: "api-02", account: "222222222222" },
+  ];
+  const customers = [{ id: "cust-1", name: "Customer 1" }, { id: "cust-2", name: "Customer 2" }];
+  const accounts = [
+    { id: "111111111111", name: "Account 1", customerId: "cust-1" },
+    { id: "222222222222", name: "Account 2", customerId: "cust-2" },
+  ];
+
+  function renderScoped(customerFilter: string) {
+    return (
+      <ToastProvider>
+        <ResourcesContent resources={two} customers={customers} accounts={accounts} customerFilter={customerFilter} />
+      </ToastProvider>
+    );
+  }
+
+  it("customerFilter prop의 계정 리소스만 보이고, prop이 바뀌면 다시 거른다", () => {
+    const { rerender } = render(renderScoped("cust-2"));
+    expect(screen.getByText("api-02")).toBeInTheDocument();
+    expect(screen.queryByText("web-01")).not.toBeInTheDocument();
+
+    rerender(renderScoped(""));
+    expect(screen.getByText("api-02")).toBeInTheDocument();
+    expect(screen.getByText("web-01")).toBeInTheDocument();
+  });
+
+  it("페이지 안 필터 바에는 고객사·계정 선택이 없다", () => {
+    render(renderScoped(""));
+    expect(screen.queryByText("All Customers")).not.toBeInTheDocument();
+    expect(screen.queryByText("All Accounts")).not.toBeInTheDocument();
   });
 });

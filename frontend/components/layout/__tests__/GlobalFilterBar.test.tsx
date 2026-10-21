@@ -1,9 +1,6 @@
-"use client";
-
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
-import { GlobalFilterBar } from "../GlobalFilterBar";
-import { FRONTEND_INTEGRATION_RESOURCE_TYPES } from "@/lib/constants";
+import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
+import { GlobalFilterBar, GLOBAL_SCOPE_STORAGE_KEY } from "../GlobalFilterBar";
 
 // --- Next.js navigation mocks ---
 const mockPush = vi.fn();
@@ -14,7 +11,6 @@ vi.mock("next/navigation", () => ({
   usePathname: () => "/dashboard",
 }));
 
-// --- API function mocks ---
 const mockCustomers = [
   { customer_id: "cust-001", name: "Acme Corp", provider: "aws" as const, account_count: 2 },
   { customer_id: "cust-002", name: "Globex Inc", provider: "aws" as const, account_count: 1 },
@@ -31,148 +27,92 @@ function renderBar() {
   return render(<GlobalFilterBar customers={mockCustomers} accounts={mockAccounts} />);
 }
 
-// --- useOwnedCustomers mock ---
-vi.mock("@/hooks/useOwnedCustomers", () => ({
-  useOwnedCustomers: vi.fn(),
-}));
-
-import { useOwnedCustomers } from "@/hooks/useOwnedCustomers";
-
-function makeOwnedState(ownedIds: string[]) {
-  return {
-    ownedCustomerIds: ownedIds,
-    isLoading: false,
-    toggleOwned: vi.fn(async () => {}),
-    isOwned: (id: string) => ownedIds.includes(id),
-  };
-}
-
 describe("GlobalFilterBar", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    localStorage.clear();
     window.history.replaceState(null, "", "/dashboard");
-    // 기본: 두 고객사 모두 담당
-    vi.mocked(useOwnedCustomers).mockReturnValue(
-      makeOwnedState(["cust-001", "cust-002"]),
-    );
   });
 
-  it("초기 렌더링 시 3개 드롭다운을 표시한다", async () => {
+  it("고객사·계정 드롭다운만 표시하고 서비스 드롭다운은 없다", () => {
     renderBar();
-    await waitFor(() => {
-      expect(screen.getByLabelText("Customer filter")).toBeInTheDocument();
-      expect(screen.getByLabelText("Account filter")).toBeInTheDocument();
-      expect(screen.getByLabelText("Service filter")).toBeInTheDocument();
-    });
+    expect(screen.getByLabelText("Customer filter")).toBeInTheDocument();
+    expect(screen.getByLabelText("Account filter")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Service filter")).not.toBeInTheDocument();
+    expect(screen.getByText("전체 고객사")).toBeInTheDocument();
+    expect(screen.getByText("전체 계정")).toBeInTheDocument();
   });
 
-  it("props로 받은 고객사 목록을 드롭다운에 표시한다", async () => {
+  it("props로 받은 고객사·계정을 모두 표시한다", () => {
     renderBar();
-    await waitFor(() => {
-      expect(screen.getByText("Acme Corp")).toBeInTheDocument();
-      expect(screen.getByText("Globex Inc")).toBeInTheDocument();
-    });
-  });
-
-  it("props로 받은 어카운트 목록을 드롭다운에 표시한다", async () => {
-    renderBar();
-    await waitFor(() => {
-      expect(screen.getByText("Acme Prod")).toBeInTheDocument();
-      expect(screen.getByText("Acme Staging")).toBeInTheDocument();
-      expect(screen.getByText("Globex Main")).toBeInTheDocument();
-    });
-  });
-
-  it("기본 옵션으로 All Customers / All Accounts / All Services를 표시한다", async () => {
-    renderBar();
-    await waitFor(() => {
-      expect(screen.getByText("All Customers")).toBeInTheDocument();
-      expect(screen.getByText("All Accounts")).toBeInTheDocument();
-      expect(screen.getByText("All Services")).toBeInTheDocument();
-    });
-  });
-
-  it("Customer 선택 시 router.push로 URL을 업데이트한다", async () => {
-    renderBar();
-    await waitFor(() => {
-      expect(screen.getByText("Acme Corp")).toBeInTheDocument();
-    });
-    fireEvent.change(screen.getByLabelText("Customer filter"), {
-      target: { value: "cust-001" },
-    });
-    expect(mockPush).toHaveBeenCalledWith(
-      expect.stringContaining("customer_id=cust-001"),
-    );
-  });
-
-  it("Customer 변경 시 Account와 Service를 리셋한다", async () => {
-    window.history.replaceState(null, "", "/dashboard?account_id=acc-001&service=EC2");
-    renderBar();
-    await waitFor(() => {
-      expect(screen.getByText("Acme Corp")).toBeInTheDocument();
-    });
-    fireEvent.change(screen.getByLabelText("Customer filter"), {
-      target: { value: "cust-002" },
-    });
-    const pushArg = mockPush.mock.calls[0]![0] as string;
-    expect(pushArg).toContain("customer_id=cust-002");
-    expect(pushArg).not.toContain("account_id=");
-    expect(pushArg).not.toContain("service=");
-  });
-
-  it("Account 변경 시 Service를 리셋한다", async () => {
-    window.history.replaceState(null, "", "/dashboard?customer_id=cust-001&service=EC2");
-    renderBar();
-    await waitFor(() => {
-      expect(screen.getByText("Acme Prod")).toBeInTheDocument();
-    });
-    fireEvent.change(screen.getByLabelText("Account filter"), {
-      target: { value: "acc-001" },
-    });
-    const pushArg = mockPush.mock.calls[0]![0] as string;
-    expect(pushArg).toContain("account_id=acc-001");
-    expect(pushArg).not.toContain("service=");
-  });
-
-  it("Service 드롭다운에 프론트 통합 MVP 리소스 타입 옵션을 표시한다", async () => {
-    renderBar();
-    await waitFor(() => {
-      expect(screen.getByLabelText("Service filter")).toBeInTheDocument();
-    });
-    for (const type of FRONTEND_INTEGRATION_RESOURCE_TYPES) {
-      expect(screen.getByText(type)).toBeInTheDocument();
+    for (const name of ["Acme Corp", "Globex Inc", "Acme Prod", "Acme Staging", "Globex Main"]) {
+      expect(screen.getByText(name)).toBeInTheDocument();
     }
   });
 
-  // --- 담당 고객사 필터 관련 ---
-
-  it("OwnedCustomers에 포함된 고객사만 Customer 드롭다운에 나타난다", async () => {
-    vi.mocked(useOwnedCustomers).mockReturnValue(makeOwnedState(["cust-001"]));
+  it("고객사 변경 시 customer 파라미터를 쓰고 account를 지우며 저장한다", () => {
+    window.history.replaceState(null, "", "/dashboard?customer=cust-001&account=acc-001");
     renderBar();
-    await waitFor(() => {
-      expect(screen.getByText("Acme Corp")).toBeInTheDocument();
-    });
-    expect(screen.queryByText("Globex Inc")).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Customer filter"), { target: { value: "cust-002" } });
+    const pushArg = mockPush.mock.calls[0]![0] as string;
+    expect(pushArg).toContain("customer=cust-002");
+    expect(pushArg).not.toContain("account=");
+    expect(pushArg).not.toContain("customer_id=");
+    expect(JSON.parse(localStorage.getItem(GLOBAL_SCOPE_STORAGE_KEY)!)).toEqual({ customer: "cust-002", account: "" });
   });
 
-  it("OwnedCustomers가 비어있으면 Customer 드롭다운이 disabled되고 placeholder가 표시된다", async () => {
-    vi.mocked(useOwnedCustomers).mockReturnValue(makeOwnedState([]));
+  it("고객사를 고르면 그 고객사의 계정만 보인다", async () => {
     renderBar();
-    await waitFor(() => {
-      const select = screen.getByLabelText("Customer filter");
-      expect(select).toBeDisabled();
-    });
-    expect(screen.getByText("담당 고객사 없음")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Customer filter"), { target: { value: "cust-002" } });
+    await waitFor(() => expect(screen.queryByText("Acme Prod")).not.toBeInTheDocument());
+    expect(screen.getByText("Globex Main")).toBeInTheDocument();
   });
 
-  it("URL에 OwnedCustomers에 없는 customer_id가 있으면 router.replace로 파라미터를 제거한다", async () => {
-    vi.mocked(useOwnedCustomers).mockReturnValue(makeOwnedState(["cust-001"]));
-    window.history.replaceState(null, "", "/dashboard?customer_id=cust-002");
+  it("전체 고객사를 고르면 저장된 범위를 지운다", () => {
+    localStorage.setItem(GLOBAL_SCOPE_STORAGE_KEY, JSON.stringify({ customer: "cust-001", account: "" }));
+    window.history.replaceState(null, "", "/dashboard?customer=cust-001");
+    renderBar();
+    fireEvent.change(screen.getByLabelText("Customer filter"), { target: { value: "" } });
+    expect(localStorage.getItem(GLOBAL_SCOPE_STORAGE_KEY)).toBeNull();
+    expect(mockPush).toHaveBeenCalledWith("/dashboard");
+  });
+
+  it("URL에 customer가 없으면 저장된 고객사·계정을 router.replace로 복원한다", async () => {
+    localStorage.setItem(GLOBAL_SCOPE_STORAGE_KEY, JSON.stringify({ customer: "cust-001", account: "acc-002" }));
     renderBar();
     await waitFor(() => {
-      expect(mockReplace).toHaveBeenCalledWith(
-        expect.not.stringContaining("customer_id=cust-002"),
-      );
+      expect(mockReplace).toHaveBeenCalledWith("/dashboard?customer=cust-001&account=acc-002");
+    });
+  });
+
+  it("저장된 계정이 그 고객사 소속이 아니면 고객사만 복원한다", async () => {
+    localStorage.setItem(GLOBAL_SCOPE_STORAGE_KEY, JSON.stringify({ customer: "cust-001", account: "acc-003" }));
+    renderBar();
+    await waitFor(() => {
+      expect(mockReplace).toHaveBeenCalledWith("/dashboard?customer=cust-001");
+    });
+  });
+
+  it("저장된 고객사가 목록에 없으면 복원하지 않는다", () => {
+    localStorage.setItem(GLOBAL_SCOPE_STORAGE_KEY, JSON.stringify({ customer: "cust-999", account: "" }));
+    renderBar();
+    expect(mockReplace).not.toHaveBeenCalled();
+  });
+
+  it("URL의 고객사가 목록에 없으면 범위 밖이므로 제거한다", async () => {
+    window.history.replaceState(null, "", "/dashboard?customer=cust-999&account=acc-001&state=ALARM");
+    renderBar();
+    await waitFor(() => {
+      expect(mockReplace).toHaveBeenCalledWith("/dashboard?state=ALARM");
+    });
+  });
+
+  it("뒤로가기(popstate) 시 URL을 다시 읽는다", async () => {
+    renderBar();
+    window.history.replaceState(null, "", "/dashboard?customer=cust-002");
+    act(() => { window.dispatchEvent(new PopStateEvent("popstate")); });
+    await waitFor(() => {
+      expect(screen.getByLabelText("Customer filter")).toHaveValue("cust-002");
     });
   });
 });
