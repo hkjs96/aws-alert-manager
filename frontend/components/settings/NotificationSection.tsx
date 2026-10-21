@@ -13,6 +13,7 @@ import {
   fetchChannels,
   fetchChannelTypes,
   fetchCustomers,
+  fetchResources,
   updateChannel,
 } from "@/lib/api-functions";
 import type {
@@ -26,7 +27,23 @@ import {
   type ChannelMatch,
   ChannelMatchPicker,
   DEFAULT_SEVERITIES,
+  describeMatch,
 } from "./ChannelMatchPicker";
+
+/** 리소스 목록 API는 고객사로 거르지 않고 페이지당 최대 100개다 — 전부 받아 계정별 타입 개수로 접는다. */
+async function fetchTypeCountsByAccount(): Promise<Map<string, Record<string, number>>> {
+  const out = new Map<string, Record<string, number>>();
+  for (let page = 1; page <= 50; page += 1) {
+    const res = await fetchResources({ page, page_size: 100 });
+    for (const r of res.items) {
+      const counts = out.get(r.account) ?? {};
+      counts[r.type] = (counts[r.type] ?? 0) + 1;
+      out.set(r.account, counts);
+    }
+    if (res.items.length < 100) break;
+  }
+  return out;
+}
 
 const MATCH_LABELS: Record<string, string> = {
   severity: "등급",
@@ -101,6 +118,7 @@ function ChannelForm({
   catalogue,
   customers,
   accounts,
+  typeCountsByAccount,
   saving,
   onChange,
   onSubmit,
@@ -110,12 +128,24 @@ function ChannelForm({
   catalogue: ChannelTypeCatalogue;
   customers: { id: string; name: string }[];
   accounts: AccountOption[];
+  typeCountsByAccount: Map<string, Record<string, number>>;
   saving: boolean;
   onChange: (next: Draft) => void;
   onSubmit: () => void;
   onCancel: () => void;
 }) {
   const editing = Boolean(draft.channel_id);
+  const channelAccounts = accounts.filter((a) => !draft.customer_id || a.customerId === draft.customer_id);
+  // 전역 채널(고객사 없음)은 모든 타입을 보여 준다
+  const typeCounts: Record<string, number> = {};
+  if (draft.customer_id) {
+    for (const a of channelAccounts) {
+      for (const [t, n] of Object.entries(typeCountsByAccount.get(a.id) ?? {})) {
+        typeCounts[t] = (typeCounts[t] ?? 0) + n;
+      }
+    }
+  }
+  const customerName = customers.find((c) => c.id === draft.customer_id)?.name ?? "";
   const type = catalogue.types.find((t) => t.type === draft.type);
 
   return (
@@ -234,9 +264,14 @@ function ChannelForm({
       <ChannelMatchPicker
         match={draft.match}
         severities={catalogue.severities}
-        accounts={accounts.filter((a) => !draft.customer_id || a.customerId === draft.customer_id)}
+        accounts={channelAccounts}
+        typeCounts={typeCounts}
         onChange={(match) => onChange({ ...draft, match })}
       />
+
+      <p className="rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-700">
+        {describeMatch(draft.match, customerName)}
+      </p>
 
       <div className="flex justify-end gap-2">
         <Button type="button" variant="secondary" size="sm" onClick={onCancel}>
@@ -260,6 +295,7 @@ export function NotificationSection() {
   const [channels, setChannels] = useState<NotificationChannel[]>([]);
   const [customers, setCustomers] = useState<{ id: string; name: string }[]>([]);
   const [accounts, setAccounts] = useState<AccountOption[]>([]);
+  const [typeCountsByAccount, setTypeCountsByAccount] = useState<Map<string, Record<string, number>>>(new Map());
   const [draft, setDraft] = useState<Draft | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -290,6 +326,8 @@ export function NotificationSection() {
         setAccounts(list.map((a) => ({ id: a.account_id, name: a.name, customerId: a.customer_id }))),
       )
       .catch(() => setAccounts([]));
+    // 못 불러오면 모든 타입을 보여 준다(고르는 데 지장은 없다)
+    fetchTypeCountsByAccount().then(setTypeCountsByAccount).catch(() => undefined);
   }, []);
 
   const handleSubmit = async () => {
@@ -371,6 +409,7 @@ export function NotificationSection() {
           catalogue={catalogue}
           customers={customers}
           accounts={accounts}
+          typeCountsByAccount={typeCountsByAccount}
           saving={saving}
           onChange={setDraft}
           onSubmit={handleSubmit}
