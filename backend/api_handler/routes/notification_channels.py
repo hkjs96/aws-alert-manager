@@ -348,3 +348,49 @@ def preview_channel(event: dict) -> dict:
         "events_total": len(rows),
         "by_severity": dict(sorted(by_severity.items())),
     })
+
+
+def test_channel(event: dict) -> dict:
+    """저장된 채널로 테스트 메시지 한 건 — 웹훅·주소가 맞는지 바로 확인한다. 인시던트·이력은 만들지 않는다.
+
+    결과(성공/HTTP 상태/오류)를 그대로 돌려준다. 오류 문자열은 발송기가 자격증명을 가린 것이다(_safe_error).
+    """
+    from datetime import datetime, timezone
+    from common.notification_adapters import Notification
+    from common.notification_send import deliver
+
+    channel_id = (event.get("pathParameters") or {}).get("id", "")
+    if not channel_id:
+        return _err(400, "MISSING_PARAM", "채널 ID가 필요합니다")
+    customer_id = _customer_id(event)
+    if not customer_id:
+        denied = _forbidden(event, "전역 알림 채널 테스트")
+        if denied:
+            return denied
+    elif not scope_for(event).allows_customer(customer_id):
+        return _not_found()
+    try:
+        channel = _load(customer_id, channel_id)
+    except ClientError as e:
+        logger.error("channel read failed: %s", e)
+        return _err(503, "STORAGE_ERROR", "채널을 읽지 못했습니다")
+    if channel is None:
+        return _not_found()
+    reason = _unavailable_reason(channel.adapter)
+    if reason:
+        return _err(400, "TYPE_UNAVAILABLE", reason)
+
+    console = os.environ.get("ALERT_CONSOLE_URL", "")
+    note = Notification(
+        title="[테스트] 알림 채널 연결 확인",
+        severity="SEV-5",
+        customer_id=customer_id,
+        state="OK",
+        reason=f"{current_email(event) or '관리자'}님이 설정 화면에서 보낸 테스트 메시지입니다. 실제 알람이 아닙니다.",
+        occurred_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        url=f"{console.rstrip('/')}/settings" if console else "",
+    )
+    result = deliver(channel, note, sender=os.environ.get("ALERT_EMAIL_SENDER", ""))
+    logger.info("channel test %s/%s by %s: ok=%s status=%s", customer_id or "-", channel_id,
+                current_email(event), result.ok, result.status)
+    return _ok(result.to_dict())

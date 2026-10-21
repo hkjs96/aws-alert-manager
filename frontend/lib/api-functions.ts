@@ -297,6 +297,15 @@ export function previewChannel(input: {
   });
 }
 
+/** 저장된 채널로 테스트 메시지 한 건. 실패해도 200 — 결과의 ok/status/error를 본다. */
+export function testChannel(
+  channelId: string,
+  customerId: string,
+): Promise<{ ok: boolean; status?: number; error?: string }> {
+  const qs = new URLSearchParams({ customer_id: customerId }).toString();
+  return apiFetch(`/api/alert/channels/${encodeURIComponent(channelId)}/test?${qs}`, { method: "POST" });
+}
+
 export function createChannel(input: ChannelInput): Promise<NotificationChannel> {
   return apiFetch("/api/alert/channels", {
     method: "POST",

@@ -1348,6 +1348,8 @@ Resources:
           INCIDENT_TABLE: !Ref IncidentTable
           # 채널 카탈로그가 "이메일은 지금 못 씀"을 알리는 근거 — 라우터와 같은 값(review-phase2 L3)
           ALERT_EMAIL_SENDER: !Ref AlertEmailSender
+          # 채널 테스트 메시지의 "콘솔에서 보기" 링크
+          ALERT_CONSOLE_URL: !Ref AlertConsoleUrl
           THRESHOLD_OVERRIDES_TABLE: !Ref ThresholdOverridesTable
           JOB_STATUS_TABLE: !Ref JobStatusTable
           MONITOR_RUN_HISTORY_TABLE: !Ref MonitorRunHistoryTable
@@ -1406,6 +1408,11 @@ Resources:
                   - !GetAtt NotificationChannelTable.Arn
                   - !GetAtt IncidentTable.Arn
                   - !Sub "${IncidentTable.Arn}/index/*"
+              # 설정 화면의 채널 테스트 보내기(이메일 채널) — 라우터와 같은 권한
+              - Effect: Allow
+                Action:
+                  - ses:SendEmail
+                Resource: "*"
               - Effect: Allow
                 Action:
                   - sqs:SendMessage

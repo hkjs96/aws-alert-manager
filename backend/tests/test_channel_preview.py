@@ -48,3 +48,56 @@ def test_out_of_scope_customer_is_404():
 def test_bad_match_is_400():
     code, _, _ = _run({"customer_id": "HOME", "match": {"colour": ["red"]}})
     assert code == 400
+
+
+# ── 테스트 보내기 ─────────────────────────────────────────────
+
+from common.notification_send import DeliveryResult  # noqa: E402
+
+
+def _test_event(customer_id="HOME", channel_id="c1"):
+    return {"pathParameters": {"id": channel_id}, "queryStringParameters": {"customer_id": customer_id},
+            "requestContext": {"authorizer": {"jwt": {"claims": {"email": "tlsgks678@mz.co.kr"}}}}}
+
+
+def _send(channel, scope_ok=True, result=None):
+    scope = type("S", (), {"allows_customer": lambda self, c: scope_ok})()
+    sent = {}
+
+    def fake_deliver(ch, note, **kw):
+        sent["note"] = note
+        return result or DeliveryResult(channel_id="c1", channel_name="n", type="slack", ok=True, status=200)
+
+    with patch.object(route, "_load", return_value=channel), \
+            patch.object(route, "scope_for", return_value=scope), \
+            patch("common.notification_send.deliver", side_effect=fake_deliver):
+        resp = route.test_channel(_test_event())
+    return resp["statusCode"], json.loads(resp["body"]), sent
+
+
+def _slack_channel():
+    from common.notification_channel import Channel
+    return Channel(channel_id="c1", customer_id="HOME", name="n", type="slack",
+                   config={"webhook_url": "https://hooks.slack.com/services/x"})
+
+
+def test_sends_a_marked_test_message():
+    code, body, sent = _send(_slack_channel())
+    assert code == 200 and body["ok"] is True and body["status"] == 200
+    assert sent["note"].title.startswith("[테스트]") and "실제 알람이 아닙니다" in sent["note"].reason
+
+
+def test_failure_is_reported_not_raised():
+    bad = DeliveryResult(channel_id="c1", channel_name="n", type="slack", ok=False, status=404, error="no_service")
+    code, body, _ = _send(_slack_channel(), result=bad)
+    assert code == 200 and body["ok"] is False and body["error"] == "no_service"
+
+
+def test_other_customers_channel_is_404():
+    code, _, sent = _send(_slack_channel(), scope_ok=False)
+    assert code == 404 and sent == {}
+
+
+def test_missing_channel_is_404():
+    code, _, _ = _send(None)
+    assert code == 404

@@ -768,6 +768,12 @@ Errors: `404 NOT_FOUND`, `409 ALREADY_RESOLVED`, `409 CONFLICT`, `503 STORAGE_ER
 Query: `customer_id` (선택). 주면 그 고객사 채널 **+ 전역 채널**을 함께 준다 — 전역 채널도
 그 고객사에 적용되기 때문이다. 없으면 전부.
 
+## POST /api/alert/channels/{id}/test?customer_id=
+
+저장된 채널로 `[테스트]` 메시지 한 건을 보낸다(인시던트·이력 없음). 항상 200이며 결과는 본문으로:
+`{"ok": true, "status": 200}` 또는 `{"ok": false, "status": 404, "error": "..."}`(자격증명은 가려짐).
+범위 밖·없는 채널은 404, 전역 채널은 관리자 전용.
+
 ## POST /api/alert/channels/preview
 
 저장 전 미리보기. 본문 `{customer_id, match}`(채널과 같은 규칙, `customer_id` 비면 전역=관리자 전용).

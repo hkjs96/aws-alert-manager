@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Bell, Globe, Pencil, Plus, Trash2, X } from "lucide-react";
+import { Bell, Globe, Pencil, Plus, Send, Trash2, X } from "lucide-react";
 
 import { Button } from "@/components/shared/Button";
 import { LoadingButton } from "@/components/shared/LoadingButton";
@@ -15,6 +15,7 @@ import {
   fetchCustomers,
   fetchResources,
   previewChannel,
+  testChannel,
   type ChannelPreview,
   updateChannel,
 } from "@/lib/api-functions";
@@ -397,6 +398,23 @@ export function NotificationSection() {
     }
   };
 
+  const [testingId, setTestingId] = useState("");
+  const handleTest = async (channel: NotificationChannel) => {
+    setTestingId(channel.channel_id);
+    try {
+      const r = await testChannel(channel.channel_id, channel.customer_id);
+      if (r.ok) {
+        showToast("success", `'${channel.name}'로 테스트 메시지를 보냈습니다. 도착했는지 확인하세요.`);
+      } else {
+        showToast("error", `보내지 못했습니다${r.status ? ` (HTTP ${r.status})` : ""}${r.error ? `: ${r.error}` : ""}`);
+      }
+    } catch (e) {
+      showToast("error", e instanceof Error ? e.message : "테스트 요청에 실패했습니다");
+    } finally {
+      setTestingId("");
+    }
+  };
+
   const handleDelete = async (channel: NotificationChannel) => {
     if (!window.confirm(`'${channel.name}' 채널을 삭제할까요? 이 채널로는 더 이상 알림이 가지 않습니다.`)) {
       return;
@@ -508,6 +526,15 @@ export function NotificationSection() {
                     </td>
                     <td className="px-4 py-2">
                       <div className="flex justify-end gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          icon={<Send size={13} />}
+                          disabled={testingId === channel.channel_id || !channel.enabled}
+                          onClick={() => void handleTest(channel)}
+                        >
+                          {testingId === channel.channel_id ? "보내는 중…" : "테스트"}
+                        </Button>
                         <Button
                           variant="ghost"
                           size="sm"
