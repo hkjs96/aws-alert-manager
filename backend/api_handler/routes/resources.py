@@ -18,6 +18,7 @@ from api_handler.cw_helper import (
 from api_handler.authz import Scope, scope_for
 from api_handler.db import accounts_table, resource_inventory_table, scan_all, query_by_pk
 from common import SUPPORTED_RESOURCE_TYPES, dimension_builder
+from common import customer_thresholds
 from common.alarm_identity import identify_alarm
 from common.alarm_inventory import alarm_snapshot_items, snapshot_key
 from common.alarm_search import _find_alarms_for_resource
@@ -848,7 +849,20 @@ def _collector_tags(resource: dict) -> dict:
 def _toggle_alarm_tags(resource: dict) -> dict:
     """토글 ON 때 알람을 만들 태그 — 실제 태그 + `Monitoring=on`(방금 쓴 태그는 RGT 최종 일관성 때문에 아직 안 보일 수 있다)
     + 수집기가 덧붙이는 태그(`_collector_tags`)."""
-    return {**_live_resource_tags(resource), "Monitoring": "on", **_collector_tags(resource)}
+    tags = {**_live_resource_tags(resource), "Monitoring": "on", **_collector_tags(resource)}
+    # 데일리 런과 같은 임계치가 되도록 고객사 기본값(설정 > 임계치)도 같은 규칙으로 끼운다
+    return customer_thresholds.apply(tags, _customer_defaults_for(resource))
+
+
+def _customer_defaults_for(resource: dict) -> dict:
+    """리소스 고객사의 이 타입 기본 임계치 {지표: 값}. 테이블이 없거나 못 읽으면 {}."""
+    customer_id = resource.get("customer_id") or ""
+    name = os.environ.get("THRESHOLD_OVERRIDES_TABLE", "")
+    if not customer_id or not name:
+        return {}
+    from api_handler.db import threshold_overrides_table
+    return customer_thresholds.load_for_customer(threshold_overrides_table(), customer_id).get(
+        resource.get("type", ""), {})
 
 
 def _alarm_rows_for(cw, resource_id: str, resource_type: str) -> list[dict]:

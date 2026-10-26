@@ -32,6 +32,7 @@ from common.perf_log import Timer
 from common.tag_cache import log_tag_cache_stats, prime_tag_cache, set_active_tag_cache
 from common.alarm_index import AlarmIndex
 from common.alarm_manager import sync_alarms_for_resource
+from common import customer_thresholds
 from common.alarm_registry import _METRIC_DISPLAY
 from common.collectors.base import MetricBatch, set_active_metric_batch
 from common.resource_discovery import (
@@ -265,6 +266,7 @@ def lambda_handler(event, context):
     alarm_index = AlarmIndex(prefetched_alarms) if prefetched_alarms else None
 
     regions = _worker_regions(account_id, role_arn)
+    _load_customer_defaults(account_id)
     creds = None
     if role_arn:
         try:
@@ -350,6 +352,28 @@ def _notify_unregistered_regions(account_id: str, creds: dict | None, regions: l
     return missing
 
 
+#: 이번 런 계정의 고객사 기본 임계치 {타입: {지표: 값}}. 세션 전환 **전에** 메인 계정 테이블에서 읽어 둔다
+#: (전환 뒤 기본 세션은 고객 계정이라 중앙 테이블을 못 읽는다). 런마다 새로 채운다.
+_customer_defaults: dict[str, dict[str, float]] = {}
+
+
+def _load_customer_defaults(account_id: str) -> None:
+    """이 계정을 가진 고객사의 기본값(설정 > 임계치)을 읽어 둔다. 계정이 여러 고객사에 걸리면 첫 행을 쓴다."""
+    global _customer_defaults
+    _customer_defaults = {}
+    name = os.environ.get("THRESHOLD_OVERRIDES_TABLE", "")
+    rows = _account_rows(account_id) if name else []
+    customer_id = next((str(r.get("customer_id") or "") for r in rows if r.get("customer_id")), "")
+    if customer_id:
+        _customer_defaults = customer_thresholds.load_for_customer(
+            boto3.resource("dynamodb").Table(name), customer_id)
+
+
+def _tags_with_defaults(resource: dict) -> dict:
+    """개별 태그 → 고객사 기본값 → 시스템 기본값 순서가 되도록, 태그에 없는 지표만 고객사 값을 채운다."""
+    return customer_thresholds.apply(resource.get("tags", {}), _customer_defaults.get(resource["type"]))
+
+
 def _account_rows(account_id: str) -> list[dict]:
     """계정 표에서 이 계정의 행들(고객사마다 한 행일 수 있다). 표가 없거나 못 읽으면 []."""
     table_name = os.environ.get("ACCOUNTS_TABLE")
@@ -424,7 +448,7 @@ def _daily_region_pass(account_id: str, region: str, alarm_index) -> tuple[int, 
             for resource in resources:
                 resource_id = resource["id"]
                 resource_type = resource["type"]
-                resource_tags = resource.get("tags", {})
+                resource_tags = _tags_with_defaults(resource)
 
                 # 1단계: 알람 동기화 (기존 알람 조회는 런 스코프 인덱스 사용)
                 try:
@@ -521,6 +545,7 @@ def _handle_tag_reconcile(event: dict, context) -> dict:
     alarm_index = AlarmIndex(prefetched_alarms) if prefetched_alarms else None
 
     regions = _worker_regions(account_id, role_arn)
+    _load_customer_defaults(account_id)
     creds = None
     if role_arn:
         try:
@@ -579,7 +604,7 @@ def _reconcile_region_pass(account_id: str, region: str, alarm_index) -> tuple[l
             for resource in resources:
                 try:
                     sync_result = sync_alarms_for_resource(
-                        resource["id"], resource["type"], resource.get("tags", {}),
+                        resource["id"], resource["type"], _tags_with_defaults(resource),
                         alarm_index=alarm_index,
                         resource_region=resource.get("region", ""),
                     )

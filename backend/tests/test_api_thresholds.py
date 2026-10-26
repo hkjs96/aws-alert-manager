@@ -63,9 +63,14 @@ def test_get_thresholds_with_customer_override_applied():
         "Items": [
             {
                 "scope_id": "customer_id:cust-01",
-                "metric_key": "CPUUtilization",
+                "metric_key": "EC2#CPUUtilization",      # 저장 키 = "{타입}#{지표}"
                 "threshold_value": Decimal("90"),
-            }
+            },
+            {   # 다른 타입의 같은 지표 이름은 섞이지 않는다
+                "scope_id": "customer_id:cust-01",
+                "metric_key": "RDS#CPUUtilization",
+                "threshold_value": Decimal("60"),
+            },
         ]
     }
 
@@ -116,6 +121,9 @@ def test_put_thresholds_saves_overrides():
     assert resp["statusCode"] == 200
     result = json.loads(resp["body"])
     assert result["saved"] >= 0
+    saved = mock_table.put_item.call_args.kwargs["Item"]
+    assert saved["metric_key"] == "EC2#CPU" and saved["scope_id"] == "customer_id:cust-01"
+    assert mock_table.delete_item.call_args.kwargs["Key"]["metric_key"] == "EC2#Memory"
 
 
 def test_put_thresholds_requires_customer_id():

@@ -233,9 +233,15 @@ Stored item:
 | Field | Type | Required | Notes |
 | --- | --- | --- | --- |
 | `scope_id` | string | yes | Format: `customer_id:{customer_id}`. |
-| `metric_key` | string | yes | Sort key. |
+| `metric_key` | string | yes | Sort key. Format: `{resource_type}#{metric}` (e.g. `EC2#CPUUtilization`) — the same metric name exists in several types. |
 | `resource_type` | string | yes | Resource type. |
 | `threshold_value` | number | yes | Customer override value. |
+
+Precedence when an alarm is built: resource `Threshold_*` tag → this customer default → system default
+(`common/customer_thresholds.py`). Applied by the daily and hourly reconcile runs and by the monitoring toggle;
+alarms created by the CloudTrail lifecycle handler or the SQS worker start at the system default and are
+corrected by the next hourly reconcile. Per-path disk metrics do not use this layer.
+The same table also holds recalibration proposals (`scope_id = resource_id:{id}`); they are not customer defaults.
 
 Merged API DTO:
 

@@ -17,6 +17,7 @@ from boto3.dynamodb.conditions import Key
 
 from api_handler.authz import scope_for
 from api_handler.db import threshold_overrides_table
+from common import customer_thresholds
 
 # alarm_registry에서 리소스 타입별 기본 임계치 가져오기
 # HARDCODED_DEFAULTS: {"CPU": 80, "Memory": 80, ...}
@@ -95,7 +96,10 @@ def get_thresholds(event: dict) -> dict:
             resp = table.query(
                 KeyConditionExpression=Key("scope_id").eq(scope_id)
             )
-            overrides = {item["metric_key"]: item["threshold_value"] for item in resp.get("Items", [])}
+            # 저장 키는 "{타입}#{지표}" — 같은 지표 이름을 여러 타입이 쓴다(EC2·RDS의 CPUUtilization)
+            prefix = f"{resource_type}#"
+            overrides = {item["metric_key"][len(prefix):]: item["threshold_value"]
+                         for item in resp.get("Items", []) if str(item.get("metric_key", "")).startswith(prefix)}
         except ClientError:
             overrides = {}
 
@@ -122,7 +126,7 @@ def put_thresholds(event: dict) -> dict:
         return _err(404, "NOT_FOUND", "고객사를 찾을 수 없습니다")
 
     overrides: list[dict] = body.get("overrides", [])
-    scope_id = f"customer_id:{customer_id}"
+    scope_id = customer_thresholds.scope_id(customer_id)
     table = threshold_overrides_table()
     saved = 0
 
@@ -137,11 +141,12 @@ def put_thresholds(event: dict) -> dict:
         try:
             if val is None:
                 # None → 오버라이드 삭제
-                table.delete_item(Key={"scope_id": scope_id, "metric_key": metric_key})
+                table.delete_item(Key={"scope_id": scope_id,
+                                       "metric_key": customer_thresholds.storage_key(resource_type, metric_key)})
             else:
                 table.put_item(Item={
                     "scope_id": scope_id,
-                    "metric_key": metric_key,
+                    "metric_key": customer_thresholds.storage_key(resource_type, metric_key),
                     "resource_type": resource_type,
                     "threshold_value": Decimal(str(val)),
                 })
