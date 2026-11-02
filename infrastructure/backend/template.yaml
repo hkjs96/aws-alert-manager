@@ -1517,10 +1517,11 @@ Resources:
               - Effect: Allow
                 Action:
                   - tag:TagResources
+                  - tag:UntagResources
                   # 토글 즉시 생성이 리소스의 실제 태그(Name·Threshold_*)를 읽는다 — 데일리 런과 같은 알람 이름을 위해.
                   - tag:GetResources
                 Resource: "*"
-              # 태그 쓰기는 Monitoring 키가 든 요청만 — 다른 키(비용·ABAC 태그)는 이 역할로 건드릴 수 없다.
+              # 태그 쓰기·삭제는 Monitoring·Threshold_* 키만(Threshold_* = 콘솔에서 정한 리소스별 임계치, 2026-11-02) — 다른 키(비용·ABAC 태그)는 이 역할로 건드릴 수 없다.
               # 아래 액션은 전부 aws:TagKeys를 지원한다(Service Authorization Reference, 2026-09-16 액션마다 확인).
               - Effect: Allow
                 Action:
@@ -1543,13 +1544,33 @@ Resources:
                   - sagemaker:AddTags
                   - sns:TagResource
                   - cloudfront:TagResource
+                  - ec2:DeleteTags
+                  - rds:RemoveTagsFromResource
+                  - elasticache:RemoveTagsFromResource
+                  - lambda:UntagResource
+                  - elasticloadbalancing:RemoveTags
+                  - sqs:UntagQueue
+                  - dynamodb:UntagResource
+                  - elasticfilesystem:UntagResource
+                  - es:RemoveTags
+                  - ecs:UntagResource
+                  - acm:RemoveTagsFromCertificate
+                  - backup:UntagResource
+                  - mq:DeleteTags
+                  - kafka:UntagResource
+                  - wafv2:UntagResource
+                  - directconnect:UntagResource
+                  - sagemaker:DeleteTags
+                  - sns:UntagResource
+                  - cloudfront:UntagResource
                 Resource: "*"
                 Condition:
                   "Null":
                     "aws:TagKeys": "false"
-                  "ForAllValues:StringEquals":
+                  "ForAllValues:StringLike":
                     "aws:TagKeys":
                       - "Monitoring"
+                      - "Threshold_*"
               # 조건 키를 지원하지 않는 둘 — s3:PutBucketTagging(태그 셋 전체 교체, RGT가 s3:GetBucketTagging으로 읽어 합친다)·
               # route53:ChangeTagsForResource(Route 53에는 태그 조건 키가 없다). 키 제한이 불가능하므로 조건 없이 준다.
               - Effect: Allow
@@ -1576,9 +1597,10 @@ Resources:
                 Condition:
                   "Null":
                     "aws:TagKeys": "false"
-                  "ForAllValues:StringEquals":
+                  "ForAllValues:StringLike":
                     "aws:TagKeys":
                       - "Monitoring"
+                      - "Threshold_*"
               # 고객사 온보딩 스택이 만드는 역할 이름과 **정확히** 같아야 한다
               # (`infrastructure/customer-onboarding/template.yaml`의 RoleName 기본값).
               # 2026-09-23까지 `AlarmManagerRole` 하나만 적혀 있어 교차계정 AssumeRole이 전부 AccessDenied였다 —

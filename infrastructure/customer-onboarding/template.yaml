@@ -162,10 +162,13 @@ Resources:
               - Effect: Allow
                 Action:
                   - tag:TagResources
+                  - tag:UntagResources
                 Resource: "*"
-              # 3a) The central account may only write the Monitoring tag key — cost-allocation or ABAC
+              # 3a) The central account may only write/remove the Monitoring and Threshold_* tag keys — cost-allocation or ABAC
               #     tags cannot be touched through this role. Every action below supports aws:TagKeys
               #     (Service Authorization Reference, verified per action 2026-09-16).
+              #     Threshold_* = per-resource alarm thresholds set from the console (2026-11-02).
+              #     An action without aws:TagKeys support fails the Null check, i.e. it is denied, never widened.
               - Effect: Allow
                 Action:
                   - ec2:CreateTags
@@ -187,13 +190,33 @@ Resources:
                   - sagemaker:AddTags
                   - sns:TagResource
                   - cloudfront:TagResource
+                  - ec2:DeleteTags
+                  - rds:RemoveTagsFromResource
+                  - elasticache:RemoveTagsFromResource
+                  - lambda:UntagResource
+                  - elasticloadbalancing:RemoveTags
+                  - sqs:UntagQueue
+                  - dynamodb:UntagResource
+                  - elasticfilesystem:UntagResource
+                  - es:RemoveTags
+                  - ecs:UntagResource
+                  - acm:RemoveTagsFromCertificate
+                  - backup:UntagResource
+                  - mq:DeleteTags
+                  - kafka:UntagResource
+                  - wafv2:UntagResource
+                  - directconnect:UntagResource
+                  - sagemaker:DeleteTags
+                  - sns:UntagResource
+                  - cloudfront:UntagResource
                 Resource: "*"
                 Condition:
                   "Null":
                     "aws:TagKeys": "false"
-                  "ForAllValues:StringEquals":
+                  "ForAllValues:StringLike":
                     "aws:TagKeys":
                       - "Monitoring"
+                      - "Threshold_*"
               # 3b) Two actions have no tag condition keys at all, so the key cannot be restricted:
               #     s3:PutBucketTagging (replaces the whole tag set; RGT reads via s3:GetBucketTagging and
               #     merges) and route53:ChangeTagsForResource.
