@@ -113,9 +113,15 @@ function EventRow({ row }: { row: AlertEventRow }) {
           {formatTime(row.occurred_at)}
         </td>
         <td className="px-3 py-2">
-          <div className="text-sm font-medium text-slate-800">{row.resource_id || "-"}</div>
+          {/* 고객이 직접 만든 알람은 우리 리소스 식별이 없다 — 알람 이름으로 보여준다 */}
+          <div className="text-sm font-medium text-slate-800">
+            {row.resource_id || row.alarm_name || "-"}
+            {!row.resource_id && row.alarm_name && (
+              <span className="ml-1.5 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600">고객 알람</span>
+            )}
+          </div>
           <div className="text-xs text-slate-500">
-            {row.resource_type} · {row.metric_key}
+            {[row.resource_type, row.metric_key].filter(Boolean).join(" · ")}
           </div>
         </td>
         <td className="whitespace-nowrap px-3 py-2">
@@ -319,8 +325,8 @@ export function AlertEventsContent() {
       </div>
 
       <p className="text-xs text-slate-400">
-        현재 알림 발송은 준비 중이며, 이 화면은 발송했을 판정을 그대로 보여줍니다.
-        SEV-1은 어떤 억제 규칙도 적용하지 않습니다.
+        &lsquo;발송&rsquo;은 억제 규칙을 통과해 알림 채널로 넘긴 건입니다. 실제로 어디로 가는지는 설정 &gt; 알림 채널의
+        조건(등급·타입)을 따릅니다. SEV-1은 어떤 억제 규칙도 적용하지 않습니다.
       </p>
     </div>
   );
