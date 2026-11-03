@@ -225,7 +225,7 @@ export function AlertEventsContent() {
     <div className="space-y-6">
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="font-headline text-2xl font-bold text-slate-800">알림 처리 내역</h1>
+          <h1 className="font-headline text-2xl font-bold text-slate-800">Alert History</h1>
           <p className="mt-1 text-sm text-slate-500">
             알람이 울렸을 때 알림을 보냈는지, 보내지 않았다면 왜인지 보여줍니다.
           </p>

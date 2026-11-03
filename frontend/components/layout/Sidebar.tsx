@@ -5,16 +5,16 @@ import { usePathname } from "next/navigation";
 import { LayoutDashboard, Layers, Bell, BellRing, Users, Settings, HelpCircle } from "lucide-react";
 
 const NAV_ITEMS = [
-  { href: "/dashboard", label: "대시보드", icon: LayoutDashboard },
-  { href: "/resources", label: "리소스", icon: Layers },
-  { href: "/alarms", label: "알람", icon: Bell },
-  { href: "/alerts", label: "알림 처리 내역", icon: BellRing },
-  { href: "/customers", label: "고객사", icon: Users },
-  { href: "/settings", label: "설정", icon: Settings },
+  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/resources", label: "Resources", icon: Layers },
+  { href: "/alarms", label: "Alarms", icon: Bell },
+  { href: "/alerts", label: "Alert History", icon: BellRing },
+  { href: "/customers", label: "Customers", icon: Users },
+  { href: "/settings", label: "Settings", icon: Settings },
 ];
 
 const BOTTOM_ITEMS = [
-  { href: "/help", label: "도움말 / 사용 가이드", icon: HelpCircle },
+  { href: "/help", label: "Help", icon: HelpCircle },
 ];
 
 interface SidebarProps {
