@@ -1,15 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { describe, it, expect, vi } from "vitest";
+import { render, screen, fireEvent } from "@testing-library/react";
 import { createElement } from "react";
 import { ToastProvider } from "@/components/shared/Toast";
 import { AlarmConfigTable } from "../AlarmConfigTable";
 import type { AlarmConfig } from "@/types";
-
-vi.mock("@/lib/api-functions", () => ({
-  saveAlarmConfigs: vi.fn(),
-}));
-
-import { saveAlarmConfigs } from "@/lib/api-functions";
 
 const MOCK_CONFIG: AlarmConfig = {
   metric_key: "CPU",
@@ -25,8 +19,8 @@ const MOCK_CONFIG: AlarmConfig = {
   monitoring: true,
 };
 
-function renderTable(configs: AlarmConfig[] = [MOCK_CONFIG]) {
-  return render(
+function renderTable(configs: AlarmConfig[] = [MOCK_CONFIG], onEdit = vi.fn()) {
+  render(
     createElement(
       ToastProvider,
       null,
@@ -34,147 +28,30 @@ function renderTable(configs: AlarmConfig[] = [MOCK_CONFIG]) {
         resourceId: "i-test",
         initialConfigs: configs,
         onAddAlarm: vi.fn(),
+        onEdit,
       }),
     ),
   );
+  return onEdit;
 }
 
-describe("AlarmConfigTable — 미저장 변경 감지", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it("초기 상태에서 unsaved indicator가 표시되지 않는다", () => {
+// 편집은 "알람 편집" 창(PUT /thresholds)으로 옮겼다 — 표는 지금 알람을 보여주기만 한다(2026-11-03).
+describe("AlarmConfigTable — 읽기 전용", () => {
+  it("값을 바꿀 수 없고 저장 버튼이 없다", () => {
     renderTable();
-    expect(screen.queryByTitle("Unsaved changes")).not.toBeInTheDocument();
+    expect(screen.getByDisplayValue("80")).toBeDisabled();
+    expect(screen.queryByText("Save Changes")).not.toBeInTheDocument();
+    expect(screen.queryByText("Reset to Defaults")).not.toBeInTheDocument();
   });
 
-  it("임계치 변경 시 unsaved indicator가 표시된다", () => {
-    renderTable();
-    const input = screen.getByDisplayValue("80");
-    fireEvent.change(input, { target: { value: "90" } });
-    expect(screen.getByTitle("Unsaved changes")).toBeInTheDocument();
+  it("알람 편집 버튼이 편집 창을 연다", () => {
+    const onEdit = renderTable();
+    fireEvent.click(screen.getByText("알람 편집"));
+    expect(onEdit).toHaveBeenCalledTimes(1);
   });
 
-  it("Save Changes 버튼이 변경 없을 때 disabled이다", () => {
-    renderTable();
-    const saveBtn = screen.getByText("Save Changes");
-    expect(saveBtn).toBeDisabled();
-  });
-
-  it("임계치 변경 후 Save Changes 버튼이 활성화된다", () => {
-    renderTable();
-    const input = screen.getByDisplayValue("80");
-    fireEvent.change(input, { target: { value: "90" } });
-    const saveBtn = screen.getByText("Save Changes");
-    expect(saveBtn).not.toBeDisabled();
-  });
-});
-
-describe("AlarmConfigTable disk mount paths", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it("displays and saves mount path", async () => {
-    vi.mocked(saveAlarmConfigs).mockResolvedValue({
-      job_id: "j1",
-      status: "completed",
-      total_count: 1,
-      completed_count: 1,
-      failed_count: 0,
-      results: [],
-    });
-    renderTable([{
-      ...MOCK_CONFIG,
-      metric_key: "disk_used_percent:/data",
-      metric_name: "disk_used_percent",
-      namespace: "CWAgent",
-      mount_path: "/data",
-    }]);
-
+  it("디스크 경로를 보여준다", () => {
+    renderTable([{ ...MOCK_CONFIG, metric_key: "disk_used_percent:/data", metric_name: "disk_used_percent", mount_path: "/data" }]);
     expect(screen.getByText("/data")).toBeInTheDocument();
-    fireEvent.change(screen.getByDisplayValue("80"), { target: { value: "85" } });
-    fireEvent.click(screen.getByText("Save Changes"));
-
-    await waitFor(() => {
-      expect(saveAlarmConfigs).toHaveBeenCalledWith("i-test", {
-        configs: [expect.objectContaining({
-          metric_key: "disk_used_percent:/data",
-          mount_path: "/data",
-          threshold: 85,
-        })],
-      });
-    });
-  });
-});
-
-describe("AlarmConfigTable — 기본값 리셋", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it("Reset to Defaults 클릭 시 임계치가 초기값으로 복원된다", () => {
-    renderTable();
-
-    const input = screen.getByDisplayValue("80");
-    fireEvent.change(input, { target: { value: "95" } });
-    expect(screen.getByDisplayValue("95")).toBeInTheDocument();
-
-    fireEvent.click(screen.getByText("Reset to Defaults"));
-
-    expect(screen.getByDisplayValue("80")).toBeInTheDocument();
-    expect(screen.queryByDisplayValue("95")).not.toBeInTheDocument();
-  });
-
-  it("Reset to Defaults 후 unsaved indicator가 사라진다", () => {
-    renderTable();
-
-    const input = screen.getByDisplayValue("80");
-    fireEvent.change(input, { target: { value: "90" } });
-    expect(screen.getByTitle("Unsaved changes")).toBeInTheDocument();
-
-    fireEvent.click(screen.getByText("Reset to Defaults"));
-    expect(screen.queryByTitle("Unsaved changes")).not.toBeInTheDocument();
-  });
-
-  it("Reset to Defaults 후 Save Changes 버튼이 다시 disabled된다", () => {
-    renderTable();
-
-    const input = screen.getByDisplayValue("80");
-    fireEvent.change(input, { target: { value: "90" } });
-    fireEvent.click(screen.getByText("Reset to Defaults"));
-
-    expect(screen.getByText("Save Changes")).toBeDisabled();
-  });
-});
-
-describe("AlarmConfigTable — Unit/Direction/Severity 편집", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it("Unit 드롭다운 변경 시 dirty 상태가 된다", () => {
-    renderTable();
-    const selects = screen.getAllByRole("combobox");
-    const unitSelect = selects[0]!;
-    fireEvent.change(unitSelect, { target: { value: "Count" } });
-    expect(screen.getByTitle("Unsaved changes")).toBeInTheDocument();
-  });
-
-  it("Direction 드롭다운 변경 시 dirty 상태가 된다", () => {
-    renderTable();
-    const selects = screen.getAllByRole("combobox");
-    const dirSelect = selects[1]!;
-    fireEvent.change(dirSelect, { target: { value: "<" } });
-    expect(screen.getByTitle("Unsaved changes")).toBeInTheDocument();
-  });
-
-  it("Severity 드롭다운 변경 시 dirty 상태가 된다", () => {
-    renderTable();
-    const selects = screen.getAllByRole("combobox");
-    const sevSelect = selects[2]!;
-    fireEvent.change(sevSelect, { target: { value: "SEV-1" } });
-    expect(screen.getByTitle("Unsaved changes")).toBeInTheDocument();
   });
 });

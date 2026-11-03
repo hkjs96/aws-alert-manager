@@ -1,10 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect } from "react";
-import { useToast } from "@/components/shared/Toast";
-import { LoadingButton } from "@/components/shared/LoadingButton";
 import { AlarmRow } from "./AlarmRow";
-import { saveAlarmConfigs } from "@/lib/api-functions";
 import type { AlarmConfig } from "@/types";
 import type { EditableConfig } from "./AlarmRow";
 
@@ -13,6 +10,8 @@ interface AlarmConfigTableProps {
   initialConfigs: AlarmConfig[];
   monitoringEnabled?: boolean;
   onAddAlarm: () => void;
+  /** 임계치·판단 방식 편집 창을 연다 — 표는 읽기 전용이다 */
+  onEdit: () => void;
   onRegisterAdd?: (fn: (config: AlarmConfig) => void) => void;
   onRegisterSetAllMonitoring?: (fn: (enabled: boolean) => void) => void;
 }
@@ -26,54 +25,15 @@ export function AlarmConfigTable({
   initialConfigs,
   monitoringEnabled,
   onAddAlarm,
+  onEdit,
   onRegisterAdd,
   onRegisterSetAllMonitoring,
 }: AlarmConfigTableProps) {
-  const { showToast } = useToast();
+  // 표는 지금 알람을 보여주기만 한다. 편집은 onEdit 창(PUT /thresholds — 리소스 태그)으로 한다.
+  // 예전에는 이 표에서 바로 저장했는데, 중앙 계정 자격 증명으로 알람을 고쳐 고객 계정 리소스에는 맞지 않았고
+  // 태그도 EC2만 써서 매시 정합 런이 되돌렸다(2026-11-03).
   const [configs, setConfigs] = useState<EditableConfig[]>(toEditable(initialConfigs));
-  const [originals] = useState<AlarmConfig[]>(initialConfigs);
-  const [isSaving, setIsSaving] = useState(false);
-
-  const hasDirty = configs.some((c) => c.dirty);
-
-  const updateConfig = useCallback(
-    (idx: number, patch: Partial<EditableConfig>) => {
-      setConfigs((prev) =>
-        prev.map((c, i) => (i === idx ? { ...c, ...patch, dirty: true } : c)),
-      );
-    },
-    [],
-  );
-
-  const handleSave = async () => {
-    setIsSaving(true);
-    try {
-      await saveAlarmConfigs(resourceId, {
-        configs: configs
-          .filter((c) => c.dirty)
-          .map((c) => ({
-            metric_key: c.metric_key,
-            threshold: c.threshold,
-            monitoring: c.monitoring,
-            unit: c.unit,
-            direction: c.direction,
-            severity: c.severity,
-            mount_path: c.mount_path,
-          })),
-      });
-      showToast("success", "Alarm configuration saved.");
-      setConfigs((prev) => prev.map((c) => ({ ...c, dirty: false })));
-    } catch {
-      showToast("error", "Failed to save alarm configuration.");
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const handleReset = () => {
-    setConfigs(toEditable(originals));
-    showToast("info", "시스템 Reset to Defaults되었습니다.");
-  };
+  const updateConfig = useCallback((_idx: number, _patch: Partial<EditableConfig>) => {}, []);
 
   const addCustomConfig = useCallback((config: AlarmConfig) => {
     setConfigs((prev) => [...prev, { ...config, dirty: true }]);
@@ -100,11 +60,14 @@ export function AlarmConfigTable({
       <div className="px-8 py-6 border-b border-slate-200 flex justify-between items-center bg-white/40">
         <div className="flex items-center gap-3">
           <h2 className="text-lg font-headline font-bold">Alarm Configuration</h2>
-          {hasDirty && (
-            <span className="w-2.5 h-2.5 rounded-full bg-amber-500" title="Unsaved changes" />
-          )}
         </div>
         <div className="flex gap-2">
+          <button
+            onClick={onEdit}
+            className="bg-primary text-white text-sm font-semibold px-4 py-2 rounded-lg hover:bg-primary/90 transition-all"
+          >
+            알람 편집
+          </button>
           <button
             onClick={onAddAlarm}
             className="text-primary text-sm font-semibold flex items-center gap-2 hover:bg-primary/5 px-4 py-2 rounded-lg transition-all"
@@ -137,29 +100,12 @@ export function AlarmConfigTable({
           </thead>
           <tbody className="divide-y divide-slate-100">
             {configs.map((row, i) => (
-              <AlarmRow key={`${row.metric_key}:${row.mount_path ?? ""}`} row={row} index={i} onUpdate={updateConfig} />
+              <AlarmRow key={`${row.metric_key}:${row.mount_path ?? ""}`} row={row} index={i} onUpdate={updateConfig} readOnly />
             ))}
           </tbody>
         </table>
       </div>
 
-      {/* Action buttons */}
-      <div className="px-8 py-4 border-t border-slate-200 bg-white/40 flex gap-3">
-        <LoadingButton
-          isLoading={isSaving}
-          disabled={!hasDirty}
-          onClick={handleSave}
-          className="bg-primary text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-primary/90 disabled:opacity-50"
-        >
-          Save Changes
-        </LoadingButton>
-        <button
-          onClick={handleReset}
-          className="border border-slate-300 text-slate-600 px-4 py-2 rounded-lg text-sm font-semibold hover:bg-slate-50"
-        >
-          Reset to Defaults
-        </button>
-      </div>
     </div>
   );
 }

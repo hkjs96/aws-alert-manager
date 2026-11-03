@@ -83,9 +83,36 @@ def get_dynamic_eval_policy(metric_name: str) -> tuple[int, int]:
     return _EVAL_POLICY_BY_SEVERITY.get(get_severity(metric_name), (1, 1))
 
 
+def eval_locked(alarm_def: dict) -> bool:
+    """판단 방식을 바꿀 수 없는 정의 — 가용성 직결(SEV-1)·1시간 이상 주기.
+
+    자동 정책(`_apply_eval_policy`)은 데이터 없음=장애인 지표도 1/1로 두지만, 사람이 고른 M/N은 받는다 — EC2·RDS CPU가
+    그 부류라 막으면 가장 많이 바꿀 지표를 못 바꾼다. 늦게 울리는 대가는 화면이 풀어서 보여준다.
+    """
+    return (
+        get_severity(alarm_def.get("metric_key") or alarm_def["metric"]) == "SEV-1"
+        or alarm_def.get("period", 0) >= 3600
+    )
+
+
+def _apply_eval_tags(defs: list[dict], resource_tags: dict) -> list[dict]:
+    """리소스의 `Threshold_{지표}_Eval=M/N` 태그가 정책을 이긴다. 잠긴 정의는 무시한다."""
+    from common.tag_resolver import get_eval_override
+    out = []
+    for d in defs:
+        override = get_eval_override(resource_tags, d["metric"])
+        if override is None or eval_locked(d):
+            out.append(d)
+            continue
+        ep, dp = override
+        out.append({**d, "evaluation_periods": ep, "datapoints_to_alarm": dp})
+    return out
+
+
 def _get_alarm_defs(resource_type: str, resource_tags: dict | None = None) -> list[dict]:
-    """리소스 타입의 알람 정의 (M-of-N 평가 정책 적용 후)."""
-    return _apply_eval_policy(_get_alarm_defs_raw(resource_type, resource_tags))
+    """리소스 타입의 알람 정의 (M-of-N 평가 정책, 그다음 리소스의 판단 방식 태그 적용 후)."""
+    defs = _apply_eval_policy(_get_alarm_defs_raw(resource_type, resource_tags))
+    return _apply_eval_tags(defs, resource_tags) if resource_tags else defs
 
 
 #: 타입 → 알람 정의(리스트 또는 `Callable[[tags], list]`). **스펙에서 파생** — 정의는 `common/resource_types/<type>.py`에.

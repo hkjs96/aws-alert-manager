@@ -327,6 +327,55 @@ Response `200`:
 
 `404` — 인벤토리에 없음, `400` — 지원하지 않는 타입, `502` — 알람을 읽지 못함(화면은 점검 없이 진행).
 
+## GET /api/resources/{id}/thresholds
+
+리소스의 지표마다 지금 임계치·판단 방식과 그 출처. 리소스의 실제 태그를 읽는다(고객 계정 역할).
+
+Response `200`:
+
+```json
+{
+  "resource_id": "i-0a1b",
+  "resource_type": "EC2",
+  "monitoring": true,
+  "metrics": [
+    {
+      "metric": "CPUUtilization", "label": "CPUUtilization", "direction": ">", "unit": "%",
+      "statistic": "Average", "period": 300,
+      "off": false, "value": 90, "source": "resource",
+      "customer_default": null, "system_default": 80,
+      "eval": "3/5", "eval_source": "resource", "eval_default": "1/1", "eval_locked": false
+    }
+  ]
+}
+```
+
+- `source`: `resource`(리소스 태그) | `customer`(설정 > 임계치) | `system`.
+- `eval`: `"M/N"` — 최근 N개 평가 기간 중 M개가 넘으면 알람. `eval_locked`면 바꿀 수 없다(SEV-1·1시간 이상 주기).
+- 디스크 경로별 지표는 포함하지 않는다.
+
+## PUT /api/resources/{id}/thresholds
+
+리소스 태그를 쓰고 지운 뒤 그 리소스의 알람을 바로 맞춘다(모니터링이 꺼진 리소스는 태그만). 벌크 Configure Alarms는
+리소스마다 이 요청을 보낸다.
+
+Request:
+
+```json
+{ "set": { "CPUUtilization": 90 }, "eval": { "CPUUtilization": "3/5" }, "clear": ["mem_used_percent"] }
+```
+
+- `set` 값: 양수 또는 `"off"`(알람 끄기). `clear`: 개별 임계치 해제(레거시 이름 태그도 함께 지운다).
+- `eval` 값 `null`: 판단 방식 태그를 지워 기본값으로 되돌린다.
+
+Response `200`: `{resource_id, status: "updated", tags_written, tags_removed, alarms_synced, metrics}` (`metrics`는 GET과 같은 모양).
+
+`400 VALIDATION_ERROR` — 편집할 수 없는 지표·잘못된 값·바뀌는 것 없음, `403 ROLE_UPDATE_REQUIRED` — 계정 역할이
+`Threshold_*` 태그를 쓸 수 없음(온보딩 스택 업데이트 필요), `404` — 범위 밖이거나 없음.
+
+`PUT /api/resources/{id}/alarms`(옛 표 편집)는 화면에서 더 쓰지 않는다 — 중앙 계정 자격 증명으로 알람을 고쳐 고객 계정
+리소스에는 맞지 않는다.
+
 ## GET /api/resources/{id}/disk-paths
 
 Response `200`:

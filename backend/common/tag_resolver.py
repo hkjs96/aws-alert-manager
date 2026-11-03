@@ -46,6 +46,47 @@ def is_threshold_off(resource_tags: dict, metric_name: str) -> bool:
     return False
 
 
+#: `Threshold_{지표}_Eval=M/N` — 최근 N개 평가 기간 중 M개가 넘으면 알람(콘솔의 판단 방식, 2026-11-03).
+EVAL_TAG_SUFFIX = "_Eval"
+MAX_EVAL_PERIODS = 10
+
+
+def eval_tag_key(metric_name: str) -> str:
+    return f"Threshold_{metric_name}{EVAL_TAG_SUFFIX}"
+
+
+def parse_eval(value) -> tuple[int, int] | None:
+    """'M/N' → (N, M) = (evaluation_periods, datapoints_to_alarm). 형식이 틀리면 None."""
+    m_str, sep, n_str = str(value or "").strip().partition("/")
+    if not sep:
+        return None
+    try:
+        m, n = int(m_str), int(n_str)
+    except ValueError:
+        return None
+    if not 1 <= m <= n <= MAX_EVAL_PERIODS:
+        return None
+    return n, m
+
+
+def get_eval_override(resource_tags: dict, metric_name: str) -> tuple[int, int] | None:
+    """리소스가 정한 판단 방식 (evaluation_periods, datapoints_to_alarm). 레거시 태그 이름도 본다."""
+    names = [metric_name]
+    legacy = _LEGACY_TAG_MAP.get(metric_name)
+    if legacy:
+        names.append(legacy)
+    for name in names:
+        raw = resource_tags.get(eval_tag_key(name))
+        if raw is None:
+            continue
+        parsed = parse_eval(raw)
+        if parsed is None:
+            logger.warning("Ignoring %s=%s: expected M/N with 1 <= M <= N <= %d",
+                           eval_tag_key(name), raw, MAX_EVAL_PERIODS)
+        return parsed
+    return None
+
+
 def get_threshold(resource_tags: dict, metric_name: str) -> float:
     """
     리소스 태그에서 임계치를 조회.

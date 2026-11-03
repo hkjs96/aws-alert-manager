@@ -90,10 +90,9 @@ const SECTIONS: Section[] = [
             <ul className="ml-4 mt-1.5 list-disc space-y-0.5">
               <li>각 행의 <b>토글</b>로 모니터링을 켜고 끕니다. 켜면 해당 리소스에 알람이 생성됩니다.</li>
               <li>여러 개를 선택해 <b>일괄(Bulk)</b>로 모니터링을 켜고 끌 수 있습니다.</li>
-              <li className="text-slate-400">
-                일괄 <b className="text-slate-500">알람 설정</b>(Configure Alarms)은{" "}
-                <span className="rounded bg-slate-100 px-1 py-0.5 text-[10px] font-semibold text-slate-500">예정</span>
-                {" "}— 준비 중입니다.
+              <li>
+                같은 타입 리소스를 여러 개 고르고 <b>Configure Alarms</b>로 임계치·판단 방식(M/N)을 한 번에 바꿉니다.
+                적용 전에 리소스마다 무엇이 바뀌는지 보여줍니다. 한 리소스만 바꾸려면 리소스 상세의 <b>알람 편집</b>을 쓰세요.
               </li>
               <li><b>Sync</b> 버튼으로 계정/리전 범위를 정해 최신 리소스를 다시 수집합니다.</li>
             </ul>

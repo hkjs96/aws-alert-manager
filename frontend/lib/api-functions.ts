@@ -21,6 +21,8 @@ import type {
   ChannelListResponse,
   ChannelInput,
   NotificationChannel,
+  ResourceThresholds,
+  ThresholdUpdate,
 } from "@/types/api";
 import type { AlarmConfig, Resource, Customer, Account, RecentAlarm, Alarm } from "@/types/index";
 import { apiFetch, buildFilterParams, buildQueryString } from "./api";
@@ -329,4 +331,15 @@ export async function deleteChannel(channelId: string, customerId: string): Prom
     `/api/alert/channels/${encodeURIComponent(channelId)}?customer_id=${encodeURIComponent(customerId)}`,
     { method: "DELETE" },
   );
+}
+
+export function fetchResourceThresholds(id: string): Promise<ResourceThresholds> {
+  return apiFetch(`/api/resources/${encodeResourceId(id)}/thresholds`);
+}
+
+export function saveResourceThresholds(id: string, update: ThresholdUpdate): Promise<ResourceThresholds> {
+  return apiFetch(`/api/resources/${encodeResourceId(id)}/thresholds`, {
+    method: "PUT",
+    body: JSON.stringify(update),
+  });
 }

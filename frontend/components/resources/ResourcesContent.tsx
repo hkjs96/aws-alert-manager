@@ -20,6 +20,7 @@ import { FilterBar } from "./FilterBar";
 import { ResourceSummary } from "./ResourceSummary";
 import { EnableModal } from "./EnableModal";
 import { DisableModal } from "./DisableModal";
+import { BulkConfigureModal } from "./BulkConfigureModal";
 
 type SortDir = "asc" | "desc";
 type PendingToggle = {
@@ -85,7 +86,7 @@ export function ResourcesContent({
   const { loadingIds, toggle } = useMonitoringToggle();
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [modal, setModal] = useState<"enable" | "disable" | null>(null);
+  const [modal, setModal] = useState<"enable" | "disable" | "configure" | null>(null);
   const [search, setSearch] = useState("");
   const [monitoringFilter, setMonitoringFilter] = useState<"on" | "off" | "">(initialMonitoring);
   const [typeFilter, setTypeFilter] = useState("");
@@ -321,6 +322,7 @@ export function ResourcesContent({
         isMixedType={!isSameType && selected.size > 1}
         onEnable={() => setModal("enable")}
         onDisable={() => setModal("disable")}
+        onConfigure={() => setModal("configure")}
       />
 
       {/* Resource table */}
@@ -354,6 +356,14 @@ export function ResourcesContent({
           isSameType={isSameType}
           onClose={() => setModal(null)}
           onComplete={handleBulkEnableComplete}
+        />
+      )}
+      {modal === "configure" && selectedType && (
+        <BulkConfigureModal
+          resourceType={selectedType}
+          targets={selectedResources.map((r) => ({ id: r.id, name: r.name || r.id }))}
+          onClose={() => setModal(null)}
+          onApplied={() => router.refresh()}
         />
       )}
       {modal === "disable" && (

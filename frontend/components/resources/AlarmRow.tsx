@@ -44,12 +44,14 @@ interface AlarmRowProps {
   row: EditableConfig;
   index: number;
   onUpdate: (idx: number, patch: Partial<EditableConfig>) => void;
+  /** 보기만 — 편집은 리소스 상세의 "알람 편집" 창에서 한다 */
+  readOnly?: boolean;
 }
 
 const sel = "bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-colors";
 const inp = "bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 font-mono text-xs focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-colors";
 
-export function AlarmRow({ row, index, onUpdate }: AlarmRowProps) {
+export function AlarmRow({ row, index, onUpdate, readOnly = false }: AlarmRowProps) {
   const stateColor = STATE_COLORS[row.state] ?? "text-slate-500 bg-slate-100";
   const [open, setOpen] = useState(false);
   const Chevron = open ? ChevronUp : ChevronDown;
@@ -58,7 +60,7 @@ export function AlarmRow({ row, index, onUpdate }: AlarmRowProps) {
     <>
       <tr className="bg-white/30 hover:bg-white transition-colors">
         <td className="pl-8 py-5">
-          <input
+          <input disabled={readOnly}
             type="checkbox"
             checked={row.monitoring}
             onChange={(e) => onUpdate(index, { monitoring: e.target.checked })}
@@ -74,7 +76,7 @@ export function AlarmRow({ row, index, onUpdate }: AlarmRowProps) {
           )}
         </td>
         <td className="px-4 py-5">
-          <input
+          <input disabled={readOnly}
             type="number"
             value={row.threshold}
             onChange={(e) => onUpdate(index, { threshold: Number(e.target.value) })}
@@ -82,17 +84,17 @@ export function AlarmRow({ row, index, onUpdate }: AlarmRowProps) {
           />
         </td>
         <td className="px-4 py-5">
-          <select value={row.unit} onChange={(e) => onUpdate(index, { unit: e.target.value })} className={`${sel} min-w-[100px]`}>
+          <select disabled={readOnly} value={row.unit} onChange={(e) => onUpdate(index, { unit: e.target.value })} className={`${sel} min-w-[100px]`}>
             {UNIT_OPTIONS.map((u) => <option key={u} value={u}>{u}</option>)}
           </select>
         </td>
         <td className="px-4 py-5 text-center">
-          <select value={row.direction} onChange={(e) => onUpdate(index, { direction: e.target.value as DirectionSimple })} className={sel}>
+          <select disabled={readOnly} value={row.direction} onChange={(e) => onUpdate(index, { direction: e.target.value as DirectionSimple })} className={sel}>
             {DIRECTION_OPTIONS.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
           </select>
         </td>
         <td className="px-4 py-5">
-          <select value={row.severity} onChange={(e) => onUpdate(index, { severity: e.target.value as SeverityLevel })} className={sel}>
+          <select disabled={readOnly} value={row.severity} onChange={(e) => onUpdate(index, { severity: e.target.value as SeverityLevel })} className={sel}>
             {SEVERITY_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
         </td>
@@ -130,14 +132,14 @@ export function AlarmRow({ row, index, onUpdate }: AlarmRowProps) {
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Period</label>
-                  <select value={row.period ?? 300} onChange={(e) => onUpdate(index, { period: Number(e.target.value) })} className={`w-full ${sel}`}>
+                  <select disabled={readOnly} value={row.period ?? 300} onChange={(e) => onUpdate(index, { period: Number(e.target.value) })} className={`w-full ${sel}`}>
                     {PERIOD_OPTIONS.map((p) => <option key={p} value={p}>{p >= 60 ? `${p / 60}m` : `${p}s`}</option>)}
                   </select>
                 </div>
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Datapoints to Alarm</label>
                   <div className="flex items-center gap-1.5">
-                    <input
+                    <input disabled={readOnly}
                       type="number"
                       min={1}
                       max={100}
@@ -146,7 +148,7 @@ export function AlarmRow({ row, index, onUpdate }: AlarmRowProps) {
                       className={`w-14 text-center ${inp}`}
                     />
                     <span className="text-slate-400 text-xs font-medium">of</span>
-                    <input
+                    <input disabled={readOnly}
                       type="number"
                       min={1}
                       max={100}
@@ -158,13 +160,13 @@ export function AlarmRow({ row, index, onUpdate }: AlarmRowProps) {
                 </div>
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Statistic</label>
-                  <select value={row.statistic ?? "Average"} onChange={(e) => onUpdate(index, { statistic: e.target.value as AlarmStatistic })} className={`w-full ${sel}`}>
+                  <select disabled={readOnly} value={row.statistic ?? "Average"} onChange={(e) => onUpdate(index, { statistic: e.target.value as AlarmStatistic })} className={`w-full ${sel}`}>
                     {STATISTIC_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
                   </select>
                 </div>
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Missing Data</label>
-                  <select value={row.treat_missing_data ?? "missing"} onChange={(e) => onUpdate(index, { treat_missing_data: e.target.value as TreatMissingData })} className={`w-full ${sel}`}>
+                  <select disabled={readOnly} value={row.treat_missing_data ?? "missing"} onChange={(e) => onUpdate(index, { treat_missing_data: e.target.value as TreatMissingData })} className={`w-full ${sel}`}>
                     {MISSING_DATA_OPTIONS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
                   </select>
                 </div>

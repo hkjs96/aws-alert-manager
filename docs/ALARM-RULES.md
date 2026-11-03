@@ -79,6 +79,9 @@
 
 - `Threshold_{MetricName}={Value}` 태그는 동적으로 파싱하여 알람을 생성한다
 - 하드코딩 메트릭 목록(`_EC2_ALARMS` 등)은 기본 알람 정의로만 사용하고, 태그에서 발견된 추가 메트릭도 처리한다
+- `Threshold_{MetricName}_Eval=M/N` 태그는 지표가 아니라 그 지표의 **판단 방식**이다(EvaluationPeriods=N, DatapointsToAlarm=M,
+  1 ≤ M ≤ N ≤ 10). 심각도 기반 M-of-N 정책보다 우선한다. SEV-1과 1시간 이상 주기 지표는 1/1 고정이라 무시한다.
+  형식이 틀리면 무시하고 정책값을 쓴다. 동적 알람 파싱은 `_Eval`로 끝나는 키를 건너뛴다. 디스크 경로별 지표는 대상이 아니다
 - 디멘션 자동 해석: CloudWatch `list_metrics` API로 네임스페이스/디멘션을 조회한다
 - AWS 태그 제약 준수:
   - 태그 키 최대 128자 → `Threshold_` 접두사(10자) 제외 시 메트릭 이름 최대 118자

@@ -122,7 +122,7 @@ def _parse_threshold_tags(
     Returns:
         {metric_name: (threshold_value, comparison_operator)} 딕셔너리 (동적 메트릭만)
     """
-    from common.tag_resolver import _LEGACY_TAG_MAP
+    from common.tag_resolver import _LEGACY_TAG_MAP, EVAL_TAG_SUFFIX
     hardcoded = _get_hardcoded_metric_keys(resource_type, resource_tags)
     # KI-005: CW metric_name 별칭도 필터링 (중복 동적 알람 방지)
     _alarm_defs = _get_alarm_defs(resource_type, resource_tags)
@@ -138,6 +138,8 @@ def _parse_threshold_tags(
             continue
         if key in ("Threshold_FreeMemoryPct", "Threshold_FreeLocalStoragePct"):
             continue
+        if key.endswith(EVAL_TAG_SUFFIX):
+            continue  # 판단 방식(M/N) 태그 — 지표가 아니다
 
         raw_metric = key[len("Threshold_"):]
 

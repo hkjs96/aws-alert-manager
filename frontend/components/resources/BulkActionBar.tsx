@@ -8,6 +8,8 @@ interface BulkActionBarProps {
   isMixedType: boolean;
   onEnable: () => void;
   onDisable: () => void;
+  /** 같은 타입일 때만 — 임계치·판단 방식 일괄 변경 */
+  onConfigure: () => void;
 }
 
 export function BulkActionBar({
@@ -15,6 +17,7 @@ export function BulkActionBar({
   isMixedType,
   onEnable,
   onDisable,
+  onConfigure,
 }: BulkActionBarProps) {
   if (selectedCount === 0) return null;
 
@@ -41,11 +44,12 @@ export function BulkActionBar({
         <Button
           variant="primary"
           size="sm"
-          disabled
-          title="곧 제공 예정 (Coming soon)"
+          disabled={isMixedType}
+          title={isMixedType ? "같은 타입 리소스만 함께 설정할 수 있습니다" : undefined}
+          onClick={onConfigure}
           icon={<Settings size={14} />}
         >
-          Configure Alarms (예정)
+          Configure Alarms
         </Button>
       </div>
     </div>

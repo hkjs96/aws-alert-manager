@@ -123,7 +123,19 @@ AWS의 태깅 모범 사례("Tags for automation": 자동화 opt-in/opt-out을 �
 | 리소스별 임계치 | `Threshold_<메트릭>` 태그(예 `Threshold_CPUUtilization=85`). 목록은 `docs/ALARM-RULES.md` |
 | 반영 시각 | EC2·RDS·ALB·SQS는 CloudTrail 태그 이벤트로 수 분 안에, 나머지 타입은 **한 시간 단위 정합 런**이 알람과 콘솔 표시를 맞춘다 |
 | 리소스 교체 | 오토스케일링·재생성으로 ID가 바뀌어도 새 리소스에 태그가 있으면 자동 감시 — IaC에 태그를 두는 이유 |
-| 우리 역할이 쓰는 태그 | `Monitoring` 키 **하나만**. 온보딩 스택의 태그 쓰기 권한은 `aws:TagKeys` 조건으로 이 키에 묶여 있어 비용 배분·ABAC 태그는 건드릴 수 없다 |
+| 판단 방식(M/N) | `Threshold_<메트릭>_Eval=M/N` — 최근 N개 평가 기간 중 M개가 넘으면 알람(예 `Threshold_CPUUtilization_Eval=3/5`, N ≤ 10). 없으면 심각도별 기본값 |
+| 우리 역할이 쓰는 태그 | `Monitoring`과 `Threshold_*` 키만(2026-11 템플릿부터 — 콘솔에서 리소스별 임계치를 바꿀 때). 온보딩 스택의 태그 쓰기·삭제 권한은 `aws:TagKeys` 조건으로 이 키들에 묶여 있어 비용 배분·ABAC 태그는 건드릴 수 없다. 이전 템플릿으로 온보딩한 계정은 스택 업데이트가 필요하다 |
+
+콘솔에서 바꾼 `Threshold_*` 태그를 IaC가 지우지 않게 하려면 Terraform AWS provider에 아래를 넣는다
+(CloudFormation은 템플릿에 선언한 태그만 관리하므로 보통 필요 없다).
+
+```hcl
+provider "aws" {
+  ignore_tags {
+    key_prefixes = ["Threshold_"]
+  }
+}
+```
 
 IaC 예시:
 

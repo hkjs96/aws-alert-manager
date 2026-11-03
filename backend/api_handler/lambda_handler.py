@@ -37,7 +37,7 @@ def _route_name(method: str, pattern: re.Pattern) -> str:
     return f"{method} {_ROUTE_PARAM_RE.sub(lambda m: '{' + m.group(1) + '}', raw)}"
 
 from api_handler.routes import (
-    customers, accounts, dashboard, resources, alarms, thresholds, jobs, bulk,
+    customers, accounts, dashboard, resources, resource_thresholds, alarms, thresholds, jobs, bulk,
     monitor_runs, sync, preferences, alert_policy, alert_events, notification_channels,
     incidents,
 )
@@ -119,6 +119,8 @@ _ROUTES: list[tuple[str, re.Pattern, object]] = [
     ("GET",    re.compile(r"^/resources/(?P<id>[^/]+)/alarms$"),      resources.get_resource_alarms),
     ("PUT",    re.compile(r"^/resources/(?P<id>[^/]+)/alarms$"),      resources.update_resource_alarms),
     ("POST",   re.compile(r"^/resources/(?P<id>[^/]+)/alarms$"),      resources.create_resource_alarm),
+    ("GET",    re.compile(r"^/resources/(?P<id>[^/]+)/thresholds$"),  resource_thresholds.get_resource_thresholds),
+    ("PUT",    re.compile(r"^/resources/(?P<id>[^/]+)/thresholds$"),  resource_thresholds.update_resource_thresholds),
     ("GET",    re.compile(r"^/resources/(?P<id>[^/]+)/disk-paths$"),  resources.get_disk_paths),
     ("GET",    re.compile(r"^/resources/(?P<id>[^/]+)/alarm-overlaps$"), resources.get_alarm_overlaps),
     ("GET",    re.compile(r"^/resources/(?P<id>[^/]+)/metrics$"),     resources.get_resource_metrics),

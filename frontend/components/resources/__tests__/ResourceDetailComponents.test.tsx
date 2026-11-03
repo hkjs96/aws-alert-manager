@@ -143,6 +143,7 @@ describe("AlarmConfigTable", () => {
         resourceId="i-0a2b4c6d8e0f12"
         initialConfigs={MOCK_CONFIGS}
         onAddAlarm={vi.fn()}
+        onEdit={vi.fn()}
       />,
       { wrapper: Wrapper },
     );
@@ -150,80 +151,21 @@ describe("AlarmConfigTable", () => {
     expect(screen.getByText("mem_used_percent")).toBeInTheDocument();
   });
 
-  it("임계치 수정 시 unsaved indicator를 표시한다", () => {
+  it("표는 읽기 전용이고 알람 편집 버튼이 편집 창을 연다", () => {
+    const onEdit = vi.fn();
     render(
       <AlarmConfigTable
         resourceId="i-0a2b4c6d8e0f12"
         initialConfigs={MOCK_CONFIGS}
         onAddAlarm={vi.fn()}
+        onEdit={onEdit}
       />,
       { wrapper: Wrapper },
     );
-    // Initially no unsaved indicator
-    expect(screen.queryByTitle("Unsaved changes")).not.toBeInTheDocument();
-
-    // Change a threshold
-    const inputs = screen.getAllByRole("spinbutton");
-    fireEvent.change(inputs[0]!, { target: { value: "90" } });
-
-    // Now unsaved indicator should appear
-    expect(screen.getByTitle("Unsaved changes")).toBeInTheDocument();
-  });
-
-  it("Save Changes 버튼이 변경 없을 때 비활성화된다", () => {
-    render(
-      <AlarmConfigTable
-        resourceId="i-0a2b4c6d8e0f12"
-        initialConfigs={MOCK_CONFIGS}
-        onAddAlarm={vi.fn()}
-      />,
-      { wrapper: Wrapper },
-    );
-    expect(screen.getByText("Save Changes").closest("button")).toBeDisabled();
-  });
-
-  it("Save Changes 클릭 시 API를 호출하고 성공 토스트를 표시한다", async () => {
-    const { saveAlarmConfigs } = await import("@/lib/api-functions");
-    render(
-      <AlarmConfigTable
-        resourceId="i-0a2b4c6d8e0f12"
-        initialConfigs={MOCK_CONFIGS}
-        onAddAlarm={vi.fn()}
-      />,
-      { wrapper: Wrapper },
-    );
-
-    // Make a change
-    const inputs = screen.getAllByRole("spinbutton");
-    fireEvent.change(inputs[0]!, { target: { value: "90" } });
-
-    // Click save
-    fireEvent.click(screen.getByText("Save Changes"));
-
-    await waitFor(() => {
-      expect(saveAlarmConfigs).toHaveBeenCalled();
-    });
-  });
-
-  it("Reset to Defaults 클릭 시 원래 값으로 복원한다", () => {
-    render(
-      <AlarmConfigTable
-        resourceId="i-0a2b4c6d8e0f12"
-        initialConfigs={MOCK_CONFIGS}
-        onAddAlarm={vi.fn()}
-      />,
-      { wrapper: Wrapper },
-    );
-
-    // Change a threshold
-    const inputs = screen.getAllByRole("spinbutton");
-    fireEvent.change(inputs[0]!, { target: { value: "90" } });
-    expect((inputs[0] as HTMLInputElement).value).toBe("90");
-
-    // Reset
-    fireEvent.click(screen.getByText("Reset to Defaults"));
-    const resetInputs = screen.getAllByRole("spinbutton");
-    expect((resetInputs[0] as HTMLInputElement).value).toBe("80");
+    for (const input of screen.getAllByRole("spinbutton")) expect(input).toBeDisabled();
+    expect(screen.queryByText("Save Changes")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText("알람 편집"));
+    expect(onEdit).toHaveBeenCalled();
   });
 
   it("SeverityBadge와 SourceBadge를 표시한다", () => {
@@ -232,6 +174,7 @@ describe("AlarmConfigTable", () => {
         resourceId="i-0a2b4c6d8e0f12"
         initialConfigs={MOCK_CONFIGS}
         onAddAlarm={vi.fn()}
+        onEdit={vi.fn()}
       />,
       { wrapper: Wrapper },
     );

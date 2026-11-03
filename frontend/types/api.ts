@@ -341,3 +341,39 @@ export interface ChannelInput {
   match: Record<string, string[]>;
   enabled: boolean;
 }
+
+// ── 리소스별 임계치·판단 방식 (GET/PUT /resources/{id}/thresholds) ──
+
+export type ThresholdSource = "resource" | "customer" | "system";
+
+export interface ThresholdMetric {
+  metric: string;
+  label: string;
+  direction: string;
+  unit: string;
+  statistic: string | null;
+  period: number | null;
+  off: boolean;
+  value: number | null;
+  source: ThresholdSource;
+  customer_default: number | null;
+  system_default: number;
+  /** "M/N" — 최근 N개 평가 기간 중 M개가 넘으면 알람 */
+  eval: string;
+  eval_source: "resource" | "system";
+  eval_default: string;
+  eval_locked: boolean;
+}
+
+export interface ResourceThresholds {
+  resource_id: string;
+  resource_type: string;
+  monitoring: boolean;
+  metrics: ThresholdMetric[];
+}
+
+export interface ThresholdUpdate {
+  set?: Record<string, number | "off">;
+  eval?: Record<string, string | null>;
+  clear?: string[];
+}

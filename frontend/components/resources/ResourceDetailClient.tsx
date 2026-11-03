@@ -1,9 +1,11 @@
 "use client";
 
 import { useState, useCallback, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { ResourceHeader } from "./ResourceHeader";
 import { AlarmConfigTable } from "./AlarmConfigTable";
 import { AlarmForm } from "./AlarmForm";
+import { ThresholdEditModal } from "./ThresholdEditModal";
 import type { Resource, AlarmConfig } from "@/types";
 
 interface ResourceDetailClientProps {
@@ -12,7 +14,9 @@ interface ResourceDetailClientProps {
 }
 
 export function ResourceDetailClient({ resource, alarmConfigs }: ResourceDetailClientProps) {
+  const router = useRouter();
   const [showAlarmForm, setShowAlarmForm] = useState(false);
+  const [showEdit, setShowEdit] = useState(false);
   const [monitoring, setMonitoring] = useState(resource.monitoring);
   const addConfigRef = useRef<((config: AlarmConfig) => void) | null>(null);
   const setAllMonitoringRef = useRef<((enabled: boolean) => void) | null>(null);
@@ -82,13 +86,26 @@ export function ResourceDetailClient({ resource, alarmConfigs }: ResourceDetailC
       )}
 
       <AlarmConfigTable
+        // 저장 후 router.refresh()로 새 알람 행이 오면 표를 새로 그린다 — 표는 첫 값으로 상태를 잡는다
+        key={alarmConfigs.map((c) => `${c.metric_key}:${c.threshold}:${c.datapoints_to_alarm}/${c.evaluation_periods}`).join("|")}
         resourceId={resource.id}
         initialConfigs={alarmConfigs}
         monitoringEnabled={monitoring}
         onAddAlarm={() => setShowAlarmForm(true)}
+        onEdit={() => setShowEdit(true)}
         onRegisterAdd={(fn) => { addConfigRef.current = fn; }}
         onRegisterSetAllMonitoring={(fn) => { setAllMonitoringRef.current = fn; }}
       />
+
+      {showEdit && (
+        <ThresholdEditModal
+          resourceId={resource.id}
+          resourceName={resource.name || resource.id}
+          resourceType={resource.type}
+          onClose={() => setShowEdit(false)}
+          onSaved={() => { setShowEdit(false); router.refresh(); }}
+        />
+      )}
 
       {showAlarmForm && (
         <AlarmForm
