@@ -1342,6 +1342,10 @@ Resources:
           # 버스 정책 드리프트·부여 실패를 운영자에게 올린다(accounts._forwarding_incident).
           # 없으면 sns_notifier가 로그만 남기고 물러나 — 그 손실은 "알람이 안 온다"로만 드러난다.
           SNS_TOPIC_ARN_ERROR: !Ref ErrorAlertTopic
+          # 토글·임계치 편집이 알람을 바로 만든다 — 데일리 런과 같은 액션 토픽이 있어야 한다. 없으면 알람이 액션 없이
+          # 생기고, 동기화는 액션을 비교하지 않아 그대로 남는다(2026-11-03 임계치 편집 라이브 검증에서 발견).
+          SNS_TOPIC_ARN_ALERT: !Ref MonitoringAlertTopic
+          SNS_TOPIC_ARN_GLOBAL_ALERT: !GetAtt GlobalAlertSetup.TopicArn
           EVENT_HISTORY_TABLE: !Ref EventHistoryTable
           ALERT_STATE_TABLE: !Ref AlertStateTable
           NOTIFICATION_CHANNEL_TABLE: !Ref NotificationChannelTable
