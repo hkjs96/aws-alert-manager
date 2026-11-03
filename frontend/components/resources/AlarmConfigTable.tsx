@@ -21,7 +21,6 @@ function toEditable(configs: AlarmConfig[]): EditableConfig[] {
 }
 
 export function AlarmConfigTable({
-  resourceId,
   initialConfigs,
   monitoringEnabled,
   onAddAlarm,
