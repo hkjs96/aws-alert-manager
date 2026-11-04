@@ -14,8 +14,8 @@ import { PreviewLine } from "../NotificationSection";
 describe("PreviewLine — 저장 전 예상 건수", () => {
   it("지난 30일 기준 건수와 하루 평균을 보여 준다", async () => {
     render(<PreviewLine customerId="HOME" match={{ severity: ["SEV-1", "SEV-2", "SEV-3"], resource_type: [] }} />);
-    await waitFor(() => expect(screen.getByText("30건")).toBeInTheDocument(), { timeout: 2000 });
-    expect(screen.getByText(/하루 약 1건/)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("30 messages")).toBeInTheDocument(), { timeout: 2000 });
+    expect(screen.getByText(/about 1\/day/)).toBeInTheDocument();
     // 빈 축은 보내지 않는다(= 전부)
     expect(previewChannel).toHaveBeenCalledWith({ customer_id: "HOME", match: { severity: ["SEV-1", "SEV-2", "SEV-3"] } });
   });

@@ -12,11 +12,11 @@ export const DEFAULT_SEVERITIES = ["SEV-1", "SEV-2", "SEV-3"];
 
 /** 등급 뜻 — docs/ALARM-RULES.md 심각도 표의 요약. 고르는 사람이 무엇을 놓치는지 알 수 있게 한다. */
 export const SEVERITY_INFO: Record<string, { name: string; example: string }> = {
-  "SEV-1": { name: "서비스 장애 · 즉시", example: "상태 검사 실패, 정상 대상 0, VPN 터널 끊김" },
-  "SEV-2": { name: "주요 기능 장애 · 15분 내", example: "5XX 급증, Lambda 오류, 비정상 대상 증가" },
-  "SEV-3": { name: "자원 포화 · 30분 내", example: "CPU·메모리·디스크 80% 초과, 인증서 만료 임박" },
-  "SEV-4": { name: "성능 저하 · 4시간 내", example: "응답 지연, DB 읽기/쓰기 지연" },
-  "SEV-5": { name: "참고 · 다음 업무 시간", example: "요청 수·트래픽 추세, 4XX" },
+  "SEV-1": { name: "Outage · immediate", example: "Status check failed, 0 healthy targets, VPN tunnel down" },
+  "SEV-2": { name: "Major failure · within 15 min", example: "5XX spike, Lambda errors, more unhealthy targets" },
+  "SEV-3": { name: "Saturation · within 30 min", example: "CPU/memory/disk over 80%, certificate expiring" },
+  "SEV-4": { name: "Degraded · within 4 hours", example: "Slow responses, DB read/write latency" },
+  "SEV-5": { name: "Info · next business hours", example: "Request/traffic trends, 4XX" },
 };
 
 export type AccountOption = { id: string; name: string; customerId: string };
@@ -26,8 +26,8 @@ function toggle(values: string[], value: string): string[] {
 }
 
 /**
- * "전부 받기 / 골라서 받기" — 아무것도 안 고르면 전부라는 규칙을 숨기지 않는다.
- * 골라서 받기를 눌렀는데 아직 하나도 안 골랐으면 저장하면 전부가 되므로 그 사실을 적어 둔다.
+ * "All / Choose" — 아무것도 안 고르면 전부라는 규칙을 숨기지 않는다.
+ * Choose를 눌렀는데 아직 하나도 안 골랐으면 저장하면 전부가 되므로 그 사실을 적어 둔다.
  */
 function AllOrPick({
   label,
@@ -54,18 +54,18 @@ function AllOrPick({
             checked={!picking}
             onChange={() => { setPicking(false); onChange([]); }}
           />
-          전부 받기
+          All
         </label>
         <label className="flex items-center gap-1.5">
           <input type="radio" name={name} checked={picking} onChange={() => setPicking(true)} />
-          골라서 받기
+          Choose
         </label>
       </div>
       {picking && (
         <div className="space-y-1.5 pl-5">
           {children}
           {selected.length === 0 && (
-            <p className="text-[11px] text-amber-700">아직 고른 게 없습니다 — 이대로 저장하면 전부 받습니다.</p>
+            <p className="text-[11px] text-amber-700">Nothing selected — saving now receives everything.</p>
           )}
         </div>
       )}
@@ -118,11 +118,11 @@ export function ChannelMatchPicker({
 
   return (
     <div className="space-y-5 rounded-lg bg-slate-50 p-4">
-      <p className="text-xs font-semibold text-slate-600">조건</p>
+      <p className="text-xs font-semibold text-slate-600">Conditions</p>
 
       <fieldset>
         <legend className="text-xs font-semibold text-slate-600">
-          등급 <span className="font-normal text-slate-400">— 아무것도 안 고르면 전부 받습니다</span>
+          Severity <span className="font-normal text-slate-400">— none selected receives all</span>
         </legend>
         <div className="mt-2 space-y-1">
           {severities.map((s) => {
@@ -146,7 +146,7 @@ export function ChannelMatchPicker({
         </div>
       </fieldset>
 
-      <AllOrPick label="리소스 타입" name="match-type" selected={selectedTypes} onChange={set("resource_type")}>
+      <AllOrPick label="Resource type" name="match-type" selected={selectedTypes} onChange={set("resource_type")}>
         <div className="flex flex-wrap gap-1.5">
           {typeOptions.map((t) => (
             <Chip key={t} on={selectedTypes.includes(t)} onClick={() => set("resource_type")(toggle(selectedTypes, t))}>
@@ -161,14 +161,14 @@ export function ChannelMatchPicker({
             onClick={() => setShowAllTypes((v) => !v)}
             className="text-[11px] font-semibold text-primary"
           >
-            {showAllTypes ? "이 고객사에 있는 타입만 보기" : `모든 타입 보기 (${SUPPORTED_RESOURCE_TYPES.length})`}
+            {showAllTypes ? "Show only this customer's types" : `Show all types (${SUPPORTED_RESOURCE_TYPES.length})`}
           </button>
         )}
       </AllOrPick>
 
       {/* 계정이 하나면 고를 게 없다 */}
       {accounts.length > 1 && (
-        <AllOrPick label="계정" name="match-account" selected={selectedAccounts} onChange={set("account_id")}>
+        <AllOrPick label="Account" name="match-account" selected={selectedAccounts} onChange={set("account_id")}>
           <div className="flex flex-wrap gap-1.5">
             {accounts.map((a) => (
               <Chip
@@ -188,8 +188,8 @@ export function ChannelMatchPicker({
 
 /** 저장 전에 무엇을 받게 되는지 한 줄로. */
 export function describeMatch(match: ChannelMatch, customerName: string): string {
-  const sev = match.severity?.length ? match.severity.join("·") : "모든 등급";
-  const types = match.resource_type?.length ? match.resource_type.join("·") : "모든 리소스";
-  const accts = match.account_id?.length ? ` (계정 ${match.account_id.length}개)` : "";
-  return `${customerName || "모든 고객사"}의 ${sev} 알림을 ${types}에서 받습니다${accts}.`;
+  const sev = match.severity?.length ? match.severity.join("·") : "all severities";
+  const types = match.resource_type?.length ? match.resource_type.join("·") : "all resources";
+  const accts = match.account_id?.length ? ` (${match.account_id.length} accounts)` : "";
+  return `Receives ${sev} alerts from ${types} for ${customerName || "all customers"}${accts}.`;
 }

@@ -49,13 +49,13 @@ async function fetchTypeCountsByAccount(): Promise<Map<string, Record<string, nu
 }
 
 const MATCH_LABELS: Record<string, string> = {
-  severity: "등급",
-  resource_type: "리소스 타입",
-  account_id: "계정",
+  severity: "Severity",
+  resource_type: "Resource type",
+  account_id: "Account",
 };
 
 /** 백엔드가 자격증명 자리에 넣는 가림 문자열. 그대로 돌려보내면 "안 바꿈"이다. */
-const REDACTED = "(설정됨)";
+const REDACTED = "(set)";
 
 type Draft = {
   channel_id?: string;
@@ -111,7 +111,7 @@ function ConditionSummary({ channel }: { channel: NotificationChannel }) {
     ([key, values]) => `${MATCH_LABELS[key] ?? key} ${values.join("/")}`,
   );
   if (parts.length === 0) {
-    return <span className="text-slate-400">모든 알림</span>;
+    return <span className="text-slate-400">All alerts</span>;
   }
   return <span>{parts.join(" · ")}</span>;
 }
@@ -132,15 +132,15 @@ export function PreviewLine({ customerId, match }: { customerId: string; match: 
     // key가 customerId·match를 대표한다
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
-  if (failed) return <p className="mt-1 text-xs text-slate-400">예상 건수를 불러오지 못했습니다.</p>;
-  if (!preview) return <p className="mt-1 text-xs text-slate-400">예상 건수 계산 중…</p>;
+  if (failed) return <p className="mt-1 text-xs text-slate-400">Could not load the estimate.</p>;
+  if (!preview) return <p className="mt-1 text-xs text-slate-400">Estimating…</p>;
   return (
     <p className="mt-1 text-xs text-slate-500">
-      지난 {preview.days}일 기준 <b className="text-slate-800">{preview.messages.toLocaleString()}건</b>
-      {" "}(하루 약 {preview.per_day}건)
+      Last {preview.days} days: <b className="text-slate-800">{preview.messages.toLocaleString()} messages</b>
+      {" "}(about {preview.per_day}/day)
       {preview.events_total > 0 && (
         <span className="text-slate-400">
-          {" "}· 같은 기간 전체 알림 이벤트 {preview.events_total.toLocaleString()}건 중 {preview.events.toLocaleString()}건
+          {" "}· {preview.events.toLocaleString()} of {preview.events_total.toLocaleString()} alert events in that period
         </span>
       )}
     </p>
@@ -192,7 +192,7 @@ function ChannelForm({
     >
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-bold text-slate-800">
-          {editing ? "채널 수정" : "채널 추가"}
+          {editing ? "Edit Channel" : "Add Channel"}
         </h3>
         <button type="button" onClick={onCancel} className="text-slate-400 hover:text-slate-600">
           <X size={16} />
@@ -201,18 +201,18 @@ function ChannelForm({
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <label className="block">
-          <span className="text-xs font-semibold text-slate-600">채널 이름</span>
+          <span className="text-xs font-semibold text-slate-600">Channel name</span>
           <input
             className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
             value={draft.name}
             maxLength={60}
             onChange={(e) => onChange({ ...draft, name: e.target.value })}
-            placeholder="예: 운영팀 슬랙"
+            placeholder="e.g. Ops team Slack"
           />
         </label>
 
         <label className="block">
-          <span className="text-xs font-semibold text-slate-600">고객사</span>
+          <span className="text-xs font-semibold text-slate-600">Customer</span>
           <select
             className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
             value={draft.customer_id}
@@ -224,7 +224,7 @@ function ChannelForm({
                 match: { ...draft.match, account_id: [] },
               })}
           >
-            <option value="">전체 (전역 채널 · 관리자 전용)</option>
+            <option value="">All (global channel · admin only)</option>
             {customers.map((c) => (
               <option key={c.id} value={c.id}>{c.name}</option>
             ))}
@@ -232,7 +232,7 @@ function ChannelForm({
         </label>
 
         <label className="block">
-          <span className="text-xs font-semibold text-slate-600">유형</span>
+          <span className="text-xs font-semibold text-slate-600">Type</span>
           <select
             className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
             value={draft.type}
@@ -241,7 +241,7 @@ function ChannelForm({
           >
             {catalogue.types.map((t) => (
               <option key={t.type} value={t.type} disabled={!isAvailable(t)}>
-                {t.label}{isAvailable(t) ? "" : " (서버 설정 필요)"}
+                {t.label}{isAvailable(t) ? "" : " (server setup required)"}
               </option>
             ))}
           </select>
@@ -256,7 +256,7 @@ function ChannelForm({
             checked={draft.enabled}
             onChange={(e) => onChange({ ...draft, enabled: e.target.checked })}
           />
-          <span className="text-sm text-slate-700">사용</span>
+          <span className="text-sm text-slate-700">Enabled</span>
         </label>
       </div>
 
@@ -270,7 +270,7 @@ function ChannelForm({
                 {field.required && <span className="text-red-500"> *</span>}
                 {field.secret && (
                   <span className="ml-1 font-normal text-slate-400">
-                    (저장 후 다시 보이지 않습니다)
+                    (hidden after saving)
                   </span>
                 )}
               </span>
@@ -310,14 +310,14 @@ function ChannelForm({
 
       <div className="flex justify-end gap-2">
         <Button type="button" variant="secondary" size="sm" onClick={onCancel}>
-          취소
+          Cancel
         </Button>
         <LoadingButton
           type="submit"
           isLoading={saving}
           className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:brightness-110"
         >
-          {editing ? "저장" : "추가"}
+          {editing ? "Save" : "Add"}
         </LoadingButton>
       </div>
     </form>
@@ -342,7 +342,7 @@ export function NotificationSection() {
       setCatalogue(cat);
       setChannels(list.channels);
     } catch (e) {
-      showToast("error", e instanceof Error ? e.message : "알림 채널을 불러오지 못했습니다");
+      showToast("error", e instanceof Error ? e.message : "Failed to load notification channels");
     } finally {
       setLoading(false);
     }
@@ -384,15 +384,15 @@ export function NotificationSection() {
       };
       if (draft.channel_id) {
         await updateChannel(draft.channel_id, draft.customer_id, payload);
-        showToast("success", "채널을 수정했습니다");
+        showToast("success", "Channel updated");
       } else {
         await createChannel(payload);
-        showToast("success", "채널을 추가했습니다");
+        showToast("success", "Channel added");
       }
       setDraft(null);
       await load();
     } catch (e) {
-      showToast("error", e instanceof Error ? e.message : "저장에 실패했습니다");
+      showToast("error", e instanceof Error ? e.message : "Failed to save");
     } finally {
       setSaving(false);
     }
@@ -404,27 +404,27 @@ export function NotificationSection() {
     try {
       const r = await testChannel(channel.channel_id, channel.customer_id);
       if (r.ok) {
-        showToast("success", `'${channel.name}'로 테스트 메시지를 보냈습니다. 도착했는지 확인하세요.`);
+        showToast("success", `Sent a test message to '${channel.name}'. Check that it arrived.`);
       } else {
-        showToast("error", `보내지 못했습니다${r.status ? ` (HTTP ${r.status})` : ""}${r.error ? `: ${r.error}` : ""}`);
+        showToast("error", `Failed to send${r.status ? ` (HTTP ${r.status})` : ""}${r.error ? `: ${r.error}` : ""}`);
       }
     } catch (e) {
-      showToast("error", e instanceof Error ? e.message : "테스트 요청에 실패했습니다");
+      showToast("error", e instanceof Error ? e.message : "Test request failed");
     } finally {
       setTestingId("");
     }
   };
 
   const handleDelete = async (channel: NotificationChannel) => {
-    if (!window.confirm(`'${channel.name}' 채널을 삭제할까요? 이 채널로는 더 이상 알림이 가지 않습니다.`)) {
+    if (!window.confirm(`Delete channel '${channel.name}'? Alerts will no longer be sent to it.`)) {
       return;
     }
     try {
       await deleteChannel(channel.channel_id, channel.customer_id);
-      showToast("success", "채널을 삭제했습니다");
+      showToast("success", "Channel deleted");
       await load();
     } catch (e) {
-      showToast("error", e instanceof Error ? e.message : "삭제에 실패했습니다");
+      showToast("error", e instanceof Error ? e.message : "Failed to delete");
     }
   };
 
@@ -438,10 +438,10 @@ export function NotificationSection() {
       <header className="flex items-start justify-between">
         <div>
           <h2 className="flex items-center gap-2 text-lg font-bold text-slate-800">
-            <Bell size={18} /> 알림 채널
+            <Bell size={18} /> Notification Channels
           </h2>
           <p className="mt-1 text-sm text-slate-500">
-            알람이 확정되면 조건에 맞는 채널로 알림을 보냅니다. 채널을 더해도 알람은 건드리지 않습니다.
+            When an alarm fires, alerts go to every channel whose conditions match. Adding a channel never changes alarms.
           </p>
         </div>
         {catalogue && !draft && (
@@ -450,7 +450,7 @@ export function NotificationSection() {
             icon={<Plus size={14} />}
             onClick={() => setDraft(emptyDraft(catalogue.types, customers[0]?.id ?? ""))}
           >
-            채널 추가
+            Add Channel
           </Button>
         )}
       </header>
@@ -474,25 +474,25 @@ export function NotificationSection() {
           <table className="w-full min-w-[720px]">
             <thead className="bg-slate-50 text-left text-xs font-bold uppercase tracking-wider text-slate-500">
               <tr>
-                <th className="px-4 py-2">채널</th>
-                <th className="px-4 py-2">고객사</th>
-                <th className="px-4 py-2">유형</th>
-                <th className="px-4 py-2">조건</th>
-                <th className="px-4 py-2">상태</th>
-                <th className="px-4 py-2 text-right">관리</th>
+                <th className="px-4 py-2">Channel</th>
+                <th className="px-4 py-2">Customer</th>
+                <th className="px-4 py-2">Type</th>
+                <th className="px-4 py-2">Conditions</th>
+                <th className="px-4 py-2">Status</th>
+                <th className="px-4 py-2 text-right">Actions</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
                   <td colSpan={6} className="px-4 py-10 text-center text-sm text-slate-400">
-                    불러오는 중…
+                    Loading…
                   </td>
                 </tr>
               ) : channels.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="px-4 py-10 text-center text-sm text-slate-400">
-                    등록된 채널이 없습니다. 채널이 없으면 알림이 나가지 않습니다.
+                    No channels yet. Without a channel, no alerts are sent.
                   </td>
                 </tr>
               ) : (
@@ -503,7 +503,7 @@ export function NotificationSection() {
                     <td className="px-4 py-2 text-sm text-slate-600">
                       {channel.is_global ? (
                         <span className="inline-flex items-center gap-1 text-amber-700">
-                          <Globe size={13} /> 전체
+                          <Globe size={13} /> All
                         </span>
                       ) : (
                         customerName(channel.customer_id)
@@ -521,7 +521,7 @@ export function NotificationSection() {
                             : "bg-slate-100 text-slate-500"
                         }`}
                       >
-                        {channel.enabled ? "사용" : "중지"}
+                        {channel.enabled ? "Enabled" : "Paused"}
                       </span>
                     </td>
                     <td className="px-4 py-2">
@@ -533,7 +533,7 @@ export function NotificationSection() {
                           disabled={testingId === channel.channel_id || !channel.enabled}
                           onClick={() => void handleTest(channel)}
                         >
-                          {testingId === channel.channel_id ? "보내는 중…" : "테스트"}
+                          {testingId === channel.channel_id ? "Sending…" : "Test"}
                         </Button>
                         <Button
                           variant="ghost"
@@ -541,7 +541,7 @@ export function NotificationSection() {
                           icon={<Pencil size={13} />}
                           onClick={() => setDraft(toDraft(channel))}
                         >
-                          수정
+                          Edit
                         </Button>
                         <Button
                           variant="ghost"
@@ -549,7 +549,7 @@ export function NotificationSection() {
                           icon={<Trash2 size={13} />}
                           onClick={() => void handleDelete(channel)}
                         >
-                          삭제
+                          Delete
                         </Button>
                       </div>
                     </td>
@@ -562,8 +562,8 @@ export function NotificationSection() {
       </div>
 
       <p className="text-xs text-slate-400">
-        전역 채널(고객사 “전체”)은 모든 고객사의 알림을 받으므로 관리자만 만들 수 있습니다.
-        자격증명은 저장 후 다시 표시되지 않으며, 수정할 때 비워 두면 기존 값이 유지됩니다.
+        Global channels (customer “All”) receive alerts for every customer, so only admins can create them.
+        Credentials are hidden after saving; leave them blank when editing to keep the current value.
       </p>
     </section>
   );
