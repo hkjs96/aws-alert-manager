@@ -6,8 +6,32 @@ import { Button } from "@/components/shared/Button";
 import { useToast } from "@/components/shared/Toast";
 import { LoadingButton } from "@/components/shared/LoadingButton";
 import { FRONTEND_INTEGRATION_RESOURCE_TYPES } from "@/lib/constants";
-import { fetchThresholds, saveThresholds } from "@/lib/api-functions";
-import type { ThresholdOverride } from "@/types/api";
+import { fetchResources, fetchResourceThresholds, fetchThresholds, saveThresholds } from "@/lib/api-functions";
+import { defaultImpact, runPool, type DefaultImpact } from "@/lib/threshold-edit";
+import type { ThresholdMetric, ThresholdOverride } from "@/types/api";
+
+/** 고객사의 이 타입 리소스(모니터링 켠 것) 전부와 각자의 임계치 */
+async function loadCustomerResources(type: string, customerId: string) {
+  const resources: { id: string; name: string }[] = [];
+  for (let page = 1; ; page++) {
+    const data = await fetchResources({ customer_id: customerId, resource_type: type, monitoring: true, page, page_size: 100 });
+    resources.push(...data.items.map((r) => ({ id: r.id, name: r.name || r.id })));
+    if (data.items.length < 100) break;
+  }
+  const loaded: { name: string; metrics: ThresholdMetric[] }[] = [];
+  const failed: string[] = [];
+  await runPool(resources, async (r) => {
+    const data = await fetchResourceThresholds(r.id);
+    loaded.push({ name: r.name, metrics: data.metrics });
+  }, 3, (r, error) => { if (error) failed.push(r.name); });
+  return { loaded, failed };
+}
+
+function NameList({ names }: { names: string[] }) {
+  if (names.length === 0) return null;
+  const shown = names.slice(0, 5).join(", ");
+  return <span className="text-slate-400"> ({shown}{names.length > 5 ? ` 외 ${names.length - 5}개` : ""})</span>;
+}
 
 /** `customerId`: 상단 글로벌 필터가 고른 고객사(URL ?customer=). 비면 전역 기본값을 편집한다. */
 export function ThresholdSection({ customerId = "" }: { customerId?: string }) {
@@ -19,6 +43,36 @@ export function ThresholdSection({ customerId = "" }: { customerId?: string }) {
   const [isSaving, setIsSaving] = useState(false);
   const [dirtyTabs, setDirtyTabs] = useState<Set<string>>(new Set());
   const [initialThresholds, setInitialThresholds] = useState<ThresholdOverride[]>([]);
+  const [impact, setImpact] = useState<{ rows: { metric: string; before: string; after: string; result: DefaultImpact }[]; failed: string[] } | null>(null);
+  const [isImpactLoading, setIsImpactLoading] = useState(false);
+
+  // 값이 바뀌면 이전 영향 보기는 맞지 않는다
+  useEffect(() => { setImpact(null); }, [thresholds, activeType, customerId]);
+
+  const changedMetrics = useMemo(
+    () => thresholds.filter((t) => {
+      const initial = initialThresholds.find((i) => i.metric_key === t.metric_key);
+      return initial && initial.customer_override !== t.customer_override;
+    }),
+    [thresholds, initialThresholds],
+  );
+
+  const handleImpact = async () => {
+    setIsImpactLoading(true);
+    try {
+      const { loaded, failed } = await loadCustomerResources(activeType, customerId);
+      const rows = changedMetrics.map((t) => {
+        const initial = initialThresholds.find((i) => i.metric_key === t.metric_key)!;
+        const fmt = (v: number | null) => (v === null ? `시스템 ${t.system_default}` : String(v));
+        return { metric: t.metric_key, before: fmt(initial.customer_override), after: fmt(t.customer_override), result: defaultImpact(t.metric_key, loaded) };
+      });
+      setImpact({ rows, failed });
+    } catch {
+      showToast("error", "리소스 목록을 불러오지 못했습니다.");
+    } finally {
+      setIsImpactLoading(false);
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -199,7 +253,39 @@ export function ThresholdSection({ customerId = "" }: { customerId?: string }) {
         )}
       </div>
 
-      <div className="sticky bottom-0 bg-white border-t border-slate-200 px-6 py-4 flex justify-end">
+      {impact && (
+        <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 text-sm space-y-2" data-testid="default-impact">
+          {impact.rows.map((row) => (
+            <div key={row.metric}>
+              <span className="font-semibold text-slate-800">{row.metric}</span>{" "}
+              <span className="font-mono text-slate-500">{row.before} → {row.after}</span>
+              <div className="text-slate-600">
+                {row.result.applies.length}개에 적용
+                {row.result.keeps.length > 0 && <> · {row.result.keeps.length}개는 개별값 유지<NameList names={row.result.keeps} /></>}
+                {row.result.skips.length > 0 && <> · {row.result.skips.length}개는 알람 꺼짐/없음</>}
+              </div>
+            </div>
+          ))}
+          {impact.failed.length > 0 && (
+            <div className="text-amber-700">{impact.failed.length}개 리소스는 확인하지 못했습니다<NameList names={impact.failed} /></div>
+          )}
+          <div className="text-xs text-slate-400">모니터링을 켠 리소스 기준. 저장한 값은 다음 정기 동기화 때 알람에 반영됩니다.</div>
+        </div>
+      )}
+
+      <div className="sticky bottom-0 bg-white border-t border-slate-200 px-6 py-4 flex justify-end items-center gap-3">
+        {!customerId ? (
+          <span className="text-xs text-slate-400">고객사를 선택하면 영향을 볼 수 있습니다</span>
+        ) : (
+          <LoadingButton
+            isLoading={isImpactLoading}
+            onClick={handleImpact}
+            disabled={changedMetrics.length === 0}
+            className="border border-slate-200 text-slate-700 px-4 py-2 rounded-lg text-sm font-semibold hover:bg-slate-50 disabled:opacity-40"
+          >
+            변경 내용 보기
+          </LoadingButton>
+        )}
         <LoadingButton
           isLoading={isSaving}
           onClick={handleSave}

@@ -148,6 +148,29 @@ export function bulkUpdate(change: BulkChange, metric: ThresholdMetric): Thresho
   return update;
 }
 
+// ── 고객사 기본값(Settings) ────────────────────────────
+
+export interface DefaultImpact {
+  /** 기본값을 따르는 리소스 — 새 값이 적용된다 */
+  applies: string[];
+  /** 개별값(리소스 태그)이 있어 그대로인 리소스 */
+  keeps: string[];
+  /** 알람을 끈 리소스, 또는 이 지표 알람이 없는 리소스 */
+  skips: string[];
+}
+
+/** 고객사 기본값을 바꾸면 어느 리소스에 적용되나. 리소스 태그가 기본값보다 우선한다. */
+export function defaultImpact(metricKey: string, resources: { name: string; metrics: ThresholdMetric[] }[]): DefaultImpact {
+  const impact: DefaultImpact = { applies: [], keeps: [], skips: [] };
+  for (const r of resources) {
+    const metric = r.metrics.find((m) => m.metric === metricKey);
+    if (!metric || metric.off) impact.skips.push(r.name);
+    else if (metric.source === "resource") impact.keeps.push(r.name);
+    else impact.applies.push(r.name);
+  }
+  return impact;
+}
+
 /** 값 분포 "80 × 7 · 85 × 3" */
 export function distribution(values: string[]): string {
   const counts = new Map<string, number>();

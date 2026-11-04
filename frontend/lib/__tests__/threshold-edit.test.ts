@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildUpdate, bulkUpdate, evalMeaning, impactFor, initialDraft, parseEval, runPool } from "@/lib/threshold-edit";
+import { buildUpdate, bulkUpdate, defaultImpact, evalMeaning, impactFor, initialDraft, parseEval, runPool } from "@/lib/threshold-edit";
 import type { ThresholdMetric } from "@/types/api";
 
 const CPU: ThresholdMetric = {
@@ -75,5 +75,18 @@ describe("runPool", () => {
     expect(peak).toBe(3);
     expect(done).toHaveLength(7);
     expect(done.find(([n]) => n === 4)?.[1]).toBe(false);
+  });
+});
+
+describe("고객사 기본값 영향", () => {
+  it("개별값은 유지, 끈 알람·없는 지표는 건너뛴다", () => {
+    const result = defaultImpact("CPUUtilization", [
+      { name: "a", metrics: [CPU] },
+      { name: "b", metrics: [{ ...CPU, source: "customer", customer_default: 85, value: 85 }] },
+      { name: "c", metrics: [{ ...CPU, source: "resource", value: 95 }] },
+      { name: "d", metrics: [{ ...CPU, off: true }] },
+      { name: "e", metrics: [] },
+    ]);
+    expect(result).toEqual({ applies: ["a", "b"], keeps: ["c"], skips: ["d", "e"] });
   });
 });
