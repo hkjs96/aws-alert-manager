@@ -51,21 +51,21 @@ export function CustomerSection({ customers }: CustomerSectionProps) {
     const managers = parseManagers(managersDraft);
     const invalid = managers.filter((m) => !EMAIL_RE.test(m));
     if (managers.length === 0 || invalid.length > 0) {
-      showToast("error", managers.length === 0 ? "담당자는 한 명 이상이어야 합니다." : `이메일 형식이 아닙니다: ${invalid.join(", ")}`);
+      showToast("error", managers.length === 0 ? "At least one manager is required." : `Invalid email: ${invalid.join(", ")}`);
       return;
     }
     if (!isAdmin && email && !managers.includes(email)) {
       // 자기 자신을 빼면 저장 직후 이 고객사가 안 보이게 된다 — 의도인지 확인한다.
-      if (!window.confirm("담당자에서 본인을 빼면 이 고객사를 더 이상 볼 수 없습니다. 계속할까요?")) return;
+      if (!window.confirm("If you remove yourself from the managers, you will no longer see this customer. Continue?")) return;
     }
     setSavingManagers(true);
     try {
       await apiUpdateCustomer(c.customer_id, { managers });
-      showToast("success", `"${c.name}" 담당자를 저장했습니다.`);
+      showToast("success", `Managers saved for “${c.name}”.`);
       setEditingId(null);
       router.refresh();
     } catch (e) {
-      showToast("error", e instanceof Error ? e.message : "담당자 저장에 실패했습니다.");
+      showToast("error", e instanceof Error ? e.message : "Failed to save managers.");
     } finally {
       setSavingManagers(false);
     }
@@ -124,7 +124,7 @@ export function CustomerSection({ customers }: CustomerSectionProps) {
 
       {!isAdmin && (
         <div className="mx-6 mt-4 rounded-lg bg-slate-50 border border-slate-200 px-4 py-3 text-xs text-slate-600">
-          담당자로 지정된 고객사만 보입니다. 다른 고객사가 필요하면 그 고객사의 담당자나 관리자에게 요청하세요.
+          Only customers you manage are shown. To access another customer, ask its managers or an admin.
         </div>
       )}
 
@@ -133,8 +133,8 @@ export function CustomerSection({ customers }: CustomerSectionProps) {
         {customers.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12 text-center">
             <span className="text-3xl mb-3">👥</span>
-            <p className="text-sm font-semibold text-slate-600">등록된 고객사가 없습니다</p>
-            <p className="text-xs text-slate-400 mt-1">새 고객사를 추가해보세요</p>
+            <p className="text-sm font-semibold text-slate-600">No customers yet</p>
+            <p className="text-xs text-slate-400 mt-1">Add a new customer to get started</p>
           </div>
         ) : (
           <table className="w-full text-sm">
@@ -143,7 +143,7 @@ export function CustomerSection({ customers }: CustomerSectionProps) {
                 <th className="px-4 py-3 text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Name</th>
                 <th className="px-4 py-3 text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">ID</th>
                 <th className="px-4 py-3 text-right text-[11px] font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Accounts</th>
-                <th className="px-4 py-3 text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">담당자</th>
+                <th className="px-4 py-3 text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Managers</th>
                 <th className="px-4 py-3 text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Action</th>
               </tr>
             </thead>
@@ -157,7 +157,7 @@ export function CustomerSection({ customers }: CustomerSectionProps) {
                     {editingId === c.customer_id ? (
                       <div className="flex items-center gap-2">
                         <input
-                          aria-label={`${c.name} 담당자`}
+                          aria-label={`Managers for ${c.name}`}
                           value={managersDraft}
                           onChange={(e) => setManagersDraft(e.target.value)}
                           placeholder="a@mz.co.kr, b@mz.co.kr"
@@ -168,21 +168,21 @@ export function CustomerSection({ customers }: CustomerSectionProps) {
                           onClick={() => saveManagers(c)}
                           className="text-xs font-semibold text-primary hover:underline"
                         >
-                          저장
+                          Save
                         </LoadingButton>
                         <button type="button" onClick={() => setEditingId(null)} className="text-xs text-slate-400 hover:underline">
-                          취소
+                          Cancel
                         </button>
                       </div>
                     ) : (
                       <div className="flex items-center gap-2">
                         <span className="text-xs text-slate-600">
-                          {(c.managers ?? []).length > 0 ? (c.managers ?? []).join(", ") : <span className="text-amber-600">없음 — 관리자만 볼 수 있음</span>}
+                          {(c.managers ?? []).length > 0 ? (c.managers ?? []).join(", ") : <span className="text-amber-600">None — visible to admins only</span>}
                         </span>
                         {canEdit(c) && (
                           <button
                             type="button"
-                            aria-label={`${c.name} 담당자 편집`}
+                            aria-label={`Edit managers for ${c.name}`}
                             onClick={() => startEdit(c)}
                             className="text-slate-400 hover:text-primary"
                           >

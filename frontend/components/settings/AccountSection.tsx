@@ -23,40 +23,40 @@ interface AccountSectionProps {
 
 const INPUT_CLS = "w-full bg-slate-50 border-none rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-primary/20 outline-none";
 const REGION_OPTIONS = [
-  { value: "us-east-1", label: "버지니아" },
-  { value: "us-east-2", label: "오하이오" },
-  { value: "us-west-1", label: "캘리포니아" },
-  { value: "us-west-2", label: "오리건" },
-  { value: "ca-central-1", label: "캐나다 중부" },
-  { value: "ca-west-1", label: "캘거리" },
-  { value: "mx-central-1", label: "멕시코" },
-  { value: "sa-east-1", label: "상파울루" },
-  { value: "eu-west-1", label: "아일랜드" },
-  { value: "eu-west-2", label: "런던" },
-  { value: "eu-west-3", label: "파리" },
-  { value: "eu-central-1", label: "프랑크푸르트" },
-  { value: "eu-central-2", label: "취리히" },
-  { value: "eu-north-1", label: "스톡홀름" },
-  { value: "eu-south-1", label: "밀라노" },
-  { value: "eu-south-2", label: "스페인" },
-  { value: "af-south-1", label: "케이프타운" },
-  { value: "il-central-1", label: "텔아비브" },
+  { value: "us-east-1", label: "N. Virginia" },
+  { value: "us-east-2", label: "Ohio" },
+  { value: "us-west-1", label: "N. California" },
+  { value: "us-west-2", label: "Oregon" },
+  { value: "ca-central-1", label: "Canada Central" },
+  { value: "ca-west-1", label: "Calgary" },
+  { value: "mx-central-1", label: "Mexico" },
+  { value: "sa-east-1", label: "São Paulo" },
+  { value: "eu-west-1", label: "Ireland" },
+  { value: "eu-west-2", label: "London" },
+  { value: "eu-west-3", label: "Paris" },
+  { value: "eu-central-1", label: "Frankfurt" },
+  { value: "eu-central-2", label: "Zurich" },
+  { value: "eu-north-1", label: "Stockholm" },
+  { value: "eu-south-1", label: "Milan" },
+  { value: "eu-south-2", label: "Spain" },
+  { value: "af-south-1", label: "Cape Town" },
+  { value: "il-central-1", label: "Tel Aviv" },
   { value: "me-central-1", label: "UAE" },
-  { value: "me-south-1", label: "바레인" },
-  { value: "ap-south-1", label: "뭄바이" },
-  { value: "ap-south-2", label: "하이데라바드" },
-  { value: "ap-east-1", label: "홍콩" },
-  { value: "ap-east-2", label: "타이베이" },
-  { value: "ap-northeast-1", label: "도쿄" },
-  { value: "ap-northeast-2", label: "서울" },
-  { value: "ap-northeast-3", label: "오사카" },
-  { value: "ap-southeast-1", label: "싱가포르" },
-  { value: "ap-southeast-2", label: "시드니" },
-  { value: "ap-southeast-3", label: "자카르타" },
-  { value: "ap-southeast-4", label: "멜버른" },
-  { value: "ap-southeast-5", label: "말레이시아" },
-  { value: "ap-southeast-6", label: "뉴질랜드" },
-  { value: "ap-southeast-7", label: "태국" },
+  { value: "me-south-1", label: "Bahrain" },
+  { value: "ap-south-1", label: "Mumbai" },
+  { value: "ap-south-2", label: "Hyderabad" },
+  { value: "ap-east-1", label: "Hong Kong" },
+  { value: "ap-east-2", label: "Taipei" },
+  { value: "ap-northeast-1", label: "Tokyo" },
+  { value: "ap-northeast-2", label: "Seoul" },
+  { value: "ap-northeast-3", label: "Osaka" },
+  { value: "ap-southeast-1", label: "Singapore" },
+  { value: "ap-southeast-2", label: "Sydney" },
+  { value: "ap-southeast-3", label: "Jakarta" },
+  { value: "ap-southeast-4", label: "Melbourne" },
+  { value: "ap-southeast-5", label: "Malaysia" },
+  { value: "ap-southeast-6", label: "New Zealand" },
+  { value: "ap-southeast-7", label: "Thailand" },
 ] as const;
 const COMMON_REGIONS = ["us-east-1", "ap-northeast-2", "ap-northeast-1", "ap-southeast-1", "us-west-2"];
 const REGION_GROUPS = [
@@ -240,8 +240,8 @@ export function AccountSection({ accounts, customers }: AccountSectionProps) {
         {accounts.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12 text-center">
             <span className="text-3xl mb-3">🔗</span>
-            <p className="text-sm font-semibold text-slate-600">연결된 계정이 없습니다</p>
-            <p className="text-xs text-slate-400 mt-1">AWS 계정을 추가해보세요</p>
+            <p className="text-sm font-semibold text-slate-600">No connected accounts</p>
+            <p className="text-xs text-slate-400 mt-1">Add an AWS account to get started</p>
           </div>
         ) : (
           <table className="w-full text-sm">
@@ -283,9 +283,9 @@ export function AccountSection({ accounts, customers }: AccountSectionProps) {
                                 type="button"
                                 disabled={saving}
                                 aria-label={`Remove ${region}`}
-                                title="감시 리전에서 빼기"
+                                title="Remove from monitoring regions"
                                 onClick={() => {
-                                  if (window.confirm(`${region}(${regionLabel(region)})을 감시 리전에서 뺄까요? 정기 실행이 다음부터 이 리전을 보지 않습니다.`)) {
+                                  if (window.confirm(`Remove ${region} (${regionLabel(region)}) from monitoring regions? Scheduled runs will stop checking this region.`)) {
                                     void saveRegions(acc, acc.regions.filter((r) => r !== region), `${region} removed from monitoring regions.`);
                                   }
                                 }}
@@ -300,7 +300,7 @@ export function AccountSection({ accounts, customers }: AccountSectionProps) {
                       {missing.length > 0 && (
                         <div className="mt-2 rounded-md bg-amber-50 px-2 py-1.5 ring-1 ring-amber-200">
                           <div className="flex items-center gap-1 text-[10px] font-semibold text-amber-700">
-                            <AlertTriangle size={11} /> 리소스가 있지만 감시 밖
+                            <AlertTriangle size={11} /> Resources found outside monitoring
                           </div>
                           <div className="mt-1 flex flex-wrap items-center gap-1">
                             {missing.map((region) => (
@@ -314,7 +314,7 @@ export function AccountSection({ accounts, customers }: AccountSectionProps) {
                               onClick={() => void saveRegions(acc, [...acc.regions, ...missing], `Added ${missing.join(", ")} to monitoring regions.`)}
                               className="text-[10px] font-semibold text-primary hover:underline disabled:opacity-40"
                             >
-                              {saving ? "Saving…" : "감시 리전에 추가"}
+                              {saving ? "Saving…" : "Add to Monitoring Regions"}
                             </button>
                           </div>
                         </div>

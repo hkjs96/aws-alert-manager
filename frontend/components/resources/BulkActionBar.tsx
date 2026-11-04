@@ -45,7 +45,7 @@ export function BulkActionBar({
           variant="primary"
           size="sm"
           disabled={isMixedType}
-          title={isMixedType ? "같은 타입 리소스만 함께 설정할 수 있습니다" : undefined}
+          title={isMixedType ? "Only resources of the same type can be configured together" : undefined}
           onClick={onConfigure}
           icon={<Settings size={14} />}
         >

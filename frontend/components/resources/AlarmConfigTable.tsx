@@ -65,7 +65,7 @@ export function AlarmConfigTable({
             onClick={onEdit}
             className="bg-primary text-white text-sm font-semibold px-4 py-2 rounded-lg hover:bg-primary/90 transition-all"
           >
-            알람 편집
+            Edit Alarms
           </button>
           <button
             onClick={onAddAlarm}

@@ -4,9 +4,9 @@ import type { ThresholdMetric, ThresholdSource, ThresholdUpdate } from "@/types/
 export const EVAL_PRESETS = ["1/1", "2/3", "3/5"] as const;
 
 export const SOURCE_LABEL: Record<ThresholdSource, string> = {
-  resource: "개별값",
-  customer: "고객사 기본",
-  system: "시스템 기본",
+  resource: "Resource",
+  customer: "Customer default",
+  system: "System default",
 };
 
 export function parseEval(value: string): { m: number; n: number } | null {
@@ -18,19 +18,19 @@ export function parseEval(value: string): { m: number; n: number } | null {
 }
 
 function minutes(seconds: number): string {
-  return seconds % 60 === 0 ? `${seconds / 60}분` : `${seconds}초`;
+  return seconds % 60 === 0 ? `${seconds / 60} min` : `${seconds} s`;
 }
 
 /** "최근 25분 중 15분 이상 90 %를 넘으면 알람" */
 export function evalMeaning(evalValue: string, period: number | null, value: number | null, unit: string, direction: string): string {
   const parsed = parseEval(evalValue);
   const p = period ?? 300;
-  const verb = direction.startsWith("<") ? "아래로 내려가면" : "넘으면";
-  const target = value === null ? "" : ` ${value}${unit ? ` ${unit}` : ""}를`;
+  const verb = direction.startsWith("<") ? "below" : "above";
+  const target = value === null ? "" : ` ${value}${unit ? ` ${unit}` : ""}`;
   if (!parsed || (parsed.m === 1 && parsed.n === 1)) {
-    return `한 번만${target} ${verb} 바로 알람`;
+    return target ? `Alarm immediately if ${verb}${target} once` : "Alarm immediately on a single breach";
   }
-  return `최근 ${minutes(parsed.n * p)} 중 ${minutes(parsed.m * p)} 이상${target} ${verb} 알람`;
+  return `Alarm if ${verb}${target} for ${minutes(parsed.m * p)} of the last ${minutes(parsed.n * p)}`;
 }
 
 // ── 단일 편집 ─────────────────────────────────────────
@@ -60,11 +60,11 @@ export function buildUpdate(metrics: ThresholdMetric[], drafts: Record<string, M
       update.clear.push(metric.metric);
     } else if (draft.value.trim() !== "") {
       const value = Number(draft.value);
-      if (!Number.isFinite(value) || value <= 0) throw new Error(`${metric.label}: 0보다 큰 숫자를 넣으세요`);
+      if (!Number.isFinite(value) || value <= 0) throw new Error(`${metric.label}: enter a number greater than 0`);
       if (value !== metric.value || metric.source !== "resource") update.set[metric.metric] = value;
     }
     if (!metric.eval_locked && draft.eval !== metric.eval) {
-      if (!parseEval(draft.eval)) throw new Error(`${metric.label}: 판단 방식은 M/N (1 ≤ M ≤ N ≤ 10)`);
+      if (!parseEval(draft.eval)) throw new Error(`${metric.label}: evaluation must be M/N (1 ≤ M ≤ N ≤ 10)`);
       update.eval[metric.metric] = draft.eval === metric.eval_default ? null : draft.eval;
     }
   }
@@ -107,14 +107,14 @@ function fmt(value: number | null, evalValue: string, withEval: boolean): string
 export function impactFor(id: string, name: string, metric: ThresholdMetric | undefined, change: BulkChange): ImpactRow {
   const withEval = change.eval !== null;
   if (!metric) {
-    return { id, name, kind: "skip", before: "—", beforeSource: "system", after: "건너뜀", reason: "이 지표의 알람이 없습니다" };
+    return { id, name, kind: "skip", before: "—", beforeSource: "system", after: "Skipped", reason: "No alarm for this metric" };
   }
   const before = fmt(metric.value, metric.eval, withEval);
   if (metric.off) {
-    return { id, name, kind: "skip", before: "off", beforeSource: metric.source, after: "건너뜀", reason: "끈 알람은 그대로" };
+    return { id, name, kind: "skip", before: "off", beforeSource: metric.source, after: "Skipped", reason: "Alarm is off; left as is" };
   }
   if (withEval && metric.eval_locked) {
-    return { id, name, kind: "skip", before, beforeSource: metric.source, after: "건너뜀", reason: "판단 방식이 고정된 지표" };
+    return { id, name, kind: "skip", before, beforeSource: metric.source, after: "Skipped", reason: "Evaluation is fixed for this metric" };
   }
   let afterValue = metric.value;
   let afterSource: ThresholdSource = metric.source;
@@ -129,7 +129,7 @@ export function impactFor(id: string, name: string, metric: ThresholdMetric | un
   const after = fmt(afterValue, afterEval, withEval);
   const unchanged = afterValue === metric.value && afterSource === metric.source && afterEval === metric.eval;
   if (unchanged) {
-    return { id, name, kind: "same", before, beforeSource: metric.source, after: "변화 없음" };
+    return { id, name, kind: "same", before, beforeSource: metric.source, after: "No change" };
   }
   const overwrite = change.action === "set" && metric.source === "resource" && metric.value !== change.value;
   return {

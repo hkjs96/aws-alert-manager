@@ -115,7 +115,7 @@ export function AlarmRow({ row, index, onUpdate, readOnly = false }: AlarmRowPro
             }`}
           >
             <SlidersHorizontal size={12} />
-            <span className="hidden sm:inline">상세</span>
+            <span className="hidden sm:inline">Details</span>
             <Chevron size={12} />
           </button>
         </td>

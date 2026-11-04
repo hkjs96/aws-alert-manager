@@ -46,7 +46,7 @@ describe("AlarmConfigTable — 읽기 전용", () => {
 
   it("알람 편집 버튼이 편집 창을 연다", () => {
     const onEdit = renderTable();
-    fireEvent.click(screen.getByText("알람 편집"));
+    fireEvent.click(screen.getByText("Edit Alarms"));
     expect(onEdit).toHaveBeenCalledTimes(1);
   });
 

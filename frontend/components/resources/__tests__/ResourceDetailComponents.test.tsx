@@ -164,7 +164,7 @@ describe("AlarmConfigTable", () => {
     );
     for (const input of screen.getAllByRole("spinbutton")) expect(input).toBeDisabled();
     expect(screen.queryByText("Save Changes")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByText("알람 편집"));
+    fireEvent.click(screen.getByText("Edit Alarms"));
     expect(onEdit).toHaveBeenCalled();
   });
 

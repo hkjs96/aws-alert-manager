@@ -54,7 +54,7 @@ export function ThresholdEditModal({ resourceId, resourceName, resourceType, onC
         setMetrics(data.metrics);
         setDrafts(Object.fromEntries(data.metrics.map((m) => [m.metric, initialDraft(m)])));
       })
-      .catch((e: unknown) => setLoadError(e instanceof Error ? e.message : "불러오지 못했습니다"));
+      .catch((e: unknown) => setLoadError(e instanceof Error ? e.message : "Failed to load"));
   }, [resourceId]);
 
   const update = useMemo(() => {
@@ -83,10 +83,10 @@ export function ThresholdEditModal({ resourceId, resourceName, resourceType, onC
     setSaving(true);
     try {
       await saveResourceThresholds(resourceId, body);
-      showToast("success", "알람 설정을 저장했습니다.");
+      showToast("success", "Alarm settings saved.");
       onSaved();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "저장하지 못했습니다");
+      setError(e instanceof Error ? e.message : "Failed to save");
     } finally {
       setSaving(false);
     }
@@ -98,24 +98,24 @@ export function ThresholdEditModal({ resourceId, resourceName, resourceType, onC
         className="flex max-h-[90vh] w-full max-w-5xl flex-col rounded-2xl bg-white shadow-xl">
         <div className="flex items-start justify-between border-b border-slate-100 px-7 pb-4 pt-6">
           <div>
-            <h3 id="threshold-edit-title" className="font-headline text-xl font-extrabold">알람 편집</h3>
-            <p className="mt-1 text-sm text-slate-600">{resourceName} · {resourceType} · 비워 두면 지금 값을 그대로 둡니다</p>
+            <h3 id="threshold-edit-title" className="font-headline text-xl font-extrabold">Edit Alarms</h3>
+            <p className="mt-1 text-sm text-slate-600">{resourceName} · {resourceType} · Leave blank to keep the current value</p>
           </div>
-          <Button variant="ghost" onClick={onClose} icon={<X size={20} />} aria-label="닫기" />
+          <Button variant="ghost" onClick={onClose} icon={<X size={20} />} aria-label="Close" />
         </div>
 
         <div className="overflow-auto px-7 py-2">
           {loadError && <p className="py-6 text-sm text-red-700">{loadError}</p>}
-          {!metrics && !loadError && <p className="py-6 text-sm text-slate-500">불러오는 중…</p>}
+          {!metrics && !loadError && <p className="py-6 text-sm text-slate-500">Loading…</p>}
           {metrics && (
             <table className="w-full min-w-[820px] text-left text-sm">
               <thead>
                 <tr className="border-b border-slate-100 text-xs font-semibold text-slate-600">
-                  <th className="py-3 pr-3">지표</th>
-                  <th className="py-3 pr-3">임계치</th>
-                  <th className="py-3 pr-3">판단 방식</th>
-                  <th className="py-3 pr-3">뜻</th>
-                  <th className="py-3">출처</th>
+                  <th className="py-3 pr-3">Metric</th>
+                  <th className="py-3 pr-3">Threshold</th>
+                  <th className="py-3 pr-3">Evaluation</th>
+                  <th className="py-3 pr-3">Meaning</th>
+                  <th className="py-3">Source</th>
                 </tr>
               </thead>
               <tbody>
@@ -128,16 +128,16 @@ export function ThresholdEditModal({ resourceId, resourceName, resourceType, onC
         </div>
 
         <div className="mx-7 mt-2 rounded-lg bg-indigo-50 px-4 py-3 text-sm leading-relaxed text-blue-900">
-          바꾼 값은 이 리소스에 <b>고정</b>되고 리소스의 <code className="font-mono">Threshold_*</code> 태그로 저장돼 AWS 콘솔에서도
-          보입니다. 고객사 기본값을 따라가게 하려면 <b>개별값 해제</b>를 누르세요. 기간·통계는 지표마다 정해져 있어 바꾸지 않습니다.
+          Changed values are <b>pinned</b> to this resource and saved as its <code className="font-mono">Threshold_*</code> tags, so they also
+          show in the AWS console. To follow the customer default again, click <b>Clear Resource Value</b>. Period and statistic are fixed per metric.
         </div>
         {error && <p className="mx-7 mt-3 text-sm text-red-700" role="alert">{error}</p>}
 
         <div className="flex justify-end gap-2 px-7 pb-6 pt-5">
-          <Button variant="secondary" onClick={onClose}>취소</Button>
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
           <LoadingButton isLoading={saving} disabled={changes === 0} onClick={handleSave}
             className="rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-white hover:bg-primary/90 disabled:opacity-50">
-            {changes > 0 ? `저장 (${changes}개 변경)` : "저장"}
+            {changes > 0 ? `Save (${changes} ${changes === 1 ? "change" : "changes"})` : "Save"}
           </LoadingButton>
         </div>
       </div>
@@ -162,12 +162,12 @@ function MetricRow({ metric, draft, onChange }: {
       <td className="py-3 pr-3">
         <label htmlFor={inputId} className="font-semibold">{metric.label}</label>
         <div className="text-xs text-slate-600">
-          {metric.statistic ?? ""}{metric.period ? ` · ${metric.period >= 60 ? `${metric.period / 60}분` : `${metric.period}초`} 단위` : ""}
+          {metric.statistic ?? ""}{metric.period ? ` · ${metric.period >= 60 ? `${metric.period / 60} min` : `${metric.period} s`} period` : ""}
         </div>
       </td>
       <td className="py-3 pr-3">
         {draft.off ? (
-          <span className="text-slate-500">꺼짐</span>
+          <span className="text-slate-500">Off</span>
         ) : (
           <div className="flex items-center gap-1.5">
             <input id={inputId} inputMode="decimal" value={draft.value}
@@ -180,17 +180,17 @@ function MetricRow({ metric, draft, onChange }: {
       </td>
       <td className="py-3 pr-3">
         {metric.eval_locked ? (
-          <span className="text-slate-600">즉시 {metric.eval} <span className="text-xs">(고정)</span></span>
+          <span className="text-slate-600">Immediate {metric.eval} <span className="text-xs">(fixed)</span></span>
         ) : (
           <div className="flex items-center gap-1.5">
-            <select aria-label={`${metric.label} 판단 방식`} value={custom ? "custom" : draft.eval}
+            <select aria-label={`${metric.label} evaluation`} value={custom ? "custom" : draft.eval}
               onChange={(e) => onChange({ eval: e.target.value === "custom" ? "4/6" : e.target.value })}
               className="h-10 rounded-lg border border-slate-300 bg-white px-2">
-              {EVAL_PRESETS.map((p) => <option key={p} value={p}>{p === "1/1" ? "즉시 1/1" : p}</option>)}
-              <option value="custom">직접 입력…</option>
+              {EVAL_PRESETS.map((p) => <option key={p} value={p}>{p === "1/1" ? "Immediate 1/1" : p}</option>)}
+              <option value="custom">Custom…</option>
             </select>
             {custom && (
-              <input aria-label={`${metric.label} 판단 방식 직접 입력`} value={draft.eval}
+              <input aria-label={`${metric.label} custom evaluation`} value={draft.eval}
                 onChange={(e) => onChange({ eval: e.target.value })}
                 className="h-10 w-16 rounded-lg border border-slate-300 px-2 font-mono" />
             )}
@@ -198,8 +198,8 @@ function MetricRow({ metric, draft, onChange }: {
         )}
       </td>
       <td className="py-3 pr-3 text-[13px] text-slate-700">
-        {draft.off ? "알람을 만들지 않습니다"
-          : metric.eval_locked ? "가용성 지표 — 한 번만 넘어도 바로 알람"
+        {draft.off ? "No alarm will be created"
+          : metric.eval_locked ? "Availability metric — alarms immediately on a single breach"
             : evalMeaning(draft.eval, metric.period, shownValue, metric.unit, metric.direction)}
       </td>
       <td className="py-3">
@@ -207,11 +207,11 @@ function MetricRow({ metric, draft, onChange }: {
           <SourcePill source={draft.clear ? (metric.customer_default !== null ? "customer" : "system") : metric.source} />
           {metric.source === "resource" && !draft.clear && !draft.off && (
             <button type="button" onClick={() => onChange({ clear: true, value: "" })}
-              className="rounded-md border border-slate-300 px-2 py-1 text-xs hover:bg-slate-50">개별값 해제</button>
+              className="rounded-md border border-slate-300 px-2 py-1 text-xs hover:bg-slate-50">Clear Resource Value</button>
           )}
           <label className="flex items-center gap-1.5 text-xs text-slate-600">
             <input type="checkbox" checked={draft.off} onChange={(e) => onChange({ off: e.target.checked })} />
-            끄기
+            Turn Off
           </label>
         </div>
       </td>

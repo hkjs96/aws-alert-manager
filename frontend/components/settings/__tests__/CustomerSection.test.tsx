@@ -39,30 +39,30 @@ describe("CustomerSection — 담당자(접근 권한)", () => {
     me("tlsgks678@mz.co.kr", true);
     render(<CustomerSection customers={customers} />);
     expect(screen.getByText("koo@mz.co.kr, sxt@mz.co.kr")).toBeInTheDocument();
-    expect(screen.getByText(/없음 — 관리자만 볼 수 있음/)).toBeInTheDocument();
+    expect(screen.getByText(/None — visible to admins only/)).toBeInTheDocument();
   });
 
   it("관리자는 모든 고객사를 편집할 수 있다", () => {
     me("tlsgks678@mz.co.kr", true);
     render(<CustomerSection customers={customers} />);
-    expect(screen.getAllByRole("button", { name: /담당자 편집/ })).toHaveLength(3);
+    expect(screen.getAllByRole("button", { name: /Edit managers for/ })).toHaveLength(3);
   });
 
   it("일반 사용자는 자기가 담당인 고객사만 편집할 수 있다", () => {
     me("koo@mz.co.kr", false);
     render(<CustomerSection customers={customers} />);
-    const edits = screen.getAllByRole("button", { name: /담당자 편집/ });
+    const edits = screen.getAllByRole("button", { name: /Edit managers for/ });
     expect(edits).toHaveLength(1);
-    expect(edits[0]).toHaveAccessibleName("EMU-EM2 담당자 편집");
-    expect(screen.getByText(/담당자로 지정된 고객사만 보입니다/)).toBeInTheDocument();
+    expect(edits[0]).toHaveAccessibleName("Edit managers for EMU-EM2");
+    expect(screen.getByText(/Only customers you manage are shown/)).toBeInTheDocument();
   });
 
   it("편집해서 저장하면 정리된 목록으로 업데이트한다", async () => {
     me("koo@mz.co.kr", false);
     render(<CustomerSection customers={customers} />);
-    fireEvent.click(screen.getByRole("button", { name: "EMU-EM2 담당자 편집" }));
-    fireEvent.change(screen.getByLabelText("EMU-EM2 담당자"), { target: { value: "koo@mz.co.kr, NEW@mz.co.kr" } });
-    fireEvent.click(screen.getByText("저장"));
+    fireEvent.click(screen.getByRole("button", { name: "Edit managers for EMU-EM2" }));
+    fireEvent.change(screen.getByLabelText("Managers for EMU-EM2"), { target: { value: "koo@mz.co.kr, NEW@mz.co.kr" } });
+    fireEvent.click(screen.getByText("Save"));
     await waitFor(() =>
       expect(updateCustomer).toHaveBeenCalledWith("EMU-EM2", { managers: ["koo@mz.co.kr", "new@mz.co.kr"] }),
     );
@@ -71,11 +71,11 @@ describe("CustomerSection — 담당자(접근 권한)", () => {
   it("빈 목록이나 잘못된 이메일은 저장하지 않는다", () => {
     me("tlsgks678@mz.co.kr", true);
     render(<CustomerSection customers={customers} />);
-    fireEvent.click(screen.getByRole("button", { name: "HOME 담당자 편집" }));
-    fireEvent.change(screen.getByLabelText("HOME 담당자"), { target: { value: "  " } });
-    fireEvent.click(screen.getByText("저장"));
-    fireEvent.change(screen.getByLabelText("HOME 담당자"), { target: { value: "not-an-email" } });
-    fireEvent.click(screen.getByText("저장"));
+    fireEvent.click(screen.getByRole("button", { name: "Edit managers for HOME" }));
+    fireEvent.change(screen.getByLabelText("Managers for HOME"), { target: { value: "  " } });
+    fireEvent.click(screen.getByText("Save"));
+    fireEvent.change(screen.getByLabelText("Managers for HOME"), { target: { value: "not-an-email" } });
+    fireEvent.click(screen.getByText("Save"));
     expect(updateCustomer).not.toHaveBeenCalled();
     expect(showToast).toHaveBeenCalledTimes(2);
   });
@@ -84,9 +84,9 @@ describe("CustomerSection — 담당자(접근 권한)", () => {
     me("koo@mz.co.kr", false);
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
     render(<CustomerSection customers={customers} />);
-    fireEvent.click(screen.getByRole("button", { name: "EMU-EM2 담당자 편집" }));
-    fireEvent.change(screen.getByLabelText("EMU-EM2 담당자"), { target: { value: "sxt@mz.co.kr" } });
-    fireEvent.click(screen.getByText("저장"));
+    fireEvent.click(screen.getByRole("button", { name: "Edit managers for EMU-EM2" }));
+    fireEvent.change(screen.getByLabelText("Managers for EMU-EM2"), { target: { value: "sxt@mz.co.kr" } });
+    fireEvent.click(screen.getByText("Save"));
     expect(confirm).toHaveBeenCalled();
     expect(updateCustomer).not.toHaveBeenCalled();
     confirm.mockRestore();

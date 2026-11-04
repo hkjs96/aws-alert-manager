@@ -35,10 +35,10 @@ describe("unregisteredRegions", () => {
 describe("AccountSection — 리전 탐지", () => {
   beforeEach(() => vi.mocked(updateAccountRegions).mockClear());
 
-  it("리소스가 있지만 감시 밖인 리전을 보여주고, 추가하면 등록 리전에 합쳐 저장한다", async () => {
+  it("Resources found outside monitoring인 리전을 보여주고, 추가하면 등록 리전에 합쳐 저장한다", async () => {
     render(<AccountSection accounts={[account]} customers={customers} />);
-    expect(screen.getByText("리소스가 있지만 감시 밖")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "감시 리전에 추가" }));
+    expect(screen.getByText("Resources found outside monitoring")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Add to Monitoring Regions" }));
     await waitFor(() =>
       expect(updateAccountRegions).toHaveBeenCalledWith("771283576189", "home", ["ap-northeast-2", "ap-northeast-1"]),
     );
@@ -46,7 +46,7 @@ describe("AccountSection — 리전 탐지", () => {
 
   it("빠진 리전이 없으면 경고를 그리지 않는다", () => {
     render(<AccountSection accounts={[{ ...account, detected_regions: ["us-east-1", "ap-northeast-2"] }]} customers={customers} />);
-    expect(screen.queryByText("리소스가 있지만 감시 밖")).toBeNull();
+    expect(screen.queryByText("Resources found outside monitoring")).toBeNull();
   });
 
   it("마지막 남은 리전은 뺄 수 없다", () => {

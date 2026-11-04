@@ -16,8 +16,8 @@ describe("판단 방식", () => {
   });
 
   it("뜻을 풀어 쓴다", () => {
-    expect(evalMeaning("3/5", 300, 90, "%", ">")).toBe("최근 25분 중 15분 이상 90 %를 넘으면 알람");
-    expect(evalMeaning("1/1", 60, null, "", ">")).toBe("한 번만 넘으면 바로 알람");
+    expect(evalMeaning("3/5", 300, 90, "%", ">")).toBe("Alarm if above 90 % for 15 min of the last 25 min");
+    expect(evalMeaning("1/1", 60, null, "", ">")).toBe("Alarm immediately on a single breach");
   });
 });
 
@@ -52,7 +52,7 @@ describe("벌크 영향", () => {
   it("해제는 고객사 기본값으로 돌아간다", () => {
     const row = impactFor("a", "a", { ...CPU, value: 95, source: "resource", customer_default: 85 },
       { metric: "CPUUtilization", action: "clear", eval: null });
-    expect(row.after).toBe("85 고객사 기본");
+    expect(row.after).toBe("85 Customer default");
   });
 
   it("리소스별 본문", () => {
