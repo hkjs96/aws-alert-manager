@@ -51,7 +51,7 @@ export function Pagination({
           onClick={() => onPageChange(page - 1)}
           disabled={page <= 1}
           className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed"
-          aria-label="이전 페이지"
+          aria-label="Previous page"
         >
           <ChevronLeft className="h-4 w-4" />
         </button>
@@ -80,7 +80,7 @@ export function Pagination({
           onClick={() => onPageChange(page + 1)}
           disabled={page >= totalPages}
           className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed"
-          aria-label="다음 페이지"
+          aria-label="Next page"
         >
           <ChevronRight className="h-4 w-4" />
         </button>

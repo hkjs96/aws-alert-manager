@@ -32,7 +32,7 @@ export function LoginButton({ callbackUrl }: { callbackUrl: string }) {
       onClick={() => signIn("google", { callbackUrl })}
       className="flex w-full items-center justify-center gap-3 rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 hover:shadow active:scale-[0.99]"
     >
-      <GoogleIcon /> Google로 로그인
+      <GoogleIcon /> Sign in with Google
     </button>
   );
 }

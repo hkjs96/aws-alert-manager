@@ -35,7 +35,7 @@ export function TopBar({ onMenuToggle, userEmail = null, alarmBadge, alarmBell, 
         <button
           onClick={onMenuToggle}
           className="p-2 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors lg:hidden"
-          aria-label="메뉴 열기/닫기"
+          aria-label="Toggle menu"
         >
           <Menu size={20} />
         </button>
@@ -54,7 +54,7 @@ export function TopBar({ onMenuToggle, userEmail = null, alarmBadge, alarmBell, 
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search resources..."
-            aria-label="리소스 검색"
+            aria-label="Search resources"
             className="pl-10 pr-4 py-1.5 bg-slate-100 border-none rounded-full text-xs w-64 focus:ring-2 focus:ring-primary/20 outline-none"
           />
         </form>
@@ -65,8 +65,8 @@ export function TopBar({ onMenuToggle, userEmail = null, alarmBadge, alarmBell, 
         <Link
           href="/help"
           className="p-2 text-slate-500 hover:bg-slate-100 rounded-full transition-colors"
-          aria-label="도움말"
-          title="도움말 / 사용 가이드"
+          aria-label="Help"
+          title="Help / User Guide"
         >
           <HelpCircle size={20} />
         </Link>
@@ -79,8 +79,8 @@ export function TopBar({ onMenuToggle, userEmail = null, alarmBadge, alarmBell, 
             <button
               onClick={() => signOut({ callbackUrl: "/login" })}
               className="p-2 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-full transition-colors"
-              aria-label="로그아웃"
-              title="로그아웃"
+              aria-label="Sign out"
+              title="Sign out"
             >
               <LogOut size={18} />
             </button>

@@ -11,15 +11,15 @@ interface TrackSelectorProps {
 const TRACKS = [
   {
     track: 1 as Track,
-    title: "커스텀 알람 추가",
-    description: "이미 모니터링 중인 리소스에 CloudWatch 커스텀 메트릭 알람을 추가합니다.",
+    title: "Add Custom Alarm",
+    description: "Add a CloudWatch custom metric alarm to a resource that is already monitored.",
     icon: PlusCircle,
     testId: "track-card-1",
   },
   {
     track: 2 as Track,
-    title: "새 모니터링 설정",
-    description: "미모니터링 리소스에 대해 모니터링을 활성화하고 알람을 생성합니다.",
+    title: "Set Up New Monitoring",
+    description: "Enable monitoring for an unmonitored resource and create its alarms.",
     icon: Monitor,
     testId: "track-card-2",
   },
@@ -28,7 +28,7 @@ const TRACKS = [
 export function TrackSelector({ selectedTrack, onSelectTrack }: TrackSelectorProps) {
   return (
     <div className="space-y-4">
-      <h3 className="text-sm font-semibold text-slate-700">트랙 선택</h3>
+      <h3 className="text-sm font-semibold text-slate-700">Select Track</h3>
       <div className="grid grid-cols-2 gap-4">
         {TRACKS.map(({ track, title, description, icon: Icon, testId }) => {
           const selected = selectedTrack === track;

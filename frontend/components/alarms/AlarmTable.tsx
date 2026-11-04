@@ -121,9 +121,9 @@ export function AlarmTable({ alarms, sortKey, sortDir, onSort }: AlarmTableProps
                     <div className="mt-1 flex items-center gap-1.5">
                       <span
                         className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600"
-                        title="고객이 직접 만든 알람입니다. 이 화면에서는 보기만 하고 바꾸지 않습니다."
+                        title="Created by the customer. View only — not changed from this screen."
                       >
-                        고객 알람
+                        Customer Alarm
                       </span>
                       <span className="truncate text-[11px] text-slate-500">{alarm.alarm_name}</span>
                     </div>

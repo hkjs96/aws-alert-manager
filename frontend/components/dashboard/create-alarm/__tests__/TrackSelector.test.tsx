@@ -43,7 +43,7 @@ describe("TrackSelector 컴포넌트", () => {
 
   it("카드에 타이틀 텍스트가 렌더링된다", () => {
     render(<TrackSelector selectedTrack={null} onSelectTrack={vi.fn()} />);
-    expect(screen.getByText("커스텀 알람 추가")).toBeInTheDocument();
-    expect(screen.getByText("새 모니터링 설정")).toBeInTheDocument();
+    expect(screen.getByText("Add Custom Alarm")).toBeInTheDocument();
+    expect(screen.getByText("Set Up New Monitoring")).toBeInTheDocument();
   });
 });

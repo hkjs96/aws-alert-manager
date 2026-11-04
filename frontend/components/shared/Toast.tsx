@@ -71,7 +71,7 @@ function Toast({ item, onDismiss }: { item: ToastItem; onDismiss: (id: string) =
       <button
         onClick={() => onDismiss(item.id)}
         className="shrink-0 text-slate-400 hover:text-slate-600"
-        aria-label="닫기"
+        aria-label="Close"
       >
         <X className="w-4 h-4" />
       </button>

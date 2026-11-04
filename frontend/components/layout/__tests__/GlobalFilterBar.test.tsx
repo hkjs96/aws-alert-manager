@@ -39,8 +39,8 @@ describe("GlobalFilterBar", () => {
     expect(screen.getByLabelText("Customer filter")).toBeInTheDocument();
     expect(screen.getByLabelText("Account filter")).toBeInTheDocument();
     expect(screen.queryByLabelText("Service filter")).not.toBeInTheDocument();
-    expect(screen.getByText("전체 고객사")).toBeInTheDocument();
-    expect(screen.getByText("전체 계정")).toBeInTheDocument();
+    expect(screen.getByText("All Customers")).toBeInTheDocument();
+    expect(screen.getByText("All Accounts")).toBeInTheDocument();
   });
 
   it("props로 받은 고객사·계정을 모두 표시한다", () => {

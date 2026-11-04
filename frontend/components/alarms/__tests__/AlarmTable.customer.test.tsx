@@ -12,7 +12,7 @@ describe("AlarmTable — 고객 알람", () => {
   it("고객 알람 표시와 알람 이름을 보여 준다", () => {
     render(<AlarmTable alarms={[{ ...base, id: "a", arn: "arn:1", resource: "i-0abc", type: "EC2",
       source: "customer", alarm_name: "[EC2]WEBFIL_NetworkIn_over" }]} sortKey="time" sortDir="desc" onSort={() => {}} />);
-    expect(screen.getByText("고객 알람")).toBeInTheDocument();
+    expect(screen.getByText("Customer Alarm")).toBeInTheDocument();
     expect(screen.getByText("[EC2]WEBFIL_NetworkIn_over")).toBeInTheDocument();
   });
 

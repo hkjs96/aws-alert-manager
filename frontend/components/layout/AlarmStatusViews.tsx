@@ -72,7 +72,7 @@ export function AlarmBellView({ count, alarming }: AlarmBellViewProps) {
       <button
         onClick={() => setOpen((v) => !v)}
         className="p-2 text-slate-500 hover:bg-slate-100 rounded-full transition-colors relative"
-        aria-label="알림"
+        aria-label="Alerts"
       >
         <Bell size={20} />
         {hasAlarms && (
@@ -84,11 +84,11 @@ export function AlarmBellView({ count, alarming }: AlarmBellViewProps) {
       {open && (
         <div className="absolute right-0 mt-2 w-80 max-h-96 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-lg z-50">
           <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
-            <span className="text-sm font-semibold text-slate-800">알림</span>
+            <span className="text-sm font-semibold text-slate-800">Alerts</span>
             <span className="text-[11px] font-semibold text-red-600">{count} ALARM</span>
           </div>
           {alarming.length === 0 ? (
-            <div className="px-4 py-8 text-center text-sm text-slate-400">현재 ALARM 상태인 알람이 없습니다</div>
+            <div className="px-4 py-8 text-center text-sm text-slate-400">No alarms are currently in ALARM state</div>
           ) : (
             <ul className="divide-y divide-slate-100">
               {alarming.map((a, i) => (
@@ -116,7 +116,7 @@ export function AlarmBellView({ count, alarming }: AlarmBellViewProps) {
 
 export function AlarmBellFallback() {
   return (
-    <div className="p-2 text-slate-300" aria-label="알림 불러오는 중" aria-busy="true">
+    <div className="p-2 text-slate-300" aria-label="Loading alerts" aria-busy="true">
       <Bell size={20} />
     </div>
   );

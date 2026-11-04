@@ -77,7 +77,7 @@ describe("ResourceFilterStep 컴포넌트", () => {
     );
     // 222222222222 계정의 monitoring=true 리소스는 i-003뿐인데, 그건 있음
     // 아예 없는 계정으로 테스트
-    expect(screen.queryByText("모니터링 중인 리소스가 없습니다")).not.toBeInTheDocument();
+    expect(screen.queryByText("No monitored resources")).not.toBeInTheDocument();
   });
 
   it("트랙 2: accountId가 있고 monitoring=false 리소스만 있는 경우 미모니터링 메시지 노출 안 됨", () => {
@@ -91,7 +91,7 @@ describe("ResourceFilterStep 컴포넌트", () => {
       />,
     );
     // i-002가 monitoring=false이므로 표시됨 → 메시지 없음
-    expect(screen.queryByText("미모니터링 리소스가 없습니다")).not.toBeInTheDocument();
+    expect(screen.queryByText("No unmonitored resources")).not.toBeInTheDocument();
   });
 
   it("트랙 1 + accountId에 monitoring=true 리소스 없으면 '모니터링 중인 리소스가 없습니다' 표시", () => {
@@ -108,6 +108,6 @@ describe("ResourceFilterStep 컴포넌트", () => {
         allResources={noMonitoringResources}
       />,
     );
-    expect(screen.getByText("모니터링 중인 리소스가 없습니다")).toBeInTheDocument();
+    expect(screen.getByText("No monitored resources")).toBeInTheDocument();
   });
 });

@@ -88,7 +88,7 @@ export function AlarmForm({ resourceId, open, onClose, onAdd }: AlarmFormProps) 
       );
       if (!res.ok) {
         const data = (await res.json().catch(() => ({}))) as { message?: string };
-        setError(data.message ?? "알람 생성에 실패했습니다");
+        setError(data.message ?? "Failed to create alarm");
         return;
       }
       onAdd({
@@ -110,7 +110,7 @@ export function AlarmForm({ resourceId, open, onClose, onAdd }: AlarmFormProps) 
       resetForm();
       onClose();
     } catch {
-      setError("요청에 실패했습니다");
+      setError("Request failed");
     } finally {
       setSubmitting(false);
     }
@@ -163,7 +163,7 @@ export function AlarmForm({ resourceId, open, onClose, onAdd }: AlarmFormProps) 
         {!loadingMetrics && metrics.length === 0 && (
           <div className="mt-1 flex items-center gap-1.5 text-xs text-amber-700">
             <AlertTriangle size={14} />
-            <span>이 리소스가 보고 중인 CloudWatch 메트릭이 없습니다.</span>
+            <span>This resource isn’t reporting any CloudWatch metrics.</span>
           </div>
         )}
         {selected && (
@@ -184,7 +184,7 @@ export function AlarmForm({ resourceId, open, onClose, onAdd }: AlarmFormProps) 
             <div className="h-9 bg-white animate-pulse rounded-lg" />
           ) : paths.length === 0 ? (
             <p className="text-xs text-slate-400 py-2">
-              CWAgent 디스크 메트릭을 찾을 수 없습니다. 인스턴스에 CWAgent가 설치되어 있는지 확인하세요.
+              No CWAgent disk metrics found. Make sure CWAgent is installed on the instance.
             </p>
           ) : (
             <select
@@ -236,7 +236,7 @@ export function AlarmForm({ resourceId, open, onClose, onAdd }: AlarmFormProps) 
           disabled={!canSubmit}
           className="bg-primary text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-primary/90 disabled:opacity-50"
         >
-          {submitting ? "생성 중..." : "Create Alarm"}
+          {submitting ? "Creating..." : "Create Alarm"}
         </button>
         <button
           onClick={onClose}

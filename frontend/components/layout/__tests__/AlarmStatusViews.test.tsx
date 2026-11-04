@@ -48,7 +48,7 @@ describe("AlarmBellView", () => {
       />,
     );
     expect(screen.getByText("9+")).toBeInTheDocument(); // 9 초과 → 9+
-    fireEvent.click(screen.getByLabelText("알림"));
+    fireEvent.click(screen.getByLabelText("Alerts"));
     expect(screen.getByText("12 ALARM")).toBeInTheDocument();
     expect(screen.getByText("i-001")).toBeInTheDocument();
     expect(screen.getByText("i-001").closest("a")).toHaveAttribute("href", expect.stringContaining("/resources/"));
@@ -56,7 +56,7 @@ describe("AlarmBellView", () => {
 
   it("shows the empty message when nothing fires", () => {
     render(<AlarmBellView count={0} alarming={[]} />);
-    fireEvent.click(screen.getByLabelText("알림"));
-    expect(screen.getByText("현재 ALARM 상태인 알람이 없습니다")).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText("Alerts"));
+    expect(screen.getByText("No alarms are currently in ALARM state")).toBeInTheDocument();
   });
 });

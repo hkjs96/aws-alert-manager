@@ -85,7 +85,7 @@ export function ThresholdSection({ customerId = "" }: { customerId?: string }) {
           setInitialThresholds(data);
         }
       } catch {
-        if (!cancelled) showToast("error", `${activeType} 임계치 로드에 실패했습니다.`);
+        if (!cancelled) showToast("error", `Failed to load ${activeType} thresholds.`);
       } finally {
         if (!cancelled) setIsLoading(false);
       }
@@ -187,7 +187,7 @@ export function ThresholdSection({ customerId = "" }: { customerId?: string }) {
       {/* Threshold table */}
       <div className="overflow-x-auto">
         {isLoading ? (
-          <div className="px-6 py-8 text-center text-sm text-slate-400">로딩 중...</div>
+          <div className="px-6 py-8 text-center text-sm text-slate-400">Loading...</div>
         ) : (
           <table className="w-full text-sm">
             <thead className="bg-slate-50 border-b border-slate-200">

@@ -167,18 +167,18 @@ export function CreateAlarmModal({ open, onClose, onSuccess }: CreateAlarmModalP
       const failed = results.filter((r) => r.status === "rejected").length;
 
       if (failed === activeMetrics.length && activeMetrics.length > 0) {
-        showToast("error", "알람 생성에 실패했습니다. 다시 시도해주세요.");
+        showToast("error", "Failed to create alarms. Please try again.");
         return;
       }
       if (failed > 0) {
-        showToast("error", `${activeMetrics.length - failed}개 생성, ${failed}개 실패했습니다.`);
+        showToast("error", `Created ${activeMetrics.length - failed}, failed ${failed}.`);
       } else {
-        showToast("success", "알람이 성공적으로 생성되었습니다.");
+        showToast("success", "Alarms created successfully.");
       }
       handleClose();
       onSuccess?.();
     } catch {
-      showToast("error", "알람 생성에 실패했습니다. 다시 시도해주세요.");
+      showToast("error", "Failed to create alarms. Please try again.");
     } finally {
       setIsSubmitting(false);
     }
@@ -222,7 +222,7 @@ export function CreateAlarmModal({ open, onClose, onSuccess }: CreateAlarmModalP
 
           {step === "metric-config" && track && resourceId && (
             <>
-              <InfoBanner message="알람 알림은 기본 SNS 토픽(alarm-notifications)으로 전달됩니다." />
+              <InfoBanner message="Alarm notifications are sent to the default SNS topic (alarm-notifications)." />
               <MetricConfigStep
                 track={track}
                 resourceType={resourceType}

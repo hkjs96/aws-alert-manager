@@ -14,14 +14,14 @@ export async function apiFetch<T>(path: string, options?: RequestInit): Promise<
       headers: { "Content-Type": "application/json", ...options?.headers },
     });
   } catch {
-    throw new ApiError(0, "NETWORK_ERROR", "네트워크 연결을 확인해주세요");
+    throw new ApiError(0, "NETWORK_ERROR", "Check your network connection");
   }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new ApiError(
       res.status,
       body.code ?? "UNKNOWN",
-      body.message ?? `요청 실패 (${res.status})`,
+      body.message ?? `Request failed (${res.status})`,
     );
   }
   // 204(No Content)는 본문이 없다 — json()을 부르면 던진다.

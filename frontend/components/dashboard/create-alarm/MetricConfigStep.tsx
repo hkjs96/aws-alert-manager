@@ -70,23 +70,23 @@ export function MetricConfigStep({
   if (track === 1) {
     return (
       <div className="space-y-4">
-        <h3 className="text-sm font-semibold text-slate-700">커스텀 메트릭 설정</h3>
+        <h3 className="text-sm font-semibold text-slate-700">Custom Metric Settings</h3>
         {cwMetrics.length === 0 ? (
           <p className="text-xs text-slate-400">
-            이 리소스 타입에 사용 가능한 추가 CloudWatch 메트릭이 없습니다
+            No additional CloudWatch metrics are available for this resource type
           </p>
         ) : (
           <>
             <div>
               <label className="block text-[10px] font-semibold uppercase text-slate-400 mb-1">
-                CloudWatch 메트릭 선택
+                Select CloudWatch Metric
               </label>
               <select
                 value={selectedCwMetric}
                 onChange={(e) => setSelectedCwMetric(e.target.value)}
                 className="w-full rounded border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-primary/20 outline-none"
               >
-                <option value="">메트릭을 선택하세요...</option>
+                <option value="">Select a metric...</option>
                 {availableCwMetrics.map((m) => (
                   <option key={m.name} value={m.name}>
                     {m.name} ({m.namespace})
@@ -97,22 +97,22 @@ export function MetricConfigStep({
             {selectedCwMetric && (
               <div className="flex items-end gap-2">
                 <div className="w-24">
-                  <label className="block text-[10px] font-semibold uppercase text-slate-400 mb-1">임계치</label>
+                  <label className="block text-[10px] font-semibold uppercase text-slate-400 mb-1">Threshold</label>
                   <input type="number" value={customThreshold} onChange={(e) => setCustomThreshold(Number(e.target.value))} className="w-full rounded border border-slate-200 px-2 py-1.5 text-sm font-mono" />
                 </div>
                 <div className="w-28">
-                  <label className="block text-[10px] font-semibold uppercase text-slate-400 mb-1">단위</label>
+                  <label className="block text-[10px] font-semibold uppercase text-slate-400 mb-1">Unit</label>
                   <select value={customUnit || "Count"} onChange={(e) => setCustomUnit(e.target.value)} className="w-full rounded border border-slate-200 px-2 py-1.5 text-sm">
                     {UNIT_OPTIONS.map((u) => <option key={u} value={u}>{u}</option>)}
                   </select>
                 </div>
                 <div className="w-44">
-                  <label className="block text-[10px] font-semibold uppercase text-slate-400 mb-1">비교 연산자</label>
+                  <label className="block text-[10px] font-semibold uppercase text-slate-400 mb-1">Comparison</label>
                   <select value={customDirection} onChange={(e) => setCustomDirection(e.target.value)} className="w-full rounded border border-slate-200 px-2 py-1.5 text-sm">
                     {COMPARISON_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                   </select>
                 </div>
-                <button onClick={addCustomFromDropdown} className="rounded bg-primary px-3 py-1.5 text-sm font-medium text-white">추가</button>
+                <button onClick={addCustomFromDropdown} className="rounded bg-primary px-3 py-1.5 text-sm font-medium text-white">Add</button>
               </div>
             )}
             {customMetrics.length > 0 && (
@@ -124,7 +124,7 @@ export function MetricConfigStep({
                         <td className="px-3 py-2 font-medium">{m.name}</td>
                         <td className="px-3 py-2 text-xs text-slate-500">{m.direction} {m.threshold} {m.unit}</td>
                         <td className="px-3 py-2">
-                          <button onClick={() => setCustomMetrics((prev) => prev.filter((_, j) => j !== idx))} className="text-red-400 hover:text-red-600 text-xs">삭제</button>
+                          <button onClick={() => setCustomMetrics((prev) => prev.filter((_, j) => j !== idx))} className="text-red-400 hover:text-red-600 text-xs">Delete</button>
                         </td>
                       </tr>
                     ))}
@@ -141,7 +141,7 @@ export function MetricConfigStep({
   // Track 2: reuse MetricConfigSection
   return (
     <div className="space-y-4">
-      <h3 className="text-sm font-semibold text-slate-700">메트릭 설정</h3>
+      <h3 className="text-sm font-semibold text-slate-700">Metric Settings</h3>
       <MetricConfigSection
         selectedType={resourceType}
         metrics={metrics}

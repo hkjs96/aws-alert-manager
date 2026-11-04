@@ -24,12 +24,12 @@ export function overlapMessage(resourceId: string, overlaps: AlarmOverlap[]): st
     (o) => `• ${o.metric}: ${o.customer_alarms.map((a) => a.name).join(", ")}`,
   );
   return [
-    `${resourceId}에는 고객이 이미 만든 알람이 같은 지표를 보고 있습니다.`,
-    "켜면 같은 장애에 알림이 두 번 갈 수 있습니다.",
+    `${resourceId} already has customer-created alarms watching the same metrics.`,
+    "Turning this on may send two alerts for the same incident.",
     "",
     ...lines,
     "",
-    "그래도 켤까요? (나중에 특정 지표만 빼려면 리소스에 Threshold_<지표>=off 태그)",
+    "Turn it on anyway? (To exclude a specific metric later, tag the resource Threshold_<metric>=off.)",
   ].join("\n");
 }
 
@@ -55,7 +55,7 @@ export function useMonitoringToggle(): UseMonitoringToggleReturn {
         await toggleMonitoring(resourceId, !currentState);
         return true;
       } catch {
-        showToast("error", `모니터링 상태 변경에 실패했습니다 (${resourceId})`);
+        showToast("error", `Failed to change monitoring state (${resourceId})`);
         return false;
       } finally {
         setLoadingIds((prev) => {

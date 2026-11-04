@@ -77,7 +77,7 @@ export function ResourceDetailClient({ resource, alarmConfigs }: ResourceDetailC
                   {item.metricName}
                 </div>
                 <div className="text-[9px] text-slate-400 mt-0.5">
-                  {!item.enabled ? "Disabled" : item.state === "ALARM" ? "ALARM" : item.state === "INSUFFICIENT_DATA" ? "데이터 부족" : "OK"}
+                  {!item.enabled ? "Disabled" : item.state === "ALARM" ? "ALARM" : item.state === "INSUFFICIENT_DATA" ? "Insufficient Data" : "OK"}
                 </div>
               </div>
             ))}

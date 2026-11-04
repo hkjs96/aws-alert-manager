@@ -58,7 +58,7 @@ describe("apiFetch", () => {
       const apiErr = err as InstanceType<typeof ApiError>;
       expect(apiErr.status).toBe(0);
       expect(apiErr.code).toBe("NETWORK_ERROR");
-      expect(apiErr.message).toBe("네트워크 연결을 확인해주세요");
+      expect(apiErr.message).toBe("Check your network connection");
     }
   });
 
@@ -88,7 +88,7 @@ describe("apiFetch", () => {
     await expect(apiFetch("/api/test")).rejects.toMatchObject({
       status: 500,
       code: "UNKNOWN",
-      message: "요청 실패 (500)",
+      message: "Request failed (500)",
     });
   });
 

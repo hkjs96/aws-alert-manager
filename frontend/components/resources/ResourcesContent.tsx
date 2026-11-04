@@ -233,9 +233,9 @@ export function ResourcesContent({
     setIsExporting(true);
     try {
       await downloadCsv("/api/resources/export", {}, "resources");
-      showToast("success", "CSV 내보내기가 완료되었습니다.");
+      showToast("success", "CSV export complete.");
     } catch {
-      showToast("error", "CSV 내보내기에 실패했습니다.");
+      showToast("error", "CSV export failed.");
     } finally {
       setIsExporting(false);
     }

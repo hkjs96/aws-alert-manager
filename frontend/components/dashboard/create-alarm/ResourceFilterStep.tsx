@@ -38,18 +38,18 @@ export function ResourceFilterStep({
 
   return (
     <div className="space-y-4">
-      <h3 className="text-sm font-semibold text-slate-700">리소스 선택</h3>
+      <h3 className="text-sm font-semibold text-slate-700">Select Resource</h3>
 
       {/* 고객사 */}
       <div>
-        <label className="block text-[10px] font-semibold uppercase text-slate-400 mb-1">고객사</label>
+        <label className="block text-[10px] font-semibold uppercase text-slate-400 mb-1">Customer</label>
         <select
           data-testid="customer-select"
           value={customerId}
           onChange={(e) => onCustomerChange(e.target.value)}
           className="w-full rounded border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-primary/20 outline-none"
         >
-          <option value="">고객사를 선택하세요...</option>
+          <option value="">Select a customer...</option>
           {customers.map((c) => (
             <option key={c.customer_id} value={c.customer_id}>{c.name}</option>
           ))}
@@ -58,7 +58,7 @@ export function ResourceFilterStep({
 
       {/* 어카운트 */}
       <div>
-        <label className="block text-[10px] font-semibold uppercase text-slate-400 mb-1">어카운트</label>
+        <label className="block text-[10px] font-semibold uppercase text-slate-400 mb-1">Account</label>
         <select
           data-testid="account-select"
           value={accountId}
@@ -66,19 +66,19 @@ export function ResourceFilterStep({
           disabled={!customerId}
           className="w-full rounded border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-primary/20 outline-none disabled:bg-slate-50 disabled:text-slate-300"
         >
-          <option value="">어카운트를 선택하세요...</option>
+          <option value="">Select an account...</option>
           {accounts.map((a) => (
             <option key={a.account_id} value={a.account_id}>{a.name} ({a.account_id})</option>
           ))}
         </select>
         {customerId && accounts.length === 0 && (
-          <p className="mt-1 text-xs text-slate-400">어카운트가 없습니다</p>
+          <p className="mt-1 text-xs text-slate-400">No accounts</p>
         )}
       </div>
 
       {/* 리소스 */}
       <div>
-        <label className="block text-[10px] font-semibold uppercase text-slate-400 mb-1">리소스</label>
+        <label className="block text-[10px] font-semibold uppercase text-slate-400 mb-1">Resource</label>
         <select
           data-testid="resource-select"
           value={resourceId}
@@ -86,14 +86,14 @@ export function ResourceFilterStep({
           disabled={!accountId}
           className="w-full rounded border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-primary/20 outline-none disabled:bg-slate-50 disabled:text-slate-300"
         >
-          <option value="">리소스를 선택하세요...</option>
+          <option value="">Select a resource...</option>
           {resources.map((r) => (
             <option key={r.id} value={r.id}>{r.name} ({r.type})</option>
           ))}
         </select>
         {accountId && resources.length === 0 && (
           <p className="mt-1 text-xs text-slate-400">
-            {track === 1 ? "모니터링 중인 리소스가 없습니다" : "미모니터링 리소스가 없습니다"}
+            {track === 1 ? "No monitored resources" : "No unmonitored resources"}
           </p>
         )}
       </div>

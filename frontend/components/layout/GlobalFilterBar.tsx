@@ -132,7 +132,7 @@ export function GlobalFilterBar({ customers, accounts }: GlobalFilterBarProps) {
         className={selectClass}
         aria-label="Customer filter"
       >
-        <option value="">전체 고객사</option>
+        <option value="">All Customers</option>
         {customers.map((c) => (
           <option key={c.customer_id} value={c.customer_id}>
             {c.name}
@@ -146,7 +146,7 @@ export function GlobalFilterBar({ customers, accounts }: GlobalFilterBarProps) {
         className={selectClass}
         aria-label="Account filter"
       >
-        <option value="">전체 계정</option>
+        <option value="">All Accounts</option>
         {filteredAccounts.map((a) => (
           <option key={a.account_id} value={a.account_id}>
             {a.name}

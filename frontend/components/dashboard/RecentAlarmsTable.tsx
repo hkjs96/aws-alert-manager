@@ -254,7 +254,7 @@ export function RecentAlarmsTable({ alarms }: RecentAlarmsTableProps) {
           {hiddenCount > 0 && (
             <tr>
               <td colSpan={6} className="px-4 py-3 text-center text-xs text-slate-400">
-                최신 {MAX_RENDERED_ROWS}건만 표시 중 (+{hiddenCount}건) — 검색으로 범위를 좁히세요
+                Showing the latest {MAX_RENDERED_ROWS} only (+{hiddenCount} more) — narrow it down with search
               </td>
             </tr>
           )}

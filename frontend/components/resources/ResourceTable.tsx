@@ -173,14 +173,14 @@ function EmptyState({
       <div className="bg-white rounded-xl shadow-sm overflow-hidden border border-slate-200 shadow-soft">
         <div className="flex flex-col items-center justify-center py-16 text-center">
           <span className="text-4xl mb-4">🔍</span>
-          <h3 className="text-sm font-semibold text-slate-700 mb-1">검색 결과가 없습니다</h3>
-          <p className="text-xs text-slate-400 mb-4">검색어나 필터 조건을 변경해보세요</p>
+          <h3 className="text-sm font-semibold text-slate-700 mb-1">No results found</h3>
+          <p className="text-xs text-slate-400 mb-4">Try a different search or filter</p>
           {onClearFilters && (
             <button
               onClick={onClearFilters}
               className="px-4 py-1.5 bg-primary text-white text-xs font-semibold rounded-md hover:opacity-90 transition-opacity"
             >
-              필터 초기화
+              Reset Filters
             </button>
           )}
         </div>
@@ -192,8 +192,8 @@ function EmptyState({
     <div className="bg-white rounded-xl shadow-sm overflow-hidden border border-slate-200 shadow-soft">
       <div className="flex flex-col items-center justify-center py-16 text-center">
         <span className="text-4xl mb-4">🌐</span>
-        <h3 className="text-sm font-semibold text-slate-700 mb-1">모니터링 중인 리소스가 없습니다</h3>
-        <p className="text-xs text-slate-400">리소스를 동기화해보세요</p>
+        <h3 className="text-sm font-semibold text-slate-700 mb-1">No monitored resources</h3>
+        <p className="text-xs text-slate-400">Try syncing resources</p>
       </div>
     </div>
   );

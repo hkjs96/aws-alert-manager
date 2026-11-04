@@ -57,19 +57,19 @@ export function describeBulkToggle(result: BulkToggleResult, enabled: boolean): 
   kind: "success" | "error";
   message: string;
 } {
-  const verb = enabled ? "활성화" : "비활성화";
+  const verb = enabled ? "Enabled" : "Disabled";
   const total = result.succeeded.length + result.failed.length;
   if (result.failed.length === 0) {
-    return { kind: "success", message: `${total}개 리소스의 모니터링을 ${verb}했습니다.` };
+    return { kind: "success", message: `${verb} monitoring for ${total} resource${total === 1 ? "" : "s"}.` };
   }
   if (result.succeeded.length === 0) {
-    return { kind: "error", message: `모니터링 ${verb}에 실패했습니다 (${total}개).` };
+    return { kind: "error", message: `Failed to ${enabled ? "enable" : "disable"} monitoring (${total}).` };
   }
   return {
     kind: "error",
-    message: `${result.succeeded.length}개 ${verb}, ${result.failed.length}개 실패: ${result.failed
+    message: `${verb} ${result.succeeded.length}, failed ${result.failed.length}: ${result.failed
       .map((f) => f.id)
       .slice(0, 3)
-      .join(", ")}${result.failed.length > 3 ? " 외" : ""}`,
+      .join(", ")}${result.failed.length > 3 ? " and more" : ""}`,
   };
 }

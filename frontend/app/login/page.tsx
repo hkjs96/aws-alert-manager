@@ -3,9 +3,9 @@ import { HelpCircle, Bell, Check } from "lucide-react";
 import { LoginButton } from "./LoginButton";
 
 const FEATURES = [
-  "태그 기반 알람 생성·관리",
-  "29종 AWS 리소스 타입 지원",
-  "고객사·계정 단위 정리",
+  "Create and manage alarms with tags",
+  "Supports 29 AWS resource types",
+  "Organized by customer and account",
 ];
 
 export default async function LoginPage({
@@ -35,12 +35,12 @@ export default async function LoginPage({
 
         <div className="relative">
           <h2 className="font-headline text-4xl font-extrabold leading-tight text-slate-900">
-            태그 기반<br />
-            <span className="text-primary">AWS 알람 관리</span>
+            Tag-Based<br />
+            <span className="text-primary">AWS Alarm Management</span>
           </h2>
           <p className="mt-4 max-w-md text-sm leading-relaxed text-slate-500">
-            AWS 리소스의 CloudWatch 알람을 태그 기반으로 생성하고 관리합니다.
-            29종 리소스 타입을 지원합니다.
+            Create and manage CloudWatch alarms for your AWS resources with tags.
+            Supports 29 resource types.
           </p>
           <ul className="mt-8 space-y-3 text-sm text-slate-600">
             {FEATURES.map((f) => (
@@ -55,7 +55,7 @@ export default async function LoginPage({
         </div>
 
         <p className="relative text-xs text-slate-400">
-          AWS CloudWatch · 태그 기반 알람 관리
+          AWS CloudWatch · Tag-Based Alarm Management
         </p>
       </div>
 
@@ -70,12 +70,12 @@ export default async function LoginPage({
             <span className="text-lg font-bold text-slate-900">Alarm Manager</span>
           </div>
 
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900">로그인</h1>
-          <p className="mt-1.5 text-sm text-slate-500">회사 Google 계정으로 시작하세요.</p>
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900">Sign In</h1>
+          <p className="mt-1.5 text-sm text-slate-500">Get started with your company Google account.</p>
 
           {denied && (
             <p className="mt-5 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-              허용되지 않은 계정입니다. 관리자에게 문의하세요.
+              This account is not allowed. Contact an administrator.
             </p>
           )}
 
@@ -87,11 +87,11 @@ export default async function LoginPage({
             href="/help"
             className="mt-3 flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
           >
-            <HelpCircle size={16} className="text-primary" /> 처음이신가요? 사용 가이드 보기
+            <HelpCircle size={16} className="text-primary" /> New here? Read the User Guide
           </Link>
 
           <p className="mt-10 text-center text-[11px] text-slate-400">
-            허용된 계정만 접근할 수 있습니다.
+            Only allowed accounts can sign in.
           </p>
         </div>
       </div>

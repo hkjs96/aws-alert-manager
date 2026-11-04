@@ -18,7 +18,7 @@ export default async function SettingsPage({
       <header className="flex items-start justify-between">
         <div>
           <h1 className="text-2xl font-bold text-slate-800 font-headline">Settings</h1>
-          <p className="text-sm text-slate-500 mt-1">임계치 기본값과 알림 채널을 설정합니다.</p>
+          <p className="text-sm text-slate-500 mt-1">Configure default thresholds and notification channels.</p>
         </div>
       </header>
 

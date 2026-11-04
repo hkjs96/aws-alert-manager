@@ -58,14 +58,14 @@ export function ResourceSummary({
 
   return (
     <section
-      aria-label="리소스 요약"
+      aria-label="Resource summary"
       className="space-y-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
     >
       <div className="flex flex-wrap gap-8">
-        {stat("리소스", resources.length)}
-        {stat("모니터링 켬", monitored, "text-slate-700", "on")}
-        {stat("모니터링 끔", resources.length - monitored, "text-slate-500", "off")}
-        {stat("알람 발생 중", alarming, alarming ? "text-red-600" : "text-slate-500")}
+        {stat("Resources", resources.length)}
+        {stat("Monitoring On", monitored, "text-slate-700", "on")}
+        {stat("Monitoring Off", resources.length - monitored, "text-slate-500", "off")}
+        {stat("In Alarm", alarming, alarming ? "text-red-600" : "text-slate-500")}
       </div>
       {byType.length > 0 && (
         <div className="flex flex-wrap gap-1.5">

@@ -45,20 +45,20 @@ export function buildCards(stats: DashboardStats): CardView[] {
     {
       label: "Monitored Resources",
       value: stats.monitored_count,
-      sub: `리소스 ${total.toLocaleString()}개 중`,
+      sub: `of ${total.toLocaleString()} resources`,
       tone: NEUTRAL,
       href: "/resources?monitoring=on",
-      cta: "리소스 보기 →",
+      cta: "View Resources →",
       deltaKey: "monitored_count",
     },
     {
       label: "Active Alarms",
       value: stats.active_alarms,
       // 고객 알람 수를 모르면(실시간 조회 실패) 나누지 않는다 — 0으로 보이면 "All clear"로 오해한다
-      sub: customer == null ? "고객 알람 확인 불가" : stats.active_alarms ? `우리 ${ours} · 고객 ${customer}` : "All clear",
+      sub: customer == null ? "Customer alarms unavailable" : stats.active_alarms ? `Ours ${ours} · Customer ${customer}` : "All clear",
       tone: stats.active_alarms ? DANGER : NEUTRAL,
       href: "/alarms?state=ALARM",
-      cta: "알람 보기 →",
+      cta: "View Alarms →",
       deltaKey: "active_alarms",
       badWhenHigh: true,
     },
@@ -66,19 +66,19 @@ export function buildCards(stats: DashboardStats): CardView[] {
       label: "Unmonitored",
       value: stats.unmonitored_count,
       // 고객이 고른 리소스만 감시하는 게 정상 운영이다 — 경고가 아니다
-      sub: "켤 수 있는 리소스",
+      sub: "Resources you can enable",
       tone: { num: "text-slate-500", sub: "text-slate-500" },
       href: "/resources?monitoring=off",
-      cta: "리소스 보기 →",
+      cta: "View Resources →",
       deltaKey: "unmonitored_count",
     },
     {
       label: "Accounts",
       value: stats.account_count,
-      sub: `연결 ${connected} · 실패 ${failed}`,
+      sub: `Connected ${connected} · Failed ${failed}`,
       tone: failed ? DANGER : NEUTRAL,
       href: "/customers",
-      cta: "계정 관리 →",
+      cta: "Manage Accounts →",
     },
   ];
 }

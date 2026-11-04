@@ -13,10 +13,10 @@ import type {
 const DAY_OPTIONS = [1, 3, 7, 14];
 
 const ACTION_FILTERS = [
-  { value: "", label: "전체" },
-  { value: "notify", label: "발송" },
-  { value: "suppress", label: "억제" },
-  { value: "pending", label: "유예 중" },
+  { value: "", label: "All" },
+  { value: "notify", label: "Sent" },
+  { value: "suppress", label: "Suppressed" },
+  { value: "pending", label: "Pending" },
 ] as const;
 
 const ACTION_STYLES: Record<string, string> = {
@@ -42,9 +42,9 @@ function formatTime(iso: string): string {
 
 function SummaryCards({ summary, days }: { summary: AlertEventSummary; days: number }) {
   const cards = [
-    { label: "발송", value: summary.notify, icon: BellRing, tone: "text-red-600" },
-    { label: "억제", value: summary.suppress, icon: BellOff, tone: "text-slate-600" },
-    { label: "유예 중", value: summary.pending, icon: Clock, tone: "text-amber-600" },
+    { label: "Sent", value: summary.notify, icon: BellRing, tone: "text-red-600" },
+    { label: "Suppressed", value: summary.suppress, icon: BellOff, tone: "text-slate-600" },
+    { label: "Pending", value: summary.pending, icon: Clock, tone: "text-amber-600" },
   ];
   const rate = Math.round((summary.suppression_rate ?? 0) * 1000) / 10;
 
@@ -60,10 +60,10 @@ function SummaryCards({ summary, days }: { summary: AlertEventSummary; days: num
         </div>
       ))}
       <div className="rounded-xl border border-slate-200 bg-white px-5 py-4 shadow-sm">
-        <div className="text-xs font-bold uppercase tracking-wider text-slate-500">억제율</div>
+        <div className="text-xs font-bold uppercase tracking-wider text-slate-500">Suppression Rate</div>
         <div className="mt-2 text-2xl font-extrabold text-slate-800">{rate}%</div>
         <p className="mt-1 text-xs text-slate-500">
-          최근 {days}일 · 확정 {summary.notify + summary.suppress}건 기준
+          Last {days} days · based on {summary.notify + summary.suppress} finalized
         </p>
       </div>
     </div>
@@ -77,23 +77,23 @@ function SilenceBanner({ silences }: { silences: AlertSilence[] }) {
     <div className="rounded-xl border border-amber-200 bg-amber-50 px-5 py-4">
       <div className="flex items-center gap-2 text-sm font-bold text-amber-800">
         <ShieldOff size={15} />
-        지금 적용 중인 정비창 {active.length}건
+        {active.length} active maintenance window(s)
       </div>
       <ul className="mt-2 space-y-1 text-xs text-amber-900">
         {active.map((s) => (
           <li key={s.id}>
             <span className="font-semibold">
-              {s.customer_id || "전체 고객사"}
+              {s.customer_id || "All Customers"}
               {s.resource_id ? ` · ${s.resource_id}` : ""}
               {s.severity ? ` · ${s.severity}` : ""}
             </span>
             {" — "}
-            {s.reason || "사유 없음"} ({formatTime(s.ends_at)}까지)
+            {s.reason || "No reason given"} (until {formatTime(s.ends_at)})
           </li>
         ))}
       </ul>
       <p className="mt-2 text-xs text-amber-700">
-        이 조건에 해당하는 알람은 정비창이 끝날 때까지 알리지 않습니다.
+        Alarms matching these conditions will not alert until the window ends.
       </p>
     </div>
   );
@@ -117,7 +117,7 @@ function EventRow({ row }: { row: AlertEventRow }) {
           <div className="text-sm font-medium text-slate-800">
             {row.resource_id || row.alarm_name || "-"}
             {!row.resource_id && row.alarm_name && (
-              <span className="ml-1.5 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600">고객 알람</span>
+              <span className="ml-1.5 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600">Customer alarm</span>
             )}
           </div>
           <div className="text-xs text-slate-500">
@@ -149,32 +149,32 @@ function EventRow({ row }: { row: AlertEventRow }) {
             <p className="text-sm text-slate-700">{row.explanation}</p>
             {row.quarantined_until && (
               <p className="mt-1 text-xs text-amber-700">
-                격리 해제 예정: {formatTime(row.quarantined_until)}
+                Quarantined until: {formatTime(row.quarantined_until)}
               </p>
             )}
             <dl className="mt-2 grid grid-cols-1 gap-x-6 gap-y-1 text-xs text-slate-500 sm:grid-cols-2">
               <div>
-                <dt className="inline font-semibold">알람 </dt>
+                <dt className="inline font-semibold">Alarm </dt>
                 <dd className="inline">{row.alarm_name || "-"}</dd>
               </div>
               <div>
-                <dt className="inline font-semibold">계정/리전 </dt>
+                <dt className="inline font-semibold">Account/Region </dt>
                 <dd className="inline">
                   {row.account_id || "-"} / {row.region || "-"}
                 </dd>
               </div>
               {row.state_reason && (
                 <div className="sm:col-span-2">
-                  <dt className="inline font-semibold">CloudWatch 사유 </dt>
+                  <dt className="inline font-semibold">CloudWatch reason </dt>
                   <dd className="inline">{row.state_reason}</dd>
                 </div>
               )}
               {row.group_id && (
                 <div className="sm:col-span-2">
-                  <dt className="inline font-semibold">묶음 </dt>
+                  <dt className="inline font-semibold">Group </dt>
                   <dd className="inline">
                     {row.group_id}
-                    {row.finalized ? " (확정됨)" : " (확정 대기)"}
+                    {row.finalized ? " (finalized)" : " (awaiting finalization)"}
                   </dd>
                 </div>
               )}
@@ -205,7 +205,7 @@ export function AlertEventsContent() {
       setSummary(data.summary);
       setTruncated(data.truncated);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "알림 처리 내역을 불러오지 못했습니다");
+      setError(e instanceof Error ? e.message : "Failed to load alert history");
     } finally {
       setLoading(false);
     }
@@ -227,7 +227,7 @@ export function AlertEventsContent() {
         <div>
           <h1 className="font-headline text-2xl font-bold text-slate-800">Alert History</h1>
           <p className="mt-1 text-sm text-slate-500">
-            알람이 울렸을 때 알림을 보냈는지, 보내지 않았다면 왜인지 보여줍니다.
+            Shows whether an alert was sent when an alarm fired, and if not, why.
           </p>
         </div>
         <button
@@ -235,7 +235,7 @@ export function AlertEventsContent() {
           onClick={() => void load()}
           className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
         >
-          <RefreshCw size={13} /> 새로고침
+          <RefreshCw size={13} /> Refresh
         </button>
       </header>
 
@@ -254,7 +254,7 @@ export function AlertEventsContent() {
                   : "border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"
               }`}
             >
-              최근 {d}일
+              Last {d} days
             </button>
           ))}
         </div>
@@ -290,25 +290,25 @@ export function AlertEventsContent() {
           <table className="w-full min-w-[720px]">
             <thead className="bg-slate-50 text-left text-xs font-bold uppercase tracking-wider text-slate-500">
               <tr>
-                <th className="px-3 py-2">시각</th>
-                <th className="px-3 py-2">리소스</th>
-                <th className="px-3 py-2">등급</th>
-                <th className="px-3 py-2">상태</th>
-                <th className="px-3 py-2">처리</th>
-                <th className="px-3 py-2">사유</th>
+                <th className="px-3 py-2">Time</th>
+                <th className="px-3 py-2">Resource</th>
+                <th className="px-3 py-2">Severity</th>
+                <th className="px-3 py-2">State</th>
+                <th className="px-3 py-2">Action</th>
+                <th className="px-3 py-2">Reason</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
                   <td colSpan={6} className="px-4 py-10 text-center text-sm text-slate-400">
-                    불러오는 중…
+                    Loading…
                   </td>
                 </tr>
               ) : rows.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="px-4 py-10 text-center text-sm text-slate-400">
-                    이 기간에 처리된 알람 이벤트가 없습니다.
+                    No alarm events were processed in this period.
                   </td>
                 </tr>
               ) : (
@@ -319,14 +319,14 @@ export function AlertEventsContent() {
         </div>
         {truncated && (
           <p className="border-t border-slate-100 px-4 py-2 text-xs text-slate-500">
-            건수가 많아 일부만 표시했습니다. 요약 숫자는 전체 기준입니다.
+            Too many events to show them all. Summary numbers cover everything.
           </p>
         )}
       </div>
 
       <p className="text-xs text-slate-400">
-        &lsquo;발송&rsquo;은 억제 규칙을 통과해 알림 채널로 넘긴 건입니다. 실제로 어디로 가는지는 설정 &gt; 알림 채널의
-        조건(등급·타입)을 따릅니다. SEV-1은 어떤 억제 규칙도 적용하지 않습니다.
+        &lsquo;Sent&rsquo; means the event passed suppression rules and was handed to notification channels. Where it actually goes depends on
+        the conditions (severity, type) in Settings &gt; Notification Channels. No suppression rule ever applies to SEV-1.
       </p>
     </div>
   );

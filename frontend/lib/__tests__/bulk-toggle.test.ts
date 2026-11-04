@@ -60,7 +60,7 @@ describe("describeBulkToggle", () => {
   it("reports all-success, all-failed, and partial outcomes", () => {
     expect(describeBulkToggle({ succeeded: ["a", "b"], failed: [] }, true)).toEqual({
       kind: "success",
-      message: "2개 리소스의 모니터링을 활성화했습니다.",
+      message: "Enabled monitoring for 2 resources.",
     });
     expect(describeBulkToggle({ succeeded: [], failed: [{ id: "a", message: "x" }] }, false).kind).toBe("error");
     const partial = describeBulkToggle(
@@ -68,6 +68,6 @@ describe("describeBulkToggle", () => {
       false,
     );
     expect(partial.kind).toBe("error");
-    expect(partial.message).toContain("1개 비활성화, 2개 실패: b, c");
+    expect(partial.message).toContain("Disabled 1, failed 2: b, c");
   });
 });

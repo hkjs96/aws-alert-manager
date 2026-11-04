@@ -17,7 +17,7 @@ const RESOURCE_GROUPS: { label: string; types: string[] }[] = [
 ];
 
 export const metadata = {
-  title: "사용 가이드 · Alarm Manager",
+  title: "User Guide · Alarm Manager",
 };
 
 type Icon = typeof LogIn;
@@ -54,57 +54,57 @@ function Block({ children }: { children: ReactNode }) {
 const SECTIONS: Section[] = [
   {
     id: "user",
-    label: "사용자 가이드",
-    intro: "처음 사용하는 팀원이 알아야 할 기본 흐름입니다.",
+    label: "User Guide",
+    intro: "The basic workflow every new team member should know.",
     items: [
       {
         icon: LogIn,
-        title: "로그인",
+        title: "Sign In",
         body: (
-          <>회사 Google 계정으로 로그인합니다. 허용된 이메일/도메인만 접근할 수 있습니다.
-          로그인하면 우상단에 본인 이메일과 로그아웃 버튼이 보입니다. 세션이 만료되면 다시
-          로그인 화면으로 이동합니다.</>
+          <>Sign in with your company Google account. Only allowed emails/domains can access the app.
+          Once signed in, your email and a sign-out button appear in the top right. When your session
+          expires, you are sent back to the sign-in screen.</>
         ),
       },
       {
         icon: Users,
-        title: "고객사·계정 범위 선택",
+        title: "Choosing a Customer/Account Scope",
         body: (
           <>
-            상단바 <b>고객사/계정 드롭다운</b>에서 볼 범위를 고릅니다.
+            Pick what to view from the <b>customer/account dropdowns</b> in the top bar.
             <ul className="ml-4 mt-1.5 list-disc space-y-0.5">
-              <li>드롭다운에는 <b>본인이 담당자로 지정된 고객사</b>만 나옵니다.</li>
-              <li>고른 범위가 <b>대시보드·리소스·알람</b>에 그대로 적용되고, 이 브라우저에 기억됩니다.</li>
-              <li><b>전체 고객사</b>를 고르면 볼 수 있는 고객사 전부를 봅니다.</li>
+              <li>The dropdown lists only <b>customers where you are one of the managers</b>.</li>
+              <li>The selected scope applies to <b>Dashboard, Resources and Alarms</b> and is remembered in this browser.</li>
+              <li>Choosing <b>All Customers</b> shows every customer you can access.</li>
             </ul>
           </>
         ),
       },
       {
         icon: Server,
-        title: "리소스 & 모니터링",
+        title: "Resources & Monitoring",
         body: (
           <>
-            <b>Resources</b> 화면에서 등록된 AWS 리소스를 봅니다. 타입은 색상 배지(EC2·RDS·S3…)로
-            구분됩니다.
+            The <b>Resources</b> screen lists registered AWS resources. Types are shown as colored badges
+            (EC2, RDS, S3…).
             <ul className="ml-4 mt-1.5 list-disc space-y-0.5">
-              <li>각 행의 <b>토글</b>로 모니터링을 켜고 끕니다. 켜면 해당 리소스에 알람이 생성됩니다.</li>
-              <li>여러 개를 선택해 <b>일괄(Bulk)</b>로 모니터링을 켜고 끌 수 있습니다.</li>
+              <li>Use the <b>toggle</b> on each row to turn monitoring on or off. Turning it on creates alarms for that resource.</li>
+              <li>Select several resources to turn monitoring on or off in <b>bulk</b>.</li>
               <li>
-                같은 타입 리소스를 여러 개 고르고 <b>Configure Alarms</b>로 임계치·판단 방식(M/N)을 한 번에 바꿉니다.
-                적용 전에 리소스마다 무엇이 바뀌는지 보여줍니다. 한 리소스만 바꾸려면 리소스 상세의 <b>알람 편집</b>을 쓰세요.
+                Select several resources of the same type and use <b>Configure Alarms</b> to change thresholds and evaluation (M/N) at once.
+                Before applying, it shows what changes for each resource. To change a single resource, use <b>Edit Alarms</b> on its detail page.
               </li>
-              <li><b>Sync</b> 버튼으로 계정/리전 범위를 정해 최신 리소스를 다시 수집합니다.</li>
+              <li>The <b>Sync</b> button re-collects the latest resources for the account/region scope you choose.</li>
             </ul>
           </>
         ),
       },
       {
         icon: LayoutGrid,
-        title: "지원 리소스 (29종)",
+        title: "Supported Resources (29 Types)",
         body: (
           <>
-            태그 기반으로 모니터링·알람을 관리할 수 있는 AWS 리소스 타입입니다.
+            AWS resource types whose monitoring and alarms can be managed with tags.
             <div className="mt-2.5 space-y-2.5">
               {RESOURCE_GROUPS.map((g) => (
                 <div key={g.label}>
@@ -124,34 +124,34 @@ const SECTIONS: Section[] = [
       },
       {
         icon: Bell,
-        title: "알람 보기",
+        title: "Viewing Alarms",
         body: (
           <>
-            <b>Alarms</b> 화면에서 전체 알람을 상태별로 봅니다. 상태는 <Code>OK</Code> /{" "}
-            <Code>ALARM</Code> / <Code>INSUFFICIENT_DATA</Code> / <Code>OFF</Code> 이고, 심각도는{" "}
-            <Code>SEV-1</Code>~<Code>SEV-5</Code>로 표시됩니다. 상단바 <b>벨 아이콘</b>을 누르면
-            현재 ALARM 항목이 드롭다운으로 떠 바로 해당 리소스로 이동합니다.
+            The <b>Alarms</b> screen shows all alarms by state. States are <Code>OK</Code> /{" "}
+            <Code>ALARM</Code> / <Code>INSUFFICIENT_DATA</Code> / <Code>OFF</Code>, and severity is shown as{" "}
+            <Code>SEV-1</Code>–<Code>SEV-5</Code>. Click the <b>bell icon</b> in the top bar to open a dropdown
+            of current ALARM items and jump straight to the resource.
           </>
         ),
       },
       {
         icon: Search,
-        title: "검색 & 필터",
+        title: "Search & Filters",
         body: (
           <>
-            상단바 <b>검색창</b>에 리소스 이름을 입력하고 Enter → Resources 화면에서 이름으로
-            필터링됩니다. 상단바 <b>고객사/계정 드롭다운</b>으로 범위를 좁힐 수 있습니다.
+            Type a resource name in the top-bar <b>search box</b> and press Enter to filter the Resources
+            screen by name. Use the <b>customer/account dropdowns</b> in the top bar to narrow the scope.
           </>
         ),
       },
       {
         icon: Boxes,
-        title: "고객사 & 계정 관리",
+        title: "Managing Customers & Accounts",
         body: (
           <>
-            <b>Settings</b>에서 고객사를 <b>생성·편집</b>할 수 있습니다(모든 사용자). 고객사 아래에
-            AWS 계정을 등록하면 그 계정의 리소스가 수집됩니다. 고객사 <b>삭제는 관리자만</b>
-            가능합니다(아래 권한 참고).
+            Anyone can <b>create and edit</b> customers in <b>Settings</b>. Registering an AWS account under a
+            customer starts collecting that account’s resources. <b>Only admins can delete</b> a customer
+            (see permissions below).
           </>
         ),
       },
@@ -159,65 +159,66 @@ const SECTIONS: Section[] = [
   },
   {
     id: "arch",
-    label: "아키텍처 & 연동",
-    intro: "이 도구가 무엇을, 왜, 어떻게 동작하는지.",
+    label: "Architecture & Integration",
+    intro: "What this tool does, why, and how it works.",
     items: [
       {
         icon: Lightbulb,
-        title: "한 줄 요약 — 왜 중앙 스택인가",
+        title: "In Short — Why a Central Stack",
         body: (
           <>
-            중앙 AWS 계정에 스택 <b>하나</b>를 올려, 여러 고객 AWS 계정의 CloudWatch
-            알람을 <b>태그 기반</b>으로 한 곳에서 관리합니다. 고객 계정에는 무거운 리소스
-            없이 <b>IAM Role만</b> 두고, 중앙에서 STS AssumeRole로 접근합니다. UI는 중앙
-            API 하나만 호출하면 되고, 알람 정책·코드를 중앙에서 일관 관리합니다.
+            A <b>single</b> stack in a central AWS account manages CloudWatch alarms across many customer
+            AWS accounts in one place, <b>driven by tags</b>. Customer accounts hold <b>only an IAM Role</b>,
+            with no heavy resources, and the central account reaches them via STS AssumeRole. The UI calls
+            one central API, and alarm policy and code are managed consistently in one place.
           </>
         ),
       },
       {
         icon: Network,
-        title: "구성도 (시스템 구성)",
+        title: "Architecture Diagram",
         body: (
-          <Block>{`브라우저
+          <Block>{`Browser
   │ HTTPS
   ▼
 AWS Amplify (Next.js SSR)
-  · Google 로그인   · /api 프록시(ID 토큰 주입)
-  │ Authorization: Bearer <Google ID 토큰>
+  · Google sign-in   · /api proxy (injects ID token)
+  │ Authorization: Bearer <Google ID token>
   ▼
 API Gateway (HTTP API) ──[ JWT Authorizer: Google ]
   │
   ▼
 api_handler  Lambda
-  ├─▶ DynamoDB      고객사·계정·임계값·작업·인벤토리·사용자설정
-  ├─▶ CloudWatch    알람 조회 / 생성 / 삭제
-  ├─▶ STS AssumeRole ─▶ 고객 AWS 계정 (리소스 조회·알람 CRUD)
-  └─▶ SQS FIFO ─▶ sqs_worker Lambda   (대량 작업)
+  ├─▶ DynamoDB      customers, accounts, thresholds, jobs, inventory, user settings
+  ├─▶ CloudWatch    list / create / delete alarms
+  ├─▶ STS AssumeRole ─▶ customer AWS account (read resources, alarm CRUD)
+  └─▶ SQS FIFO ─▶ sqs_worker Lambda   (bulk jobs)
 
 EventBridge Scheduler ─▶ daily_monitor Lambda
-     └ 정기: 계정 순회 → 리소스 스캔 → 알람 보정
+     └ scheduled: iterate accounts → scan resources → reconcile alarms
 
-CloudWatch 알람 발생 ─▶ SNS Topic ─▶ 알림(Slack·이메일·운영팀)`}</Block>
+CloudWatch alarm fires ─▶ SNS Topic ─▶ alerts (Slack, email, ops team)`}</Block>
         ),
       },
       {
         icon: Share2,
-        title: "크로스 계정 연동 — 왜 / 어떻게",
+        title: "Cross-Account Integration — Why / How",
         body: (
           <>
-            고객 계정의 리소스를 읽고 알람을 만들려면 그 계정 권한이 필요합니다. 고객
-            계정엔 <b>IAM Role만</b> 배포하고(중앙 계정을 신뢰), 중앙 Lambda가 그 Role을{" "}
-            <b>AssumeRole</b>해 접근합니다. 계정 정보(account_id, role)는{" "}
-            <Code>AccountsTable</Code>에 등록합니다.
-            <Block>{`중앙 계정 (이 스택)               고객 AWS 계정
+            Reading resources and creating alarms in a customer account requires permissions in that account.
+            The customer account gets <b>only an IAM Role</b> (trusting the central account), and the central
+            Lambda accesses it via{" "}
+            <b>AssumeRole</b>. Account details (account_id, role) are registered in{" "}
+            <Code>AccountsTable</Code>.
+            <Block>{`Central account (this stack)      Customer AWS account
 ┌────────────────────┐           ┌──────────────────────────┐
-│ api_handler /      │ AssumeRole │ IAM Role (중앙 계정 신뢰) │
-│ daily_monitor      │──────────▶ │   · EC2/RDS/ELB… 조회     │
-│   Lambda           │           │   · CloudWatch 알람 CRUD  │
+│ api_handler /      │ AssumeRole │ IAM Role (trusts central) │
+│ daily_monitor      │──────────▶ │   · read EC2/RDS/ELB…     │
+│   Lambda           │           │   · CloudWatch alarm CRUD │
 └────────────────────┘           └──────────────────────────┘
-  ※ 고객 계정엔 Lambda/DB 없음 — IAM Role만(경량 온보딩).`}</Block>
+  ※ No Lambda/DB in customer accounts — IAM Role only (lightweight onboarding).`}</Block>
             <div className="mt-3">
-              <b>고객사 온보딩 (콘솔)</b>
+              <b>Customer Onboarding (Console)</b>
               <div className="mt-2 flex flex-wrap gap-2">
                 <a
                   href="https://console.aws.amazon.com/cloudformation/home?region=ap-northeast-2#/stacks/create/review?templateURL=https%3A%2F%2Falarm-manager-onboarding-949501913924.s3.amazonaws.com%2Fcustomer-onboarding.yaml&stackName=alarm-manager-onboarding&param_CentralAccountId=949501913924&param_CentralAlertBusArn=arn%3Aaws%3Aevents%3Aus-east-1%3A949501913924%3Aevent-bus%2Faws-monitoring-alert-dev"
@@ -225,38 +226,38 @@ CloudWatch 알람 발생 ─▶ SNS Topic ─▶ 알림(Slack·이메일·운영
                   rel="noreferrer"
                   className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white transition hover:brightness-110"
                 >
-                  <ExternalLink size={13} /> CloudFormation 스택 생성 (원클릭)
+                  <ExternalLink size={13} /> Create CloudFormation Stack (One Click)
                 </a>
                 <a
                   href="/customer-onboarding.yaml"
                   download
                   className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
                 >
-                  <Download size={13} /> 템플릿(YAML) 다운로드
+                  <Download size={13} /> Download Template (YAML)
                 </a>
               </div>
               <ol className="ml-4 mt-3 list-decimal space-y-1">
-                <li><b>CloudFormation 스택 생성 (원클릭)</b> 클릭 — 콘솔이 <b>서울 리전</b>에서 템플릿과 파라미터(<Code>CentralAccountId</Code>, <Code>CentralAlertBusArn</Code>)가 <b>자동으로 채워진 채</b> 열립니다.</li>
-                <li>알람이 <b>서울이 아닌 리전</b>에 있다면 콘솔 우측 상단에서 그 리전으로 바꾸세요. IAM 역할은 글로벌이지만 알람 이벤트 전달 룰은 <b>리전 리소스</b>라, 알람이 있는 리전에 있어야 그 알람을 봅니다.</li>
-                <li>하단 <b>“IAM 리소스 생성 승인”</b>(CAPABILITY_NAMED_IAM) 체크 → <b>스택 생성</b>.</li>
-                <li><b>알람이 여러 리전에 있다면</b>, 리전마다 스택을 하나씩 만들되 두 번째부터는 <Code>CreateSharedRoles</Code>를 <Code>no</Code>로 두고 첫 스택의 <Code>AlertForwardRoleArn</Code> 출력값을 <Code>ExistingAlertForwardRoleArn</Code>에 넣으세요. IAM 역할은 글로벌이라 한 번만 만들면 됩니다.</li>
-                <li>생성 후 <b>Outputs의 <Code>RoleArn</Code></b> 복사 → 앱 <b>Settings → 계정 등록</b>(account_id, role_arn, 고객사). 등록하면 중앙 이벤트 버스가 이 계정의 알람 이벤트를 받도록 <b>자동으로 허용</b>됩니다.</li>
+                <li>Click <b>Create CloudFormation Stack (One Click)</b> — the console opens in the <b>Seoul region</b> with the template and parameters (<Code>CentralAccountId</Code>, <Code>CentralAlertBusArn</Code>) <b>pre-filled</b>.</li>
+                <li>If your alarms are in a <b>region other than Seoul</b>, switch to that region in the top right of the console. IAM roles are global, but the alarm event forwarding rule is a <b>regional resource</b>, so it only sees alarms in the region where it lives.</li>
+                <li>At the bottom, check <b>“I acknowledge that AWS CloudFormation might create IAM resources”</b> (CAPABILITY_NAMED_IAM) → <b>Create stack</b>.</li>
+                <li><b>If your alarms span several regions</b>, create one stack per region. From the second one on, set <Code>CreateSharedRoles</Code> to <Code>no</Code> and put the first stack’s <Code>AlertForwardRoleArn</Code> output into <Code>ExistingAlertForwardRoleArn</Code>. IAM roles are global, so they only need to be created once.</li>
+                <li>After creation, copy <b><Code>RoleArn</Code> from Outputs</b> → in the app, go to <b>Settings → Register Account</b> (account_id, role_arn, customer). Once registered, the central event bus is <b>automatically allowed</b> to receive this account’s alarm events.</li>
               </ol>
               <details className="mt-2">
-                <summary className="cursor-pointer text-xs font-medium text-slate-500 hover:text-slate-700">CLI로 배포 (대안)</summary>
-                <Block>{`# 위에서 받은 customer-onboarding.yaml 로 배포 (고객 계정 자격증명)
+                <summary className="cursor-pointer text-xs font-medium text-slate-500 hover:text-slate-700">Deploy with the CLI (Alternative)</summary>
+                <Block>{`# Deploy the customer-onboarding.yaml downloaded above (with customer account credentials)
 aws cloudformation deploy \\
   --template-file customer-onboarding.yaml \\
   --stack-name alarm-manager-onboarding \\
   --capabilities CAPABILITY_NAMED_IAM \\
-  --parameter-overrides CentralAccountId=<중앙 계정 ID>`}</Block>
+  --parameter-overrides CentralAccountId=<central account ID>`}</Block>
               </details>
               <p className="mt-2">
-                생성물은 IAM Role(리소스 read + CloudWatch 알람 CRUD + 태그 write, 신뢰는 중앙 계정만)과
-                알람 이벤트 전달용 EventBridge 룰·역할뿐입니다. Lambda·DB는 만들지 않습니다.
-                이후 중앙 Lambda가 등록된 <Code>role_arn</Code>을{" "}
-                <Code>AssumeRole</Code>(세션명 <Code>MonitoringEngine</Code>)해 그 계정의
-                리소스를 조회·알람하고, 알람 상태 변화는 전달 룰을 통해 중앙 버스로 들어옵니다.
+                The stack creates only an IAM Role (resource read + CloudWatch alarm CRUD + tag write, trusting only the central account)
+                and an EventBridge rule and role for forwarding alarm events. No Lambda or DB is created.
+                The central Lambda then assumes the registered <Code>role_arn</Code> via{" "}
+                <Code>AssumeRole</Code> (session name <Code>MonitoringEngine</Code>) to read that account’s
+                resources and manage alarms, and alarm state changes reach the central bus through the forwarding rule.
               </p>
             </div>
           </>
@@ -264,23 +265,23 @@ aws cloudformation deploy \\
       },
       {
         icon: Workflow,
-        title: "주요 흐름 (태그 기반)",
+        title: "Key Flows (Tag-Based)",
         body: (
           <>
-            <Block>{`[모니터링 토글 ON]
- UI 토글 → api_handler → (타 계정이면) AssumeRole
-   → 리소스에 태그 부여(Monitoring=on, 임계값 태그)
-   → CloudWatch PutMetricAlarm + 태그(ManagedBy/Severity)
-   → ResourceInventory 기록 → UI 갱신
+            <Block>{`[Monitoring toggle ON]
+ UI toggle → api_handler → AssumeRole (if another account)
+   → tag the resource (Monitoring=on, threshold tags)
+   → CloudWatch PutMetricAlarm + tags (ManagedBy/Severity)
+   → write ResourceInventory → refresh UI
 
-[정기 동기화 — 보정]
- Scheduler → daily_monitor → 계정 순회·AssumeRole
-   → 리소스 태그 스캔 → 알람 상태 비교·보정 → 인벤토리/이력 갱신
+[Scheduled sync — reconcile]
+ Scheduler → daily_monitor → iterate accounts, AssumeRole
+   → scan resource tags → compare/reconcile alarms → update inventory/history
 
-[알람 발생 → 알림]
- 메트릭 임계값 초과 → CloudWatch ALARM → SNS → 운영팀`}</Block>
-            알람의 임계값·심각도·on/off가 모두 <b>리소스 태그</b>로 결정됩니다 — 그래서
-            “태그 기반”입니다.
+[Alarm fires → alert]
+ metric exceeds threshold → CloudWatch ALARM → SNS → ops team`}</Block>
+            An alarm’s threshold, severity and on/off state are all determined by <b>resource tags</b> — hence
+            “tag-based”.
           </>
         ),
       },
@@ -288,27 +289,27 @@ aws cloudformation deploy \\
   },
   {
     id: "trouble",
-    label: "문제 해결 (FAQ)",
+    label: "Troubleshooting (FAQ)",
     items: [
       {
         icon: SlidersHorizontal,
-        title: "화면이 비어 있어요",
-        body: <>본인이 <b>고객사 담당자로 지정</b>되어 있는지, 상단바에서 다른 고객사·계정이 골라져 있지 않은지 확인하세요.</>,
+        title: "The screen is empty",
+        body: <>Check that you are <b>listed among the customer’s managers</b>, and that a different customer or account isn’t selected in the top bar.</>,
       },
       {
         icon: KeyRound,
-        title: "Unauthorized / 로그인이 풀려요",
-        body: <>세션 만료일 수 있습니다. 다시 로그인하세요. 그래도 계속되면 운영자에게 인증 설정(도메인/redirect URI)을 문의하세요.</>,
+        title: "Unauthorized / I keep getting signed out",
+        body: <>Your session may have expired. Sign in again. If it keeps happening, ask an operator to check the auth settings (domain/redirect URI).</>,
       },
       {
         icon: Wrench,
-        title: "첫 응답이 느려요",
-        body: <>트래픽이 적으면 서버리스(Lambda) 콜드 스타트로 첫 요청이 1~2초 느릴 수 있습니다. 이후 요청은 빠릅니다.</>,
+        title: "The first response is slow",
+        body: <>With low traffic, a serverless (Lambda) cold start can make the first request 1–2 seconds slower. Later requests are fast.</>,
       },
       {
         icon: Cloud,
-        title: "페이지를 찾을 수 없음(404)",
-        body: <>접속 주소에 <b>브랜치 접두사</b>(예: <Code>main.</Code>)가 포함됐는지 확인하세요. 접두사 없는 도메인은 서빙되지 않습니다.</>,
+        title: "Page not found (404)",
+        body: <>Check that the URL includes the <b>branch prefix</b> (e.g. <Code>main.</Code>). The domain without the prefix is not served.</>,
       },
     ],
   },
@@ -328,7 +329,7 @@ export default function HelpPage() {
             href="/"
             className="inline-flex items-center gap-1 text-xs font-semibold text-slate-500 hover:text-slate-800"
           >
-            <ArrowLeft size={14} /> 홈으로
+            <ArrowLeft size={14} /> Back to Home
           </Link>
         </div>
       </header>
@@ -336,10 +337,10 @@ export default function HelpPage() {
       <div className="mx-auto max-w-3xl space-y-10 p-8">
       <div>
         <h1 className="text-3xl font-headline font-extrabold tracking-tight text-slate-900">
-          사용 가이드
+          User Guide
         </h1>
         <p className="mt-1 text-sm text-slate-500">
-          Alarm Manager 사용·배포·문제해결을 한 곳에 정리했습니다.
+          Using, deploying and troubleshooting Alarm Manager, all in one place.
         </p>
         {/* 목차 */}
         <nav className="mt-4 flex flex-wrap gap-2">

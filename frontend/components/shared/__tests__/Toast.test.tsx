@@ -90,7 +90,7 @@ describe('Toast 알림 시스템', () => {
     fireEvent.click(screen.getByText('트리거'));
     expect(screen.getByText('수동 dismiss 테스트')).toBeInTheDocument();
 
-    const closeButton = screen.getByRole('button', { name: /닫기/i });
+    const closeButton = screen.getByRole('button', { name: /Close/i });
     fireEvent.click(closeButton);
 
     expect(screen.queryByText('수동 dismiss 테스트')).not.toBeInTheDocument();

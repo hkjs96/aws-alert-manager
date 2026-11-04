@@ -349,7 +349,7 @@ describe("5.6 동기화 토스트 메시지 속성", () => {
       fc.property(
         safeId,
         (resourceId) => {
-          const errorMessage = `모니터링 상태 변경에 실패했습니다 (${resourceId})`;
+          const errorMessage = `Failed to change monitoring state (${resourceId})`;
           expect(errorMessage).toContain(resourceId);
           expect(errorMessage.length).toBeGreaterThan(0);
         },

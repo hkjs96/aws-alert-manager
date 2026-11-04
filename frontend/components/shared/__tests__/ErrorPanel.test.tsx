@@ -16,7 +16,7 @@ describe('ErrorPanel', () => {
   it('"다시 시도" 버튼을 렌더링한다', () => {
     render(<ErrorPanel message="에러" onRetry={() => {}} />);
     expect(screen.getByTestId('retry-button')).toBeInTheDocument();
-    expect(screen.getByText('다시 시도')).toBeInTheDocument();
+    expect(screen.getByText('Try Again')).toBeInTheDocument();
   });
 
   it('다시 시도 버튼 클릭 시 onRetry 콜백을 호출한다', () => {
